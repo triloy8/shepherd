@@ -1,10 +1,16 @@
 import { connectEventStream, interruptTurn, startThread, startTurn } from "../services/app_server_client.js";
+import { ITEM_TYPE_REGISTRY, normalizeThreadItemType } from "./item_registry.js";
 import { createId, createThreadItem, state } from "./state.js";
 import { setComposerDisabled, setStatus, ui, adjustTextareaHeight, resetTextareaHeight } from "../ui/dom.js";
 import { renderItems } from "../ui/render.js";
-import type { BridgeEvent, OutputSegment, ThreadItem } from "./types.js";
+import type { BridgeEvent, OutputSegment, ThreadItem, ThreadItemType } from "./types.js";
+
+type SegmentRef = { itemId: string; segmentId: string; itemType: ThreadItemType };
 
 let interruptFallbackTimer: number | undefined;
+const protocolMessageMap = new Map<string, string>();
+const protocolSubBlockMap = new Map<string, SegmentRef>();
+let activeReasoningSubBlockRef: SegmentRef | null = null;
 
 function syncView(): void {
   renderItems(state);
@@ -25,18 +31,124 @@ function updateItem(item: ThreadItem): void {
   syncView();
 }
 
-function findActiveOutputIndex(): number {
-  const activeId = state.activeAgentItemId;
-  if (!activeId) return -1;
-  return state.items.findIndex((item) => item.id === activeId);
+function parseObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
 }
 
-function appendTextToActiveOutput(delta: string): void {
-  if (!delta) return;
-  const index = findActiveOutputIndex();
-  if (index < 0) return;
+function extractItemContainer(params: unknown): Record<string, unknown> | null {
+  const record = parseObject(params);
+  if (!record) return null;
+  return parseObject(record.item) ?? parseObject(record.msg) ?? record;
+}
 
-  const current = state.items[index];
+function extractProtocolItemId(value: unknown): string | null {
+  const record = parseObject(value);
+  if (!record) return null;
+  const direct = record.itemId ?? record.item_id ?? record.callId ?? record.call_id ?? record.id;
+  if (typeof direct === "string" && direct.trim()) return direct;
+
+  const item = parseObject(record.item);
+  if (item) {
+    const nested = item.itemId ?? item.item_id ?? item.callId ?? item.call_id ?? item.id;
+    if (typeof nested === "string" && nested.trim()) return nested;
+  }
+  return null;
+}
+
+function extractTextValue(value: unknown): string {
+  const record = parseObject(value);
+  if (!record) return "";
+
+  const direct = record.delta ?? record.text ?? record.chunk ?? record.content;
+  if (typeof direct === "string") return direct;
+
+  const msg = parseObject(record.msg);
+  if (msg) {
+    const nested = msg.delta ?? msg.text ?? msg.chunk ?? msg.content;
+    if (typeof nested === "string") return nested;
+  }
+
+  const item = parseObject(record.item);
+  if (item) {
+    const nested = item.delta ?? item.text ?? item.chunk ?? item.content;
+    if (typeof nested === "string") return nested;
+  }
+
+  return "";
+}
+
+function parseReasoningSummaryTextDelta(params: unknown): string | undefined {
+  const record = parseObject(params);
+  if (!record) return undefined;
+  const direct = record.summaryTextDelta ?? record.summary_text_delta ?? record.delta ?? record.text;
+  if (typeof direct === "string") return direct;
+
+  const msg = parseObject(record.msg);
+  if (msg) {
+    const nested = msg.summaryTextDelta ?? msg.summary_text_delta ?? msg.delta ?? msg.text;
+    if (typeof nested === "string") return nested;
+  }
+  return undefined;
+}
+
+function parseReasoningSummaryPartAdded(params: unknown): string | undefined {
+  const record = parseObject(params);
+  if (!record) return undefined;
+  const direct = record.summaryPartAdded ?? record.summary_part_added ?? record.title ?? record.name;
+  if (typeof direct === "string") return direct;
+
+  const part = parseObject(record.part);
+  if (part) {
+    const nested = part.title ?? part.name;
+    if (typeof nested === "string") return nested;
+  }
+  return undefined;
+}
+
+function findItemById(itemId: string | null | undefined): ThreadItem | null {
+  if (!itemId) return null;
+  return state.items.find((item) => item.id === itemId) ?? null;
+}
+
+function getLatestAgentMessage(): ThreadItem | null {
+  if (state.activeAgentItemId) {
+    const active = findItemById(state.activeAgentItemId);
+    if (active?.itemType === "agentMessage") return active;
+  }
+  for (let i = state.items.length - 1; i >= 0; i -= 1) {
+    if (state.items[i].itemType === "agentMessage") {
+      return state.items[i];
+    }
+  }
+  return null;
+}
+
+function getLatestUserMessage(): ThreadItem | null {
+  for (let i = state.items.length - 1; i >= 0; i -= 1) {
+    if (state.items[i].itemType === "userMessage") {
+      return state.items[i];
+    }
+  }
+  return null;
+}
+
+function ensureActiveAgentMessage(): ThreadItem {
+  const existing = getLatestAgentMessage();
+  if (existing) return existing;
+
+  const output = createThreadItem("agentMessage", ITEM_TYPE_REGISTRY.agentMessage.label, "");
+  output.status = "pending";
+  output.outputSegments = [];
+  appendItem(output);
+  state.activeAgentItemId = output.id;
+  return output;
+}
+
+function appendTextSegment(item: ThreadItem, delta: string): void {
+  if (!delta) return;
+  const current = findItemById(item.id);
+  if (!current) return;
   const segments = [...(current.outputSegments ?? [])];
   const last = segments[segments.length - 1];
 
@@ -62,58 +174,104 @@ function appendTextToActiveOutput(delta: string): void {
   updateItem(next);
 }
 
-function appendReasoningSectionToActiveOutput(title: string): void {
-  if (!title.trim()) return;
-  const index = findActiveOutputIndex();
-  if (index < 0) return;
-
-  const current = state.items[index];
-  const segments = [...(current.outputSegments ?? [])];
-  segments.push({
+function appendSubBlock(
+  item: ThreadItem,
+  itemType: ThreadItemType,
+  protocolItemId?: string | null,
+  customTitle?: string,
+): SegmentRef {
+  const current = findItemById(item.id);
+  if (!current) {
+    return { itemId: item.id, segmentId: "", itemType };
+  }
+  const segment: OutputSegment = {
     id: createId("segment"),
-    kind: "reasoning",
-    title,
+    kind: "subBlock",
+    itemType,
+    title: customTitle ?? ITEM_TYPE_REGISTRY[itemType].label,
     text: "",
-    expanded: false,
+    status: "pending",
     createdAt: new Date().toISOString(),
-  });
-
+  };
   const next: ThreadItem = {
     ...current,
-    outputSegments: segments,
+    outputSegments: [...(current.outputSegments ?? []), segment],
   };
   updateItem(next);
+
+  const ref: SegmentRef = { itemId: current.id, segmentId: segment.id, itemType };
+  if (protocolItemId) {
+    protocolSubBlockMap.set(protocolItemId, ref);
+  }
+  return ref;
 }
 
-function appendReasoningDeltaToActiveOutput(delta: string): void {
+function updateSubBlockText(ref: SegmentRef, delta: string): void {
   if (!delta) return;
-  const index = findActiveOutputIndex();
-  if (index < 0) return;
-
-  const current = state.items[index];
-  const segments = [...(current.outputSegments ?? [])];
-  const last = segments[segments.length - 1];
-
-  if (last?.kind === "reasoning") {
-    segments[segments.length - 1] = {
-      ...last,
-      text: `${last.text}${delta}`,
+  const item = findItemById(ref.itemId);
+  if (!item || !item.outputSegments) return;
+  const outputSegments = item.outputSegments.map((segment) => {
+    if (segment.id !== ref.segmentId || segment.kind !== "subBlock") return segment;
+    return {
+      ...segment,
+      text: `${segment.text}${delta}`,
     };
-  } else {
-    segments.push({
-      id: createId("segment"),
-      kind: "reasoning",
-      text: delta,
-      expanded: false,
-      createdAt: new Date().toISOString(),
-    });
+  });
+  updateItem({ ...item, outputSegments });
+}
+
+function updateSubBlockStatus(ref: SegmentRef, status: "pending" | "completed" | "error", error?: string): void {
+  const item = findItemById(ref.itemId);
+  if (!item || !item.outputSegments) return;
+  const outputSegments = item.outputSegments.map((segment) => {
+    if (segment.id !== ref.segmentId || segment.kind !== "subBlock") return segment;
+    return {
+      ...segment,
+      status,
+      error,
+    };
+  });
+  updateItem({ ...item, outputSegments });
+}
+
+function inferItemTypeFromMethod(method: string): ThreadItemType {
+  const lower = method.toLowerCase();
+  if (lower.includes("agentmessage")) return "agentMessage";
+  if (lower.includes("reasoning")) return "reasoning";
+  if (lower.includes("plan")) return "plan";
+  if (lower.includes("commandexecution")) return "commandExecution";
+  if (lower.includes("filechange")) return "fileChange";
+  if (lower.includes("mcptoolcall")) return "mcpToolCall";
+  if (lower.includes("collabtoolcall")) return "collabToolCall";
+  if (lower.includes("websearch")) return "webSearch";
+  if (lower.includes("imageview")) return "imageView";
+  if (lower.includes("enteredreviewmode")) return "enteredReviewMode";
+  if (lower.includes("exitedreviewmode")) return "exitedReviewMode";
+  if (lower.includes("contextcompaction")) return "contextCompaction";
+  return "unknown";
+}
+
+function createReasoningSubBlock(params: unknown, sectionTitle?: string): SegmentRef {
+  const protocolItemId = extractProtocolItemId(params);
+  if (protocolItemId) {
+    const existing = protocolSubBlockMap.get(protocolItemId);
+    if (existing) return existing;
   }
 
-  const next: ThreadItem = {
-    ...current,
-    outputSegments: segments,
-  };
-  updateItem(next);
+  const agent = ensureActiveAgentMessage();
+  const title = sectionTitle ? `Reasoning - ${sectionTitle}` : ITEM_TYPE_REGISTRY.reasoning.label;
+  const ref = appendSubBlock(agent, "reasoning", protocolItemId, title);
+  activeReasoningSubBlockRef = ref;
+  return ref;
+}
+
+function markAgentCompleted(): void {
+  const active = findItemById(state.activeAgentItemId);
+  if (!active) return;
+  updateItem({
+    ...active,
+    status: undefined,
+  });
 }
 
 function completeActiveTurn(): void {
@@ -121,22 +279,12 @@ function completeActiveTurn(): void {
     window.clearTimeout(interruptFallbackTimer);
     interruptFallbackTimer = undefined;
   }
-
+  markAgentCompleted();
   state.isTurnActive = false;
   state.activeTurnId = null;
-  setComposerDisabled(false);
-
-  const index = findActiveOutputIndex();
-  if (index >= 0) {
-    const current = state.items[index];
-    const next: ThreadItem = {
-      ...current,
-      status: undefined,
-    };
-    updateItem(next);
-  }
-
   state.activeAgentItemId = null;
+  activeReasoningSubBlockRef = null;
+  setComposerDisabled(false);
 }
 
 function failActiveTurn(message: string): void {
@@ -145,143 +293,145 @@ function failActiveTurn(message: string): void {
     interruptFallbackTimer = undefined;
   }
 
-  state.isTurnActive = false;
-  state.activeTurnId = null;
-  setComposerDisabled(false);
-  setStatus(message, "error");
-
-  const index = findActiveOutputIndex();
-  if (index >= 0) {
-    const current = state.items[index];
-    const next: ThreadItem = {
-      ...current,
+  const active = findItemById(state.activeAgentItemId);
+  if (active) {
+    updateItem({
+      ...active,
       status: "error",
       error: message,
-    };
-    updateItem(next);
+    });
   }
 
+  state.isTurnActive = false;
+  state.activeTurnId = null;
   state.activeAgentItemId = null;
+  activeReasoningSubBlockRef = null;
+  setComposerDisabled(false);
+  setStatus(message, "error");
 }
 
-function parseTurnDeltaText(params: unknown): string {
-  if (typeof params !== "object" || !params) return "";
-  const record = params as Record<string, unknown>;
+function handleItemStarted(params: unknown): void {
+  const itemContainer = extractItemContainer(params);
+  const protocolItemId = extractProtocolItemId(itemContainer);
+  const itemType = normalizeThreadItemType(itemContainer?.type ?? itemContainer?.itemType ?? itemContainer?.item_type);
 
-  if (typeof record.delta === "string") return record.delta;
-  if (typeof record.text === "string") return record.text;
-  if (typeof record.chunk === "string") return record.chunk;
-
-  const item = record.item;
-  if (typeof item === "object" && item) {
-    const itemRecord = item as Record<string, unknown>;
-    if (typeof itemRecord.delta === "string") return itemRecord.delta;
-    if (typeof itemRecord.text === "string") return itemRecord.text;
+  if (itemType === "userMessage") {
+    if (protocolItemId && protocolMessageMap.has(protocolItemId)) return;
+    const latestUser = getLatestUserMessage();
+    if (latestUser && protocolItemId) {
+      protocolMessageMap.set(protocolItemId, latestUser.id);
+    }
+    return;
   }
 
-  const msg = record.msg;
-  if (typeof msg === "object" && msg) {
-    const msgRecord = msg as Record<string, unknown>;
-    if (typeof msgRecord.delta === "string") return msgRecord.delta;
-    if (typeof msgRecord.text === "string") return msgRecord.text;
+  if (itemType === "agentMessage") {
+    const agent = ensureActiveAgentMessage();
+    if (protocolItemId) protocolMessageMap.set(protocolItemId, agent.id);
+    return;
   }
 
-  return "";
+  const agent = ensureActiveAgentMessage();
+  appendSubBlock(agent, itemType, protocolItemId);
 }
 
-function isAgentMessageDeltaMethod(method: string): boolean {
-  const normalized = method.toLowerCase();
-  return normalized === "item/agentmessage/delta" || normalized.includes("item/agentmessage/delta");
-}
-
-function isReasoningSummaryTextMethod(method: string): boolean {
-  const normalized = method.toLowerCase();
-  return normalized.includes("reasoning/summarytextdelta") || normalized.endsWith("reasoning_summary_text_delta");
-}
-
-function isReasoningSummaryPartMethod(method: string): boolean {
-  const normalized = method.toLowerCase();
-  return normalized.includes("reasoning/summarypartadded") || normalized.endsWith("reasoning_summary_part_added");
-}
-
-function parseReasoningSummaryTextDelta(params: unknown): string | undefined {
-  if (typeof params !== "object" || !params) return undefined;
-  const record = params as Record<string, unknown>;
-
-  if (typeof record.summaryTextDelta === "string") return record.summaryTextDelta;
-  if (typeof record.summary_text_delta === "string") return record.summary_text_delta;
-  if (typeof record.delta === "string") return record.delta;
-  if (typeof record.text === "string") return record.text;
-
-  const msg = record.msg;
-  if (typeof msg === "object" && msg) {
-    const msgRecord = msg as Record<string, unknown>;
-    if (typeof msgRecord.summaryTextDelta === "string") return msgRecord.summaryTextDelta;
-    if (typeof msgRecord.summary_text_delta === "string") return msgRecord.summary_text_delta;
-    if (typeof msgRecord.delta === "string") return msgRecord.delta;
-    if (typeof msgRecord.text === "string") return msgRecord.text;
+function handleItemCompleted(params: unknown): void {
+  const protocolItemId = extractProtocolItemId(params);
+  if (!protocolItemId) return;
+  const ref = protocolSubBlockMap.get(protocolItemId);
+  if (ref) {
+    updateSubBlockStatus(ref, "completed");
   }
-  return undefined;
 }
 
-function parseReasoningSummaryPartAdded(params: unknown): string | undefined {
-  if (typeof params !== "object" || !params) return undefined;
-  const record = params as Record<string, unknown>;
+function ensureSubBlockForMethod(method: string, params: unknown): SegmentRef {
+  const protocolItemId = extractProtocolItemId(params);
+  if (protocolItemId) {
+    const existing = protocolSubBlockMap.get(protocolItemId);
+    if (existing) return existing;
+  }
+  const agent = ensureActiveAgentMessage();
+  const type = inferItemTypeFromMethod(method);
+  return appendSubBlock(agent, type, protocolItemId);
+}
 
-  if (typeof record.summaryPartAdded === "string") return record.summaryPartAdded;
-  if (typeof record.summary_part_added === "string") return record.summary_part_added;
-  if (typeof record.title === "string") return record.title;
-  if (typeof record.name === "string") return record.name;
+function handleMethodDelta(method: string, params: unknown): void {
+  const lower = method.toLowerCase();
+  const protocolItemId = extractProtocolItemId(params);
+  const mappedMessageId = protocolItemId ? protocolMessageMap.get(protocolItemId) : null;
+  const mappedMessage = findItemById(mappedMessageId);
+  const delta = extractTextValue(params);
 
-  const part = record.part;
-  if (typeof part === "object" && part) {
-    const partRecord = part as Record<string, unknown>;
-    if (typeof partRecord.title === "string") return partRecord.title;
-    if (typeof partRecord.name === "string") return partRecord.name;
+  if (lower.includes("agentmessage/delta")) {
+    const target = mappedMessage?.itemType === "agentMessage" ? mappedMessage : ensureActiveAgentMessage();
+    appendTextSegment(target, delta);
+    return;
   }
 
-  const msg = record.msg;
-  if (typeof msg === "object" && msg) {
-    const msgRecord = msg as Record<string, unknown>;
-    if (typeof msgRecord.summaryPartAdded === "string") return msgRecord.summaryPartAdded;
-    if (typeof msgRecord.summary_part_added === "string") return msgRecord.summary_part_added;
-    if (typeof msgRecord.title === "string") return msgRecord.title;
+  if (lower.includes("reasoning/summarytextdelta") || lower.endsWith("reasoning_summary_text_delta")) {
+    const reasoningDelta = parseReasoningSummaryTextDelta(params) ?? delta;
+    if (!reasoningDelta) return;
+
+    let ref = extractProtocolItemId(params) ? protocolSubBlockMap.get(extractProtocolItemId(params) as string) : null;
+    if (!ref) {
+      ref = activeReasoningSubBlockRef ?? createReasoningSubBlock(params);
+    }
+    updateSubBlockText(ref, reasoningDelta);
+    return;
   }
-  return undefined;
+
+  if (lower.includes("reasoning/summarypartadded") || lower.endsWith("reasoning_summary_part_added")) {
+    const section = parseReasoningSummaryPartAdded(params);
+    if (section) {
+      createReasoningSubBlock(params, section);
+    }
+    return;
+  }
+
+  const ref = ensureSubBlockForMethod(method, params);
+  updateSubBlockText(ref, delta);
+}
+
+function handleApprovalEvent(method: string, params: unknown): void {
+  const ref = ensureSubBlockForMethod(method, params);
+  updateSubBlockStatus(ref, "pending");
+  setStatus("Approval required");
 }
 
 function handleNotification(method: string, params: unknown): void {
-  if (isAgentMessageDeltaMethod(method)) {
-    const delta = parseTurnDeltaText(params);
-    if (delta) appendTextToActiveOutput(delta);
+  const lower = method.toLowerCase();
+
+  if (lower === "item/started") {
+    handleItemStarted(params);
     return;
   }
 
-  if (isReasoningSummaryTextMethod(method)) {
-    const delta = parseReasoningSummaryTextDelta(params);
-    if (delta) appendReasoningDeltaToActiveOutput(delta);
+  if (lower === "item/completed") {
+    handleItemCompleted(params);
     return;
   }
 
-  if (isReasoningSummaryPartMethod(method)) {
-    const title = parseReasoningSummaryPartAdded(params);
-    if (title) appendReasoningSectionToActiveOutput(title);
+  if (lower === "item/commandexecution/requestapproval" || lower === "item/filechange/requestapproval") {
+    handleApprovalEvent(method, params);
     return;
   }
 
-  if (method.endsWith("turn/completed") || method === "turn/completed") {
+  if (lower.endsWith("/delta") || lower.includes("summary_text_delta") || lower.includes("summary_part_added")) {
+    handleMethodDelta(method, params);
+  }
+
+  if (lower.endsWith("turn/completed") || lower === "turn/completed") {
     completeActiveTurn();
     setStatus("Turn completed");
     return;
   }
 
-  if (method.includes("turn/interrupted") || method.includes("turn/cancel") || method.endsWith("turn/stopped")) {
+  if (lower.includes("turn/interrupted") || lower.includes("turn/cancel") || lower.endsWith("turn/stopped")) {
     completeActiveTurn();
     setStatus("Turn interrupted");
     return;
   }
 
-  if (method.includes("turn/error") || method.endsWith("turn/errored") || method === "turn/errored") {
+  if (lower.includes("turn/error") || lower.endsWith("turn/errored") || lower === "turn/errored") {
     failActiveTurn("Turn failed.");
   }
 }
@@ -333,11 +483,12 @@ async function handleSubmit(event: SubmitEvent): Promise<void> {
 
   await ensureThread();
 
-  appendItem(createThreadItem("user_input", "User Input", input));
-  const output = createThreadItem("agent_output", "Agent Output", "");
+  appendItem(createThreadItem("userMessage", ITEM_TYPE_REGISTRY.userMessage.label, input));
+  const output = createThreadItem("agentMessage", ITEM_TYPE_REGISTRY.agentMessage.label, "");
   output.status = "pending";
   output.outputSegments = [];
   appendItem(output);
+
   state.activeAgentItemId = output.id;
   state.isTurnActive = true;
   setComposerDisabled(true);
@@ -377,6 +528,9 @@ async function handleNewThread(): Promise<void> {
   state.activeAgentItemId = null;
   state.isTurnActive = false;
   state.items = [];
+  protocolMessageMap.clear();
+  protocolSubBlockMap.clear();
+  activeReasoningSubBlockRef = null;
   setComposerDisabled(false);
   syncView();
 
@@ -388,26 +542,6 @@ async function handleNewThread(): Promise<void> {
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Failed to start thread", "error");
   }
-}
-
-function toggleSegment(itemId: string, segmentId: string): void {
-  const itemIndex = state.items.findIndex((item) => item.id === itemId);
-  if (itemIndex < 0) return;
-  const item = state.items[itemIndex];
-  if (item.kind !== "agent_output" || !item.outputSegments) return;
-
-  const segments: OutputSegment[] = item.outputSegments.map((segment) => {
-    if (segment.id !== segmentId || segment.kind !== "reasoning") return segment;
-    return {
-      ...segment,
-      expanded: !segment.expanded,
-    };
-  });
-
-  updateItem({
-    ...item,
-    outputSegments: segments,
-  });
 }
 
 function attachEventListeners(): void {
@@ -434,16 +568,6 @@ function attachEventListeners(): void {
     void handleNewThread();
   });
 
-  ui.itemList.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
-    const toggle = target.closest<HTMLButtonElement>("[data-action='toggle-segment']");
-    if (!toggle) return;
-    const itemId = toggle.dataset.itemId;
-    const segmentId = toggle.dataset.segmentId;
-    if (!itemId || !segmentId) return;
-    toggleSegment(itemId, segmentId);
-  });
 }
 
 function connectBridgeEventStream(): void {

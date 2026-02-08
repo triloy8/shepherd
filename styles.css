@@ -141,6 +141,7 @@ button:hover:not(:disabled) {
   border: 1px solid rgba(63, 63, 70, 0.4);
   color: var(--text-primary);
   backdrop-filter: blur(3px);
+  border-left-width: 4px;
 }
 
 .message[data-role="user"] {
@@ -159,6 +160,21 @@ button:hover:not(:disabled) {
   background: rgba(63, 63, 70, 0.45);
   color: var(--text-primary);
 }
+
+.message[data-item-type="userMessage"] { border-left-color: #94a3b8; }
+.message[data-item-type="agentMessage"] { border-left-color: #818cf8; }
+.message[data-item-type="plan"] { border-left-color: #38bdf8; }
+.message[data-item-type="reasoning"] { border-left-color: #60a5fa; }
+.message[data-item-type="commandExecution"] { border-left-color: #f87171; }
+.message[data-item-type="fileChange"] { border-left-color: #2dd4bf; }
+.message[data-item-type="mcpToolCall"] { border-left-color: #fbbf24; }
+.message[data-item-type="collabToolCall"] { border-left-color: #fb923c; }
+.message[data-item-type="webSearch"] { border-left-color: #22d3ee; }
+.message[data-item-type="imageView"] { border-left-color: #a78bfa; }
+.message[data-item-type="enteredReviewMode"] { border-left-color: #c084fc; }
+.message[data-item-type="exitedReviewMode"] { border-left-color: #c084fc; }
+.message[data-item-type="contextCompaction"] { border-left-color: #9ca3af; }
+.message[data-item-type="unknown"] { border-left-color: #9ca3af; }
 
 .message[data-status="pending"] {
   opacity: 0.85;
@@ -227,6 +243,52 @@ button:hover:not(:disabled) {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.segment-subblock {
+  border-left: 2px solid rgba(148, 163, 184, 0.35);
+  padding-left: 10px;
+}
+
+.segment-subblock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.segment-subblock-label {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #cbd5e1;
+}
+
+.segment-subblock-status {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.segment-subblock-content {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: #d1d5db;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.segment-subblock[data-sub-type="commandExecution"] { border-left-color: #f87171; }
+.segment-subblock[data-sub-type="fileChange"] { border-left-color: #2dd4bf; }
+.segment-subblock[data-sub-type="plan"] { border-left-color: #38bdf8; }
+.segment-subblock[data-sub-type="mcpToolCall"] { border-left-color: #fbbf24; }
+.segment-subblock[data-sub-type="collabToolCall"] { border-left-color: #fb923c; }
+.segment-subblock[data-sub-type="webSearch"] { border-left-color: #22d3ee; }
+.segment-subblock[data-sub-type="imageView"] { border-left-color: #a78bfa; }
+.segment-subblock[data-sub-type="enteredReviewMode"] { border-left-color: #c084fc; }
+.segment-subblock[data-sub-type="exitedReviewMode"] { border-left-color: #c084fc; }
+.segment-subblock[data-sub-type="contextCompaction"] { border-left-color: #9ca3af; }
+.segment-subblock[data-sub-type="unknown"] { border-left-color: #9ca3af; }
 
 .message-meta {
   display: flex;

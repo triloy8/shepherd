@@ -1,14 +1,29 @@
-export type ItemKind = "user_input" | "agent_output" | "event";
+export type ThreadItemType =
+  | "userMessage"
+  | "agentMessage"
+  | "plan"
+  | "reasoning"
+  | "commandExecution"
+  | "fileChange"
+  | "mcpToolCall"
+  | "collabToolCall"
+  | "webSearch"
+  | "imageView"
+  | "enteredReviewMode"
+  | "exitedReviewMode"
+  | "contextCompaction"
+  | "unknown";
 
 export interface ThreadItem {
   id: string;
-  kind: ItemKind;
+  itemType: ThreadItemType;
   label: string;
   content: string;
   createdAt: string;
   status?: "pending" | "error";
   error?: string;
   outputSegments?: OutputSegment[];
+  protocolItemId?: string;
 }
 
 export interface ThreadSnapshot {
@@ -50,9 +65,12 @@ export interface InterruptTurnResponse {
 
 export interface OutputSegment {
   id: string;
-  kind: "text" | "reasoning";
+  kind: "text" | "subBlock";
   text: string;
   title?: string;
+  itemType?: ThreadItemType;
+  status?: "pending" | "error" | "completed";
+  error?: string;
   expanded?: boolean;
   createdAt: string;
 }

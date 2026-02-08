@@ -1,4 +1,5 @@
 import { ui } from "./dom.js";
+import { ITEM_TYPE_REGISTRY } from "../core/item_registry.js";
 import type { AgentState, OutputSegment, ThreadItem } from "../core/types.js";
 
 function emptyStateMarkup(threadId: string | null): string {
@@ -14,7 +15,8 @@ function emptyStateMarkup(threadId: string | null): string {
 function buildItemNode(item: ThreadItem): HTMLElement {
   const article = document.createElement("article");
   article.className = "message";
-  article.dataset.role = item.kind === "agent_output" ? "assistant" : item.kind === "user_input" ? "user" : "system";
+  article.dataset.role = ITEM_TYPE_REGISTRY[item.itemType].role;
+  article.dataset.itemType = item.itemType;
   article.dataset.id = item.id;
 
   if (item.status) {
@@ -23,11 +25,11 @@ function buildItemNode(item: ThreadItem): HTMLElement {
 
   const roleLabel = document.createElement("header");
   roleLabel.className = "message-role";
-  roleLabel.textContent = item.label;
+  roleLabel.textContent = item.label || ITEM_TYPE_REGISTRY[item.itemType].label;
 
   article.append(roleLabel);
 
-  if (item.kind === "agent_output") {
+  if (item.itemType === "agentMessage") {
     const segments = item.outputSegments ?? [];
 
     if (segments.length === 0) {
@@ -45,7 +47,7 @@ function buildItemNode(item: ThreadItem): HTMLElement {
       article.append(content);
     } else {
       for (const segment of segments) {
-        article.append(buildOutputSegment(item.id, segment));
+        article.append(buildOutputSegment(segment));
       }
     }
   } else {
@@ -74,7 +76,7 @@ function buildItemNode(item: ThreadItem): HTMLElement {
   return article;
 }
 
-function buildOutputSegment(itemId: string, segment: OutputSegment): HTMLElement {
+function buildOutputSegment(segment: OutputSegment): HTMLElement {
   if (segment.kind === "text") {
     const block = document.createElement("section");
     block.className = "segment segment-text";
@@ -85,40 +87,45 @@ function buildOutputSegment(itemId: string, segment: OutputSegment): HTMLElement
     return block;
   }
 
-  const block = document.createElement("section");
-  block.className = "segment segment-reasoning";
+  if (segment.kind === "subBlock") {
+    const block = document.createElement("section");
+    block.className = "segment segment-subblock";
+    block.dataset.subType = segment.itemType ?? "unknown";
 
-  const header = document.createElement("div");
-  header.className = "segment-reasoning-header";
+    const header = document.createElement("div");
+    header.className = "segment-subblock-header";
 
-  const label = document.createElement("span");
-  label.className = "segment-reasoning-label";
-  label.textContent = segment.title ? `Reasoning - ${segment.title}` : "Reasoning";
+    const label = document.createElement("span");
+    label.className = "segment-subblock-label";
+    const typeMeta = ITEM_TYPE_REGISTRY[segment.itemType ?? "unknown"];
+    label.textContent = segment.title ?? typeMeta.label;
 
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "reasoning-toggle";
-  toggle.dataset.action = "toggle-segment";
-  toggle.dataset.itemId = itemId;
-  toggle.dataset.segmentId = segment.id;
-  const expanded = segment.expanded ?? false;
-  toggle.setAttribute("aria-expanded", String(expanded));
-  toggle.textContent = expanded ? "Collapse" : "Expand";
+    const status = document.createElement("span");
+    status.className = "segment-subblock-status";
+    status.textContent = segment.status ?? "pending";
 
-  header.append(label, toggle);
-  block.appendChild(header);
+    header.append(label, status);
+    block.appendChild(header);
 
-  const content = document.createElement("p");
-  content.className = "segment-reasoning-content";
-  const text = segment.text.trim();
-  if (expanded || text.length <= 160) {
-    content.textContent = text || "Awaiting reasoning summary…";
-  } else {
-    content.textContent = `${text.slice(0, 160)}…`;
+    const content = document.createElement("p");
+    content.className = "segment-subblock-content";
+    if (segment.status === "error") {
+      content.textContent = segment.error ?? "Operation failed.";
+    } else {
+      content.textContent = segment.text || (segment.status === "completed" ? "Completed." : "In progress…");
+    }
+    block.appendChild(content);
+
+    return block;
   }
-  block.appendChild(content);
 
-  return block;
+  const fallback = document.createElement("section");
+  fallback.className = "segment segment-text";
+  const content = document.createElement("p");
+  content.className = "message-body";
+  content.textContent = segment.text;
+  fallback.appendChild(content);
+  return fallback;
 }
 
 export function renderItems(state: AgentState): void {

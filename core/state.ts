@@ -1,4 +1,4 @@
-import type { AgentState, ItemKind, ThreadItem } from "./types.js";
+import type { AgentState, ThreadItem, ThreadItemType } from "./types.js";
 
 export const state: AgentState = {
   threadId: null,
@@ -15,10 +15,10 @@ export function createId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function createThreadItem(kind: ItemKind, label: string, content: string): ThreadItem {
+export function createThreadItem(itemType: ThreadItemType, label: string, content: string): ThreadItem {
   return {
     id: createId("item"),
-    kind,
+    itemType,
     label,
     content,
     createdAt: new Date().toISOString(),

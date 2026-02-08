@@ -1,23 +1,35 @@
-# Agent
+# Agent (Codex App Server Minimal Proto)
 
-## Quick Start
-1. `bun install` to grab dependencies.
-2. `bun run build:watch` to compile `agent.ts` into `dist/agent.js`.
-3. `bun run serve` to host the static files locally.
-4. Open `index.html` in a browser and set `window.AGENT_CONFIG` (or `window.CHAT_CONFIG` for backward compatibility) if you need a non-default endpoint.
+This app is a minimal browser client for `codex app-server`.
+It does not call `/v1/chat/completions`; it only speaks to a local bridge that proxies Codex App Server JSON-RPC.
 
-```html
-<script>
-  window.AGENT_CONFIG = {
-    apiBaseUrl: "http://localhost:11434",
-    apiPath: "/v1/chat/completions",
-    model: "gemma3:4b",
-    systemPrompt: "You are a concise research assistant.",
-    apiKey: "optional bearer token",
-    headers: { "X-Custom": "value" }
-  };
-</script>
-<script type="module" src="./dist/agent.js"></script>
-```
+## What It Implements
 
-Define `systemPrompt` to prepend a fixed system message to every conversation. When present, a “System Prompt” pill appears in the header for quick reference. Omit or leave it blank to keep the default model behavior.
+- `initialize` -> `initialized`
+- `thread/start`
+- `turn/start`
+- `turn/interrupt`
+- Notification streaming over SSE (`/api/events`)
+
+## Prerequisites
+
+1. Install the Codex CLI so `codex app-server` is available on your PATH.
+2. Make sure you are authenticated for Codex usage.
+
+## Run
+
+1. `bun install`
+2. `bun run build`
+3. `bun run serve`
+4. Open `http://127.0.0.1:8787`
+
+`bun run serve` starts `server/bridge.mjs`, which:
+- spawns `codex app-server`
+- proxies protocol calls via `/api/*`
+- serves static files from this repo
+
+## Environment
+
+- `PORT` (default `8787`)
+- `HOST` (default `127.0.0.1`)
+- `CODEX_MODEL` (default `gpt-5.3-codex`)

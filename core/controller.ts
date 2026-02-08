@@ -1,210 +1,259 @@
-import { sendChatCompletion } from "../services/api.js";
-import { getSystemPrompt } from "./config.js";
-import { confirmAction, syncSystemPromptUI } from "../ui/dialogs.js";
-import { adjustTextareaHeight, resetTextareaHeight, setComposerDisabled, setStatus, ui } from "../ui/dom.js";
-import { renderMessages } from "../ui/render.js";
-import { createConversationId, createMessage, state } from "./state.js";
-import { clearTranscript, loadTranscript, persistTranscript } from "../services/storage.js";
-import type { Message } from "./types.js";
+import { connectEventStream, interruptTurn, startThread, startTurn } from "../services/app_server_client.js";
+import { createThreadItem, state } from "./state.js";
+import { setComposerDisabled, setStatus, ui, adjustTextareaHeight, resetTextareaHeight } from "../ui/dom.js";
+import { renderItems } from "../ui/render.js";
+import type { BridgeEvent, ThreadItem } from "./types.js";
+
+let interruptFallbackTimer: number | undefined;
 
 function syncView(): void {
-  persistTranscript(state);
-  renderMessages(state);
+  renderItems(state);
 }
 
-function addMessage(message: Message): void {
-  state.messages.push(message);
+function appendItem(item: ThreadItem): void {
+  state.items.push(item);
   syncView();
 }
 
-function upsertMessage(message: Message): void {
-  const index = state.messages.findIndex((item) => item.id === message.id);
-  if (index === -1) {
-    state.messages.push(message);
+function updateItem(item: ThreadItem): void {
+  const index = state.items.findIndex((candidate) => candidate.id === item.id);
+  if (index >= 0) {
+    state.items[index] = item;
   } else {
-    state.messages[index] = message;
+    state.items.push(item);
   }
   syncView();
 }
 
-async function sendToModel(placeholder: Message): Promise<void> {
-  const messagesForRequest = state.messages.filter((message) => message.id !== placeholder.id);
+function appendToActiveAgentOutput(text: string): void {
+  if (!text) return;
 
-  setComposerDisabled(true);
-  setStatus("Thinking…", "pending");
-  state.isSending = true;
-
-  const controller = new AbortController();
-  state.abortController = controller;
-
-  ui.cancelButton.addEventListener(
-    "click",
-    () => controller.abort(),
-    { once: true },
-  );
-
-  try {
-    const reply = await sendChatCompletion(messagesForRequest, controller.signal, state.conversationId);
-    const assistantMessage: Message = {
-      ...placeholder,
-      content: reply,
-      status: undefined,
-    };
-    upsertMessage(assistantMessage);
-    setStatus("Ready");
-  } catch (error) {
-    const placeholderExists = state.messages.some((item) => item.id === placeholder.id);
-    if (!placeholderExists) {
-      setStatus("Ready");
-      return;
-    }
-
-    if (controller.signal.aborted) {
-      const cancelledMessage: Message = {
-        ...placeholder,
-        content: "",
-        status: "error",
-        error: "Request cancelled.",
-      };
-      upsertMessage(cancelledMessage);
-      setStatus("Cancelled", "error");
-    } else {
-      console.error(error);
-      const failedMessage: Message = {
-        ...placeholder,
-        content: "",
-        status: "error",
-        error: error instanceof Error ? error.message : "Unknown error.",
-      };
-      upsertMessage(failedMessage);
-      setStatus("Error", "error");
-    }
-  } finally {
-    state.isSending = false;
-    state.abortController = undefined;
-    setComposerDisabled(false);
-    ui.textarea.focus();
+  if (!state.activeAgentItemId) {
+    const agentItem = createThreadItem("agent_output", "Agent Output", "");
+    agentItem.status = "pending";
+    appendItem(agentItem);
+    state.activeAgentItemId = agentItem.id;
   }
+
+  const index = state.items.findIndex((item) => item.id === state.activeAgentItemId);
+  if (index < 0) return;
+
+  const current = state.items[index];
+  const next: ThreadItem = {
+    ...current,
+    content: `${current.content}${text}`,
+  };
+  updateItem(next);
+}
+
+function completeActiveTurn(): void {
+  if (interruptFallbackTimer) {
+    window.clearTimeout(interruptFallbackTimer);
+    interruptFallbackTimer = undefined;
+  }
+
+  state.isTurnActive = false;
+  state.activeTurnId = null;
+  setComposerDisabled(false);
+
+  if (state.activeAgentItemId) {
+    const index = state.items.findIndex((item) => item.id === state.activeAgentItemId);
+    if (index >= 0) {
+      const current = state.items[index];
+      const next: ThreadItem = {
+        ...current,
+        status: undefined,
+        content: current.content,
+      };
+      updateItem(next);
+    }
+  }
+
+  state.activeAgentItemId = null;
+}
+
+function failActiveTurn(message: string): void {
+  if (interruptFallbackTimer) {
+    window.clearTimeout(interruptFallbackTimer);
+    interruptFallbackTimer = undefined;
+  }
+
+  state.isTurnActive = false;
+  state.activeTurnId = null;
+  setComposerDisabled(false);
+  setStatus(message, "error");
+
+  if (!state.activeAgentItemId) return;
+
+  const index = state.items.findIndex((item) => item.id === state.activeAgentItemId);
+  if (index < 0) return;
+
+  const current = state.items[index];
+  const next: ThreadItem = {
+    ...current,
+    status: "error",
+    error: message,
+  };
+  updateItem(next);
+  state.activeAgentItemId = null;
+}
+
+function parseTurnDeltaText(params: unknown): string {
+  if (typeof params !== "object" || !params) return "";
+  const record = params as Record<string, unknown>;
+
+  if (typeof record.delta === "string") return record.delta;
+  if (typeof record.text === "string") return record.text;
+  if (typeof record.chunk === "string") return record.chunk;
+
+  const item = record.item;
+  if (typeof item === "object" && item) {
+    const itemRecord = item as Record<string, unknown>;
+    if (typeof itemRecord.delta === "string") return itemRecord.delta;
+    if (typeof itemRecord.text === "string") return itemRecord.text;
+  }
+
+  return "";
+}
+
+function handleNotification(method: string, params: unknown): void {
+  if (method.includes("delta")) {
+    const deltaText = parseTurnDeltaText(params);
+    if (deltaText) {
+      appendToActiveAgentOutput(deltaText);
+    }
+    return;
+  }
+
+  if (method.endsWith("turn/completed") || method === "turn/completed") {
+    completeActiveTurn();
+    setStatus("Turn completed");
+    return;
+  }
+
+  if (
+    method.includes("turn/interrupted")
+    || method.includes("turn/cancel")
+    || method.endsWith("turn/stopped")
+  ) {
+    completeActiveTurn();
+    setStatus("Turn interrupted");
+    return;
+  }
+
+  if (method.includes("turn/error") || method.endsWith("turn/errored") || method === "turn/errored") {
+    failActiveTurn("Turn failed.");
+    return;
+  }
+}
+
+function handleBridgeEvent(event: BridgeEvent): void {
+  if (event.type === "error") {
+    failActiveTurn(event.message ?? "Bridge error");
+    return;
+  }
+
+  if (event.type === "ready") {
+    setStatus("App server ready");
+    return;
+  }
+
+  if (event.type === "thread_started") {
+    state.threadId = event.threadId ?? null;
+    setStatus(state.threadId ? `Thread ready (${state.threadId})` : "Thread ready");
+    syncView();
+    return;
+  }
+
+  if (event.type === "turn_started") {
+    state.activeTurnId = event.turnId ?? null;
+    state.isTurnActive = true;
+    setStatus("Turn started", "pending");
+    return;
+  }
+
+  if (event.type === "notification" && event.method) {
+    handleNotification(event.method, event.params);
+  }
+}
+
+async function ensureThread(): Promise<void> {
+  if (state.threadId) return;
+  const response = await startThread();
+  state.threadId = response.threadId;
+  setStatus(`Thread ready (${state.threadId})`);
+  syncView();
 }
 
 async function handleSubmit(event: SubmitEvent): Promise<void> {
   event.preventDefault();
-  if (state.isSending) return;
+  if (state.isTurnActive) return;
 
-  const text = ui.textarea.value.trim();
-  if (!text) return;
+  const input = ui.textarea.value.trim();
+  if (!input) return;
 
-  const userMessage = createMessage("user", text);
+  await ensureThread();
+
+  appendItem(createThreadItem("user_input", "User Input", input));
+  const output = createThreadItem("agent_output", "Agent Output", "");
+  output.status = "pending";
+  appendItem(output);
+  state.activeAgentItemId = output.id;
+  state.isTurnActive = true;
+  setComposerDisabled(true);
+  setStatus("Starting turn…", "pending");
+
   ui.textarea.value = "";
   resetTextareaHeight();
-  addMessage(userMessage);
 
-  const assistantPlaceholder: Message = {
-    id: createConversationId(),
-    role: "assistant",
-    content: "",
-    createdAt: new Date().toISOString(),
-    status: "pending",
-  };
-
-  addMessage(assistantPlaceholder);
-  await sendToModel(assistantPlaceholder);
-}
-
-function resetChat(): void {
-  state.abortController?.abort();
-  state.abortController = undefined;
-  state.messages = [];
-  state.conversationId = createConversationId();
-  clearTranscript();
-  renderMessages(state);
-  setStatus("Ready");
-  resetTextareaHeight();
-}
-
-async function offerTranscriptRestore(): Promise<void> {
-  const stored = loadTranscript();
-  if (!stored || stored.messages.length === 0) return;
-
-  const shouldRestore = await confirmAction({
-    title: "Restore previous session?",
-    description: "A previous session was found. Would you like to load it?",
-    confirmLabel: "Restore",
-  });
-
-  if (shouldRestore) {
-    state.conversationId = stored.conversationId ?? createConversationId();
-    state.messages = stored.messages;
-    renderMessages(state);
-    setStatus("Transcript restored");
-  } else {
-    clearTranscript();
+  try {
+    const response = await startTurn(input);
+    state.activeTurnId = response.turnId ?? null;
+  } catch (error) {
+    failActiveTurn(error instanceof Error ? error.message : "Failed to start turn");
   }
 }
 
-async function handleNewChatClick(): Promise<void> {
-  if (state.isSending) {
-    state.abortController?.abort();
-  }
+async function handleInterrupt(): Promise<void> {
+  if (!state.isTurnActive) return;
 
-  if (state.messages.length === 0) {
-    resetChat();
-    return;
-  }
-
-  const shouldReset = await confirmAction({
-    title: "Start a new session?",
-    description: "This will clear the current session.",
-    confirmLabel: "Start new session",
-  });
-
-  if (shouldReset) {
-    resetChat();
+  try {
+    await interruptTurn(state.activeTurnId);
+    setStatus("Interrupt requested");
+    if (interruptFallbackTimer) {
+      window.clearTimeout(interruptFallbackTimer);
+    }
+    interruptFallbackTimer = window.setTimeout(() => {
+      if (!state.isTurnActive) return;
+      completeActiveTurn();
+      setStatus("Turn interrupted");
+    }, 1200);
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Interrupt failed", "error");
   }
 }
 
-async function handleExportClick(): Promise<void> {
-  if (state.messages.length === 0) {
-    setStatus("Nothing to export", "error");
-    return;
+async function handleNewThread(): Promise<void> {
+  state.activeTurnId = null;
+  state.activeAgentItemId = null;
+  state.isTurnActive = false;
+  state.items = [];
+  setComposerDisabled(false);
+  syncView();
+
+  try {
+    const response = await startThread();
+    state.threadId = response.threadId;
+    setStatus(`Thread ready (${state.threadId})`);
+    syncView();
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Failed to start thread", "error");
   }
-
-  const systemPrompt = getSystemPrompt();
-  const payload = {
-    conversationId: state.conversationId,
-    exportedAt: new Date().toISOString(),
-    messages: state.messages,
-    ...(systemPrompt ? { systemPrompt } : {}),
-  };
-
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `agent-${state.conversationId}.json`;
-  anchor.rel = "noopener";
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-
-  setStatus("Transcript exported");
 }
 
 function attachEventListeners(): void {
   ui.composerForm.addEventListener("submit", (event) => {
     void handleSubmit(event as SubmitEvent);
-  });
-
-  ui.newChatButton.addEventListener("click", () => {
-    void handleNewChatClick();
-  });
-
-  ui.exportButton.addEventListener("click", () => {
-    void handleExportClick();
   });
 
   ui.textarea.addEventListener("input", () => {
@@ -218,28 +267,28 @@ function attachEventListeners(): void {
     ui.composerForm.requestSubmit();
   });
 
-  ui.systemPromptButton.addEventListener("click", () => {
-    const prompt = getSystemPrompt();
-    if (!prompt) return;
-    ui.systemPromptContent.textContent = prompt;
-    ui.systemPromptDialog.showModal();
+  ui.interruptButton.addEventListener("click", () => {
+    void handleInterrupt();
   });
 
-  const closePromptDialog = () => {
-    if (ui.systemPromptDialog.open) {
-      ui.systemPromptDialog.close();
-    }
-  };
+  ui.newThreadButton.addEventListener("click", () => {
+    void handleNewThread();
+  });
+}
 
-  ui.systemPromptCloseFooterButton.addEventListener("click", closePromptDialog);
-  ui.systemPromptDialog.addEventListener("cancel", closePromptDialog);
+function connectBridgeEventStream(): void {
+  state.eventSource = connectEventStream(
+    handleBridgeEvent,
+    () => {
+      setStatus("Event stream disconnected", "error");
+    },
+  );
 }
 
 export function setupApp(): void {
-  syncSystemPromptUI(getSystemPrompt());
-  renderMessages(state);
+  syncView();
   attachEventListeners();
-  void offerTranscriptRestore();
+  connectBridgeEventStream();
   resetTextareaHeight();
   ui.textarea.focus();
 }

@@ -1,52 +1,48 @@
-export type ChatRole = "system" | "user" | "assistant";
+export type ItemKind = "user_input" | "agent_output" | "event";
 
-export interface Message {
+export interface ThreadItem {
   id: string;
-  role: ChatRole;
+  kind: ItemKind;
+  label: string;
   content: string;
   createdAt: string;
   status?: "pending" | "error";
   error?: string;
 }
 
-export interface StoredTranscript {
-  conversationId: string;
-  messages: Message[];
+export interface ThreadSnapshot {
+  threadId: string | null;
+  items: ThreadItem[];
   savedAt: string;
 }
 
-export interface ChatConfig {
-  apiBaseUrl: string;
-  apiPath: string;
-  apiKey?: string;
-  model: string;
-  headers?: Record<string, string>;
-  systemPrompt?: string;
+export interface AgentState {
+  threadId: string | null;
+  items: ThreadItem[];
+  activeTurnId: string | null;
+  activeAgentItemId: string | null;
+  isTurnActive: boolean;
+  eventSource?: EventSource;
 }
 
-export interface ChatState {
-  conversationId: string;
-  messages: Message[];
-  isSending: boolean;
-  abortController?: AbortController;
+export interface BridgeEvent {
+  type: "ready" | "thread_started" | "turn_started" | "notification" | "error";
+  message?: string;
+  threadId?: string;
+  turnId?: string;
+  method?: string;
+  params?: unknown;
 }
 
-export type ConfirmOptions = {
-  title: string;
-  description: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-};
-
-export type CompletionMessage = { role: ChatRole; content: string };
-
-export interface ChatCompletionChoice {
-  index: number;
-  message: CompletionMessage;
-  finish_reason: string;
+export interface StartThreadResponse {
+  threadId: string;
 }
 
-export interface ChatCompletionResponse {
-  id: string;
-  choices: ChatCompletionChoice[];
+export interface StartTurnResponse {
+  ok: boolean;
+  turnId?: string;
+}
+
+export interface InterruptTurnResponse {
+  ok: boolean;
 }

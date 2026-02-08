@@ -1,81 +1,75 @@
 import { ui } from "./dom.js";
-import type { ChatState, ChatRole, Message } from "../core/types.js";
+import type { AgentState, ThreadItem } from "../core/types.js";
 
-function updateActionStates(messages: Message[]): void {
-  ui.exportButton.disabled = messages.length === 0;
+function emptyStateMarkup(threadId: string | null): string {
+  const subtitle = threadId
+    ? `Thread: ${threadId}`
+    : "No thread initialized yet.";
+  return `
+    <h2>Start a turn</h2>
+    <p>${subtitle}</p>
+  `;
 }
 
-function roleTitle(role: ChatRole): string {
-  switch (role) {
-    case "assistant":
-      return "Assistant";
-    case "system":
-      return "System";
-    default:
-      return "You";
+function buildItemNode(item: ThreadItem): HTMLElement {
+  const article = document.createElement("article");
+  article.className = "message";
+  article.dataset.role = item.kind === "agent_output" ? "assistant" : item.kind === "user_input" ? "user" : "system";
+  article.dataset.id = item.id;
+
+  if (item.status) {
+    article.dataset.status = item.status;
   }
+
+  const roleLabel = document.createElement("header");
+  roleLabel.className = "message-role";
+  roleLabel.textContent = item.label;
+
+  const content = document.createElement("p");
+  content.className = "message-body";
+  if (item.status === "pending") {
+    content.textContent = item.content || "Running turn…";
+  } else if (item.status === "error") {
+    content.textContent = item.error ?? "Operation failed.";
+  } else {
+    content.textContent = item.content;
+    if (item.kind === "agent_output" && !item.content.trim()) {
+      content.classList.add("empty-output");
+      content.setAttribute("aria-label", "No output");
+    }
+  }
+
+  article.append(roleLabel, content);
+
+  if (item.status) {
+    const meta = document.createElement("footer");
+    meta.className = "message-meta";
+    const badge = document.createElement("span");
+    badge.className = `message-badge ${item.status}`;
+    badge.textContent = item.status === "pending" ? "Pending" : "Error";
+    meta.appendChild(badge);
+    article.append(meta);
+  }
+
+  return article;
 }
 
-export function renderMessages(state: ChatState): void {
-  ui.messageList.innerHTML = "";
+export function renderItems(state: AgentState): void {
+  ui.itemList.innerHTML = "";
 
-  if (state.messages.length === 0) {
+  if (state.items.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.innerHTML = `
-      <h2>Start a session</h2>
-      <p>Ask a question or describe a task to begin.</p>
-    `;
-    ui.messageList.appendChild(empty);
-    updateActionStates(state.messages);
+    empty.innerHTML = emptyStateMarkup(state.threadId);
+    ui.itemList.appendChild(empty);
     return;
   }
 
   const fragment = document.createDocumentFragment();
-  for (const message of state.messages) {
-    const article = document.createElement("article");
-    article.className = "message";
-    article.dataset.role = message.role;
-    article.dataset.id = message.id;
-    if (message.status) {
-      article.dataset.status = message.status;
-    }
-
-    if (message.status === "pending") {
-      article.setAttribute("aria-busy", "true");
-    }
-
-    const roleLabel = document.createElement("header");
-    roleLabel.className = "message-role";
-    roleLabel.textContent = roleTitle(message.role);
-
-    const content = document.createElement("p");
-    content.className = "message-body";
-
-    if (message.status === "pending") {
-      content.textContent = "Thinking…";
-    } else if (message.status === "error") {
-      content.textContent = message.error ?? "Something went wrong.";
-    } else {
-      content.textContent = message.content;
-    }
-
-    article.append(roleLabel, content);
-
-    if (message.status) {
-      const meta = document.createElement("footer");
-      meta.className = "message-meta";
-      const badge = document.createElement("span");
-      badge.className = `message-badge ${message.status}`;
-      badge.textContent = message.status === "pending" ? "Pending" : "Error";
-      meta.appendChild(badge);
-      article.append(meta);
-    }
-
-    fragment.appendChild(article);
+  for (const item of state.items) {
+    fragment.appendChild(buildItemNode(item));
   }
 
-  ui.messageList.appendChild(fragment);
-  ui.messageList.scrollTop = ui.messageList.scrollHeight;
-  updateActionStates(state.messages);
+  ui.itemList.appendChild(fragment);
+  ui.itemList.scrollTop = ui.itemList.scrollHeight;
 }

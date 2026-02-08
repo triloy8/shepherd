@@ -183,6 +183,10 @@ button:hover:not(:disabled) {
   word-break: break-word;
 }
 
+.message-body.empty-output {
+  min-height: 1lh;
+}
+
 .message-meta {
   display: flex;
   align-items: center;
@@ -313,34 +317,6 @@ textarea:focus-visible {
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.system-prompt-trigger {
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 18px;
-  height: 40px;
-  border-radius: 999px;
-  border: 1px solid var(--border-soft);
-  background: rgba(32, 32, 36, 0.7);
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
-}
-
-.system-prompt-trigger:hover:not(:disabled) {
-  border-color: rgba(82, 82, 91, 0.55);
-  background: rgba(63, 63, 70, 0.5);
-  color: var(--text-primary);
-}
-
-.system-prompt-trigger:focus-visible {
-  outline: 2px solid rgba(96, 165, 250, 0.65);
-  outline-offset: 2px;
-}
-
 .status-pill[data-state="pending"] {
   color: #60a5fa;
   border-color: rgba(96, 165, 250, 0.55);
@@ -462,75 +438,6 @@ textarea:focus-visible {
   to {
     transform: rotate(360deg);
   }
-}
-
-dialog {
-  border: none;
-  border-radius: 16px;
-  padding: 24px;
-  max-width: 360px;
-  box-shadow: var(--shadow-strong);
-  background: rgba(24, 24, 27, 0.92);
-  color: var(--text-primary);
-}
-
-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-}
-
-#system-prompt-dialog {
-  padding: 0;
-  width: min(560px, 92vw);
-  max-width: 560px;
-  max-height: 80vh;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-#system-prompt-dialog[open] {
-  display: flex;
-}
-
-.system-prompt-dialog__header {
-  padding: 20px 24px 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.system-prompt-dialog__header h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--text-primary);
-}
-
-.system-prompt-dialog__body {
-  padding: 20px 24px;
-  overflow-y: auto;
-}
-
-.system-prompt-dialog__body pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font: inherit;
-  color: var(--text-primary);
-}
-
-.system-prompt-dialog__footer {
-  padding: 16px 24px 24px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.confirm-footer {
-  margin-top: 24px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
 }
 
 @media (max-width: 720px) {

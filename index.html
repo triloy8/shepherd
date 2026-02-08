@@ -11,20 +11,10 @@
       <header class="agent-header">
         <h1>Agent</h1>
         <div class="agent-actions">
-          <button
-            type="button"
-            class="system-prompt-trigger"
-            id="system-prompt-btn"
-            aria-haspopup="dialog"
-            aria-controls="system-prompt-dialog"
-          >
-            System Prompt
-          </button>
-          <button type="button" id="export-agent-btn">Export Session</button>
-          <button type="button" id="new-agent-btn">New Session</button>
+          <button type="button" id="new-thread-btn">New Thread</button>
         </div>
       </header>
-      <section class="agent-body" id="message-list" aria-live="polite"></section>
+      <section class="agent-body" id="item-list" aria-live="polite"></section>
       <section class="agent-composer">
         <form id="composer-form">
           <div class="composer-main">
@@ -52,11 +42,11 @@
               </svg>
             </span>
             <div class="composer-field">
-              <label for="composer-textarea" class="visually-hidden">Message</label>
+              <label for="turn-input" class="visually-hidden">Turn Input</label>
               <textarea
-                id="composer-textarea"
-                name="message"
-                placeholder="Type your message..."
+                id="turn-input"
+                name="turn_input"
+                placeholder="Type input for the next turn..."
                 autocomplete="off"
                 required
               ></textarea>
@@ -66,29 +56,29 @@
                 <button
                   class="icon-button primary"
                   type="submit"
-                  id="send-btn"
-                  aria-label="Send message"
-                  title="Send message"
+                  id="start-turn-btn"
+                  aria-label="Start turn"
+                  title="Start turn"
                 >
                   <svg class="icon icon-send" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M4.5 3.75l15 8.25-15 8.25 3-8.25-3-8.25z" stroke="currentColor" fill="none" stroke-linejoin="round" />
                     <path d="M7.5 11.75l12-.75" stroke="currentColor" stroke-linecap="round" />
                   </svg>
-                  <span class="visually-hidden">Send</span>
+                  <span class="visually-hidden">Start turn</span>
                 </button>
                 <button
                   type="button"
                   class="icon-button ghost"
-                  id="cancel-request-btn"
+                  id="interrupt-turn-btn"
                   hidden
-                  aria-label="Cancel request"
-                  title="Cancel request"
+                  aria-label="Interrupt turn"
+                  title="Interrupt turn"
                 >
                   <svg class="icon icon-cancel" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M8 8l8 8" stroke="currentColor" />
                     <path d="M16 8l-8 8" stroke="currentColor" />
                   </svg>
-                  <span class="visually-hidden">Cancel request</span>
+                  <span class="visually-hidden">Interrupt turn</span>
                 </button>
               </div>
             </div>
@@ -96,28 +86,6 @@
         </form>
       </section>
     </main>
-
-    <dialog id="confirm-dialog" aria-modal="true">
-      <h2 id="confirm-title">Start a new session?</h2>
-      <p id="confirm-description">
-        This will clear the current conversation. You can export the transcript first if you still need it.
-      </p>
-      <div class="confirm-footer">
-        <button type="button" id="confirm-cancel-btn">Cancel</button>
-        <button type="button" class="primary" id="confirm-ok-btn">Confirm</button>
-      </div>
-    </dialog>
-    <dialog id="system-prompt-dialog" aria-modal="true" aria-labelledby="system-prompt-title">
-      <header class="system-prompt-dialog__header">
-        <h2 id="system-prompt-title">System Prompt</h2>
-      </header>
-      <div class="system-prompt-dialog__body">
-        <pre id="system-prompt-content"></pre>
-      </div>
-      <div class="system-prompt-dialog__footer">
-        <button type="button" id="system-prompt-close-btn-footer">Close</button>
-      </div>
-    </dialog>
 
     <script type="module" src="./dist/agent.js"></script>
   </body>

@@ -1,7 +1,8 @@
 {
   "scripts": {
+    "build": "tsc --project tsconfig.json",
     "build:watch": "tsc --project tsconfig.json --watch",
-    "serve": "serve ."
+    "serve": "node server/bridge.mjs"
   },
   "dependencies": {
     "typescript": "^5.9.3"

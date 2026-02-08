@@ -1,22 +1,25 @@
-import type { ChatRole, ChatState, Message } from "./types.js";
+import type { AgentState, ItemKind, ThreadItem } from "./types.js";
 
-export const state: ChatState = {
-  conversationId: createConversationId(),
-  messages: [],
-  isSending: false,
+export const state: AgentState = {
+  threadId: null,
+  items: [],
+  activeTurnId: null,
+  activeAgentItemId: null,
+  isTurnActive: false,
 };
 
-export function createConversationId(): string {
+export function createId(prefix: string): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
+    return `${prefix}-${crypto.randomUUID()}`;
   }
-  return `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function createMessage(role: ChatRole, content: string): Message {
+export function createThreadItem(kind: ItemKind, label: string, content: string): ThreadItem {
   return {
-    id: createConversationId(),
-    role,
+    id: createId("item"),
+    kind,
+    label,
     content,
     createdAt: new Date().toISOString(),
   };

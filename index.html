@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chat</title>
+    <title>Agent</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="chat-app" data-role="chat-app">
-      <header class="chat-header">
-        <h1>Chat</h1>
-        <div class="chat-actions">
+    <main class="agent-app" data-role="agent-app">
+      <header class="agent-header">
+        <h1>Agent</h1>
+        <div class="agent-actions">
           <button
             type="button"
             class="system-prompt-trigger"
@@ -20,12 +20,12 @@
           >
             System Prompt
           </button>
-          <button type="button" id="export-chat-btn">Export Chat</button>
-          <button type="button" id="new-chat-btn">New Chat</button>
+          <button type="button" id="export-agent-btn">Export Session</button>
+          <button type="button" id="new-agent-btn">New Session</button>
         </div>
       </header>
-      <section class="chat-body" id="message-list" aria-live="polite"></section>
-      <section class="chat-composer">
+      <section class="agent-body" id="message-list" aria-live="polite"></section>
+      <section class="agent-composer">
         <form id="composer-form">
           <div class="composer-main">
             <span
@@ -98,7 +98,7 @@
     </main>
 
     <dialog id="confirm-dialog" aria-modal="true">
-      <h2 id="confirm-title">Start a new chat?</h2>
+      <h2 id="confirm-title">Start a new session?</h2>
       <p id="confirm-description">
         This will clear the current conversation. You can export the transcript first if you still need it.
       </p>
@@ -119,6 +119,6 @@
       </div>
     </dialog>
 
-    <script type="module" src="./dist/chat.js"></script>
+    <script type="module" src="./dist/agent.js"></script>
   </body>
 </html>

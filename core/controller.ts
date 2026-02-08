@@ -127,8 +127,8 @@ async function offerTranscriptRestore(): Promise<void> {
   if (!stored || stored.messages.length === 0) return;
 
   const shouldRestore = await confirmAction({
-    title: "Restore previous chat?",
-    description: "A previous conversation was found. Would you like to load it?",
+    title: "Restore previous session?",
+    description: "A previous session was found. Would you like to load it?",
     confirmLabel: "Restore",
   });
 
@@ -153,9 +153,9 @@ async function handleNewChatClick(): Promise<void> {
   }
 
   const shouldReset = await confirmAction({
-    title: "Start a new chat?",
-    description: "This will clear the current conversation.",
-    confirmLabel: "Start new chat",
+    title: "Start a new session?",
+    description: "This will clear the current session.",
+    confirmLabel: "Start new session",
   });
 
   if (shouldReset) {
@@ -184,7 +184,7 @@ async function handleExportClick(): Promise<void> {
 
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `chat-${state.conversationId}.json`;
+  anchor.download = `agent-${state.conversationId}.json`;
   anchor.rel = "noopener";
   document.body.append(anchor);
   anchor.click();

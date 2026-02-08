@@ -2,6 +2,7 @@ import type { ChatConfig } from "./types.js";
 
 declare global {
   interface Window {
+    AGENT_CONFIG?: Partial<ChatConfig>;
     CHAT_CONFIG?: Partial<ChatConfig>;
   }
 }
@@ -15,6 +16,7 @@ const DEFAULT_CONFIG: ChatConfig = {
 
 export const config: ChatConfig = {
   ...DEFAULT_CONFIG,
+  ...(window.AGENT_CONFIG ?? {}),
   ...(window.CHAT_CONFIG ?? {}),
 };
 

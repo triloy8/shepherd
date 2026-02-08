@@ -23,8 +23,8 @@ export function renderMessages(state: ChatState): void {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.innerHTML = `
-      <h2>Start chatting</h2>
-      <p>Ask a question or describe a task to begin a new conversation.</p>
+      <h2>Start a session</h2>
+      <p>Ask a question or describe a task to begin.</p>
     `;
     ui.messageList.appendChild(empty);
     updateActionStates(state.messages);

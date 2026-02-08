@@ -1,6 +1,6 @@
 import type { ChatState, StoredTranscript } from "../core/types.js";
 
-const STORAGE_KEY = "minimal-chat:transcript";
+const STORAGE_KEY = "minimal-agent:transcript";
 
 export function persistTranscript(state: ChatState): void {
   if (state.messages.length === 0) {

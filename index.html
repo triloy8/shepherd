@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chat</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="chat-app" data-role="chat-app">
+      <header class="chat-header">
+        <h1>Chat</h1>
+        <div class="chat-actions">
+          <button
+            type="button"
+            class="system-prompt-trigger"
+            id="system-prompt-btn"
+            aria-haspopup="dialog"
+            aria-controls="system-prompt-dialog"
+          >
+            System Prompt
+          </button>
+          <button type="button" id="export-chat-btn">Export Chat</button>
+          <button type="button" id="new-chat-btn">New Chat</button>
+        </div>
+      </header>
+      <section class="chat-body" id="message-list" aria-live="polite"></section>
+      <section class="chat-composer">
+        <form id="composer-form">
+          <div class="composer-main">
+            <span
+              class="status-pill"
+              id="status-pill"
+              role="status"
+              aria-live="polite"
+              data-state="default"
+              title="Ready"
+              aria-label="Ready"
+            >
+              <span class="visually-hidden" id="status-text">Ready</span>
+              <svg class="status-icon icon-ready" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6.5 12.75l3.25 3.25L17.5 8.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="status-icon icon-pending" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="track" cx="12" cy="12" r="7.5" stroke="currentColor" opacity="0.2" />
+                <path class="indicator" d="M12 4.5a7.5 7.5 0 0 1 7.5 7.5" stroke="currentColor" stroke-linecap="round" />
+              </svg>
+              <svg class="status-icon icon-error" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="7" stroke="currentColor" stroke-linecap="round" />
+                <path d="M12 8.5v4" stroke="currentColor" stroke-linecap="round" />
+                <circle cx="12" cy="16" r="0.8" fill="currentColor" stroke="none" />
+              </svg>
+            </span>
+            <div class="composer-field">
+              <label for="composer-textarea" class="visually-hidden">Message</label>
+              <textarea
+                id="composer-textarea"
+                name="message"
+                placeholder="Type your message..."
+                autocomplete="off"
+                required
+              ></textarea>
+            </div>
+            <div class="composer-controls">
+              <div class="composer-action-stack">
+                <button
+                  class="icon-button primary"
+                  type="submit"
+                  id="send-btn"
+                  aria-label="Send message"
+                  title="Send message"
+                >
+                  <svg class="icon icon-send" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4.5 3.75l15 8.25-15 8.25 3-8.25-3-8.25z" stroke="currentColor" fill="none" stroke-linejoin="round" />
+                    <path d="M7.5 11.75l12-.75" stroke="currentColor" stroke-linecap="round" />
+                  </svg>
+                  <span class="visually-hidden">Send</span>
+                </button>
+                <button
+                  type="button"
+                  class="icon-button ghost"
+                  id="cancel-request-btn"
+                  hidden
+                  aria-label="Cancel request"
+                  title="Cancel request"
+                >
+                  <svg class="icon icon-cancel" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 8l8 8" stroke="currentColor" />
+                    <path d="M16 8l-8 8" stroke="currentColor" />
+                  </svg>
+                  <span class="visually-hidden">Cancel request</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <dialog id="confirm-dialog" aria-modal="true">
+      <h2 id="confirm-title">Start a new chat?</h2>
+      <p id="confirm-description">
+        This will clear the current conversation. You can export the transcript first if you still need it.
+      </p>
+      <div class="confirm-footer">
+        <button type="button" id="confirm-cancel-btn">Cancel</button>
+        <button type="button" class="primary" id="confirm-ok-btn">Confirm</button>
+      </div>
+    </dialog>
+    <dialog id="system-prompt-dialog" aria-modal="true" aria-labelledby="system-prompt-title">
+      <header class="system-prompt-dialog__header">
+        <h2 id="system-prompt-title">System Prompt</h2>
+      </header>
+      <div class="system-prompt-dialog__body">
+        <pre id="system-prompt-content"></pre>
+      </div>
+      <div class="system-prompt-dialog__footer">
+        <button type="button" id="system-prompt-close-btn-footer">Close</button>
+      </div>
+    </dialog>
+
+    <script type="module" src="./dist/chat.js"></script>
+  </body>
+</html>

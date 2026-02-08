@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "build:watch": "tsc --project tsconfig.json --watch",
+    "serve": "serve ."
+  },
+  "dependencies": {
+    "typescript": "^5.9.3"
+  }
+}

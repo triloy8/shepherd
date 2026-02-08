@@ -8,6 +8,7 @@ export interface ThreadItem {
   createdAt: string;
   status?: "pending" | "error";
   error?: string;
+  outputSegments?: OutputSegment[];
 }
 
 export interface ThreadSnapshot {
@@ -45,4 +46,13 @@ export interface StartTurnResponse {
 
 export interface InterruptTurnResponse {
   ok: boolean;
+}
+
+export interface OutputSegment {
+  id: string;
+  kind: "text" | "reasoning";
+  text: string;
+  title?: string;
+  expanded?: boolean;
+  createdAt: string;
 }

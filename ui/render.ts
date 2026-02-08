@@ -1,5 +1,5 @@
 import { ui } from "./dom.js";
-import type { AgentState, ThreadItem } from "../core/types.js";
+import type { AgentState, OutputSegment, ThreadItem } from "../core/types.js";
 
 function emptyStateMarkup(threadId: string | null): string {
   const subtitle = threadId
@@ -25,21 +25,41 @@ function buildItemNode(item: ThreadItem): HTMLElement {
   roleLabel.className = "message-role";
   roleLabel.textContent = item.label;
 
-  const content = document.createElement("p");
-  content.className = "message-body";
-  if (item.status === "pending") {
-    content.textContent = item.content || "Running turn…";
-  } else if (item.status === "error") {
-    content.textContent = item.error ?? "Operation failed.";
-  } else {
-    content.textContent = item.content;
-    if (item.kind === "agent_output" && !item.content.trim()) {
-      content.classList.add("empty-output");
-      content.setAttribute("aria-label", "No output");
-    }
-  }
+  article.append(roleLabel);
 
-  article.append(roleLabel, content);
+  if (item.kind === "agent_output") {
+    const segments = item.outputSegments ?? [];
+
+    if (segments.length === 0) {
+      const content = document.createElement("p");
+      content.className = "message-body";
+      if (item.status === "pending") {
+        content.textContent = "Running turn…";
+      } else if (item.status === "error") {
+        content.textContent = item.error ?? "Operation failed.";
+      } else {
+        content.classList.add("empty-output");
+        content.setAttribute("aria-label", "No output");
+        content.textContent = "";
+      }
+      article.append(content);
+    } else {
+      for (const segment of segments) {
+        article.append(buildOutputSegment(item.id, segment));
+      }
+    }
+  } else {
+    const content = document.createElement("p");
+    content.className = "message-body";
+    if (item.status === "pending") {
+      content.textContent = item.content || "Running turn…";
+    } else if (item.status === "error") {
+      content.textContent = item.error ?? "Operation failed.";
+    } else {
+      content.textContent = item.content;
+    }
+    article.append(content);
+  }
 
   if (item.status) {
     const meta = document.createElement("footer");
@@ -54,7 +74,55 @@ function buildItemNode(item: ThreadItem): HTMLElement {
   return article;
 }
 
+function buildOutputSegment(itemId: string, segment: OutputSegment): HTMLElement {
+  if (segment.kind === "text") {
+    const block = document.createElement("section");
+    block.className = "segment segment-text";
+    const content = document.createElement("p");
+    content.className = "message-body";
+    content.textContent = segment.text;
+    block.appendChild(content);
+    return block;
+  }
+
+  const block = document.createElement("section");
+  block.className = "segment segment-reasoning";
+
+  const header = document.createElement("div");
+  header.className = "segment-reasoning-header";
+
+  const label = document.createElement("span");
+  label.className = "segment-reasoning-label";
+  label.textContent = segment.title ? `Reasoning - ${segment.title}` : "Reasoning";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "reasoning-toggle";
+  toggle.dataset.action = "toggle-segment";
+  toggle.dataset.itemId = itemId;
+  toggle.dataset.segmentId = segment.id;
+  const expanded = segment.expanded ?? false;
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.textContent = expanded ? "Collapse" : "Expand";
+
+  header.append(label, toggle);
+  block.appendChild(header);
+
+  const content = document.createElement("p");
+  content.className = "segment-reasoning-content";
+  const text = segment.text.trim();
+  if (expanded || text.length <= 160) {
+    content.textContent = text || "Awaiting reasoning summary…";
+  } else {
+    content.textContent = `${text.slice(0, 160)}…`;
+  }
+  block.appendChild(content);
+
+  return block;
+}
+
 export function renderItems(state: AgentState): void {
+  const wasNearBottom = ui.itemList.scrollHeight - ui.itemList.scrollTop - ui.itemList.clientHeight < 80;
   ui.itemList.innerHTML = "";
 
   if (state.items.length === 0) {
@@ -71,5 +139,7 @@ export function renderItems(state: AgentState): void {
   }
 
   ui.itemList.appendChild(fragment);
-  ui.itemList.scrollTop = ui.itemList.scrollHeight;
+  if (wasNearBottom) {
+    ui.itemList.scrollTop = ui.itemList.scrollHeight;
+  }
 }

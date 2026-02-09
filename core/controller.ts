@@ -130,6 +130,48 @@ function parseReasoningSummaryPartAdded(params: unknown): string | undefined {
   return undefined;
 }
 
+function formatPlanUpdateText(params: unknown): string {
+  const record = parseObject(params);
+  if (!record) return "";
+
+  const lines: string[] = [];
+  const explanation = record.explanation ?? record.summary ?? record.text;
+  if (typeof explanation === "string" && explanation.trim()) {
+    lines.push(explanation.trim());
+  }
+
+  const plan = Array.isArray(record.plan) ? record.plan : null;
+  if (plan) {
+    for (let i = 0; i < plan.length; i += 1) {
+      const step = plan[i];
+      if (typeof step === "string" && step.trim()) {
+        lines.push(`${i + 1}. ${step.trim()}`);
+        continue;
+      }
+      const stepRecord = parseObject(step);
+      if (!stepRecord) continue;
+      const label = stepRecord.step ?? stepRecord.text ?? stepRecord.title ?? stepRecord.name;
+      if (typeof label !== "string" || !label.trim()) continue;
+      const status = stepRecord.status;
+      if (typeof status === "string" && status.trim()) {
+        lines.push(`${i + 1}. ${label.trim()} [${status.trim()}]`);
+      } else {
+        lines.push(`${i + 1}. ${label.trim()}`);
+      }
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function handlePlanUpdated(method: string, params: unknown): void {
+  const agent = ensureActiveAgentMessage();
+  const protocolItemId = extractProtocolItemId(params);
+  const ref = appendSubBlock(agent, "plan", protocolItemId, ITEM_TYPE_REGISTRY.plan.label);
+  const text = formatPlanUpdateText(params);
+  updateSubBlockText(ref, text);
+}
+
 function findItemById(itemId: string | null | undefined): ThreadItem | null {
   if (!itemId) return null;
   return state.items.find((item) => item.id === itemId) ?? null;
@@ -424,6 +466,11 @@ function handleApprovalEvent(method: string, params: unknown): void {
 
 function handleNotification(method: string, params: unknown): void {
   const lower = method.toLowerCase();
+
+  if (lower === "turn/plan/updated") {
+    handlePlanUpdated(method, params);
+    return;
+  }
 
   if (lower === "item/started") {
     handleItemStarted(params);

@@ -60,18 +60,42 @@ function extractTextValue(value: unknown): string {
   const record = parseObject(value);
   if (!record) return "";
 
-  const direct = record.delta ?? record.text ?? record.chunk ?? record.content;
+  const direct =
+    record.delta ??
+    record.outputDelta ??
+    record.textDelta ??
+    record.summaryTextDelta ??
+    record.summary_text_delta ??
+    record.text ??
+    record.chunk ??
+    record.content;
   if (typeof direct === "string") return direct;
 
   const msg = parseObject(record.msg);
   if (msg) {
-    const nested = msg.delta ?? msg.text ?? msg.chunk ?? msg.content;
+    const nested =
+      msg.delta ??
+      msg.outputDelta ??
+      msg.textDelta ??
+      msg.summaryTextDelta ??
+      msg.summary_text_delta ??
+      msg.text ??
+      msg.chunk ??
+      msg.content;
     if (typeof nested === "string") return nested;
   }
 
   const item = parseObject(record.item);
   if (item) {
-    const nested = item.delta ?? item.text ?? item.chunk ?? item.content;
+    const nested =
+      item.delta ??
+      item.outputDelta ??
+      item.textDelta ??
+      item.summaryTextDelta ??
+      item.summary_text_delta ??
+      item.text ??
+      item.chunk ??
+      item.content;
     if (typeof nested === "string") return nested;
   }
 
@@ -368,7 +392,8 @@ function handleMethodDelta(method: string, params: unknown): void {
   }
 
   if (lower.includes("reasoning/summarytextdelta") || lower.endsWith("reasoning_summary_text_delta")) {
-    const reasoningDelta = parseReasoningSummaryTextDelta(params) ?? delta;
+    const parsedReasoningDelta = parseReasoningSummaryTextDelta(params);
+    const reasoningDelta = parsedReasoningDelta ?? delta;
     if (!reasoningDelta) return;
 
     let ref = extractProtocolItemId(params) ? protocolSubBlockMap.get(extractProtocolItemId(params) as string) : null;
@@ -415,7 +440,15 @@ function handleNotification(method: string, params: unknown): void {
     return;
   }
 
-  if (lower.endsWith("/delta") || lower.includes("summary_text_delta") || lower.includes("summary_part_added")) {
+  if (
+    lower.endsWith("/delta") ||
+    lower.endsWith("outputdelta") ||
+    lower.endsWith("textdelta") ||
+    lower.endsWith("summarytextdelta") ||
+    lower.endsWith("summarypartadded") ||
+    lower.includes("summary_text_delta") ||
+    lower.includes("summary_part_added")
+  ) {
     handleMethodDelta(method, params);
   }
 

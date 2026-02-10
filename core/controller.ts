@@ -122,6 +122,12 @@ function extractProtocolItemId(value: unknown): string | null {
   const direct = record.itemId ?? record.item_id ?? record.callId ?? record.call_id ?? record.id;
   if (typeof direct === "string" && direct.trim()) return direct;
 
+  const msg = parseObject(record.msg);
+  if (msg) {
+    const nestedMsg = msg.itemId ?? msg.item_id ?? msg.callId ?? msg.call_id ?? msg.id;
+    if (typeof nestedMsg === "string" && nestedMsg.trim()) return nestedMsg;
+  }
+
   const item = parseObject(record.item);
   if (item) {
     const nested = item.itemId ?? item.item_id ?? item.callId ?? item.call_id ?? item.id;
@@ -381,6 +387,59 @@ function getSubBlockText(ref: SegmentRef): string {
   return segment && segment.kind === "subBlock" ? segment.text : "";
 }
 
+function formatWebSearchEndText(method: string, params: unknown): string {
+  void method;
+  const record = parseObject(params) ?? {};
+  const msg = parseObject(record.msg) ?? record;
+  const action = parseObject(msg.action);
+  const lines: string[] = [];
+
+  const query = parseString(msg.query);
+  const actionType =
+    parseString(action?.type) ?? parseString(action?.name) ?? parseString(action?.kind) ?? "other";
+  lines.push(actionType);
+
+  const normalizedActionType = actionType.replace(/[_\s-]/g, "").toLowerCase();
+  const isSearch = normalizedActionType === "search";
+  const isOpenPage = normalizedActionType === "openpage";
+  const isFindInPage = normalizedActionType === "findinpage";
+
+  if (query) lines.push(`query: ${query}`);
+
+  const actionQuery = parseString(action?.query);
+  if (isSearch && actionQuery && actionQuery !== query) {
+    lines.push(`action query: ${actionQuery}`);
+  }
+
+  const queries = toArray(action?.queries)
+    .map((entry) => parseString(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  if (isSearch && queries.length > 0) {
+    lines.push("queries:");
+    for (let i = 0; i < queries.length; i += 1) {
+      lines.push(`${i + 1}. ${queries[i]}`);
+    }
+  }
+
+  const url = parseString(action?.url);
+  if ((isOpenPage || isFindInPage) && url) lines.push(`url: ${url}`);
+
+  const pattern = parseString(action?.pattern);
+  if (isFindInPage && pattern) lines.push(`pattern: ${pattern}`);
+
+  return lines.join("\n");
+}
+
+function isWebSearchEndEvent(method: string, params: unknown): boolean {
+  const lower = method.toLowerCase();
+  if (lower.includes("web_search_end") || lower.includes("websearchend")) return true;
+
+  const record = parseObject(params);
+  const msg = record ? parseObject(record.msg) : null;
+  const rawType = parseString(msg?.type) ?? parseString(record?.type) ?? "";
+  return rawType.toLowerCase() === "web_search_end";
+}
+
 function inferItemTypeFromMethod(method: string): ThreadItemType {
   const lower = method.toLowerCase();
   if (lower.includes("agentmessage")) return "agentMessage";
@@ -390,7 +449,7 @@ function inferItemTypeFromMethod(method: string): ThreadItemType {
   if (lower.includes("filechange")) return "fileChange";
   if (lower.includes("mcptoolcall")) return "mcpToolCall";
   if (lower.includes("collabtoolcall")) return "collabToolCall";
-  if (lower.includes("websearch")) return "webSearch";
+  if (lower.includes("websearch") || lower.includes("web_search")) return "webSearch";
   if (lower.includes("imageview")) return "imageView";
   if (lower.includes("enteredreviewmode")) return "enteredReviewMode";
   if (lower.includes("exitedreviewmode")) return "exitedReviewMode";
@@ -477,6 +536,10 @@ function handleItemStarted(params: unknown): void {
     return;
   }
 
+  if (itemType === "webSearch") {
+    return;
+  }
+
   const existingRef = protocolItemId ? protocolSubBlockMap.get(protocolItemId) ?? null : null;
   const agent = ensureActiveAgentMessage();
   const ref = existingRef ?? appendSubBlock(agent, itemType, protocolItemId);
@@ -486,6 +549,7 @@ function handleItemStarted(params: unknown): void {
     if (command && getSubBlockText(ref).length === 0) {
       updateSubBlockText(ref, `$ ${command}\n`);
     }
+    return;
   }
 }
 
@@ -499,14 +563,15 @@ function handleItemCompleted(params: unknown): void {
 }
 
 function ensureSubBlockForMethod(method: string, params: unknown): SegmentRef {
+  const inferredType = inferItemTypeFromMethod(method);
   const protocolItemId = extractProtocolItemId(params);
   if (protocolItemId) {
     const existing = protocolSubBlockMap.get(protocolItemId);
     if (existing) return existing;
   }
+
   const agent = ensureActiveAgentMessage();
-  const type = inferItemTypeFromMethod(method);
-  return appendSubBlock(agent, type, protocolItemId);
+  return appendSubBlock(agent, inferredType, protocolItemId);
 }
 
 function handleMethodDelta(method: string, params: unknown): void {
@@ -684,6 +749,15 @@ function handleNotification(method: string, params: unknown): void {
   if (lower === "item/completed") {
     handleItemCompleted(params);
     return;
+  }
+
+  if (isWebSearchEndEvent(method, params)) {
+    const ref = ensureSubBlockForMethod(method, params);
+    const details = formatWebSearchEndText(method, params);
+    if (details) {
+      updateSubBlockText(ref, `${details}\n`);
+    }
+    updateSubBlockStatus(ref, "completed");
   }
 
   if (lower === "item/commandexecution/requestapproval" || lower === "item/filechange/requestapproval") {

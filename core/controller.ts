@@ -430,6 +430,36 @@ function formatWebSearchEndText(method: string, params: unknown): string {
   return lines.join("\n");
 }
 
+function parseNumberLike(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function formatCommandExecutionCompletedText(itemContainer: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const cwd = parseString(itemContainer.cwd);
+  if (cwd) lines.push(`cwd: ${cwd}`);
+
+  const exitCode = parseNumberLike(itemContainer.exitCode ?? itemContainer.exit_code);
+  if (exitCode !== null) lines.push(`exit code: ${exitCode}`);
+
+  const durationMs = parseNumberLike(itemContainer.durationMs ?? itemContainer.duration_ms);
+  if (durationMs !== null) lines.push(`duration: ${durationMs}ms`);
+
+  const output = parseString(itemContainer.aggregatedOutput ?? itemContainer.aggregated_output ?? itemContainer.output);
+  if (output) {
+    lines.push("output:");
+    lines.push(output);
+  }
+
+  return lines.join("\n");
+}
+
 function isWebSearchEndEvent(method: string, params: unknown): boolean {
   const lower = method.toLowerCase();
   if (lower.includes("web_search_end") || lower.includes("websearchend")) return true;
@@ -554,10 +584,18 @@ function handleItemStarted(params: unknown): void {
 }
 
 function handleItemCompleted(params: unknown): void {
+  const itemContainer = extractItemContainer(params);
   const protocolItemId = extractProtocolItemId(params);
   if (!protocolItemId) return;
   const ref = protocolSubBlockMap.get(protocolItemId);
   if (ref) {
+    const itemType = normalizeThreadItemType(itemContainer?.type ?? itemContainer?.itemType ?? itemContainer?.item_type);
+    if (itemType === "commandExecution" && itemContainer) {
+      const summary = formatCommandExecutionCompletedText(itemContainer);
+      if (summary && !getSubBlockText(ref).includes("exit code:")) {
+        updateSubBlockText(ref, `\n${summary}\n`);
+      }
+    }
     updateSubBlockStatus(ref, "completed");
   }
 }

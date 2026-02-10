@@ -374,6 +374,13 @@ function updateSubBlockStatus(ref: SegmentRef, status: "pending" | "completed" |
   updateItem({ ...item, outputSegments });
 }
 
+function getSubBlockText(ref: SegmentRef): string {
+  const item = findItemById(ref.itemId);
+  if (!item || !item.outputSegments) return "";
+  const segment = item.outputSegments.find((candidate) => candidate.id === ref.segmentId && candidate.kind === "subBlock");
+  return segment && segment.kind === "subBlock" ? segment.text : "";
+}
+
 function inferItemTypeFromMethod(method: string): ThreadItemType {
   const lower = method.toLowerCase();
   if (lower.includes("agentmessage")) return "agentMessage";
@@ -470,8 +477,16 @@ function handleItemStarted(params: unknown): void {
     return;
   }
 
+  const existingRef = protocolItemId ? protocolSubBlockMap.get(protocolItemId) ?? null : null;
   const agent = ensureActiveAgentMessage();
-  appendSubBlock(agent, itemType, protocolItemId);
+  const ref = existingRef ?? appendSubBlock(agent, itemType, protocolItemId);
+
+  if (itemType === "commandExecution") {
+    const command = parseString(itemContainer?.command);
+    if (command && getSubBlockText(ref).length === 0) {
+      updateSubBlockText(ref, `$ ${command}\n`);
+    }
+  }
 }
 
 function handleItemCompleted(params: unknown): void {

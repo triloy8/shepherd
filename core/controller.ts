@@ -35,6 +35,7 @@ const protocolSubBlockMap = new Map<string, SegmentRef>();
 let activeReasoningSubBlockRef: SegmentRef | null = null;
 
 function syncView(): void {
+  syncApprovalPolicyControl();
   renderItems(state);
   renderApprovals(state);
 }
@@ -65,6 +66,16 @@ function parseString(value: unknown): string | null {
 
 function isApprovalPolicy(value: string): value is AskForApproval {
   return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never";
+}
+
+function syncApprovalPolicyControl(): void {
+  const buttons = ui.approvalPolicyGroup.querySelectorAll<HTMLButtonElement>("button[data-approval-policy]");
+  for (const button of buttons) {
+    const value = button.dataset.approvalPolicy;
+    const active = value === state.selectedApprovalPolicy;
+    button.dataset.active = active ? "true" : "false";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
 }
 
 function toArray(value: unknown): unknown[] {
@@ -923,10 +934,16 @@ function attachEventListeners(): void {
     void handleNewThread();
   });
 
-  ui.approvalPolicy.addEventListener("change", () => {
-    const next = ui.approvalPolicy.value;
+  ui.approvalPolicyGroup.addEventListener("click", (event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+    const button = target.closest<HTMLButtonElement>("button[data-approval-policy]");
+    if (!button) return;
+    const next = button.dataset.approvalPolicy;
+    if (!next) return;
     if (!isApprovalPolicy(next)) return;
+    if (next === state.selectedApprovalPolicy) return;
     state.selectedApprovalPolicy = next;
+    syncApprovalPolicyControl();
     setStatus(`Approval policy set to ${next}`);
   });
 
@@ -971,7 +988,7 @@ function connectBridgeEventStream(): void {
 }
 
 export function setupApp(): void {
-  ui.approvalPolicy.value = state.selectedApprovalPolicy;
+  syncApprovalPolicyControl();
   syncView();
   attachEventListeners();
   connectBridgeEventStream();

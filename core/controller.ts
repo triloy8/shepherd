@@ -460,6 +460,25 @@ function formatCommandExecutionCompletedText(itemContainer: Record<string, unkno
   return lines.join("\n");
 }
 
+function formatFileChangeDiffFromCompleted(itemContainer: Record<string, unknown>): string {
+  const changes = toArray(itemContainer.changes ?? itemContainer.fileChanges ?? itemContainer.file_changes);
+  const lines: string[] = [];
+
+  for (const changeValue of changes) {
+    const change = parseObject(changeValue);
+    if (!change) continue;
+    const path = parseString(change.path) ?? "(unknown path)";
+    const diff = parseString(change.diff);
+    if (!diff) continue;
+
+    lines.push(path);
+    lines.push(diff.trimEnd());
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
 function isWebSearchEndEvent(method: string, params: unknown): boolean {
   const lower = method.toLowerCase();
   if (lower.includes("web_search_end") || lower.includes("websearchend")) return true;
@@ -594,6 +613,12 @@ function handleItemCompleted(params: unknown): void {
       const summary = formatCommandExecutionCompletedText(itemContainer);
       if (summary && !getSubBlockText(ref).includes("exit code:")) {
         updateSubBlockText(ref, `\n${summary}\n`);
+      }
+    }
+    if (itemType === "fileChange" && itemContainer) {
+      const diffText = formatFileChangeDiffFromCompleted(itemContainer);
+      if (diffText && !getSubBlockText(ref).includes(diffText)) {
+        updateSubBlockText(ref, `\n${diffText}\n`);
       }
     }
     updateSubBlockStatus(ref, "completed");

@@ -1,9 +1,30 @@
-import { connectEventStream, interruptTurn, startThread, startTurn } from "../services/app_server_client.js";
+import {
+  connectEventStream,
+  interruptTurn,
+  respondCommandApproval,
+  respondFileChangeApproval,
+  respondToolUserInput,
+  startThread,
+  startTurn,
+} from "../services/app_server_client.js";
 import { ITEM_TYPE_REGISTRY, normalizeThreadItemType } from "./item_registry.js";
 import { createId, createThreadItem, state } from "./state.js";
 import { setComposerDisabled, setStatus, ui, adjustTextareaHeight, resetTextareaHeight } from "../ui/dom.js";
 import { renderItems } from "../ui/render.js";
-import type { BridgeEvent, OutputSegment, ThreadItem, ThreadItemType } from "./types.js";
+import { renderApprovals } from "../ui/render.js";
+import type {
+  ApprovalQuestion,
+  BridgeEvent,
+  CommandApprovalDecision,
+  FileChangeApprovalDecision,
+  OutputSegment,
+  PendingApprovalRequest,
+  PendingCommandApprovalRequest,
+  PendingFileChangeApprovalRequest,
+  PendingToolUserInputRequest,
+  ThreadItem,
+  ThreadItemType,
+} from "./types.js";
 
 type SegmentRef = { itemId: string; segmentId: string; itemType: ThreadItemType };
 
@@ -14,6 +35,7 @@ let activeReasoningSubBlockRef: SegmentRef | null = null;
 
 function syncView(): void {
   renderItems(state);
+  renderApprovals(state);
 }
 
 function appendItem(item: ThreadItem): void {
@@ -34,6 +56,42 @@ function updateItem(item: ThreadItem): void {
 function parseObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") return null;
   return value as Record<string, unknown>;
+}
+
+function parseString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function toArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function upsertPendingApproval(request: PendingApprovalRequest): void {
+  const index = state.pendingApprovals.findIndex((candidate) => candidate.requestId === request.requestId);
+  if (index >= 0) {
+    state.pendingApprovals[index] = request;
+  } else {
+    state.pendingApprovals.push(request);
+  }
+  syncView();
+}
+
+function markPendingApprovalSubmitting(requestId: string, submitting: boolean, error?: string): void {
+  const next = state.pendingApprovals.map((request) => {
+    if (request.requestId !== requestId) return request;
+    return {
+      ...request,
+      submitting,
+      error,
+    };
+  });
+  state.pendingApprovals = next;
+  syncView();
+}
+
+function removePendingApproval(requestId: string): void {
+  state.pendingApprovals = state.pendingApprovals.filter((request) => request.requestId !== requestId);
+  syncView();
 }
 
 function extractItemContainer(params: unknown): Record<string, unknown> | null {
@@ -459,9 +517,124 @@ function handleMethodDelta(method: string, params: unknown): void {
 }
 
 function handleApprovalEvent(method: string, params: unknown): void {
-  const ref = ensureSubBlockForMethod(method, params);
-  updateSubBlockStatus(ref, "pending");
+  void method;
+  void params;
   setStatus("Approval required");
+}
+
+function parseCommandActions(params: Record<string, unknown>): string[] {
+  const actions = toArray(params.commandActions);
+  const labels: string[] = [];
+  for (const action of actions) {
+    const record = parseObject(action);
+    if (!record) continue;
+    const type = parseString(record.type);
+    const label = parseString(record.label);
+    const value = label ?? type;
+    if (value) labels.push(value);
+  }
+  return labels;
+}
+
+function parseApprovalQuestions(params: Record<string, unknown>): ApprovalQuestion[] {
+  const questions = toArray(params.questions);
+  const parsed: ApprovalQuestion[] = [];
+
+  for (const question of questions) {
+    const q = parseObject(question);
+    if (!q) continue;
+    const id = parseString(q.id);
+    const header = parseString(q.header) ?? "";
+    const prompt = parseString(q.question) ?? "";
+    if (!id || !prompt) continue;
+
+    const options = toArray(q.options)
+      .map((option) => {
+        const opt = parseObject(option);
+        if (!opt) return null;
+        const label = parseString(opt.label);
+        if (!label) return null;
+        const description = parseString(opt.description) ?? "";
+        return { label, description };
+      })
+      .filter((option): option is { label: string; description: string } => Boolean(option));
+
+    parsed.push({
+      id,
+      header,
+      question: prompt,
+      isOther: Boolean(q.isOther),
+      isSecret: Boolean(q.isSecret),
+      options,
+    });
+  }
+
+  return parsed;
+}
+
+function handleServerRequest(requestId: string, method: string, params: unknown): void {
+  const lower = method.toLowerCase();
+  const record = parseObject(params) ?? {};
+  const threadId = parseString(record.threadId) ?? state.threadId ?? "unknown";
+  const turnId = parseString(record.turnId) ?? state.activeTurnId ?? "unknown";
+  const itemId = parseString(record.itemId) ?? requestId;
+  const reason = parseString(record.reason);
+  const createdAt = new Date().toISOString();
+
+  if (lower === "item/commandexecution/requestapproval") {
+    handleApprovalEvent(method, params);
+    const request: PendingCommandApprovalRequest = {
+      kind: "command",
+      requestId,
+      method,
+      threadId,
+      turnId,
+      itemId,
+      reason,
+      createdAt,
+      command: parseString(record.command),
+      cwd: parseString(record.cwd),
+      commandActions: parseCommandActions(record),
+      submitting: false,
+    };
+    upsertPendingApproval(request);
+    return;
+  }
+
+  if (lower === "item/filechange/requestapproval") {
+    handleApprovalEvent(method, params);
+    const request: PendingFileChangeApprovalRequest = {
+      kind: "fileChange",
+      requestId,
+      method,
+      threadId,
+      turnId,
+      itemId,
+      reason,
+      createdAt,
+      grantRoot: parseString(record.grantRoot),
+      submitting: false,
+    };
+    upsertPendingApproval(request);
+    return;
+  }
+
+  if (lower === "item/tool/requestuserinput") {
+    const request: PendingToolUserInputRequest = {
+      kind: "toolUserInput",
+      requestId,
+      method,
+      threadId,
+      turnId,
+      itemId,
+      reason,
+      createdAt,
+      questions: parseApprovalQuestions(record),
+      submitting: false,
+    };
+    upsertPendingApproval(request);
+    setStatus("User input required");
+  }
 }
 
 function handleNotification(method: string, params: unknown): void {
@@ -543,6 +716,98 @@ function handleBridgeEvent(event: BridgeEvent): void {
 
   if (event.type === "notification" && event.method) {
     handleNotification(event.method, event.params);
+    return;
+  }
+
+  if (event.type === "server_request" && event.method && event.requestId) {
+    handleServerRequest(event.requestId, event.method, event.params);
+  }
+}
+
+function isCommandDecision(value: string): value is CommandApprovalDecision {
+  return value === "accept" || value === "acceptForSession" || value === "decline" || value === "cancel";
+}
+
+function isFileChangeDecision(value: string): value is FileChangeApprovalDecision {
+  return value === "accept" || value === "acceptForSession" || value === "decline" || value === "cancel";
+}
+
+function findPendingApproval(requestId: string): PendingApprovalRequest | null {
+  return state.pendingApprovals.find((request) => request.requestId === requestId) ?? null;
+}
+
+async function submitCommandApproval(requestId: string, decision: CommandApprovalDecision): Promise<void> {
+  const request = findPendingApproval(requestId);
+  if (!request || request.kind !== "command") return;
+  markPendingApprovalSubmitting(requestId, true);
+  try {
+    await respondCommandApproval(requestId, decision);
+    removePendingApproval(requestId);
+    setStatus("Command approval submitted");
+  } catch (error) {
+    markPendingApprovalSubmitting(
+      requestId,
+      false,
+      error instanceof Error ? error.message : "Failed to submit command approval",
+    );
+    setStatus("Command approval failed", "error");
+  }
+}
+
+async function submitFileChangeApproval(requestId: string, decision: FileChangeApprovalDecision): Promise<void> {
+  const request = findPendingApproval(requestId);
+  if (!request || request.kind !== "fileChange") return;
+  markPendingApprovalSubmitting(requestId, true);
+  try {
+    await respondFileChangeApproval(requestId, decision);
+    removePendingApproval(requestId);
+    setStatus("File change approval submitted");
+  } catch (error) {
+    markPendingApprovalSubmitting(
+      requestId,
+      false,
+      error instanceof Error ? error.message : "Failed to submit file change approval",
+    );
+    setStatus("File change approval failed", "error");
+  }
+}
+
+async function submitToolUserInput(form: HTMLFormElement): Promise<void> {
+  const requestId = form.dataset.requestId;
+  if (!requestId) return;
+  const request = findPendingApproval(requestId);
+  if (!request || request.kind !== "toolUserInput") return;
+
+  const answers: Record<string, { answers: string[] }> = {};
+  for (const question of request.questions) {
+    const selected = form.elements.namedItem(`q:${question.id}`);
+    const other = form.elements.namedItem(`other:${question.id}`);
+    const values: string[] = [];
+
+    if (selected instanceof HTMLSelectElement && selected.value) {
+      values.push(selected.value);
+    }
+    if (other instanceof HTMLInputElement && other.value.trim()) {
+      values.push(other.value.trim());
+    }
+
+    if (values.length > 0) {
+      answers[question.id] = { answers: values };
+    }
+  }
+
+  markPendingApprovalSubmitting(requestId, true);
+  try {
+    await respondToolUserInput(requestId, answers);
+    removePendingApproval(requestId);
+    setStatus("Tool input submitted");
+  } catch (error) {
+    markPendingApprovalSubmitting(
+      requestId,
+      false,
+      error instanceof Error ? error.message : "Failed to submit tool input",
+    );
+    setStatus("Tool input failed", "error");
   }
 }
 
@@ -608,6 +873,7 @@ async function handleNewThread(): Promise<void> {
   state.activeAgentItemId = null;
   state.isTurnActive = false;
   state.items = [];
+  state.pendingApprovals = [];
   protocolMessageMap.clear();
   protocolSubBlockMap.clear();
   activeReasoningSubBlockRef = null;
@@ -646,6 +912,35 @@ function attachEventListeners(): void {
 
   ui.newThreadButton.addEventListener("click", () => {
     void handleNewThread();
+  });
+
+  ui.approvalList.addEventListener("click", (event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+    const button = target.closest<HTMLButtonElement>("button[data-request-id][data-approval-decision]");
+    if (!button) return;
+
+    const requestId = button.dataset.requestId;
+    const decision = button.dataset.approvalDecision;
+    if (!requestId || !decision) return;
+
+    const pending = findPendingApproval(requestId);
+    if (!pending) return;
+
+    if (pending.kind === "command" && isCommandDecision(decision)) {
+      void submitCommandApproval(requestId, decision);
+      return;
+    }
+
+    if (pending.kind === "fileChange" && isFileChangeDecision(decision)) {
+      void submitFileChangeApproval(requestId, decision);
+    }
+  });
+
+  ui.approvalList.addEventListener("submit", (event: Event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    event.preventDefault();
+    void submitToolUserInput(form);
   });
 
 }

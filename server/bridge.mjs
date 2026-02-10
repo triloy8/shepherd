@@ -31,6 +31,7 @@ class CodexAppServerSession {
     this.readline = null;
     this.nextRequestId = 1;
     this.pending = new Map();
+    this.serverRequests = new Map();
     this.isInitialized = false;
     this.initializePromise = null;
     this.threadId = null;
@@ -62,6 +63,7 @@ class CodexAppServerSession {
       this.child = null;
       this.readline = null;
       this.pending.clear();
+      this.serverRequests.clear();
       this.isInitialized = false;
       this.threadId = null;
       this.activeTurnId = null;
@@ -117,6 +119,11 @@ class CodexAppServerSession {
       return;
     }
 
+    if (this.isServerRequest(message)) {
+      this.handleServerRequest(message);
+      return;
+    }
+
     if (typeof message.id === "number" || typeof message.id === "string") {
       const pending = this.pending.get(message.id);
       if (!pending) return;
@@ -153,6 +160,30 @@ class CodexAppServerSession {
     }
   }
 
+  isServerRequest(message) {
+    return (
+      message &&
+      (typeof message.id === "number" || typeof message.id === "string") &&
+      typeof message.method === "string"
+    );
+  }
+
+  handleServerRequest(message) {
+    const requestId = String(message.id);
+    this.serverRequests.set(requestId, {
+      id: message.id,
+      method: message.method,
+      params: message.params ?? {},
+    });
+
+    this.broadcast({
+      type: "server_request",
+      requestId,
+      method: message.method,
+      params: message.params ?? null,
+    });
+  }
+
   sendRequest(method, params = {}) {
     if (!this.child?.stdin) {
       return Promise.reject(new Error("codex app-server is not running."));
@@ -180,6 +211,25 @@ class CodexAppServerSession {
 
     const payload = { method, params };
     this.child.stdin.write(`${JSON.stringify(payload)}\n`, "utf8");
+  }
+
+  resolveServerRequest(requestId, expectedMethod, result) {
+    if (!this.child?.stdin) {
+      throw new Error("codex app-server is not running.");
+    }
+
+    const request = this.serverRequests.get(requestId);
+    if (!request) {
+      throw new Error(`Unknown server request id: ${requestId}`);
+    }
+
+    if (request.method !== expectedMethod) {
+      throw new Error(`Request ${requestId} expects method ${request.method}, not ${expectedMethod}`);
+    }
+
+    const payload = { id: request.id, result };
+    this.child.stdin.write(`${JSON.stringify(payload)}\n`, "utf8");
+    this.serverRequests.delete(requestId);
   }
 
   async ensureInitialized() {
@@ -420,6 +470,77 @@ const server = http.createServer(async (request, response) => {
     } catch (error) {
       respondJson(response, 500, {
         error: error instanceof Error ? error.message : "Failed to interrupt turn.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/approvals/command") {
+    try {
+      const body = await parseJsonBody(request);
+      const requestId = typeof body.requestId === "string" ? body.requestId : null;
+      const decision = typeof body.decision === "string" ? body.decision : null;
+      const allowed = new Set(["accept", "acceptForSession", "decline", "cancel"]);
+
+      if (!requestId || !decision || !allowed.has(decision)) {
+        respondJson(response, 400, { error: "Invalid command approval payload." });
+        return;
+      }
+
+      session.resolveServerRequest(requestId, "item/commandExecution/requestApproval", {
+        decision,
+      });
+      respondJson(response, 200, { ok: true });
+    } catch (error) {
+      respondJson(response, 500, {
+        error: error instanceof Error ? error.message : "Failed to submit command approval.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/approvals/file-change") {
+    try {
+      const body = await parseJsonBody(request);
+      const requestId = typeof body.requestId === "string" ? body.requestId : null;
+      const decision = typeof body.decision === "string" ? body.decision : null;
+      const allowed = new Set(["accept", "acceptForSession", "decline", "cancel"]);
+
+      if (!requestId || !decision || !allowed.has(decision)) {
+        respondJson(response, 400, { error: "Invalid file change approval payload." });
+        return;
+      }
+
+      session.resolveServerRequest(requestId, "item/fileChange/requestApproval", {
+        decision,
+      });
+      respondJson(response, 200, { ok: true });
+    } catch (error) {
+      respondJson(response, 500, {
+        error: error instanceof Error ? error.message : "Failed to submit file change approval.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tool-user-input") {
+    try {
+      const body = await parseJsonBody(request);
+      const requestId = typeof body.requestId === "string" ? body.requestId : null;
+      const answers = body.answers && typeof body.answers === "object" ? body.answers : null;
+
+      if (!requestId || !answers) {
+        respondJson(response, 400, { error: "Invalid tool user input payload." });
+        return;
+      }
+
+      session.resolveServerRequest(requestId, "item/tool/requestUserInput", {
+        answers,
+      });
+      respondJson(response, 200, { ok: true });
+    } catch (error) {
+      respondJson(response, 500, {
+        error: error instanceof Error ? error.message : "Failed to submit tool user input.",
       });
     }
     return;

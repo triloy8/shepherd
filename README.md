@@ -10,6 +10,14 @@ It does not call `/v1/chat/completions`; it only speaks to a local bridge that p
 - `turn/start`
 - `turn/interrupt`
 - Notification streaming over SSE (`/api/events`)
+- Server request handling for:
+  - `item/commandExecution/requestApproval`
+  - `item/fileChange/requestApproval`
+  - `item/tool/requestUserInput`
+- UI approval queue with decision submission:
+  - Command decisions: `accept`, `acceptForSession`, `decline`, `cancel`
+  - File change decisions: `accept`, `acceptForSession`, `decline`, `cancel`
+  - Tool user input answers (`answers` map keyed by question id)
 
 ## Prerequisites
 

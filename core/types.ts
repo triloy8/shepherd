@@ -35,6 +35,7 @@ export interface ThreadSnapshot {
 export interface AgentState {
   threadId: string | null;
   items: ThreadItem[];
+  pendingApprovals: PendingApprovalRequest[];
   activeTurnId: string | null;
   activeAgentItemId: string | null;
   isTurnActive: boolean;
@@ -42,10 +43,11 @@ export interface AgentState {
 }
 
 export interface BridgeEvent {
-  type: "ready" | "thread_started" | "turn_started" | "notification" | "error";
+  type: "ready" | "thread_started" | "turn_started" | "notification" | "server_request" | "error";
   message?: string;
   threadId?: string;
   turnId?: string;
+  requestId?: string;
   method?: string;
   params?: unknown;
 }
@@ -74,3 +76,54 @@ export interface OutputSegment {
   expanded?: boolean;
   createdAt: string;
 }
+
+export type CommandApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+export type FileChangeApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+
+export interface ApprovalQuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface ApprovalQuestion {
+  id: string;
+  header: string;
+  question: string;
+  isOther: boolean;
+  isSecret: boolean;
+  options: ApprovalQuestionOption[];
+}
+
+interface PendingApprovalBase {
+  requestId: string;
+  method: string;
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  createdAt: string;
+  reason: string | null;
+  submitting: boolean;
+  error?: string;
+}
+
+export interface PendingCommandApprovalRequest extends PendingApprovalBase {
+  kind: "command";
+  command: string | null;
+  cwd: string | null;
+  commandActions: string[];
+}
+
+export interface PendingFileChangeApprovalRequest extends PendingApprovalBase {
+  kind: "fileChange";
+  grantRoot: string | null;
+}
+
+export interface PendingToolUserInputRequest extends PendingApprovalBase {
+  kind: "toolUserInput";
+  questions: ApprovalQuestion[];
+}
+
+export type PendingApprovalRequest =
+  | PendingCommandApprovalRequest
+  | PendingFileChangeApprovalRequest
+  | PendingToolUserInputRequest;

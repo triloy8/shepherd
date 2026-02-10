@@ -1,5 +1,7 @@
 import type {
   BridgeEvent,
+  CommandApprovalDecision,
+  FileChangeApprovalDecision,
   InterruptTurnResponse,
   StartThreadResponse,
   StartTurnResponse,
@@ -37,6 +39,42 @@ export async function interruptTurn(turnId: string | null): Promise<InterruptTur
     body: JSON.stringify({ turnId }),
   });
   return parseJson<InterruptTurnResponse>(response);
+}
+
+export async function respondCommandApproval(
+  requestId: string,
+  decision: CommandApprovalDecision,
+): Promise<{ ok: true }> {
+  const response = await fetch("/api/approvals/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId, decision }),
+  });
+  return parseJson<{ ok: true }>(response);
+}
+
+export async function respondFileChangeApproval(
+  requestId: string,
+  decision: FileChangeApprovalDecision,
+): Promise<{ ok: true }> {
+  const response = await fetch("/api/approvals/file-change", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId, decision }),
+  });
+  return parseJson<{ ok: true }>(response);
+}
+
+export async function respondToolUserInput(
+  requestId: string,
+  answers: Record<string, { answers: string[] }>,
+): Promise<{ ok: true }> {
+  const response = await fetch("/api/tool-user-input", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId, answers }),
+  });
+  return parseJson<{ ok: true }>(response);
 }
 
 export function connectEventStream(

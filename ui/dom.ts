@@ -1,5 +1,6 @@
 type Elements = {
   itemList: HTMLElement | null;
+  approvalList: HTMLElement | null;
   composerForm: HTMLFormElement | null;
   textarea: HTMLTextAreaElement | null;
   sendButton: HTMLButtonElement | null;
@@ -20,6 +21,7 @@ const TEXTAREA_MAX_HEIGHT = 192;
 
 const elements: Elements = {
   itemList: document.querySelector<HTMLElement>("#item-list"),
+  approvalList: document.querySelector<HTMLElement>("#approval-list"),
   composerForm: document.querySelector<HTMLFormElement>("#composer-form"),
   textarea: document.querySelector<HTMLTextAreaElement>("#turn-input"),
   sendButton: document.querySelector<HTMLButtonElement>("#start-turn-btn"),
@@ -31,6 +33,7 @@ const elements: Elements = {
 
 function resolveElements(source: Elements): ResolvedElements {
   if (!source.itemList) throw new Error("Missing DOM element: itemList");
+  if (!source.approvalList) throw new Error("Missing DOM element: approvalList");
   if (!source.composerForm) throw new Error("Missing DOM element: composerForm");
   if (!source.textarea) throw new Error("Missing DOM element: textarea");
   if (!source.sendButton) throw new Error("Missing DOM element: sendButton");

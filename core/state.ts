@@ -3,6 +3,7 @@ import type { AgentState, ThreadItem, ThreadItemType } from "./types.js";
 export const state: AgentState = {
   threadId: null,
   items: [],
+  pendingApprovals: [],
   activeTurnId: null,
   activeAgentItemId: null,
   isTurnActive: false,

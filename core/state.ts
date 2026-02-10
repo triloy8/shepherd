@@ -4,6 +4,7 @@ export const state: AgentState = {
   threadId: null,
   items: [],
   pendingApprovals: [],
+  selectedApprovalPolicy: "on-request",
   activeTurnId: null,
   activeAgentItemId: null,
   isTurnActive: false,

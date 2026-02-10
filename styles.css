@@ -77,6 +77,24 @@ body {
 .agent-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.header-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.header-control select {
+  font: inherit;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  padding: 6px 10px;
+  background: rgba(24, 24, 27, 0.9);
+  color: var(--text-primary);
 }
 
 button {

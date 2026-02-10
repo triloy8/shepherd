@@ -36,6 +36,7 @@ export interface AgentState {
   threadId: string | null;
   items: ThreadItem[];
   pendingApprovals: PendingApprovalRequest[];
+  selectedApprovalPolicy: AskForApproval;
   activeTurnId: string | null;
   activeAgentItemId: string | null;
   isTurnActive: boolean;
@@ -127,3 +128,5 @@ export type PendingApprovalRequest =
   | PendingCommandApprovalRequest
   | PendingFileChangeApprovalRequest
   | PendingToolUserInputRequest;
+
+export type AskForApproval = "untrusted" | "on-failure" | "on-request" | "never";

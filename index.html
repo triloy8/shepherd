@@ -11,6 +11,15 @@
       <header class="agent-header">
         <h1>Agent</h1>
         <div class="agent-actions">
+          <label class="header-control" for="approval-policy">
+            <span>Approval</span>
+            <select id="approval-policy" name="approval_policy">
+              <option value="untrusted">untrusted</option>
+              <option value="on-failure">on-failure</option>
+              <option value="on-request" selected>on-request</option>
+              <option value="never">never</option>
+            </select>
+          </label>
           <button type="button" id="new-thread-btn">New Thread</button>
         </div>
       </header>

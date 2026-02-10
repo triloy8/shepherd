@@ -4,6 +4,7 @@ type Elements = {
   composerForm: HTMLFormElement | null;
   textarea: HTMLTextAreaElement | null;
   sendButton: HTMLButtonElement | null;
+  approvalPolicy: HTMLSelectElement | null;
   statusPill: HTMLSpanElement | null;
   statusText: HTMLSpanElement | null;
   interruptButton: HTMLButtonElement | null;
@@ -25,6 +26,7 @@ const elements: Elements = {
   composerForm: document.querySelector<HTMLFormElement>("#composer-form"),
   textarea: document.querySelector<HTMLTextAreaElement>("#turn-input"),
   sendButton: document.querySelector<HTMLButtonElement>("#start-turn-btn"),
+  approvalPolicy: document.querySelector<HTMLSelectElement>("#approval-policy"),
   statusPill: document.querySelector<HTMLSpanElement>("#status-pill"),
   statusText: document.querySelector<HTMLSpanElement>("#status-text"),
   interruptButton: document.querySelector<HTMLButtonElement>("#interrupt-turn-btn"),
@@ -37,6 +39,7 @@ function resolveElements(source: Elements): ResolvedElements {
   if (!source.composerForm) throw new Error("Missing DOM element: composerForm");
   if (!source.textarea) throw new Error("Missing DOM element: textarea");
   if (!source.sendButton) throw new Error("Missing DOM element: sendButton");
+  if (!source.approvalPolicy) throw new Error("Missing DOM element: approvalPolicy");
   if (!source.statusPill) throw new Error("Missing DOM element: statusPill");
   if (!source.statusText) throw new Error("Missing DOM element: statusText");
   if (!source.interruptButton) throw new Error("Missing DOM element: interruptButton");

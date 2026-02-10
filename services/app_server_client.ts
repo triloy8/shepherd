@@ -1,4 +1,5 @@
 import type {
+  AskForApproval,
   BridgeEvent,
   CommandApprovalDecision,
   FileChangeApprovalDecision,
@@ -15,19 +16,20 @@ async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function startThread(): Promise<StartThreadResponse> {
+export async function startThread(approvalPolicy: AskForApproval): Promise<StartThreadResponse> {
   const response = await fetch("/api/threads", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approvalPolicy }),
   });
   return parseJson<StartThreadResponse>(response);
 }
 
-export async function startTurn(input: string): Promise<StartTurnResponse> {
+export async function startTurn(input: string, approvalPolicy: AskForApproval): Promise<StartTurnResponse> {
   const response = await fetch("/api/turns", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({ input, approvalPolicy }),
   });
   return parseJson<StartTurnResponse>(response);
 }

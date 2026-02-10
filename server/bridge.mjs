@@ -13,6 +13,7 @@ const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? "8787");
 
 const MODEL = process.env.CODEX_MODEL ?? "gpt-5.3-codex";
+const DEFAULT_APPROVAL_POLICY = process.env.CODEX_APPROVAL_POLICY ?? "on-request";
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -36,6 +37,7 @@ class CodexAppServerSession {
     this.initializePromise = null;
     this.threadId = null;
     this.activeTurnId = null;
+    this.approvalPolicy = DEFAULT_APPROVAL_POLICY;
     this.eventSubscribers = new Set();
   }
 
@@ -262,10 +264,12 @@ class CodexAppServerSession {
     }
   }
 
-  async startThread() {
+  async startThread(approvalPolicy = this.approvalPolicy) {
     await this.ensureInitialized();
+    this.approvalPolicy = approvalPolicy;
     const result = await this.sendRequest("thread/start", {
       model: MODEL,
+      approvalPolicy: this.approvalPolicy,
     });
 
     const threadId = this.extractThreadId(result);
@@ -284,11 +288,13 @@ class CodexAppServerSession {
     return this.startThread();
   }
 
-  async startTurn(inputText) {
+  async startTurn(inputText, approvalPolicy = this.approvalPolicy) {
     const threadId = await this.ensureThread();
+    this.approvalPolicy = approvalPolicy;
 
     const result = await this.sendRequest("turn/start", {
       threadId,
+      approvalPolicy: this.approvalPolicy,
       input: [
         {
           type: "text",
@@ -343,6 +349,10 @@ class CodexAppServerSession {
     if (result?.turn && typeof result.turn.turn_id === "string") return result.turn.turn_id;
     return undefined;
   }
+}
+
+function isApprovalPolicy(value) {
+  return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never";
 }
 
 const session = new CodexAppServerSession();
@@ -432,7 +442,11 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === "POST" && url.pathname === "/api/threads") {
     try {
-      const threadId = await session.startThread();
+      const body = await parseJsonBody(request);
+      const approvalPolicy = isApprovalPolicy(body?.approvalPolicy)
+        ? body.approvalPolicy
+        : session.approvalPolicy;
+      const threadId = await session.startThread(approvalPolicy);
       respondJson(response, 200, { threadId });
     } catch (error) {
       respondJson(response, 500, {
@@ -446,12 +460,15 @@ const server = http.createServer(async (request, response) => {
     try {
       const body = await parseJsonBody(request);
       const input = typeof body.input === "string" ? body.input.trim() : "";
+      const approvalPolicy = isApprovalPolicy(body?.approvalPolicy)
+        ? body.approvalPolicy
+        : session.approvalPolicy;
       if (!input) {
         respondJson(response, 400, { error: "Missing input." });
         return;
       }
 
-      const turnId = await session.startTurn(input);
+      const turnId = await session.startTurn(input, approvalPolicy);
       respondJson(response, 200, { ok: true, turnId });
     } catch (error) {
       respondJson(response, 500, {

@@ -10,6 +10,8 @@ It does not call `/v1/chat/completions`; it only speaks to a local bridge that p
 - `turn/start`
 - `turn/interrupt`
 - Notification streaming over SSE (`/api/events`)
+- Global approval policy selector in the UI header (`untrusted`, `on-failure`, `on-request`, `never`)
+  propagated to both `thread/start` and `turn/start`
 - Server request handling for:
   - `item/commandExecution/requestApproval`
   - `item/fileChange/requestApproval`

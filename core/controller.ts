@@ -14,6 +14,7 @@ import { renderItems } from "../ui/render.js";
 import { renderApprovals } from "../ui/render.js";
 import type {
   ApprovalQuestion,
+  AskForApproval,
   BridgeEvent,
   CommandApprovalDecision,
   FileChangeApprovalDecision,
@@ -60,6 +61,10 @@ function parseObject(value: unknown): Record<string, unknown> | null {
 
 function parseString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function isApprovalPolicy(value: string): value is AskForApproval {
+  return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never";
 }
 
 function toArray(value: unknown): unknown[] {
@@ -702,7 +707,11 @@ function handleBridgeEvent(event: BridgeEvent): void {
 
   if (event.type === "thread_started") {
     state.threadId = event.threadId ?? null;
-    setStatus(state.threadId ? `Thread ready (${state.threadId})` : "Thread ready");
+    setStatus(
+      state.threadId
+        ? `Thread ready (${state.threadId}) • approval=${state.selectedApprovalPolicy}`
+        : `Thread ready • approval=${state.selectedApprovalPolicy}`,
+    );
     syncView();
     return;
   }
@@ -813,9 +822,9 @@ async function submitToolUserInput(form: HTMLFormElement): Promise<void> {
 
 async function ensureThread(): Promise<void> {
   if (state.threadId) return;
-  const response = await startThread();
+  const response = await startThread(state.selectedApprovalPolicy);
   state.threadId = response.threadId;
-  setStatus(`Thread ready (${state.threadId})`);
+  setStatus(`Thread ready (${state.threadId}) • approval=${state.selectedApprovalPolicy}`);
   syncView();
 }
 
@@ -843,7 +852,7 @@ async function handleSubmit(event: SubmitEvent): Promise<void> {
   resetTextareaHeight();
 
   try {
-    const response = await startTurn(input);
+    const response = await startTurn(input, state.selectedApprovalPolicy);
     state.activeTurnId = response.turnId ?? null;
   } catch (error) {
     failActiveTurn(error instanceof Error ? error.message : "Failed to start turn");
@@ -881,9 +890,9 @@ async function handleNewThread(): Promise<void> {
   syncView();
 
   try {
-    const response = await startThread();
+    const response = await startThread(state.selectedApprovalPolicy);
     state.threadId = response.threadId;
-    setStatus(`Thread ready (${state.threadId})`);
+    setStatus(`Thread ready (${state.threadId}) • approval=${state.selectedApprovalPolicy}`);
     syncView();
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Failed to start thread", "error");
@@ -912,6 +921,13 @@ function attachEventListeners(): void {
 
   ui.newThreadButton.addEventListener("click", () => {
     void handleNewThread();
+  });
+
+  ui.approvalPolicy.addEventListener("change", () => {
+    const next = ui.approvalPolicy.value;
+    if (!isApprovalPolicy(next)) return;
+    state.selectedApprovalPolicy = next;
+    setStatus(`Approval policy set to ${next}`);
   });
 
   ui.approvalList.addEventListener("click", (event: MouseEvent) => {
@@ -955,6 +971,7 @@ function connectBridgeEventStream(): void {
 }
 
 export function setupApp(): void {
+  ui.approvalPolicy.value = state.selectedApprovalPolicy;
   syncView();
   attachEventListeners();
   connectBridgeEventStream();

@@ -2,11 +2,16 @@ import { ui } from "./dom.js";
 import { ITEM_TYPE_REGISTRY } from "../core/item_registry.js";
 import type {
   AgentState,
+  DisplayMode,
+  ThreadItemType,
   PendingApprovalRequest,
   PendingToolUserInputRequest,
   OutputSegment,
   ThreadItem,
 } from "../core/types.js";
+
+const EMPTY_AGENT_OUTPUT = "No output available.";
+const EMPTY_SUBBLOCK_OUTPUT = "No details available.";
 
 function emptyStateMarkup(threadId: string | null): string {
   const subtitle = threadId
@@ -18,7 +23,131 @@ function emptyStateMarkup(threadId: string | null): string {
   `;
 }
 
-function buildItemNode(item: ThreadItem): HTMLElement {
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+}
+
+function formatJson(value: unknown): string | null {
+  if (value === undefined) return null;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return null;
+  }
+}
+
+function formatValue(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return `${value}`;
+  return formatJson(value);
+}
+
+function appendLine(lines: string[], label: string, value: unknown): void {
+  const formatted = formatValue(value);
+  if (!formatted) return;
+  lines.push(`${label}: ${formatted}`);
+}
+
+type SubBlockFormatter = {
+  compact: (segment: OutputSegment) => string | null;
+  full: (segment: OutputSegment) => string | null;
+};
+
+const SUBBLOCK_FORMATTERS: Partial<Record<ThreadItemType, SubBlockFormatter>> = {
+  commandExecution: {
+    compact: (segment) => {
+      const details = segment.details ?? {};
+      const lines: string[] = [];
+      appendLine(lines, "command", details.command);
+      appendLine(lines, "exit code", details.exitCode);
+      appendLine(lines, "duration", details.durationMs !== undefined ? `${details.durationMs}ms` : undefined);
+      return lines.length > 0 ? lines.join("\n") : null;
+    },
+    full: (segment) => {
+      const details = segment.details ?? {};
+      const lines: string[] = [];
+      appendLine(lines, "command", details.command);
+      appendLine(lines, "cwd", details.cwd);
+      appendLine(lines, "exit code", details.exitCode);
+      appendLine(lines, "duration", details.durationMs !== undefined ? `${details.durationMs}ms` : undefined);
+      appendLine(lines, "output", details.output);
+      return lines.length > 0 ? lines.join("\n") : null;
+    },
+  },
+  fileChange: {
+    compact: (segment) => {
+      const details = segment.details ?? {};
+      const lines: string[] = [];
+      appendLine(lines, "changes", details.changeCount);
+      return lines.length > 0 ? lines.join("\n") : null;
+    },
+    full: (segment) => {
+      const details = segment.details ?? {};
+      const lines: string[] = [];
+      appendLine(lines, "changes", details.changeCount);
+      appendLine(lines, "diff", details.diff);
+      return lines.length > 0 ? lines.join("\n") : null;
+    },
+  },
+  mcpToolCall: {
+    compact: (segment) => {
+      const details = segment.details ?? {};
+      const lines: string[] = [];
+      appendLine(lines, "duration", details.durationMs !== undefined ? `${details.durationMs}ms` : undefined);
+      if (details.error) appendLine(lines, "error", details.error);
+      return lines.length > 0 ? lines.join("\n") : null;
+    },
+    full: (segment) => {
+      const details = segment.details ?? {};
+      const lines: string[] = [];
+      appendLine(lines, "duration", details.durationMs !== undefined ? `${details.durationMs}ms` : undefined);
+      appendLine(lines, "error", details.error);
+      appendLine(lines, "structuredContent", details.structuredContent);
+      return lines.length > 0 ? lines.join("\n") : null;
+    },
+  },
+  webSearch: {
+    compact: (segment) => {
+      const details = segment.details ?? {};
+      return (typeof details.summary === "string" && details.summary.trim()) ? details.summary : null;
+    },
+    full: (segment) => {
+      const details = segment.details ?? {};
+      const lines: string[] = [];
+      appendLine(lines, "summary", details.summary);
+      return lines.length > 0 ? lines.join("\n") : null;
+    },
+  },
+};
+
+function formatSubBlockContent(segment: OutputSegment, mode: DisplayMode): string {
+  if (segment.kind !== "subBlock") return segment.text;
+  if (mode === "debug") {
+    const debugPayload = {
+      itemType: segment.itemType ?? "unknown",
+      status: segment.status ?? "pending",
+      error: segment.error,
+      text: segment.text,
+      details: segment.details ?? {},
+      raw: segment.raw ?? {},
+    };
+    return formatJson(debugPayload) ?? EMPTY_SUBBLOCK_OUTPUT;
+  }
+
+  if (segment.status === "error" && segment.error?.trim()) {
+    return segment.error;
+  }
+
+  const formatter = SUBBLOCK_FORMATTERS[segment.itemType ?? "unknown"];
+  const specialized = mode === "full" ? formatter?.full(segment) : formatter?.compact(segment);
+  if (specialized && specialized.trim()) return specialized;
+  if (segment.text.trim()) return segment.text;
+  return EMPTY_SUBBLOCK_OUTPUT;
+}
+
+function buildItemNode(item: ThreadItem, displayMode: DisplayMode): HTMLElement {
   const article = document.createElement("article");
   article.className = "message";
   article.dataset.role = ITEM_TYPE_REGISTRY[item.itemType].role;
@@ -48,12 +177,12 @@ function buildItemNode(item: ThreadItem): HTMLElement {
       } else {
         content.classList.add("empty-output");
         content.setAttribute("aria-label", "No output");
-        content.textContent = "";
+        content.textContent = EMPTY_AGENT_OUTPUT;
       }
       article.append(content);
     } else {
       for (const segment of segments) {
-        article.append(buildOutputSegment(segment));
+        article.append(buildOutputSegment(segment, displayMode));
       }
     }
   } else {
@@ -82,7 +211,7 @@ function buildItemNode(item: ThreadItem): HTMLElement {
   return article;
 }
 
-function buildOutputSegment(segment: OutputSegment): HTMLElement {
+function buildOutputSegment(segment: OutputSegment, displayMode: DisplayMode): HTMLElement {
   if (segment.kind === "text") {
     const block = document.createElement("section");
     block.className = "segment segment-text";
@@ -113,13 +242,12 @@ function buildOutputSegment(segment: OutputSegment): HTMLElement {
     header.append(label, status);
     block.appendChild(header);
 
-    const content = document.createElement("p");
+    const content = document.createElement(displayMode === "debug" ? "pre" : "p");
     content.className = "segment-subblock-content";
-    if (segment.status === "error") {
-      content.textContent = segment.error ?? "Operation failed.";
-    } else {
-      content.textContent = segment.text || (segment.status === "completed" ? "Completed." : "In progress…");
+    if (displayMode === "debug") {
+      content.classList.add("segment-subblock-content-json");
     }
+    content.textContent = formatSubBlockContent(segment, displayMode);
     block.appendChild(content);
 
     return block;
@@ -148,7 +276,7 @@ export function renderItems(state: AgentState): void {
 
   const fragment = document.createDocumentFragment();
   for (const item of state.items) {
-    fragment.appendChild(buildItemNode(item));
+    fragment.appendChild(buildItemNode(item, state.displayMode));
   }
 
   ui.itemList.appendChild(fragment);

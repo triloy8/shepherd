@@ -37,6 +37,7 @@ export interface AgentState {
   items: ThreadItem[];
   pendingApprovals: PendingApprovalRequest[];
   selectedApprovalPolicy: AskForApproval;
+  displayMode: DisplayMode;
   activeTurnId: string | null;
   activeAgentItemId: string | null;
   isTurnActive: boolean;
@@ -74,6 +75,8 @@ export interface OutputSegment {
   itemType?: ThreadItemType;
   status?: "pending" | "error" | "completed";
   error?: string;
+  details?: Record<string, unknown>;
+  raw?: Record<string, unknown>;
   expanded?: boolean;
   createdAt: string;
 }
@@ -130,3 +133,4 @@ export type PendingApprovalRequest =
   | PendingToolUserInputRequest;
 
 export type AskForApproval = "untrusted" | "on-failure" | "on-request" | "never";
+export type DisplayMode = "debug" | "compact" | "full";

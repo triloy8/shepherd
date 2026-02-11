@@ -5,6 +5,7 @@ type Elements = {
   textarea: HTMLTextAreaElement | null;
   sendButton: HTMLButtonElement | null;
   approvalPolicyGroup: HTMLElement | null;
+  displayModeGroup: HTMLElement | null;
   statusPill: HTMLSpanElement | null;
   statusText: HTMLSpanElement | null;
   interruptButton: HTMLButtonElement | null;
@@ -27,6 +28,7 @@ const elements: Elements = {
   textarea: document.querySelector<HTMLTextAreaElement>("#turn-input"),
   sendButton: document.querySelector<HTMLButtonElement>("#start-turn-btn"),
   approvalPolicyGroup: document.querySelector<HTMLElement>("#approval-policy-group"),
+  displayModeGroup: document.querySelector<HTMLElement>("#display-mode-group"),
   statusPill: document.querySelector<HTMLSpanElement>("#status-pill"),
   statusText: document.querySelector<HTMLSpanElement>("#status-text"),
   interruptButton: document.querySelector<HTMLButtonElement>("#interrupt-turn-btn"),
@@ -40,6 +42,7 @@ function resolveElements(source: Elements): ResolvedElements {
   if (!source.textarea) throw new Error("Missing DOM element: textarea");
   if (!source.sendButton) throw new Error("Missing DOM element: sendButton");
   if (!source.approvalPolicyGroup) throw new Error("Missing DOM element: approvalPolicyGroup");
+  if (!source.displayModeGroup) throw new Error("Missing DOM element: displayModeGroup");
   if (!source.statusPill) throw new Error("Missing DOM element: statusPill");
   if (!source.statusText) throw new Error("Missing DOM element: statusText");
   if (!source.interruptButton) throw new Error("Missing DOM element: interruptButton");

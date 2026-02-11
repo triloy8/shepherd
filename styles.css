@@ -339,6 +339,16 @@ button:hover:not(:disabled) {
   word-break: break-word;
 }
 
+.segment-subblock-content-json {
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(63, 63, 70, 0.55);
+  background: rgba(9, 9, 11, 0.72);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.74rem;
+}
+
 .segment-subblock[data-sub-type="commandExecution"] { border-left-color: #f87171; }
 .segment-subblock[data-sub-type="fileChange"] { border-left-color: #2dd4bf; }
 .segment-subblock[data-sub-type="plan"] { border-left-color: #38bdf8; }

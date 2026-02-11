@@ -17,6 +17,7 @@ import type {
   AskForApproval,
   BridgeEvent,
   CommandApprovalDecision,
+  DisplayMode,
   FileChangeApprovalDecision,
   OutputSegment,
   PendingApprovalRequest,
@@ -36,6 +37,7 @@ let activeReasoningSubBlockRef: SegmentRef | null = null;
 
 function syncView(): void {
   syncApprovalPolicyControl();
+  syncDisplayModeControl();
   renderItems(state);
   renderApprovals(state);
 }
@@ -64,8 +66,28 @@ function parseString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function parseErrorText(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "object") {
+    const record = parseObject(value);
+    const message = record ? parseString(record.message) ?? parseString(record.error) : null;
+    if (message) return message;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return null;
+    }
+  }
+  return `${value}`;
+}
+
 function isApprovalPolicy(value: string): value is AskForApproval {
   return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never";
+}
+
+function isDisplayMode(value: string): value is DisplayMode {
+  return value === "compact" || value === "full" || value === "debug";
 }
 
 function syncApprovalPolicyControl(): void {
@@ -73,6 +95,16 @@ function syncApprovalPolicyControl(): void {
   for (const button of buttons) {
     const value = button.dataset.approvalPolicy;
     const active = value === state.selectedApprovalPolicy;
+    button.dataset.active = active ? "true" : "false";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+}
+
+function syncDisplayModeControl(): void {
+  const buttons = ui.displayModeGroup.querySelectorAll<HTMLButtonElement>("button[data-display-mode]");
+  for (const button of buttons) {
+    const value = button.dataset.displayMode;
+    const active = value === state.displayMode;
     button.dataset.active = active ? "true" : "false";
     button.setAttribute("aria-pressed", active ? "true" : "false");
   }
@@ -337,6 +369,8 @@ function appendSubBlock(
     title: customTitle ?? ITEM_TYPE_REGISTRY[itemType].label,
     text: "",
     status: "pending",
+    details: protocolItemId ? { protocolItemId } : {},
+    raw: {},
     createdAt: new Date().toISOString(),
   };
   const next: ThreadItem = {
@@ -352,32 +386,67 @@ function appendSubBlock(
   return ref;
 }
 
-function updateSubBlockText(ref: SegmentRef, delta: string): void {
-  if (!delta) return;
+function updateSubBlock(
+  ref: SegmentRef,
+  updater: (segment: OutputSegment) => OutputSegment,
+): void {
   const item = findItemById(ref.itemId);
   if (!item || !item.outputSegments) return;
   const outputSegments = item.outputSegments.map((segment) => {
     if (segment.id !== ref.segmentId || segment.kind !== "subBlock") return segment;
+    return updater(segment);
+  });
+  updateItem({ ...item, outputSegments });
+}
+
+function updateSubBlockText(ref: SegmentRef, delta: string): void {
+  if (!delta) return;
+  updateSubBlock(ref, (segment) => {
     return {
       ...segment,
       text: `${segment.text}${delta}`,
     };
   });
-  updateItem({ ...item, outputSegments });
+}
+
+function mergeSubBlockDetails(ref: SegmentRef, patch: Record<string, unknown>): void {
+  updateSubBlock(ref, (segment) => {
+    return {
+      ...segment,
+      details: {
+        ...(segment.details ?? {}),
+        ...patch,
+      },
+    };
+  });
+}
+
+function setSubBlockRawEvent(ref: SegmentRef, stage: string, payload: unknown): void {
+  updateSubBlock(ref, (segment) => {
+    return {
+      ...segment,
+      raw: {
+        ...(segment.raw ?? {}),
+        [stage]: payload,
+      },
+    };
+  });
 }
 
 function updateSubBlockStatus(ref: SegmentRef, status: "pending" | "completed" | "error", error?: string): void {
-  const item = findItemById(ref.itemId);
-  if (!item || !item.outputSegments) return;
-  const outputSegments = item.outputSegments.map((segment) => {
-    if (segment.id !== ref.segmentId || segment.kind !== "subBlock") return segment;
+  updateSubBlock(ref, (segment) => {
+    const patch: Record<string, unknown> = { status };
+    if (error) patch.error = error;
     return {
       ...segment,
       status,
       error,
+      details: {
+        ...(segment.details ?? {}),
+        ...patch,
+      },
     };
   });
-  updateItem({ ...item, outputSegments });
 }
 
 function getSubBlockText(ref: SegmentRef): string {
@@ -477,6 +546,28 @@ function formatFileChangeDiffFromCompleted(itemContainer: Record<string, unknown
   }
 
   return lines.join("\n").trim();
+}
+
+function extractItemErrorText(params: unknown, itemContainer?: Record<string, unknown> | null): string | null {
+  const record = parseObject(params) ?? {};
+  const msg = parseObject(record.msg) ?? {};
+  const container = itemContainer ?? extractItemContainer(params);
+  const candidates: unknown[] = [
+    container?.error,
+    container?.exception,
+    container?.reason,
+    record.error,
+    record.exception,
+    record.reason,
+    msg.error,
+    msg.exception,
+    msg.reason,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseErrorText(candidate);
+    if (parsed) return parsed;
+  }
+  return null;
 }
 
 function isWebSearchEndEvent(method: string, params: unknown): boolean {
@@ -592,9 +683,21 @@ function handleItemStarted(params: unknown): void {
   const existingRef = protocolItemId ? protocolSubBlockMap.get(protocolItemId) ?? null : null;
   const agent = ensureActiveAgentMessage();
   const ref = existingRef ?? appendSubBlock(agent, itemType, protocolItemId);
+  mergeSubBlockDetails(ref, {
+    status: "pending",
+    startedAt: new Date().toISOString(),
+  });
+  if (itemContainer) {
+    setSubBlockRawEvent(ref, "started", itemContainer);
+  }
 
   if (itemType === "commandExecution") {
     const command = parseString(itemContainer?.command);
+    const cwd = parseString(itemContainer?.cwd);
+    mergeSubBlockDetails(ref, {
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+    });
     if (command && getSubBlockText(ref).length === 0) {
       updateSubBlockText(ref, `$ ${command}\n`);
     }
@@ -609,7 +712,20 @@ function handleItemCompleted(params: unknown): void {
   const ref = protocolSubBlockMap.get(protocolItemId);
   if (ref) {
     const itemType = normalizeThreadItemType(itemContainer?.type ?? itemContainer?.itemType ?? itemContainer?.item_type);
+    if (itemContainer) {
+      setSubBlockRawEvent(ref, "completed", itemContainer);
+    }
     if (itemType === "commandExecution" && itemContainer) {
+      const exitCode = parseNumberLike(itemContainer.exitCode ?? itemContainer.exit_code);
+      const durationMs = parseNumberLike(itemContainer.durationMs ?? itemContainer.duration_ms);
+      const cwd = parseString(itemContainer.cwd);
+      const output = parseString(itemContainer.aggregatedOutput ?? itemContainer.aggregated_output ?? itemContainer.output);
+      mergeSubBlockDetails(ref, {
+        ...(exitCode !== null ? { exitCode } : {}),
+        ...(durationMs !== null ? { durationMs } : {}),
+        ...(cwd ? { cwd } : {}),
+        ...(output ? { output } : {}),
+      });
       const summary = formatCommandExecutionCompletedText(itemContainer);
       if (summary && !getSubBlockText(ref).includes("exit code:")) {
         updateSubBlockText(ref, `\n${summary}\n`);
@@ -617,12 +733,47 @@ function handleItemCompleted(params: unknown): void {
     }
     if (itemType === "fileChange" && itemContainer) {
       const diffText = formatFileChangeDiffFromCompleted(itemContainer);
+      const changeCount = toArray(itemContainer.changes ?? itemContainer.fileChanges ?? itemContainer.file_changes).length;
+      mergeSubBlockDetails(ref, {
+        ...(changeCount > 0 ? { changeCount } : {}),
+        ...(diffText ? { diff: diffText } : {}),
+      });
       if (diffText && !getSubBlockText(ref).includes(diffText)) {
         updateSubBlockText(ref, `\n${diffText}\n`);
       }
     }
+    if (itemType === "mcpToolCall" && itemContainer) {
+      const details = formatMcpCompletionText(params, itemContainer);
+      const durationMs = extractMcpDurationMs(params, itemContainer);
+      const error = extractMcpError(params, itemContainer);
+      const structuredContent = extractMcpStructuredContent(params, itemContainer);
+      mergeSubBlockDetails(ref, {
+        ...(durationMs !== null ? { durationMs } : {}),
+        ...(error !== null ? { error: parseErrorText(error) } : {}),
+        ...(structuredContent !== null ? { structuredContent } : {}),
+      });
+      if (details && !getSubBlockText(ref).includes(details)) {
+        updateSubBlockText(ref, `\n${details}\n`);
+      }
+    }
     updateSubBlockStatus(ref, "completed");
   }
+}
+
+function handleItemFailed(method: string, params: unknown): void {
+  const itemContainer = extractItemContainer(params);
+  const protocolItemId = extractProtocolItemId(params);
+  const ref = protocolItemId ? protocolSubBlockMap.get(protocolItemId) ?? null : null;
+  const target = ref ?? ensureSubBlockForMethod(method, params);
+  const errorText = extractItemErrorText(params, itemContainer) ?? "Operation failed.";
+
+  mergeSubBlockDetails(target, {
+    status: "error",
+    error: errorText,
+    failedAt: new Date().toISOString(),
+  });
+  setSubBlockRawEvent(target, "failed", itemContainer ?? parseObject(params) ?? params);
+  updateSubBlockStatus(target, "error", errorText);
 }
 
 function ensureSubBlockForMethod(method: string, params: unknown): SegmentRef {
@@ -635,6 +786,142 @@ function ensureSubBlockForMethod(method: string, params: unknown): SegmentRef {
 
   const agent = ensureActiveAgentMessage();
   return appendSubBlock(agent, inferredType, protocolItemId);
+}
+
+function tryParseJsonString(value: string): unknown | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function formatUnknownAsJson(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") {
+    const parsed = tryParseJsonString(value);
+    if (parsed !== null) return JSON.stringify(parsed, null, 2);
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return null;
+  }
+}
+
+function parseUnknownMaybeJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const parsed = tryParseJsonString(value);
+  return parsed ?? value;
+}
+
+function extractMcpStructuredContent(params: unknown, itemContainer: Record<string, unknown>): unknown | null {
+  const record = parseObject(params) ?? {};
+  const msg = parseObject(record.msg) ?? {};
+  const resultCandidates: unknown[] = [
+    itemContainer.result,
+    itemContainer.output,
+    itemContainer.response,
+    itemContainer.content,
+    itemContainer.toolResult,
+    itemContainer.tool_result,
+    record.result,
+    record.output,
+    record.response,
+    record.content,
+    msg.result,
+    msg.output,
+    msg.response,
+    msg.content,
+  ];
+
+  for (const candidate of resultCandidates) {
+    const normalized = parseUnknownMaybeJson(candidate);
+    const candidateObj = parseObject(normalized);
+    if (candidateObj && candidateObj.structuredContent !== undefined) {
+      return candidateObj.structuredContent;
+    }
+  }
+
+  return null;
+}
+
+function extractMcpError(params: unknown, itemContainer: Record<string, unknown>): unknown | null {
+  const record = parseObject(params) ?? {};
+  const msg = parseObject(record.msg) ?? {};
+  const errorCandidates: unknown[] = [
+    itemContainer.error,
+    itemContainer.exception,
+    itemContainer.toolError,
+    itemContainer.tool_error,
+    record.error,
+    record.exception,
+    msg.error,
+    msg.exception,
+  ];
+  for (const candidate of errorCandidates) {
+    if (candidate !== undefined && candidate !== null && `${candidate}`.trim() !== "") {
+      return parseUnknownMaybeJson(candidate);
+    }
+  }
+  return null;
+}
+
+function extractMcpDurationMs(params: unknown, itemContainer: Record<string, unknown>): number | null {
+  const record = parseObject(params) ?? {};
+  const msg = parseObject(record.msg) ?? {};
+  const durationCandidates: unknown[] = [
+    itemContainer.durationMs,
+    itemContainer.duration_ms,
+    itemContainer.latencyMs,
+    itemContainer.latency_ms,
+    record.durationMs,
+    record.duration_ms,
+    record.latencyMs,
+    record.latency_ms,
+    msg.durationMs,
+    msg.duration_ms,
+    msg.latencyMs,
+    msg.latency_ms,
+  ];
+  for (const candidate of durationCandidates) {
+    const parsed = parseNumberLike(candidate);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+function formatMcpCompletionText(params: unknown, itemContainer: Record<string, unknown>): string | null {
+  const lines: string[] = [];
+
+  const durationMs = extractMcpDurationMs(params, itemContainer);
+  if (durationMs !== null) {
+    lines.push(`duration: ${durationMs}ms`);
+  }
+
+  const error = extractMcpError(params, itemContainer);
+  if (error !== null) {
+    const errorText = formatUnknownAsJson(error);
+    if (errorText) {
+      lines.push("error:");
+      lines.push(errorText);
+    }
+  }
+
+  const structuredContent = extractMcpStructuredContent(params, itemContainer);
+  if (structuredContent !== null) {
+    const structuredContentText = formatUnknownAsJson(structuredContent);
+    if (structuredContentText) {
+      lines.push("structuredContent:");
+      lines.push(structuredContentText);
+    }
+  }
+
+  return lines.length > 0 ? lines.join("\n") : null;
 }
 
 function handleMethodDelta(method: string, params: unknown): void {
@@ -814,9 +1101,19 @@ function handleNotification(method: string, params: unknown): void {
     return;
   }
 
+  if (lower === "item/failed" || lower === "item/errored" || lower === "item/error") {
+    handleItemFailed(method, params);
+    return;
+  }
+
   if (isWebSearchEndEvent(method, params)) {
     const ref = ensureSubBlockForMethod(method, params);
     const details = formatWebSearchEndText(method, params);
+    mergeSubBlockDetails(ref, {
+      ...(details ? { summary: details } : {}),
+      endedAt: new Date().toISOString(),
+    });
+    setSubBlockRawEvent(ref, "completed", parseObject(params) ?? params);
     if (details) {
       updateSubBlockText(ref, `${details}\n`);
     }
@@ -1097,6 +1394,18 @@ function attachEventListeners(): void {
     state.selectedApprovalPolicy = next;
     syncApprovalPolicyControl();
     setStatus(`Approval policy set to ${next}`);
+  });
+
+  ui.displayModeGroup.addEventListener("click", (event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+    const button = target.closest<HTMLButtonElement>("button[data-display-mode]");
+    if (!button) return;
+    const next = button.dataset.displayMode;
+    if (!next || !isDisplayMode(next)) return;
+    if (next === state.displayMode) return;
+    state.displayMode = next;
+    syncView();
+    setStatus(`Display mode set to ${next}`);
   });
 
   ui.approvalList.addEventListener("click", (event: MouseEvent) => {

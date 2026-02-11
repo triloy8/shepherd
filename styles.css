@@ -317,6 +317,12 @@ button:hover:not(:disabled) {
   gap: 10px;
 }
 
+.segment-subblock-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .segment-subblock-label {
   font-size: 0.74rem;
   text-transform: uppercase;
@@ -329,6 +335,34 @@ button:hover:not(:disabled) {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #94a3b8;
+}
+
+.segment-subblock-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  background: rgba(24, 24, 27, 0.72);
+}
+
+.segment-subblock-display-btn {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.segment-subblock-display-btn[data-active="true"] {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(37, 99, 235, 0.22);
+  color: #dbeafe;
 }
 
 .segment-subblock-content {

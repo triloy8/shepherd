@@ -5,7 +5,6 @@ export const state: AgentState = {
   items: [],
   pendingApprovals: [],
   selectedApprovalPolicy: "on-request",
-  displayMode: "compact",
   activeTurnId: null,
   activeAgentItemId: null,
   isTurnActive: false,

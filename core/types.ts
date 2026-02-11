@@ -37,7 +37,6 @@ export interface AgentState {
   items: ThreadItem[];
   pendingApprovals: PendingApprovalRequest[];
   selectedApprovalPolicy: AskForApproval;
-  displayMode: DisplayMode;
   activeTurnId: string | null;
   activeAgentItemId: string | null;
   isTurnActive: boolean;
@@ -77,6 +76,7 @@ export interface OutputSegment {
   error?: string;
   details?: Record<string, unknown>;
   raw?: Record<string, unknown>;
+  displayMode?: DisplayMode;
   expanded?: boolean;
   createdAt: string;
 }

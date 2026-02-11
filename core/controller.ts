@@ -17,7 +17,6 @@ import type {
   AskForApproval,
   BridgeEvent,
   CommandApprovalDecision,
-  DisplayMode,
   FileChangeApprovalDecision,
   OutputSegment,
   PendingApprovalRequest,
@@ -37,7 +36,6 @@ let activeReasoningSubBlockRef: SegmentRef | null = null;
 
 function syncView(): void {
   syncApprovalPolicyControl();
-  syncDisplayModeControl();
   renderItems(state);
   renderApprovals(state);
 }
@@ -86,25 +84,11 @@ function isApprovalPolicy(value: string): value is AskForApproval {
   return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never";
 }
 
-function isDisplayMode(value: string): value is DisplayMode {
-  return value === "compact" || value === "full" || value === "debug";
-}
-
 function syncApprovalPolicyControl(): void {
   const buttons = ui.approvalPolicyGroup.querySelectorAll<HTMLButtonElement>("button[data-approval-policy]");
   for (const button of buttons) {
     const value = button.dataset.approvalPolicy;
     const active = value === state.selectedApprovalPolicy;
-    button.dataset.active = active ? "true" : "false";
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  }
-}
-
-function syncDisplayModeControl(): void {
-  const buttons = ui.displayModeGroup.querySelectorAll<HTMLButtonElement>("button[data-display-mode]");
-  for (const button of buttons) {
-    const value = button.dataset.displayMode;
-    const active = value === state.displayMode;
     button.dataset.active = active ? "true" : "false";
     button.setAttribute("aria-pressed", active ? "true" : "false");
   }
@@ -369,6 +353,7 @@ function appendSubBlock(
     title: customTitle ?? ITEM_TYPE_REGISTRY[itemType].label,
     text: "",
     status: "pending",
+    displayMode: "compact",
     details: protocolItemId ? { protocolItemId } : {},
     raw: {},
     createdAt: new Date().toISOString(),
@@ -395,6 +380,17 @@ function updateSubBlock(
   const outputSegments = item.outputSegments.map((segment) => {
     if (segment.id !== ref.segmentId || segment.kind !== "subBlock") return segment;
     return updater(segment);
+  });
+  updateItem({ ...item, outputSegments });
+}
+
+function setSubBlockDisplayMode(itemId: string, segmentId: string, displayMode: "compact" | "full" | "debug"): void {
+  const item = findItemById(itemId);
+  if (!item || !item.outputSegments) return;
+  const outputSegments = item.outputSegments.map((segment) => {
+    if (segment.id !== segmentId || segment.kind !== "subBlock") return segment;
+    if (segment.displayMode === displayMode) return segment;
+    return { ...segment, displayMode };
   });
   updateItem({ ...item, outputSegments });
 }
@@ -1201,6 +1197,10 @@ function isFileChangeDecision(value: string): value is FileChangeApprovalDecisio
   return value === "accept" || value === "acceptForSession" || value === "decline" || value === "cancel";
 }
 
+function isSegmentDisplayMode(value: string): value is "compact" | "full" | "debug" {
+  return value === "compact" || value === "full" || value === "debug";
+}
+
 function findPendingApproval(requestId: string): PendingApprovalRequest | null {
   return state.pendingApprovals.find((request) => request.requestId === requestId) ?? null;
 }
@@ -1396,16 +1396,16 @@ function attachEventListeners(): void {
     setStatus(`Approval policy set to ${next}`);
   });
 
-  ui.displayModeGroup.addEventListener("click", (event: MouseEvent) => {
+  ui.itemList.addEventListener("click", (event: MouseEvent) => {
     const target = event.target as HTMLElement;
-    const button = target.closest<HTMLButtonElement>("button[data-display-mode]");
+    const button = target.closest<HTMLButtonElement>("button[data-segment-id][data-item-id][data-display-mode]");
     if (!button) return;
     const next = button.dataset.displayMode;
-    if (!next || !isDisplayMode(next)) return;
-    if (next === state.displayMode) return;
-    state.displayMode = next;
-    syncView();
-    setStatus(`Display mode set to ${next}`);
+    const itemId = button.dataset.itemId;
+    const segmentId = button.dataset.segmentId;
+    if (!next || !isSegmentDisplayMode(next)) return;
+    if (!itemId || !segmentId) return;
+    setSubBlockDisplayMode(itemId, segmentId, next);
   });
 
   ui.approvalList.addEventListener("click", (event: MouseEvent) => {

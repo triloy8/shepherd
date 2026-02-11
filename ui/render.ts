@@ -23,11 +23,6 @@ function emptyStateMarkup(threadId: string | null): string {
   `;
 }
 
-function toRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object") return null;
-  return value as Record<string, unknown>;
-}
-
 function formatJson(value: unknown): string | null {
   if (value === undefined) return null;
   try {
@@ -147,7 +142,7 @@ function formatSubBlockContent(segment: OutputSegment, mode: DisplayMode): strin
   return EMPTY_SUBBLOCK_OUTPUT;
 }
 
-function buildItemNode(item: ThreadItem, displayMode: DisplayMode): HTMLElement {
+function buildItemNode(item: ThreadItem): HTMLElement {
   const article = document.createElement("article");
   article.className = "message";
   article.dataset.role = ITEM_TYPE_REGISTRY[item.itemType].role;
@@ -182,7 +177,7 @@ function buildItemNode(item: ThreadItem, displayMode: DisplayMode): HTMLElement 
       article.append(content);
     } else {
       for (const segment of segments) {
-        article.append(buildOutputSegment(segment, displayMode));
+        article.append(buildOutputSegment(item.id, segment));
       }
     }
   } else {
@@ -211,7 +206,31 @@ function buildItemNode(item: ThreadItem, displayMode: DisplayMode): HTMLElement 
   return article;
 }
 
-function buildOutputSegment(segment: OutputSegment, displayMode: DisplayMode): HTMLElement {
+function buildSubBlockDisplayModeControls(itemId: string, segment: OutputSegment): HTMLElement {
+  const currentMode: DisplayMode = segment.displayMode ?? "compact";
+  const group = document.createElement("div");
+  group.className = "segment-subblock-display";
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Subblock Display Mode");
+
+  const modes: DisplayMode[] = ["compact", "full", "debug"];
+  for (const mode of modes) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "segment-subblock-display-btn";
+    button.dataset.itemId = itemId;
+    button.dataset.segmentId = segment.id;
+    button.dataset.displayMode = mode;
+    button.dataset.active = mode === currentMode ? "true" : "false";
+    button.setAttribute("aria-pressed", mode === currentMode ? "true" : "false");
+    button.textContent = mode;
+    group.appendChild(button);
+  }
+
+  return group;
+}
+
+function buildOutputSegment(itemId: string, segment: OutputSegment): HTMLElement {
   if (segment.kind === "text") {
     const block = document.createElement("section");
     block.className = "segment segment-text";
@@ -223,6 +242,7 @@ function buildOutputSegment(segment: OutputSegment, displayMode: DisplayMode): H
   }
 
   if (segment.kind === "subBlock") {
+    const displayMode: DisplayMode = segment.displayMode ?? "compact";
     const block = document.createElement("section");
     block.className = "segment segment-subblock";
     block.dataset.subType = segment.itemType ?? "unknown";
@@ -239,7 +259,11 @@ function buildOutputSegment(segment: OutputSegment, displayMode: DisplayMode): H
     status.className = "segment-subblock-status";
     status.textContent = segment.status ?? "pending";
 
-    header.append(label, status);
+    const right = document.createElement("div");
+    right.className = "segment-subblock-right";
+    right.append(buildSubBlockDisplayModeControls(itemId, segment), status);
+
+    header.append(label, right);
     block.appendChild(header);
 
     const content = document.createElement(displayMode === "debug" ? "pre" : "p");
@@ -276,7 +300,7 @@ export function renderItems(state: AgentState): void {
 
   const fragment = document.createDocumentFragment();
   for (const item of state.items) {
-    fragment.appendChild(buildItemNode(item, state.displayMode));
+    fragment.appendChild(buildItemNode(item));
   }
 
   ui.itemList.appendChild(fragment);

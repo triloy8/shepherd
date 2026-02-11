@@ -365,12 +365,73 @@ button:hover:not(:disabled) {
   color: #dbeafe;
 }
 
-.segment-subblock-content {
-  margin: 6px 0 0;
-  font-size: 0.8rem;
+.segment-subblock-content-card {
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  background: rgba(20, 20, 24, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.subblock-kv-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.subblock-kv-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(63, 63, 70, 0.45);
+  background: rgba(24, 24, 27, 0.7);
+  padding: 6px 8px;
+}
+
+.subblock-kv-key {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a1a1aa;
+}
+
+.subblock-kv-value {
+  font-size: 0.76rem;
+  color: #e2e8f0;
+  text-align: right;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.subblock-section {
+  display: grid;
+  gap: 6px;
+}
+
+.subblock-section-title {
+  margin: 0;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #a1a1aa;
+  font-weight: 600;
+}
+
+.subblock-longtext {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(63, 63, 70, 0.4);
+  background: rgba(9, 9, 11, 0.58);
+  font-size: 0.76rem;
   color: #d1d5db;
   white-space: pre-wrap;
   word-break: break-word;
+  font-family: inherit;
 }
 
 .segment-subblock-content-json {

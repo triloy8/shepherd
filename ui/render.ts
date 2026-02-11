@@ -3,7 +3,6 @@ import { ITEM_TYPE_REGISTRY } from "../core/item_registry.js";
 import type {
   AgentState,
   DisplayMode,
-  ThreadItemType,
   PendingApprovalRequest,
   PendingToolUserInputRequest,
   OutputSegment,
@@ -39,86 +38,161 @@ function formatValue(value: unknown): string | null {
   return formatJson(value);
 }
 
-function appendLine(lines: string[], label: string, value: unknown): void {
-  const formatted = formatValue(value);
-  if (!formatted) return;
-  lines.push(`${label}: ${formatted}`);
+type KvEntry = { label: string; value: unknown };
+
+function createKvGrid(entries: KvEntry[]): HTMLElement | null {
+  const rows = entries
+    .map((entry) => ({ label: entry.label, value: formatValue(entry.value) }))
+    .filter((entry): entry is { label: string; value: string } => Boolean(entry.value));
+  if (rows.length === 0) return null;
+
+  const grid = document.createElement("div");
+  grid.className = "subblock-kv-grid";
+  for (const row of rows) {
+    const item = document.createElement("div");
+    item.className = "subblock-kv-row";
+
+    const key = document.createElement("span");
+    key.className = "subblock-kv-key";
+    key.textContent = row.label;
+
+    const value = document.createElement("span");
+    value.className = "subblock-kv-value";
+    value.textContent = row.value;
+
+    item.append(key, value);
+    grid.appendChild(item);
+  }
+  return grid;
 }
 
-type SubBlockFormatter = {
-  compact: (segment: OutputSegment) => string | null;
-  full: (segment: OutputSegment) => string | null;
-};
+function createLongTextPanel(text: string, className?: string): HTMLElement {
+  const panel = document.createElement("pre");
+  panel.className = `subblock-longtext ${className ?? ""}`.trim();
+  panel.textContent = text;
+  return panel;
+}
 
-const SUBBLOCK_FORMATTERS: Partial<Record<ThreadItemType, SubBlockFormatter>> = {
-  commandExecution: {
-    compact: (segment) => {
-      const details = segment.details ?? {};
-      const lines: string[] = [];
-      appendLine(lines, "command", details.command);
-      appendLine(lines, "exit code", details.exitCode);
-      appendLine(lines, "duration", details.durationMs !== undefined ? `${details.durationMs}ms` : undefined);
-      return lines.length > 0 ? lines.join("\n") : null;
-    },
-    full: (segment) => {
-      const details = segment.details ?? {};
-      const lines: string[] = [];
-      appendLine(lines, "command", details.command);
-      appendLine(lines, "cwd", details.cwd);
-      appendLine(lines, "exit code", details.exitCode);
-      appendLine(lines, "duration", details.durationMs !== undefined ? `${details.durationMs}ms` : undefined);
-      appendLine(lines, "output", details.output);
-      return lines.length > 0 ? lines.join("\n") : null;
-    },
-  },
-  fileChange: {
-    compact: (segment) => {
-      const details = segment.details ?? {};
-      const lines: string[] = [];
-      appendLine(lines, "changes", details.changeCount);
-      return lines.length > 0 ? lines.join("\n") : null;
-    },
-    full: (segment) => {
-      const details = segment.details ?? {};
-      const lines: string[] = [];
-      appendLine(lines, "changes", details.changeCount);
-      appendLine(lines, "diff", details.diff);
-      return lines.length > 0 ? lines.join("\n") : null;
-    },
-  },
-  mcpToolCall: {
-    compact: (segment) => {
-      const details = segment.details ?? {};
-      const lines: string[] = [];
-      appendLine(lines, "duration", details.durationMs !== undefined ? `${details.durationMs}ms` : undefined);
-      if (details.error) appendLine(lines, "error", details.error);
-      return lines.length > 0 ? lines.join("\n") : null;
-    },
-    full: (segment) => {
-      const details = segment.details ?? {};
-      const lines: string[] = [];
-      appendLine(lines, "duration", details.durationMs !== undefined ? `${details.durationMs}ms` : undefined);
-      appendLine(lines, "error", details.error);
-      appendLine(lines, "structuredContent", details.structuredContent);
-      return lines.length > 0 ? lines.join("\n") : null;
-    },
-  },
-  webSearch: {
-    compact: (segment) => {
-      const details = segment.details ?? {};
-      return (typeof details.summary === "string" && details.summary.trim()) ? details.summary : null;
-    },
-    full: (segment) => {
-      const details = segment.details ?? {};
-      const lines: string[] = [];
-      appendLine(lines, "summary", details.summary);
-      return lines.length > 0 ? lines.join("\n") : null;
-    },
-  },
-};
+function appendSection(parent: HTMLElement, title: string, content: HTMLElement): void {
+  const section = document.createElement("section");
+  section.className = "subblock-section";
 
-function formatSubBlockContent(segment: OutputSegment, mode: DisplayMode): string {
-  if (segment.kind !== "subBlock") return segment.text;
+  const heading = document.createElement("h4");
+  heading.className = "subblock-section-title";
+  heading.textContent = title;
+
+  section.append(heading, content);
+  parent.appendChild(section);
+}
+
+function appendCompactOrFallbackCard(container: HTMLElement, entries: KvEntry[], fallbackText: string): void {
+  const grid = createKvGrid(entries);
+  if (grid) {
+    container.appendChild(grid);
+    return;
+  }
+  container.appendChild(createLongTextPanel(fallbackText || EMPTY_SUBBLOCK_OUTPUT));
+}
+
+function buildCompactSubBlockCard(segment: OutputSegment, container: HTMLElement): void {
+  if (segment.kind !== "subBlock") return;
+  const details = segment.details ?? {};
+  const fallbackText = segment.status === "error" ? (segment.error ?? "") : segment.text;
+
+  if (segment.itemType === "commandExecution") {
+    appendCompactOrFallbackCard(
+      container,
+      [
+        { label: "command", value: details.command },
+        { label: "exit code", value: details.exitCode },
+        { label: "duration", value: details.durationMs !== undefined ? `${details.durationMs}ms` : undefined },
+      ],
+      fallbackText,
+    );
+    return;
+  }
+
+  if (segment.itemType === "fileChange") {
+    appendCompactOrFallbackCard(container, [{ label: "changes", value: details.changeCount }], fallbackText);
+    return;
+  }
+
+  if (segment.itemType === "mcpToolCall") {
+    appendCompactOrFallbackCard(
+      container,
+      [
+        { label: "duration", value: details.durationMs !== undefined ? `${details.durationMs}ms` : undefined },
+        { label: "error", value: details.error },
+      ],
+      fallbackText,
+    );
+    return;
+  }
+
+  if (segment.itemType === "webSearch") {
+    const summary = typeof details.summary === "string" ? details.summary.trim() : "";
+    container.appendChild(createLongTextPanel(summary || fallbackText || EMPTY_SUBBLOCK_OUTPUT));
+    return;
+  }
+
+  container.appendChild(createLongTextPanel(fallbackText || EMPTY_SUBBLOCK_OUTPUT));
+}
+
+function buildFullSubBlockCard(segment: OutputSegment, container: HTMLElement): void {
+  if (segment.kind !== "subBlock") return;
+  const details = segment.details ?? {};
+  const fallbackText = segment.status === "error" ? (segment.error ?? "") : segment.text;
+
+  if (segment.itemType === "commandExecution") {
+    const executionGrid = createKvGrid([
+      { label: "command", value: details.command },
+      { label: "cwd", value: details.cwd },
+      { label: "exit code", value: details.exitCode },
+      { label: "duration", value: details.durationMs !== undefined ? `${details.durationMs}ms` : undefined },
+    ]);
+    if (executionGrid) appendSection(container, "Execution", executionGrid);
+
+    const output = formatValue(details.output) ?? fallbackText;
+    if (output) appendSection(container, "Output", createLongTextPanel(output));
+    return;
+  }
+
+  if (segment.itemType === "fileChange") {
+    const summaryGrid = createKvGrid([{ label: "changes", value: details.changeCount }]);
+    if (summaryGrid) appendSection(container, "Summary", summaryGrid);
+
+    const diff = formatValue(details.diff) ?? fallbackText;
+    if (diff) appendSection(container, "Diff", createLongTextPanel(diff));
+    return;
+  }
+
+  if (segment.itemType === "mcpToolCall") {
+    const summaryGrid = createKvGrid([
+      { label: "duration", value: details.durationMs !== undefined ? `${details.durationMs}ms` : undefined },
+      { label: "error", value: details.error },
+    ]);
+    if (summaryGrid) appendSection(container, "Call", summaryGrid);
+
+    const structuredContent = formatJson(details.structuredContent);
+    if (structuredContent) appendSection(container, "Structured Content", createLongTextPanel(structuredContent));
+    return;
+  }
+
+  if (segment.itemType === "webSearch") {
+    const summary = formatValue(details.summary) ?? fallbackText;
+    if (summary) appendSection(container, "Summary", createLongTextPanel(summary));
+    return;
+  }
+
+  if (fallbackText) {
+    appendSection(container, "Details", createLongTextPanel(fallbackText));
+  }
+}
+
+function buildSubBlockContentNode(segment: OutputSegment, mode: DisplayMode): HTMLElement {
+  if (segment.kind !== "subBlock") {
+    return createLongTextPanel(segment.text || EMPTY_SUBBLOCK_OUTPUT);
+  }
   if (mode === "debug") {
     const debugPayload = {
       itemType: segment.itemType ?? "unknown",
@@ -128,18 +202,21 @@ function formatSubBlockContent(segment: OutputSegment, mode: DisplayMode): strin
       details: segment.details ?? {},
       raw: segment.raw ?? {},
     };
-    return formatJson(debugPayload) ?? EMPTY_SUBBLOCK_OUTPUT;
+    const content = createLongTextPanel(formatJson(debugPayload) ?? EMPTY_SUBBLOCK_OUTPUT, "segment-subblock-content-json");
+    return content;
   }
 
-  if (segment.status === "error" && segment.error?.trim()) {
-    return segment.error;
+  const container = document.createElement("div");
+  container.className = "segment-subblock-content-card";
+  if (mode === "full") {
+    buildFullSubBlockCard(segment, container);
+  } else {
+    buildCompactSubBlockCard(segment, container);
   }
-
-  const formatter = SUBBLOCK_FORMATTERS[segment.itemType ?? "unknown"];
-  const specialized = mode === "full" ? formatter?.full(segment) : formatter?.compact(segment);
-  if (specialized && specialized.trim()) return specialized;
-  if (segment.text.trim()) return segment.text;
-  return EMPTY_SUBBLOCK_OUTPUT;
+  if (container.childElementCount === 0) {
+    container.appendChild(createLongTextPanel(EMPTY_SUBBLOCK_OUTPUT));
+  }
+  return container;
 }
 
 function buildItemNode(item: ThreadItem): HTMLElement {
@@ -266,13 +343,7 @@ function buildOutputSegment(itemId: string, segment: OutputSegment): HTMLElement
     header.append(label, right);
     block.appendChild(header);
 
-    const content = document.createElement(displayMode === "debug" ? "pre" : "p");
-    content.className = "segment-subblock-content";
-    if (displayMode === "debug") {
-      content.classList.add("segment-subblock-content-json");
-    }
-    content.textContent = formatSubBlockContent(segment, displayMode);
-    block.appendChild(content);
+    block.appendChild(buildSubBlockContentNode(segment, displayMode));
 
     return block;
   }

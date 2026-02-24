@@ -83,6 +83,7 @@ export interface OutputSegment {
 
 export type CommandApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
 export type FileChangeApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+export type ReviewApprovalDecision = "approved" | "approved_for_session" | "denied" | "abort";
 
 export interface ApprovalQuestionOption {
   label: string;
@@ -127,10 +128,42 @@ export interface PendingToolUserInputRequest extends PendingApprovalBase {
   questions: ApprovalQuestion[];
 }
 
+export interface PendingDynamicToolCallRequest extends PendingApprovalBase {
+  kind: "dynamicToolCall";
+  callId: string;
+  tool: string;
+  arguments: unknown;
+}
+
+export interface PendingChatgptAuthRefreshRequest extends PendingApprovalBase {
+  kind: "chatgptAuthRefresh";
+  refreshReason: string;
+  previousAccountId: string | null;
+}
+
+export interface PendingLegacyExecApprovalRequest extends PendingApprovalBase {
+  kind: "legacyExecApproval";
+  callId: string;
+  approvalId: string | null;
+  command: string[];
+  cwd: string | null;
+}
+
+export interface PendingLegacyPatchApprovalRequest extends PendingApprovalBase {
+  kind: "legacyPatchApproval";
+  callId: string;
+  grantRoot: string | null;
+  fileChangeCount: number;
+}
+
 export type PendingApprovalRequest =
   | PendingCommandApprovalRequest
   | PendingFileChangeApprovalRequest
-  | PendingToolUserInputRequest;
+  | PendingToolUserInputRequest
+  | PendingDynamicToolCallRequest
+  | PendingChatgptAuthRefreshRequest
+  | PendingLegacyExecApprovalRequest
+  | PendingLegacyPatchApprovalRequest;
 
 export type AskForApproval = "untrusted" | "on-failure" | "on-request" | "never";
 export type DisplayMode = "debug" | "compact" | "full";

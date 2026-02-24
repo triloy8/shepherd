@@ -355,6 +355,10 @@ function isApprovalPolicy(value) {
   return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never";
 }
 
+function isReviewDecision(value) {
+  return value === "approved" || value === "approved_for_session" || value === "denied" || value === "abort";
+}
+
 const session = new CodexAppServerSession();
 
 function respondJson(response, statusCode, payload) {
@@ -569,6 +573,104 @@ const server = http.createServer(async (request, response) => {
     } catch (error) {
       respondJson(response, 500, {
         error: error instanceof Error ? error.message : "Failed to submit tool user input.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tool-call") {
+    try {
+      const body = await parseJsonBody(request);
+      const requestId = typeof body.requestId === "string" ? body.requestId : null;
+      const success = typeof body.success === "boolean" ? body.success : null;
+      const contentItems = Array.isArray(body.contentItems) ? body.contentItems : null;
+      const validContent =
+        contentItems &&
+        contentItems.every((item) => item && typeof item === "object" && item.type === "inputText" && typeof item.text === "string");
+
+      if (!requestId || success === null || !validContent) {
+        respondJson(response, 400, { error: "Invalid dynamic tool call payload." });
+        return;
+      }
+
+      session.resolveServerRequest(requestId, "item/tool/call", {
+        success,
+        contentItems,
+      });
+      respondJson(response, 200, { ok: true });
+    } catch (error) {
+      respondJson(response, 500, {
+        error: error instanceof Error ? error.message : "Failed to submit dynamic tool call response.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/account/chatgpt-auth-tokens/refresh") {
+    try {
+      const body = await parseJsonBody(request);
+      const requestId = typeof body.requestId === "string" ? body.requestId : null;
+      const accessToken = typeof body.accessToken === "string" ? body.accessToken : null;
+      const chatgptAccountId = typeof body.chatgptAccountId === "string" ? body.chatgptAccountId : null;
+      const chatgptPlanType =
+        body.chatgptPlanType === null || typeof body.chatgptPlanType === "string" ? body.chatgptPlanType : undefined;
+
+      if (!requestId || !accessToken || !chatgptAccountId || chatgptPlanType === undefined) {
+        respondJson(response, 400, { error: "Invalid ChatGPT auth token refresh payload." });
+        return;
+      }
+
+      session.resolveServerRequest(requestId, "account/chatgptAuthTokens/refresh", {
+        accessToken,
+        chatgptAccountId,
+        chatgptPlanType,
+      });
+      respondJson(response, 200, { ok: true });
+    } catch (error) {
+      respondJson(response, 500, {
+        error: error instanceof Error ? error.message : "Failed to submit ChatGPT auth token refresh response.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/approvals/apply-patch") {
+    try {
+      const body = await parseJsonBody(request);
+      const requestId = typeof body.requestId === "string" ? body.requestId : null;
+      const decision = typeof body.decision === "string" ? body.decision : null;
+
+      if (!requestId || !decision || !isReviewDecision(decision)) {
+        respondJson(response, 400, { error: "Invalid apply patch approval payload." });
+        return;
+      }
+
+      session.resolveServerRequest(requestId, "applyPatchApproval", { decision });
+      respondJson(response, 200, { ok: true });
+    } catch (error) {
+      respondJson(response, 500, {
+        error: error instanceof Error ? error.message : "Failed to submit apply patch approval.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/approvals/exec-command") {
+    try {
+      const body = await parseJsonBody(request);
+      const requestId = typeof body.requestId === "string" ? body.requestId : null;
+      const decision = typeof body.decision === "string" ? body.decision : null;
+
+      if (!requestId || !decision || !isReviewDecision(decision)) {
+        respondJson(response, 400, { error: "Invalid exec command approval payload." });
+        return;
+      }
+
+      session.resolveServerRequest(requestId, "execCommandApproval", { decision });
+      respondJson(response, 200, { ok: true });
+    } catch (error) {
+      respondJson(response, 500, {
+        error: error instanceof Error ? error.message : "Failed to submit exec command approval.",
       });
     }
     return;

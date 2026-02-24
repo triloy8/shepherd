@@ -4,6 +4,7 @@ import type {
   CommandApprovalDecision,
   FileChangeApprovalDecision,
   InterruptTurnResponse,
+  ReviewApprovalDecision,
   StartThreadResponse,
   StartTurnResponse,
 } from "../core/types.js";
@@ -75,6 +76,61 @@ export async function respondToolUserInput(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ requestId, answers }),
+  });
+  return parseJson<{ ok: true }>(response);
+}
+
+export async function respondDynamicToolCall(
+  requestId: string,
+  success: boolean,
+  contentText: string,
+): Promise<{ ok: true }> {
+  const response = await fetch("/api/tool-call", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requestId,
+      success,
+      contentItems: contentText.trim() ? [{ type: "inputText", text: contentText.trim() }] : [],
+    }),
+  });
+  return parseJson<{ ok: true }>(response);
+}
+
+export async function respondChatgptAuthTokensRefresh(
+  requestId: string,
+  accessToken: string,
+  chatgptAccountId: string,
+  chatgptPlanType: string | null,
+): Promise<{ ok: true }> {
+  const response = await fetch("/api/account/chatgpt-auth-tokens/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId, accessToken, chatgptAccountId, chatgptPlanType }),
+  });
+  return parseJson<{ ok: true }>(response);
+}
+
+export async function respondApplyPatchApproval(
+  requestId: string,
+  decision: ReviewApprovalDecision,
+): Promise<{ ok: true }> {
+  const response = await fetch("/api/approvals/apply-patch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId, decision }),
+  });
+  return parseJson<{ ok: true }>(response);
+}
+
+export async function respondExecCommandApproval(
+  requestId: string,
+  decision: ReviewApprovalDecision,
+): Promise<{ ok: true }> {
+  const response = await fetch("/api/approvals/exec-command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId, decision }),
   });
   return parseJson<{ ok: true }>(response);
 }

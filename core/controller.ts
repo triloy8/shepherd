@@ -1,7 +1,11 @@
 import {
   connectEventStream,
   interruptTurn,
+  respondApplyPatchApproval,
+  respondChatgptAuthTokensRefresh,
   respondCommandApproval,
+  respondDynamicToolCall,
+  respondExecCommandApproval,
   respondFileChangeApproval,
   respondToolUserInput,
   startThread,
@@ -20,7 +24,12 @@ import type {
   PendingApprovalRequest,
   PendingCommandApprovalRequest,
   PendingFileChangeApprovalRequest,
+  PendingLegacyExecApprovalRequest,
+  PendingLegacyPatchApprovalRequest,
+  PendingChatgptAuthRefreshRequest,
+  PendingDynamicToolCallRequest,
   PendingToolUserInputRequest,
+  ReviewApprovalDecision,
   ThreadItem,
   ThreadItemType,
 } from "./types.js";
@@ -99,10 +108,21 @@ function extractProtocolItemId(value: unknown): string | null {
   const candidate = record.itemId ?? record.item_id ?? record.callId ?? record.call_id ?? record.id;
   if (typeof candidate === "string" && candidate.trim()) return candidate;
 
+  const item = parseObject(record.item);
+  if (item) {
+    const itemCandidate = item.itemId ?? item.item_id ?? item.callId ?? item.call_id ?? item.id;
+    if (typeof itemCandidate === "string" && itemCandidate.trim()) return itemCandidate;
+  }
+
   const msg = parseObject(record.msg);
   if (!msg) return null;
   const nested = msg.itemId ?? msg.item_id ?? msg.callId ?? msg.call_id ?? msg.id;
-  return typeof nested === "string" && nested.trim() ? nested : null;
+  if (typeof nested === "string" && nested.trim()) return nested;
+
+  const msgItem = parseObject(msg.item);
+  if (!msgItem) return null;
+  const msgItemCandidate = msgItem.itemId ?? msgItem.item_id ?? msgItem.callId ?? msgItem.call_id ?? msgItem.id;
+  return typeof msgItemCandidate === "string" && msgItemCandidate.trim() ? msgItemCandidate : null;
 }
 
 function inferItemTypeFromMethod(method: string): ThreadItemType {
@@ -259,6 +279,10 @@ function isCommandDecision(value: string): value is CommandApprovalDecision {
 
 function isFileChangeDecision(value: string): value is FileChangeApprovalDecision {
   return value === "accept" || value === "acceptForSession" || value === "decline" || value === "cancel";
+}
+
+function isReviewDecision(value: string): value is ReviewApprovalDecision {
+  return value === "approved" || value === "approved_for_session" || value === "denied" || value === "abort";
 }
 
 export class AgentController {
@@ -577,9 +601,10 @@ export class AgentController {
   private handleServerRequest(requestId: string, method: string, params: unknown): void {
     const lower = method.toLowerCase();
     const record = parseObject(params) ?? {};
-    const threadId = parseString(record.threadId) ?? this.snapshot.threadId ?? "unknown";
+    const threadId =
+      parseString(record.threadId) ?? parseString(record.conversationId) ?? this.snapshot.threadId ?? "unknown";
     const turnId = parseString(record.turnId) ?? this.snapshot.activeTurnId ?? "unknown";
-    const itemId = parseString(record.itemId) ?? requestId;
+    const itemId = parseString(record.itemId) ?? parseString(record.callId) ?? requestId;
     const reason = parseString(record.reason);
     const createdAt = new Date().toISOString();
 
@@ -641,6 +666,86 @@ export class AgentController {
       };
       this.upsertPendingApproval(request);
       this.setStatus("User input required");
+      return;
+    }
+
+    if (lower === "item/tool/call") {
+      const request: PendingDynamicToolCallRequest = {
+        kind: "dynamicToolCall",
+        requestId,
+        method,
+        threadId,
+        turnId,
+        itemId,
+        reason,
+        createdAt,
+        callId: parseString(record.callId) ?? requestId,
+        tool: parseString(record.tool) ?? "unknown",
+        arguments: record.arguments,
+        submitting: false,
+      };
+      this.upsertPendingApproval(request);
+      this.setStatus("Tool call response required");
+      return;
+    }
+
+    if (lower === "account/chatgptauthtokens/refresh") {
+      const request: PendingChatgptAuthRefreshRequest = {
+        kind: "chatgptAuthRefresh",
+        requestId,
+        method,
+        threadId,
+        turnId,
+        itemId,
+        reason,
+        createdAt,
+        refreshReason: parseString(record.reason) ?? "unauthorized",
+        previousAccountId: parseString(record.previousAccountId),
+        submitting: false,
+      };
+      this.upsertPendingApproval(request);
+      this.setStatus("ChatGPT token refresh required");
+      return;
+    }
+
+    if (lower === "execcommandapproval") {
+      const request: PendingLegacyExecApprovalRequest = {
+        kind: "legacyExecApproval",
+        requestId,
+        method,
+        threadId,
+        turnId,
+        itemId,
+        reason,
+        createdAt,
+        callId: parseString(record.callId) ?? requestId,
+        approvalId: parseString(record.approvalId),
+        command: toArray(record.command).map((entry) => `${entry}`),
+        cwd: parseString(record.cwd),
+        submitting: false,
+      };
+      this.upsertPendingApproval(request);
+      this.setStatus("Legacy command approval required");
+      return;
+    }
+
+    if (lower === "applypatchapproval") {
+      const request: PendingLegacyPatchApprovalRequest = {
+        kind: "legacyPatchApproval",
+        requestId,
+        method,
+        threadId,
+        turnId,
+        itemId,
+        reason,
+        createdAt,
+        callId: parseString(record.callId) ?? requestId,
+        grantRoot: parseString(record.grantRoot),
+        fileChangeCount: Object.keys(parseObject(record.fileChanges) ?? {}).length,
+        submitting: false,
+      };
+      this.upsertPendingApproval(request);
+      this.setStatus("Legacy patch approval required");
     }
   }
 
@@ -742,7 +847,25 @@ export class AgentController {
 
     if (completedItemType === "agentMessage") {
       this.completeActiveTurn("Turn completed");
+      return;
     }
+
+    const agent = this.ensureActiveAgentItem();
+    const fallbackRef = this.appendSubBlock(
+      agent,
+      completedItemType ?? inferItemTypeFromMethod("item/completed"),
+      protocolItemId,
+    );
+    this.updateSubBlock(fallbackRef, (segment) => ({
+      ...segment,
+      status: "completed",
+      text:
+        segment.text ||
+        parseString(itemContainer.output ?? itemContainer.result ?? itemContainer.content) ||
+        segment.text,
+      details: { ...(segment.details ?? {}), completedAt: new Date().toISOString() },
+      raw: { ...(segment.raw ?? {}), completed: parseObject(params) ?? params },
+    }));
   }
 
   private handleItemFailed(params: unknown): void {
@@ -1020,6 +1143,77 @@ export class AgentController {
         error instanceof Error ? error.message : "Failed to submit tool input",
       );
       this.setStatus("Tool input failed", "error");
+    }
+  }
+
+  async submitDynamicToolCall(requestId: string, success: boolean, contentText: string): Promise<void> {
+    this.markPendingApprovalSubmitting(requestId, true);
+    try {
+      await respondDynamicToolCall(requestId, success, contentText);
+      this.removePendingApproval(requestId);
+      this.setStatus("Tool call response submitted");
+    } catch (error) {
+      this.markPendingApprovalSubmitting(
+        requestId,
+        false,
+        error instanceof Error ? error.message : "Failed to submit tool call response",
+      );
+      this.setStatus("Tool call response failed", "error");
+    }
+  }
+
+  async submitChatgptAuthRefresh(
+    requestId: string,
+    accessToken: string,
+    chatgptAccountId: string,
+    chatgptPlanType: string | null,
+  ): Promise<void> {
+    this.markPendingApprovalSubmitting(requestId, true);
+    try {
+      await respondChatgptAuthTokensRefresh(requestId, accessToken, chatgptAccountId, chatgptPlanType);
+      this.removePendingApproval(requestId);
+      this.setStatus("ChatGPT token refresh submitted");
+    } catch (error) {
+      this.markPendingApprovalSubmitting(
+        requestId,
+        false,
+        error instanceof Error ? error.message : "Failed to submit ChatGPT token refresh",
+      );
+      this.setStatus("ChatGPT token refresh failed", "error");
+    }
+  }
+
+  async submitApplyPatchApproval(requestId: string, decision: string): Promise<void> {
+    if (!isReviewDecision(decision)) return;
+    this.markPendingApprovalSubmitting(requestId, true);
+    try {
+      await respondApplyPatchApproval(requestId, decision);
+      this.removePendingApproval(requestId);
+      this.setStatus("Apply patch approval submitted");
+    } catch (error) {
+      this.markPendingApprovalSubmitting(
+        requestId,
+        false,
+        error instanceof Error ? error.message : "Failed to submit apply patch approval",
+      );
+      this.setStatus("Apply patch approval failed", "error");
+    }
+  }
+
+  async submitExecCommandApproval(requestId: string, decision: string): Promise<void> {
+    if (!isReviewDecision(decision)) return;
+    this.markPendingApprovalSubmitting(requestId, true);
+    try {
+      await respondExecCommandApproval(requestId, decision);
+      this.removePendingApproval(requestId);
+      this.setStatus("Exec command approval submitted");
+    } catch (error) {
+      this.markPendingApprovalSubmitting(
+        requestId,
+        false,
+        error instanceof Error ? error.message : "Failed to submit exec command approval",
+      );
+      this.setStatus("Exec command approval failed", "error");
     }
   }
 }

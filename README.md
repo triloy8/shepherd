@@ -16,6 +16,10 @@ It does not call `/v1/chat/completions`; it only talks to a local bridge that pr
   - `item/commandExecution/requestApproval`
   - `item/fileChange/requestApproval`
   - `item/tool/requestUserInput`
+  - `item/tool/call`
+  - `account/chatgptAuthTokens/refresh`
+  - `applyPatchApproval`
+  - `execCommandApproval`
 - UI approval queue with decision submission:
   - Command decisions: `accept`, `acceptForSession`, `decline`, `cancel`
   - File change decisions: `accept`, `acceptForSession`, `decline`, `cancel`

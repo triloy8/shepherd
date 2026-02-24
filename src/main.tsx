@@ -5,6 +5,10 @@ import { ITEM_TYPE_REGISTRY } from "../core/item_registry.js";
 import type {
   DisplayMode,
   OutputSegment,
+  PendingChatgptAuthRefreshRequest,
+  PendingDynamicToolCallRequest,
+  PendingLegacyExecApprovalRequest,
+  PendingLegacyPatchApprovalRequest,
   PendingApprovalRequest,
   PendingToolUserInputRequest,
   ThreadItem,
@@ -156,6 +160,18 @@ function App() {
                 onCommand={(requestId, decision) => void controller.submitCommandApproval(requestId, decision)}
                 onFileChange={(requestId, decision) => void controller.submitFileChangeApproval(requestId, decision)}
                 onToolInput={(requestId, answers) => void controller.submitToolUserInput(requestId, answers)}
+                onToolCall={(requestId, success, contentText) =>
+                  void controller.submitDynamicToolCall(requestId, success, contentText)
+                }
+                onChatgptAuthRefresh={(requestId, accessToken, chatgptAccountId, chatgptPlanType) =>
+                  void controller.submitChatgptAuthRefresh(requestId, accessToken, chatgptAccountId, chatgptPlanType)
+                }
+                onApplyPatchApproval={(requestId, decision) =>
+                  void controller.submitApplyPatchApproval(requestId, decision)
+                }
+                onExecCommandApproval={(requestId, decision) =>
+                  void controller.submitExecCommandApproval(requestId, decision)
+                }
               />
             )}
           </For>
@@ -432,6 +448,10 @@ function KvOrFallback(props: { entries: KvEntry[]; fallbackText: string }) {
 function approvalTitle(request: PendingApprovalRequest): string {
   if (request.kind === "command") return "Command Approval";
   if (request.kind === "fileChange") return "File Change Approval";
+  if (request.kind === "dynamicToolCall") return "Tool Call Response";
+  if (request.kind === "chatgptAuthRefresh") return "ChatGPT Token Refresh";
+  if (request.kind === "legacyExecApproval") return "Legacy Exec Approval";
+  if (request.kind === "legacyPatchApproval") return "Legacy Patch Approval";
   return "User Input Required";
 }
 
@@ -440,6 +460,15 @@ function ApprovalCard(props: {
   onCommand: (requestId: string, decision: string) => void;
   onFileChange: (requestId: string, decision: string) => void;
   onToolInput: (requestId: string, answers: Record<string, { answers: string[] }>) => void;
+  onToolCall: (requestId: string, success: boolean, contentText: string) => void;
+  onChatgptAuthRefresh: (
+    requestId: string,
+    accessToken: string,
+    chatgptAccountId: string,
+    chatgptPlanType: string | null,
+  ) => void;
+  onApplyPatchApproval: (requestId: string, decision: string) => void;
+  onExecCommandApproval: (requestId: string, decision: string) => void;
 }) {
   const submitToolInput = (event: SubmitEvent, request: PendingToolUserInputRequest) => {
     event.preventDefault();
@@ -458,6 +487,34 @@ function ApprovalCard(props: {
     }
 
     props.onToolInput(request.requestId, answers);
+  };
+
+  const submitToolCall = (event: SubmitEvent, request: PendingDynamicToolCallRequest) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const successInput = form.elements.namedItem("tool-call-success");
+    const textInput = form.elements.namedItem("tool-call-text");
+    const success = successInput instanceof HTMLInputElement ? successInput.checked : true;
+    const text = textInput instanceof HTMLTextAreaElement ? textInput.value : "";
+    props.onToolCall(request.requestId, success, text);
+  };
+
+  const submitAuthRefresh = (event: SubmitEvent, request: PendingChatgptAuthRefreshRequest) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const accessToken = form.elements.namedItem("chatgpt-access-token");
+    const accountId = form.elements.namedItem("chatgpt-account-id");
+    const planType = form.elements.namedItem("chatgpt-plan-type");
+    const nextAccessToken = accessToken instanceof HTMLInputElement ? accessToken.value.trim() : "";
+    const nextAccountId = accountId instanceof HTMLInputElement ? accountId.value.trim() : "";
+    const nextPlanTypeRaw = planType instanceof HTMLInputElement ? planType.value.trim() : "";
+    if (!nextAccessToken || !nextAccountId) return;
+    props.onChatgptAuthRefresh(
+      request.requestId,
+      nextAccessToken,
+      nextAccountId,
+      nextPlanTypeRaw || null,
+    );
   };
 
   return (
@@ -569,6 +626,137 @@ function ApprovalCard(props: {
                 {request().submitting ? "Submitting..." : "Submit Answers"}
               </button>
             </form>
+          )}
+        </Show>
+      </Show>
+
+      <Show when={props.request.kind === "dynamicToolCall"}>
+        <Show when={props.request.kind === "dynamicToolCall"}>
+          {(request) => (
+            <form class="tool-input-form" onSubmit={(event) => submitToolCall(event as SubmitEvent, request())}>
+              <p class="approval-note">tool: {request().tool}</p>
+              <pre class="approval-command">{formatJson(request().arguments) ?? "{}"}</pre>
+              <label>
+                <input type="checkbox" name="tool-call-success" checked />
+                success
+              </label>
+              <textarea
+                name="tool-call-text"
+                placeholder="Tool response text (optional)"
+                rows={3}
+                disabled={request().submitting}
+              />
+              <button type="submit" class="approval-action-btn allow" disabled={request().submitting}>
+                {request().submitting ? "Submitting..." : "Submit Tool Response"}
+              </button>
+            </form>
+          )}
+        </Show>
+      </Show>
+
+      <Show when={props.request.kind === "chatgptAuthRefresh"}>
+        <Show when={props.request.kind === "chatgptAuthRefresh"}>
+          {(request) => (
+            <form class="tool-input-form" onSubmit={(event) => submitAuthRefresh(event as SubmitEvent, request())}>
+              <p class="approval-note">reason: {request().refreshReason}</p>
+              <Show when={request().previousAccountId}>
+                <p class="approval-note">previous account: {request().previousAccountId}</p>
+              </Show>
+              <input
+                type="password"
+                name="chatgpt-access-token"
+                placeholder="Access token"
+                autocomplete="off"
+                required
+                disabled={request().submitting}
+              />
+              <input
+                type="text"
+                name="chatgpt-account-id"
+                placeholder="ChatGPT account ID"
+                autocomplete="off"
+                required
+                disabled={request().submitting}
+              />
+              <input
+                type="text"
+                name="chatgpt-plan-type"
+                placeholder="Plan type (optional)"
+                autocomplete="off"
+                disabled={request().submitting}
+              />
+              <button type="submit" class="approval-action-btn allow" disabled={request().submitting}>
+                {request().submitting ? "Submitting..." : "Submit Tokens"}
+              </button>
+            </form>
+          )}
+        </Show>
+      </Show>
+
+      <Show when={props.request.kind === "legacyExecApproval"}>
+        <Show when={props.request.kind === "legacyExecApproval"}>
+          {(request) => (
+            <>
+              <Show when={request().command.length > 0}>
+                <pre class="approval-command">{request().command.join(" ")}</pre>
+              </Show>
+              <Show when={request().cwd}>
+                <p class="approval-note">cwd: {request().cwd}</p>
+              </Show>
+              <div class="approval-actions">
+                <For each={["approved", "approved_for_session", "denied", "abort"]}>
+                  {(decision) => (
+                    <button
+                      type="button"
+                      class={`approval-action-btn ${decision.startsWith("approved") ? "allow" : decision === "denied" ? "deny" : ""}`.trim()}
+                      disabled={request().submitting}
+                      onClick={() => props.onExecCommandApproval(request().requestId, decision)}
+                    >
+                      {decision === "approved"
+                        ? "Approve Once"
+                        : decision === "approved_for_session"
+                        ? "Approve Session"
+                        : decision === "denied"
+                        ? "Deny"
+                        : "Abort"}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </>
+          )}
+        </Show>
+      </Show>
+
+      <Show when={props.request.kind === "legacyPatchApproval"}>
+        <Show when={props.request.kind === "legacyPatchApproval"}>
+          {(request) => (
+            <>
+              <p class="approval-note">file changes: {request().fileChangeCount}</p>
+              <Show when={request().grantRoot}>
+                <p class="approval-note">grant root requested: {request().grantRoot}</p>
+              </Show>
+              <div class="approval-actions">
+                <For each={["approved", "approved_for_session", "denied", "abort"]}>
+                  {(decision) => (
+                    <button
+                      type="button"
+                      class={`approval-action-btn ${decision.startsWith("approved") ? "allow" : decision === "denied" ? "deny" : ""}`.trim()}
+                      disabled={request().submitting}
+                      onClick={() => props.onApplyPatchApproval(request().requestId, decision)}
+                    >
+                      {decision === "approved"
+                        ? "Approve Once"
+                        : decision === "approved_for_session"
+                        ? "Approve Session"
+                        : decision === "denied"
+                        ? "Deny"
+                        : "Abort"}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </>
           )}
         </Show>
       </Show>

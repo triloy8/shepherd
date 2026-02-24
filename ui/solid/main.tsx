@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
-import { AgentController } from "../core/controller.js";
-import { ITEM_TYPE_REGISTRY } from "../core/item_registry.js";
+import { AgentController } from "./controller/agent_controller.js";
+import { ITEM_TYPE_REGISTRY } from "./presentation/item_registry.js";
 import type {
   DisplayMode,
   OutputSegment,
@@ -12,7 +12,7 @@ import type {
   PendingApprovalRequest,
   PendingToolUserInputRequest,
   ThreadItem,
-} from "../core/types.js";
+} from "./types/ui_types.js";
 import "./styles.css";
 
 const EMPTY_AGENT_OUTPUT = "No output available.";

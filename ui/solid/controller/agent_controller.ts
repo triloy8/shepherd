@@ -11,7 +11,7 @@ import {
   startThread,
   startTurn,
 } from "../services/app_server_client.js";
-import { ITEM_TYPE_REGISTRY, normalizeThreadItemType } from "./item_registry.js";
+import { ITEM_TYPE_REGISTRY, normalizeThreadItemType } from "../presentation/item_registry.js";
 import type {
   AgentState,
   ApprovalQuestion,
@@ -32,7 +32,7 @@ import type {
   ReviewApprovalDecision,
   ThreadItem,
   ThreadItemType,
-} from "./types.js";
+} from "../types/ui_types.js";
 
 export type StatusVariant = "default" | "pending" | "error";
 

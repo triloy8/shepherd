@@ -1,14 +1,21 @@
 {
+  "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite",
-    "serve": "node server/bridge.mjs"
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "start:http": "node dist/server/adapters/http/server.js",
+    "start:discord": "node dist/server/adapters/discord/bot.js",
+    "start:all": "node dist/server/index.js",
+    "dev:http": "tsx server/adapters/http/server.ts",
+    "dev:discord": "tsx server/adapters/discord/bot.ts",
+    "dev:all": "tsx server/index.ts"
   },
   "dependencies": {
     "solid-js": "^1.9.4"
   },
   "devDependencies": {
+    "@types/node": "^22.18.5",
     "playwright": "^1.58.2",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.1.3",
     "vite-plugin-solid": "^2.11.8"

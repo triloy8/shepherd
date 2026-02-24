@@ -1,0 +1,20 @@
+import { SessionManager } from "./core/session_manager.js";
+import { startHttpServer } from "./adapters/http/server.js";
+
+const host = process.env.HOST ?? "127.0.0.1";
+const port = Number(process.env.PORT ?? "8787");
+
+const manager = new SessionManager();
+const server = startHttpServer(manager, host, port);
+
+process.on("SIGINT", () => {
+  manager.stopAll();
+  server.close(() => process.exit(0));
+});
+
+process.on("SIGTERM", () => {
+  manager.stopAll();
+  server.close(() => process.exit(0));
+});
+
+console.log(`codex bridge listening at http://${host}:${port}`);

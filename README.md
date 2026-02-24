@@ -1,57 +1,25 @@
-# Agent (SolidJS + Bun)
+# Codex Bridge (Hard Refactor)
 
-This app is a SolidJS browser client for `codex app-server`.
-It does not call `/v1/chat/completions`; it only talks to a local bridge that proxies Codex App Server JSON-RPC.
+This repository has been refactored into a clean architecture split:
 
-## What It Implements
+- `shared/protocol`: canonical event/request/approval contracts
+- `server/core`: session runtime, approval lifecycle, event bus
+- `server/adapters/http`: HTTP + SSE transport adapter
+- `ui/solid`: Solid UI entrypoint, styles, controller, presentation, and services
 
-- `initialize` -> `initialized`
-- `thread/start`
-- `turn/start`
-- `turn/interrupt`
-- Notification streaming over SSE (`/api/events`)
-- Global approval policy selector in the UI header (`untrusted`, `on-failure`, `on-request`, `never`)
-  propagated to both `thread/start` and `turn/start`
-- Server request handling for:
-  - `item/commandExecution/requestApproval`
-  - `item/fileChange/requestApproval`
-  - `item/tool/requestUserInput`
-  - `item/tool/call`
-  - `account/chatgptAuthTokens/refresh`
-  - `applyPatchApproval`
-  - `execCommandApproval`
-- UI approval queue with decision submission:
-  - Command decisions: `accept`, `acceptForSession`, `decline`, `cancel`
-  - File change decisions: `accept`, `acceptForSession`, `decline`, `cancel`
-  - Tool user input answers (`answers` map keyed by question id)
+## Run (dev)
 
-## Prerequisites
+1. `npm install`
+2. `npm run dev:http` (HTTP bridge server)
+3. `npm run dev` (Solid app)
 
-1. Install the Codex CLI so `codex app-server` is available on your PATH.
-2. Make sure you are authenticated for Codex usage.
+## Run (production-like)
 
-## Run
+1. `npm run build`
+2. `npm run start:http`
 
-1. `bun install`
-2. `bun run build`
-3. `bun run serve`
-4. Open `http://127.0.0.1:8787`
+Environment variables:
 
-## Dev Mode (Vite + Bridge)
-
-1. Start the bridge API: `bun run serve`
-2. In a second terminal, start Vite: `bun run dev`
-3. Open the Vite URL (usually `http://127.0.0.1:5173`)
-
-`vite.config.ts` proxies `/api/*` to `http://127.0.0.1:8787`.
-
-`bun run serve` starts `server/bridge.mjs`, which:
-- spawns `codex app-server`
-- proxies protocol calls via `/api/*`
-- serves built static files from `dist/`
-
-## Environment
-
-- `PORT` (default `8787`)
 - `HOST` (default `127.0.0.1`)
+- `PORT` (default `8787`)
 - `CODEX_MODEL` (default `gpt-5.3-codex`)

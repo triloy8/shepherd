@@ -1,4 +1,4 @@
-import type { ThreadItemType } from "./types.js";
+import type { ThreadItemType } from "../types/ui_types.js";
 
 type ItemTypeMeta = {
   label: string;

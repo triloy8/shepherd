@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
+const distDir = path.join(rootDir, "dist");
 const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? "8787");
 
@@ -74,10 +75,9 @@ class CodexAppServerSession {
     this.child.stderr.on("data", (chunk) => {
       const text = chunk.toString("utf8").trim();
       if (!text) return;
-      this.broadcast({
-        type: "error",
-        message: `app-server stderr: ${text}`,
-      });
+      // App-server can emit non-fatal diagnostics on stderr; keep UI status stable.
+      // eslint-disable-next-line no-console
+      console.warn(`app-server stderr: ${text}`);
     });
 
     this.readline = readline.createInterface({
@@ -376,24 +376,20 @@ async function parseJsonBody(request) {
   return JSON.parse(raw);
 }
 
-function safePathFromUrl(urlPathname) {
+function safePathFromUrl(baseDir, urlPathname) {
   const decoded = decodeURIComponent(urlPathname);
   const normalized = path.normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, "");
-  const absolutePath = path.join(rootDir, normalized);
-  if (!absolutePath.startsWith(rootDir)) return null;
+  const absolutePath = path.join(baseDir, normalized);
+  if (!absolutePath.startsWith(baseDir)) return null;
   return absolutePath;
 }
 
-async function serveStatic(request, response) {
-  const url = new URL(request.url, `http://${request.headers.host}`);
-  let pathname = url.pathname;
-  if (pathname === "/") pathname = "/index.html";
-
-  const filePath = safePathFromUrl(pathname);
-  if (!filePath) {
+async function streamStaticFile(baseDir, pathname, response) {
+  const filePath = safePathFromUrl(baseDir, pathname);
+  if (!filePath || !filePath.startsWith(baseDir)) {
     response.writeHead(403);
     response.end("Forbidden");
-    return;
+    return true;
   }
 
   try {
@@ -401,7 +397,7 @@ async function serveStatic(request, response) {
     if (!stat.isFile()) {
       response.writeHead(404);
       response.end("Not found");
-      return;
+      return true;
     }
 
     const extension = path.extname(filePath).toLowerCase();
@@ -411,10 +407,25 @@ async function serveStatic(request, response) {
       "Cache-Control": "no-store",
     });
     createReadStream(filePath).pipe(response);
+    return true;
   } catch {
-    response.writeHead(404);
-    response.end("Not found");
+    return false;
   }
+}
+
+async function serveStatic(request, response) {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  let pathname = url.pathname;
+  if (pathname === "/") pathname = "/index.html";
+
+  const servedFromDist = await streamStaticFile(distDir, pathname, response);
+  if (servedFromDist) return;
+
+  const servedFromRoot = await streamStaticFile(rootDir, pathname, response);
+  if (servedFromRoot) return;
+
+  response.writeHead(404);
+  response.end("Not found");
 }
 
 const server = http.createServer(async (request, response) => {

@@ -1,104 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent</title>
-    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="agent-app" data-role="agent-app">
-      <header class="agent-header">
-        <h1>Agent</h1>
-        <div class="agent-actions">
-          <div class="approval-control" aria-label="Approval Policy">
-            <span class="approval-control-label">Approval</span>
-            <div class="approval-segment" id="approval-policy-group" role="group" aria-label="Approval Policy">
-              <button type="button" class="approval-chip" data-approval-policy="untrusted">Untrusted</button>
-              <button type="button" class="approval-chip" data-approval-policy="on-failure">On Failure</button>
-              <button type="button" class="approval-chip" data-approval-policy="on-request" data-active="true">
-                On Request
-              </button>
-              <button type="button" class="approval-chip" data-approval-policy="never">Never</button>
-            </div>
-          </div>
-          <button type="button" id="new-thread-btn" class="header-chip-action">New Thread</button>
-        </div>
-      </header>
-      <section class="agent-body" id="item-list" aria-live="polite"></section>
-      <section class="agent-composer">
-        <section class="approval-list" id="approval-list" aria-live="polite" hidden></section>
-        <form id="composer-form">
-          <div class="composer-main">
-            <span
-              class="status-pill"
-              id="status-pill"
-              role="status"
-              aria-live="polite"
-              data-state="default"
-              title="Ready"
-              aria-label="Ready"
-            >
-              <span class="visually-hidden" id="status-text">Ready</span>
-              <svg class="status-icon icon-ready" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6.5 12.75l3.25 3.25L17.5 8.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <svg class="status-icon icon-pending" viewBox="0 0 24 24" aria-hidden="true">
-                <circle class="track" cx="12" cy="12" r="7.5" stroke="currentColor" opacity="0.2" />
-                <path class="indicator" d="M12 4.5a7.5 7.5 0 0 1 7.5 7.5" stroke="currentColor" stroke-linecap="round" />
-              </svg>
-              <svg class="status-icon icon-error" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="7" stroke="currentColor" stroke-linecap="round" />
-                <path d="M12 8.5v4" stroke="currentColor" stroke-linecap="round" />
-                <circle cx="12" cy="16" r="0.8" fill="currentColor" stroke="none" />
-              </svg>
-            </span>
-            <div class="composer-field">
-              <label for="turn-input" class="visually-hidden">Turn Input</label>
-              <textarea
-                id="turn-input"
-                name="turn_input"
-                placeholder="Type input for the next turn..."
-                autocomplete="off"
-                required
-              ></textarea>
-            </div>
-            <div class="composer-controls">
-              <div class="composer-action-stack">
-                <button
-                  class="icon-button primary"
-                  type="submit"
-                  id="start-turn-btn"
-                  aria-label="Start turn"
-                  title="Start turn"
-                >
-                  <svg class="icon icon-send" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4.5 3.75l15 8.25-15 8.25 3-8.25-3-8.25z" stroke="currentColor" fill="none" stroke-linejoin="round" />
-                    <path d="M7.5 11.75l12-.75" stroke="currentColor" stroke-linecap="round" />
-                  </svg>
-                  <span class="visually-hidden">Start turn</span>
-                </button>
-                <button
-                  type="button"
-                  class="icon-button ghost"
-                  id="interrupt-turn-btn"
-                  hidden
-                  aria-label="Interrupt turn"
-                  title="Interrupt turn"
-                >
-                  <svg class="icon icon-cancel" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M8 8l8 8" stroke="currentColor" />
-                    <path d="M16 8l-8 8" stroke="currentColor" />
-                  </svg>
-                  <span class="visually-hidden">Interrupt turn</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </form>
-      </section>
-    </main>
-
-    <script type="module" src="./dist/agent.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

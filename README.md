@@ -18,8 +18,30 @@ This repository has been refactored into a clean architecture split:
 1. `npm run build`
 2. `npm run start:http`
 
+## Discord Bot
+
+1. Set env vars:
+   - `DISCORD_BOT_TOKEN` (required)
+   - `DISCORD_APPROVAL_POLICY` (optional, default `on-request`)
+2. Run:
+   - `npm run dev:discord` (TypeScript runtime)
+   - or `npm run start:discord` after build
+
+Bot commands:
+- `!help` show commands
+- `!newthread` create/reset channel thread mapping
+- `!thread` show current mapped Codex thread
+- any normal message sends a turn to Codex
+
 Environment variables:
 
 - `HOST` (default `127.0.0.1`)
 - `PORT` (default `8787`)
 - `CODEX_MODEL` (default `gpt-5.3-codex`)
+
+Runtime env files are loaded from `envs/`:
+
+- `envs/common.env` shared keys
+- `envs/http.env` HTTP adapter keys
+- `envs/discord.env` Discord adapter keys
+- `envs/*.env.example` templates you can copy to `.env`

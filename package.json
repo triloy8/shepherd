@@ -10,7 +10,8 @@
     "dev:all": "tsx server/index.ts"
   },
   "dependencies": {
-    "solid-js": "^1.9.4"
+    "solid-js": "^1.9.4",
+    "discord.js": "^14.22.1"
   },
   "devDependencies": {
     "@types/node": "^22.18.5",

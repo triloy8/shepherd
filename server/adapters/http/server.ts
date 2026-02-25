@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { SessionManager } from "../../core/session_manager.js";
+import { loadEnvironment } from "../../config/environment.js";
 import { handleApprovalDecision, handleListApprovals } from "./routes/approvals.js";
 import { handleEventsSse } from "./routes/events.js";
 import { isAuthorized } from "./routes/auth.js";
@@ -89,6 +90,7 @@ const __filename = fileURLToPath(import.meta.url);
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
 if (isDirectRun) {
+  loadEnvironment("http");
   const { SessionManager } = await import("../../core/session_manager.js");
   const host = process.env.HOST ?? "127.0.0.1";
   const port = Number(process.env.PORT ?? "8787");

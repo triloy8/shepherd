@@ -1,5 +1,8 @@
 import { SessionManager } from "./core/session_manager.js";
 import { startHttpServer } from "./adapters/http/server.js";
+import { loadEnvironment } from "./config/environment.js";
+
+loadEnvironment("http");
 
 const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? "8787");

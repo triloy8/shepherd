@@ -28,11 +28,35 @@ import { ThreadStore } from "./thread_store.js";
 
 type StreamState = {
   text: string;
-  messageId: string | null;
+  messageIds: string[];
+  renderedChunks: string[];
   timer: NodeJS.Timeout | null;
-  lastDelta: string | null;
   flushing: boolean;
+  pendingFlush: boolean;
 };
+
+const DISCORD_STREAM_CHUNK_LIMIT = 1900;
+
+function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT): string[] {
+  if (!text) return [];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > maxChunkSize) {
+    const slice = remaining.slice(0, maxChunkSize);
+    const breakAt = Math.max(slice.lastIndexOf("\n"), slice.lastIndexOf(" "));
+    const boundary = breakAt >= Math.floor(maxChunkSize * 0.6) ? breakAt + 1 : maxChunkSize;
+    chunks.push(remaining.slice(0, boundary));
+    remaining = remaining.slice(boundary);
+  }
+
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
+
+  return chunks;
+}
 
 function pickButtonStyle(decision: string): ButtonStyle {
   const normalized = decision.toLowerCase();
@@ -128,29 +152,49 @@ export async function startDiscordBot(): Promise<void> {
   const flushStream = async (channelId: string): Promise<void> => {
     const state = streamByChannel.get(channelId);
     if (!state || !state.text.trim()) return;
-    if (state.flushing) return;
+    if (state.flushing) {
+      state.pendingFlush = true;
+      return;
+    }
     state.flushing = true;
 
     try {
       const channel = await client.channels.fetch(channelId);
       if (!isSendableChannel(channel)) return;
 
-      const content = state.text.slice(0, 1900);
+      const chunks = chunkForDiscord(state.text);
+      for (let index = 0; index < chunks.length; index += 1) {
+        const content = chunks[index]!;
+        const prior = state.renderedChunks[index];
 
-      if (state.messageId) {
-        try {
-          const message = await channel.messages.fetch(state.messageId);
-          await message.edit(content);
-        } catch {
-          const sent = await channel.send(content);
-          state.messageId = sent.id;
+        if (prior === content) {
+          continue;
         }
-      } else {
-        const sent = await channel.send(content);
-        state.messageId = sent.id;
+
+        const existingMessageId = state.messageIds[index];
+        if (existingMessageId) {
+          try {
+            const message = await channel.messages.fetch(existingMessageId);
+            await message.edit(content);
+          } catch {
+            const sent = await channel.send(content);
+            state.messageIds[index] = sent.id;
+          }
+        } else {
+          const sent = await channel.send(content);
+          state.messageIds[index] = sent.id;
+        }
       }
+
+      state.renderedChunks = chunks;
     } finally {
       state.flushing = false;
+      if (state.pendingFlush) {
+        state.pendingFlush = false;
+        queueMicrotask(() => {
+          void flushStream(channelId);
+        });
+      }
     }
   };
 
@@ -170,10 +214,11 @@ export async function startDiscordBot(): Promise<void> {
       if (prior?.timer) clearTimeout(prior.timer);
       streamByChannel.set(channelId, {
         text: "",
-        messageId: null,
+        messageIds: [],
+        renderedChunks: [],
         timer: null,
-        lastDelta: null,
         flushing: false,
+        pendingFlush: false,
       });
       return;
     }
@@ -189,12 +234,15 @@ export async function startDiscordBot(): Promise<void> {
 
       const state =
         streamByChannel.get(channelId) ??
-        ({ text: "", messageId: null, timer: null, lastDelta: null, flushing: false } as StreamState);
-      if (state.lastDelta === delta) {
-        return;
-      }
+        ({
+          text: "",
+          messageIds: [],
+          renderedChunks: [],
+          timer: null,
+          flushing: false,
+          pendingFlush: false,
+        } as StreamState);
       state.text += delta;
-      state.lastDelta = delta;
       streamByChannel.set(channelId, state);
       scheduleStreamFlush(channelId);
       return;

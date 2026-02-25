@@ -1,4 +1,4 @@
-import type { ButtonInteraction } from "discord.js";
+import { MessageFlags, type ButtonInteraction } from "discord.js";
 
 import type { SessionManager } from "../../core/session_manager.js";
 import { decodeApprovalButtonId } from "./message_renderer.js";
@@ -17,12 +17,12 @@ export async function handleInteraction(
 
     await interaction.reply({
       content: `Decision submitted: ${parsed.decision}`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   } catch (error) {
     await interaction.reply({
       content: error instanceof Error ? error.message : "Failed to submit decision",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   }
 }

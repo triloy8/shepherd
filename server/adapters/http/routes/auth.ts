@@ -1,5 +1,3 @@
-import type { IncomingMessage } from "node:http";
-
-export function isAuthorized(_request: IncomingMessage): boolean {
+export function isAuthorized(_request: Request): boolean {
   return true;
 }

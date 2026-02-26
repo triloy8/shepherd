@@ -22,11 +22,11 @@ export async function handleMessage(
 
   if (content === "!help") {
     await message.reply([
-      "Discord Codex bridge commands:",
+      "Discord Shepherd commands:",
       "- !help",
       "- !newthread",
       "- !thread",
-      "Any other message is sent as a Codex turn.",
+      "Any other message is sent as a Shepherd turn.",
     ].join("\n"));
     return { handled: true, threadId: null, input: null };
   }

@@ -1,4 +1,4 @@
-# Codex Bridge (Hard Refactor)
+# Shepherd
 
 This repository has been refactored into a clean architecture split:
 
@@ -9,14 +9,17 @@ This repository has been refactored into a clean architecture split:
 
 ## Run (dev)
 
-1. `npm install`
-2. `npm run dev:http` (HTTP bridge server)
-3. `npm run dev` (Solid app)
+1. `bun install`
+2. `bun run build` (build UI assets into `dist/`)
+3. `bun run dev` (single Bun server binary entrypoint with watch mode)
 
 ## Run (production-like)
 
-1. `npm run build`
-2. `npm run start:http`
+1. `bun run build`
+2. `bun run serve`
+3. Optional single executable: `bun run build:bin` then run `./release/shepherd`
+4. Optional Discord bot executable: `bun run build:bin:discord` then run `./release/shepherd-discord`
+5. Build both executables: `bun run build:bin:all`
 
 ## Discord Bot
 
@@ -24,14 +27,14 @@ This repository has been refactored into a clean architecture split:
    - `DISCORD_BOT_TOKEN` (required)
    - `DISCORD_APPROVAL_POLICY` (optional, default `on-request`)
 2. Run:
-   - `npm run dev:discord` (TypeScript runtime)
-   - or `npm run start:discord` after build
+   - `bun run dev:discord` (Bun watch runtime)
+   - or `bun run start:discord`
 
 Bot commands:
 - `!help` show commands
 - `!newthread` create/reset channel thread mapping
-- `!thread` show current mapped Codex thread
-- any normal message sends a turn to Codex
+- `!thread` show current mapped Shepherd thread
+- any normal message sends a turn to Shepherd
 
 Environment variables:
 

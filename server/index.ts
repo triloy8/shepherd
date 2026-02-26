@@ -12,12 +12,14 @@ const server = startHttpServer(manager, host, port);
 
 process.on("SIGINT", () => {
   manager.stopAll();
-  server.close(() => process.exit(0));
+  server.stop();
+  process.exit(0);
 });
 
 process.on("SIGTERM", () => {
   manager.stopAll();
-  server.close(() => process.exit(0));
+  server.stop();
+  process.exit(0);
 });
 
-console.log(`codex bridge listening at http://${host}:${port}`);
+console.log(`shepherd listening at http://${server.hostname}:${server.port}`);

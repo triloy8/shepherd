@@ -1,9 +1,4 @@
-import http from "node:http";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import type { SessionManager } from "../../core/session_manager.js";
-import { loadEnvironment } from "../../config/environment.js";
 import { handleApprovalDecision, handleListApprovals } from "./routes/approvals.js";
 import { handleEventsSse } from "./routes/events.js";
 import { isAuthorized } from "./routes/auth.js";
@@ -13,99 +8,101 @@ import { handleInterruptTurn, handleSubmitTurn } from "./routes/turns.js";
 import { notFound, respondError } from "./routes/utils.js";
 import { serveStaticUi } from "./static_ui.js";
 
-export function startHttpServer(manager: SessionManager, host: string, port: number): http.Server {
-  const server = http.createServer(async (request, response) => {
-    const method = request.method ?? "GET";
-    const hostHeader = request.headers.host ?? `${host}:${port}`;
-    const url = new URL(request.url ?? "/", `http://${hostHeader}`);
+type BunRuntime = {
+  serve(options: {
+    hostname: string;
+    port: number;
+    fetch: (request: Request) => Response | Promise<Response>;
+    error?: (error: Error) => Response;
+  }): {
+    hostname: string;
+    port: number;
+    stop(closeActiveConnections?: boolean): void;
+  };
+};
 
-    if (!isAuthorized(request)) {
-      respondError(response, 401, "Unauthorized");
-      return;
-    }
+export type BridgeServer = {
+  hostname: string;
+  port: number;
+  stop(): void;
+};
 
-    if (method === "POST" && url.pathname === "/api/threads") {
-      await handleCreateThread(request, response, manager);
-      return;
-    }
+export function startHttpServer(manager: SessionManager, host: string, port: number): BridgeServer {
+  const runtime = (globalThis as { Bun?: BunRuntime }).Bun;
+  if (!runtime) {
+    throw new Error("Bun runtime is required. Start this server with Bun.");
+  }
 
-    if (method === "GET" && url.pathname === "/api/threads") {
-      handleListThreads(response, manager);
-      return;
-    }
+  const server = runtime.serve({
+    hostname: host,
+    port,
+    error(error) {
+      return respondError(500, error.message || "Internal server error.");
+    },
+    fetch: async (request) => {
+      const method = request.method;
+      const url = new URL(request.url);
 
-    const threadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)$/);
-    if (method === "GET" && threadMatch) {
-      handleGetThread(response, manager, threadMatch[1]);
-      return;
-    }
+      if (!isAuthorized(request)) {
+        return respondError(401, "Unauthorized");
+      }
 
-    const threadTurnsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns$/);
-    if (method === "POST" && threadTurnsMatch) {
-      await handleSubmitTurn(request, response, manager, threadTurnsMatch[1]);
-      return;
-    }
+      if (method === "POST" && url.pathname === "/api/threads") {
+        return handleCreateThread(request, manager);
+      }
 
-    const interruptMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns\/interrupt$/);
-    if (method === "POST" && interruptMatch) {
-      await handleInterruptTurn(request, response, manager, interruptMatch[1]);
-      return;
-    }
+      if (method === "GET" && url.pathname === "/api/threads") {
+        return handleListThreads(manager);
+      }
 
-    const eventsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/events$/);
-    if (method === "GET" && eventsMatch) {
-      handleEventsSse(response, manager, eventsMatch[1], request.headers["last-event-id"] as string | undefined);
-      return;
-    }
+      const threadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)$/);
+      if (method === "GET" && threadMatch) {
+        return handleGetThread(manager, threadMatch[1]);
+      }
 
-    const approvalsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/approvals$/);
-    if (method === "GET" && approvalsMatch) {
-      handleListApprovals(response, manager, approvalsMatch[1]);
-      return;
-    }
+      const threadTurnsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns$/);
+      if (method === "POST" && threadTurnsMatch) {
+        return handleSubmitTurn(request, manager, threadTurnsMatch[1]);
+      }
 
-    const approvalDecisionMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/approvals\/([^/]+)\/decision$/);
-    if (method === "POST" && approvalDecisionMatch) {
-      await handleApprovalDecision(request, response, manager, approvalDecisionMatch[1], approvalDecisionMatch[2]);
-      return;
-    }
+      const interruptMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns\/interrupt$/);
+      if (method === "POST" && interruptMatch) {
+        return handleInterruptTurn(request, manager, interruptMatch[1]);
+      }
 
-    if (url.pathname.startsWith("/api/tools")) {
-      handleToolsNotImplemented(response);
-      return;
-    }
+      const eventsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/events$/);
+      if (method === "GET" && eventsMatch) {
+        return handleEventsSse(request, manager, eventsMatch[1], request.headers.get("last-event-id") ?? undefined);
+      }
 
-    if (await serveStaticUi(request, response)) {
-      return;
-    }
+      const approvalsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/approvals$/);
+      if (method === "GET" && approvalsMatch) {
+        return handleListApprovals(manager, approvalsMatch[1]);
+      }
 
-    notFound(response);
+      const approvalDecisionMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/approvals\/([^/]+)\/decision$/);
+      if (method === "POST" && approvalDecisionMatch) {
+        return handleApprovalDecision(request, manager, approvalDecisionMatch[1], approvalDecisionMatch[2]);
+      }
+
+      if (url.pathname.startsWith("/api/tools")) {
+        return handleToolsNotImplemented();
+      }
+
+      const staticResponse = await serveStaticUi(request);
+      if (staticResponse) {
+        return staticResponse;
+      }
+
+      return notFound();
+    },
   });
 
-  server.listen(port, host);
-  return server;
-}
-
-const __filename = fileURLToPath(import.meta.url);
-const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
-
-if (isDirectRun) {
-  loadEnvironment("http");
-  const { SessionManager } = await import("../../core/session_manager.js");
-  const host = process.env.HOST ?? "127.0.0.1";
-  const port = Number(process.env.PORT ?? "8787");
-  const manager = new SessionManager();
-  const server = startHttpServer(manager, host, port);
-
-  process.on("SIGINT", () => {
-    manager.stopAll();
-    server.close(() => process.exit(0));
-  });
-
-  process.on("SIGTERM", () => {
-    manager.stopAll();
-    server.close(() => process.exit(0));
-  });
-
-  console.log(`codex bridge listening at http://${host}:${port}`);
+  return {
+    hostname: server.hostname,
+    port: server.port,
+    stop() {
+      server.stop(true);
+    },
+  };
 }

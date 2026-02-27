@@ -32,8 +32,19 @@ This repository has been refactored into a clean architecture split:
 
 Bot commands:
 - `!help` show commands
-- `!newthread` create/reset channel thread mapping
-- `!thread` show current mapped Shepherd thread
+- `!newthread` create a fresh thread and set as active for this channel
+- `!threads` list active stored threads
+- `!threads loaded` list loaded threads in memory
+- `!threads archived` list archived threads
+- `!thread` show current active thread
+- `!thread <id>` switch active thread (auto-resume if needed)
+- `!threadname <name>` set current thread name
+- `!threadread [id]` show thread metadata and preview
+- `!fork [id]` fork the current (or provided) thread and switch
+- `!archive [id]` archive current (or provided) thread
+- `!unarchive <id>` unarchive a thread
+- `!rollback <numTurns> [id]` rollback thread history
+- `!compact [id]` compact thread context
 - any normal message sends a turn to Shepherd
 
 Environment variables:

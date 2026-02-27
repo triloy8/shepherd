@@ -276,24 +276,48 @@ export async function startDiscordBot(): Promise<void> {
     }
   };
 
-  const ensureChannelThread = async (channelId: string): Promise<string> => {
-    const existing = store.getThreadId(channelId);
-    if (existing) return existing;
+  const bindChannelToThread = async (channelId: string, threadId: string): Promise<void> => {
+    manager.getThreadState(threadId);
 
-    const created = await manager.createThread(approvalPolicy);
-    store.setThreadId(channelId, created.threadId);
-    channelByThread.set(created.threadId, channelId);
+    const previousThreadId = store.getThreadId(channelId);
+    if (previousThreadId) {
+      channelByThread.delete(previousThreadId);
+    }
 
-    const unsubscribe = manager.subscribeToThreadEvents(
-      created.threadId,
-      (event) => handleThreadEvent(channelId, event),
-    );
+    store.setThreadId(channelId, threadId);
+    channelByThread.set(threadId, channelId);
+
+    const unsubscribe = manager.subscribeToThreadEvents(threadId, (event) => handleThreadEvent(channelId, event));
 
     const previous = unsubscribeByChannel.get(channelId);
     if (previous) previous();
     unsubscribeByChannel.set(channelId, unsubscribe);
+  };
 
+  const clearChannelThread = (channelId: string): void => {
+    const existing = store.getThreadId(channelId);
+    if (existing) {
+      channelByThread.delete(existing);
+    }
+    store.clearThread(channelId);
+    const unsubscribe = unsubscribeByChannel.get(channelId);
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribeByChannel.delete(channelId);
+    }
+  };
+
+  const createAndBindChannelThread = async (channelId: string): Promise<string> => {
+    const created = await manager.createThread(approvalPolicy);
+    await bindChannelToThread(channelId, created.threadId);
     return created.threadId;
+  };
+
+  const ensureChannelThread = async (channelId: string): Promise<string> => {
+    const existing = store.getThreadId(channelId);
+    if (existing) return existing;
+
+    return createAndBindChannelThread(channelId);
   };
 
   client.once("clientReady", () => {
@@ -309,6 +333,9 @@ export async function startDiscordBot(): Promise<void> {
         manager,
         store,
         ensureChannelThread,
+        createAndBindChannelThread,
+        bindChannelToThread,
+        clearChannelThread,
       });
 
       if (result.handled || !result.threadId || !result.input) return;

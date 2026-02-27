@@ -2,7 +2,20 @@ import type { SessionManager } from "../../core/session_manager.js";
 import { handleApprovalDecision, handleListApprovals } from "./routes/approvals.js";
 import { handleEventsSse } from "./routes/events.js";
 import { isAuthorized } from "./routes/auth.js";
-import { handleCreateThread, handleGetThread, handleListThreads } from "./routes/threads.js";
+import {
+  handleArchiveThread,
+  handleCompactThread,
+  handleCreateThread,
+  handleForkThread,
+  handleGetThread,
+  handleListLoadedThreads,
+  handleListStoredThreads,
+  handleReadThread,
+  handleResumeThread,
+  handleRollbackThread,
+  handleSetThreadName,
+  handleUnarchiveThread,
+} from "./routes/threads.js";
 import { handleToolsNotImplemented } from "./routes/tools.js";
 import { handleInterruptTurn, handleSubmitTurn } from "./routes/turns.js";
 import { notFound, respondError } from "./routes/utils.js";
@@ -52,12 +65,56 @@ export function startHttpServer(manager: SessionManager, host: string, port: num
       }
 
       if (method === "GET" && url.pathname === "/api/threads") {
-        return handleListThreads(manager);
+        return handleListStoredThreads(request, manager);
+      }
+
+      if (method === "GET" && url.pathname === "/api/threads/loaded") {
+        return handleListLoadedThreads(request, manager);
       }
 
       const threadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)$/);
       if (method === "GET" && threadMatch) {
         return handleGetThread(manager, threadMatch[1]);
+      }
+
+      const threadReadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/read$/);
+      if (method === "GET" && threadReadMatch) {
+        return handleReadThread(request, manager, threadReadMatch[1]);
+      }
+
+      const threadResumeMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/resume$/);
+      if (method === "POST" && threadResumeMatch) {
+        return handleResumeThread(request, manager, threadResumeMatch[1]);
+      }
+
+      const threadForkMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/fork$/);
+      if (method === "POST" && threadForkMatch) {
+        return handleForkThread(request, manager, threadForkMatch[1]);
+      }
+
+      const threadNameMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/name$/);
+      if (method === "POST" && threadNameMatch) {
+        return handleSetThreadName(request, manager, threadNameMatch[1]);
+      }
+
+      const threadArchiveMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/archive$/);
+      if (method === "POST" && threadArchiveMatch) {
+        return handleArchiveThread(manager, threadArchiveMatch[1]);
+      }
+
+      const threadUnarchiveMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/unarchive$/);
+      if (method === "POST" && threadUnarchiveMatch) {
+        return handleUnarchiveThread(manager, threadUnarchiveMatch[1]);
+      }
+
+      const threadCompactMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/compact$/);
+      if (method === "POST" && threadCompactMatch) {
+        return handleCompactThread(manager, threadCompactMatch[1]);
+      }
+
+      const threadRollbackMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/rollback$/);
+      if (method === "POST" && threadRollbackMatch) {
+        return handleRollbackThread(request, manager, threadRollbackMatch[1]);
       }
 
       const threadTurnsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns$/);

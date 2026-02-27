@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../shared/protocol/approvals.js";
 import type { BridgeEvent, BridgeEventType } from "../../shared/protocol/events.js";
-import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
+import type { ApprovalPolicy, ListLoadedThreadsRequest, ListStoredThreadsRequest } from "../../shared/protocol/requests.js";
 import { EventBus } from "./event_bus.js";
 import {
   extractTextDelta,
@@ -120,14 +120,87 @@ export class CodexSession {
       approvalPolicy,
     });
 
-    const threadId = extractThreadId(result);
-    if (!threadId) {
-      throw new Error("thread/start returned an invalid thread id.");
-    }
-
-    this.threadId = threadId;
+    const threadId = this.mustSetThreadIdFromResult(result, "thread/start");
     this.publish("thread.started", threadId, { approvalPolicy });
     return threadId;
+  }
+
+  async resumeThread(threadId: string, approvalPolicy?: ApprovalPolicy): Promise<string> {
+    await this.initialize();
+    const result = await this.sendRequest("thread/resume", {
+      threadId,
+      ...(approvalPolicy ? { approvalPolicy } : {}),
+    });
+
+    if (approvalPolicy) {
+      this.approvalPolicy = approvalPolicy;
+    }
+    return this.mustSetThreadIdFromResult(result, "thread/resume");
+  }
+
+  async forkThread(threadId: string, approvalPolicy?: ApprovalPolicy): Promise<string> {
+    await this.initialize();
+    const result = await this.sendRequest("thread/fork", {
+      threadId,
+      ...(approvalPolicy ? { approvalPolicy } : {}),
+    });
+
+    if (approvalPolicy) {
+      this.approvalPolicy = approvalPolicy;
+    }
+    return this.mustSetThreadIdFromResult(result, "thread/fork");
+  }
+
+  async archiveThread(threadId: string): Promise<void> {
+    await this.initialize();
+    await this.sendRequest("thread/archive", { threadId });
+  }
+
+  async unarchiveThread(threadId: string): Promise<void> {
+    await this.initialize();
+    await this.sendRequest("thread/unarchive", { threadId });
+  }
+
+  async setThreadName(threadId: string, name: string): Promise<void> {
+    await this.initialize();
+    await this.sendRequest("thread/name/set", { threadId, name });
+  }
+
+  async compactThread(threadId: string): Promise<void> {
+    await this.initialize();
+    await this.sendRequest("thread/compact/start", { threadId });
+  }
+
+  async rollbackThread(threadId: string, numTurns: number): Promise<unknown> {
+    await this.initialize();
+    return this.sendRequest("thread/rollback", { threadId, numTurns });
+  }
+
+  async listStoredThreads(request: ListStoredThreadsRequest): Promise<unknown> {
+    await this.initialize();
+    return this.sendRequest("thread/list", {
+      archived: request.archived ?? null,
+      cursor: request.cursor ?? null,
+      cwd: request.cwd ?? null,
+      limit: request.limit ?? null,
+      modelProviders: request.modelProviders ?? null,
+      searchTerm: request.searchTerm ?? null,
+      sortKey: request.sortKey ?? null,
+      sourceKinds: request.sourceKinds ?? null,
+    });
+  }
+
+  async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<unknown> {
+    await this.initialize();
+    return this.sendRequest("thread/loaded/list", {
+      cursor: request.cursor ?? null,
+      limit: request.limit ?? null,
+    });
+  }
+
+  async readThread(threadId: string, includeTurns: boolean): Promise<unknown> {
+    await this.initialize();
+    return this.sendRequest("thread/read", { threadId, includeTurns });
   }
 
   async startTurn(input: string, approvalPolicy?: ApprovalPolicy): Promise<string | null> {
@@ -181,6 +254,15 @@ export class CodexSession {
 
   stop(): void {
     this.cleanup();
+  }
+
+  private mustSetThreadIdFromResult(result: unknown, method: string): string {
+    const threadId = extractThreadId(result);
+    if (!threadId) {
+      throw new Error(`${method} returned an invalid thread id.`);
+    }
+    this.threadId = threadId;
+    return threadId;
   }
 
   private mapDecisionPayload(method: string, decision: string): Record<string, unknown> {

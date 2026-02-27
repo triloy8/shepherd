@@ -3,14 +3,29 @@ import type {
   ApprovalRecord,
   ApprovalRequestPayload,
 } from "../../shared/protocol/approvals.js";
-import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type {
   ApprovalPolicy,
+  ArchiveThreadResponse,
+  CompactThreadResponse,
   CreateThreadResponse,
+  ForkThreadRequest,
+  ForkThreadResponse,
   GetThreadStateResponse,
+  ListLoadedThreadsRequest,
+  ListLoadedThreadsResponse,
+  ListStoredThreadsRequest,
+  ListStoredThreadsResponse,
   ListThreadsResponse,
+  ReadThreadRequest,
+  ReadThreadResponse,
+  ResumeThreadRequest,
+  ResumeThreadResponse,
+  RollbackThreadRequest,
+  RollbackThreadResponse,
+  SetThreadNameRequest,
   SubmitTurnRequest,
   SubmitTurnResponse,
+  UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
 import { CodexSession } from "./codex_session.js";
@@ -20,30 +35,76 @@ interface ManagedSession {
   createdAt: string;
 }
 
+type ThreadListRawResponse = {
+  data?: unknown;
+  nextCursor?: unknown;
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    if (record.type === "notLoaded") return true;
+  }
+  return false;
+}
+
+function extractThreadSummary(value: unknown) {
+  const record = asRecord(value);
+  return {
+    threadId: asString(record.id) ?? "unknown",
+    name: asString(record.name),
+    preview: asString(record.preview) ?? "",
+    archived: toBoolean(record.status),
+    createdAt: asNumber(record.createdAt),
+    updatedAt: asNumber(record.updatedAt),
+    source: asString(asRecord(record.source).kind) ?? asString(record.source),
+    cwd: asString(record.cwd),
+  };
+}
+
 export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
   private approvals = new ApprovalsStore();
+  private controlSession: CodexSession | null = null;
 
   async createThread(approvalPolicy: ApprovalPolicy): Promise<CreateThreadResponse> {
-    const session = new CodexSession(approvalPolicy);
-    const threadId = await session.startThread(approvalPolicy);
-
-    const managed: ManagedSession = {
-      session,
-      createdAt: new Date().toISOString(),
-    };
-
+    const managed = await this.createManagedSession(approvalPolicy);
+    const threadId = await managed.session.startThread(approvalPolicy);
     this.sessionsByThread.set(threadId, managed);
+    return { threadId, sessionId: managed.session.sessionId };
+  }
 
-    session.eventBus.subscribe((event) => {
-      if (event.type !== "approval.requested") return;
-      this.approvals.create(event.payload as ApprovalRequestPayload, {
-        threadId,
-        sessionId: session.sessionId,
-      });
-    });
+  async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ResumeThreadResponse> {
+    const existing = this.sessionsByThread.get(threadId);
+    if (existing) {
+      return { threadId, sessionId: existing.session.sessionId };
+    }
 
-    return { threadId, sessionId: session.sessionId };
+    const approvalPolicy = request.approvalPolicy ?? "on-request";
+    const managed = await this.createManagedSession(approvalPolicy);
+    const resumedThreadId = await managed.session.resumeThread(threadId, request.approvalPolicy);
+    this.sessionsByThread.set(resumedThreadId, managed);
+    return { threadId: resumedThreadId, sessionId: managed.session.sessionId };
+  }
+
+  async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
+    const approvalPolicy = request.approvalPolicy ?? "on-request";
+    const managed = await this.createManagedSession(approvalPolicy);
+    const forkedThreadId = await managed.session.forkThread(threadId, request.approvalPolicy);
+    this.sessionsByThread.set(forkedThreadId, managed);
+    return { threadId: forkedThreadId, sessionId: managed.session.sessionId };
   }
 
   listThreads(): ListThreadsResponse {
@@ -53,6 +114,26 @@ export class SessionManager {
         sessionId: managed.session.sessionId,
         createdAt: managed.createdAt,
       })),
+    };
+  }
+
+  async listStoredThreads(request: ListStoredThreadsRequest): Promise<ListStoredThreadsResponse> {
+    const session = await this.getControlSession();
+    const raw = (await session.listStoredThreads(request)) as ThreadListRawResponse;
+    const data = Array.isArray(raw.data) ? raw.data : [];
+    return {
+      threads: data.map(extractThreadSummary).filter((entry) => entry.threadId !== "unknown"),
+      nextCursor: asString(raw.nextCursor),
+    };
+  }
+
+  async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<ListLoadedThreadsResponse> {
+    const session = await this.getControlSession();
+    const raw = asRecord(await session.listLoadedThreads(request));
+    const data = Array.isArray(raw.data) ? raw.data : [];
+    return {
+      threadIds: data.map((entry) => asString(entry)).filter((entry): entry is string => Boolean(entry)),
+      nextCursor: asString(raw.nextCursor),
     };
   }
 
@@ -66,9 +147,51 @@ export class SessionManager {
     };
   }
 
+  async readThread(threadId: string, request: ReadThreadRequest): Promise<ReadThreadResponse> {
+    const session = await this.getSessionForThread(threadId);
+    const raw = asRecord(await session.readThread(threadId, request.includeTurns ?? false));
+    if (!raw.thread) {
+      throw new Error(`Failed to read thread ${threadId}.`);
+    }
+    return { thread: raw.thread };
+  }
+
+  async setThreadName(threadId: string, request: SetThreadNameRequest): Promise<{ ok: true }> {
+    const session = await this.getSessionForThread(threadId);
+    await session.setThreadName(threadId, request.name);
+    return { ok: true };
+  }
+
+  async archiveThread(threadId: string): Promise<ArchiveThreadResponse> {
+    const session = await this.getSessionForThread(threadId);
+    await session.archiveThread(threadId);
+    return { ok: true };
+  }
+
+  async unarchiveThread(threadId: string): Promise<UnarchiveThreadResponse> {
+    const session = await this.getSessionForThread(threadId);
+    await session.unarchiveThread(threadId);
+    return { ok: true };
+  }
+
+  async compactThread(threadId: string): Promise<CompactThreadResponse> {
+    const session = await this.getSessionForThread(threadId);
+    await session.compactThread(threadId);
+    return { ok: true };
+  }
+
+  async rollbackThread(threadId: string, request: RollbackThreadRequest): Promise<RollbackThreadResponse> {
+    const session = await this.getSessionForThread(threadId);
+    const raw = asRecord(await session.rollbackThread(threadId, request.numTurns));
+    if (!raw.thread) {
+      throw new Error("Rollback did not return updated thread state.");
+    }
+    return { thread: raw.thread };
+  }
+
   subscribeToThreadEvents(
     threadId: string,
-    listener: (event: BridgeEvent) => void,
+    listener: (event: import("../../shared/protocol/events.js").BridgeEvent) => void,
     lastEventId?: string,
   ): () => void {
     const managed = this.mustGet(threadId);
@@ -141,6 +264,42 @@ export class SessionManager {
       managed.session.stop();
     }
     this.sessionsByThread.clear();
+    this.controlSession?.stop();
+    this.controlSession = null;
+  }
+
+  private async createManagedSession(approvalPolicy: ApprovalPolicy): Promise<ManagedSession> {
+    const session = new CodexSession(approvalPolicy);
+    this.attachApprovalSubscription(session);
+    return {
+      session,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  private attachApprovalSubscription(session: CodexSession): void {
+    session.eventBus.subscribe((event) => {
+      if (event.type !== "approval.requested") return;
+      this.approvals.create(event.payload as ApprovalRequestPayload, {
+        threadId: event.threadId,
+        sessionId: session.sessionId,
+      });
+    });
+  }
+
+  private async getControlSession(): Promise<CodexSession> {
+    if (this.controlSession) return this.controlSession;
+    const session = new CodexSession("on-request");
+    this.attachApprovalSubscription(session);
+    await session.initialize();
+    this.controlSession = session;
+    return session;
+  }
+
+  private async getSessionForThread(threadId: string): Promise<CodexSession> {
+    const loaded = this.sessionsByThread.get(threadId);
+    if (loaded) return loaded.session;
+    return this.getControlSession();
   }
 
   private mustGet(threadId: string): ManagedSession {

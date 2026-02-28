@@ -7,6 +7,7 @@ import type {
   ApprovalPolicy,
   ArchiveThreadResponse,
   CompactThreadResponse,
+  CreateThreadRequest,
   CreateThreadResponse,
   ForkThreadRequest,
   ForkThreadResponse,
@@ -25,6 +26,7 @@ import type {
   SetThreadNameRequest,
   SubmitTurnRequest,
   SubmitTurnResponse,
+  ThreadRecord,
   UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
@@ -36,7 +38,7 @@ interface ManagedSession {
 }
 
 type ThreadListRawResponse = {
-  data?: unknown;
+  data?: ThreadRecord[];
   nextCursor?: unknown;
 };
 
@@ -74,14 +76,27 @@ function extractThreadSummary(value: unknown) {
   };
 }
 
+function extractThreadRecord(value: unknown): ThreadRecord {
+  const record = asRecord(value);
+  const id = asString(record.id);
+  if (!id) {
+    throw new Error("Thread payload missing id.");
+  }
+  return {
+    ...(record as ThreadRecord),
+    id,
+  };
+}
+
 export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
   private approvals = new ApprovalsStore();
   private controlSession: CodexSession | null = null;
 
-  async createThread(approvalPolicy: ApprovalPolicy): Promise<CreateThreadResponse> {
+  async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
+    const approvalPolicy = request.approvalPolicy ?? "on-request";
     const managed = await this.createManagedSession(approvalPolicy);
-    const threadId = await managed.session.startThread(approvalPolicy);
+    const threadId = await managed.session.startThread(request);
     this.sessionsByThread.set(threadId, managed);
     return { threadId, sessionId: managed.session.sessionId };
   }
@@ -94,7 +109,7 @@ export class SessionManager {
 
     const approvalPolicy = request.approvalPolicy ?? "on-request";
     const managed = await this.createManagedSession(approvalPolicy);
-    const resumedThreadId = await managed.session.resumeThread(threadId, request.approvalPolicy);
+    const resumedThreadId = await managed.session.resumeThread(threadId, request);
     this.sessionsByThread.set(resumedThreadId, managed);
     return { threadId: resumedThreadId, sessionId: managed.session.sessionId };
   }
@@ -102,7 +117,7 @@ export class SessionManager {
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
     const approvalPolicy = request.approvalPolicy ?? "on-request";
     const managed = await this.createManagedSession(approvalPolicy);
-    const forkedThreadId = await managed.session.forkThread(threadId, request.approvalPolicy);
+    const forkedThreadId = await managed.session.forkThread(threadId, request);
     this.sessionsByThread.set(forkedThreadId, managed);
     return { threadId: forkedThreadId, sessionId: managed.session.sessionId };
   }
@@ -153,7 +168,7 @@ export class SessionManager {
     if (!raw.thread) {
       throw new Error(`Failed to read thread ${threadId}.`);
     }
-    return { thread: raw.thread };
+    return { thread: extractThreadRecord(raw.thread) };
   }
 
   async setThreadName(threadId: string, request: SetThreadNameRequest): Promise<{ ok: true }> {
@@ -186,7 +201,7 @@ export class SessionManager {
     if (!raw.thread) {
       throw new Error("Rollback did not return updated thread state.");
     }
-    return { thread: raw.thread };
+    return { thread: extractThreadRecord(raw.thread) };
   }
 
   subscribeToThreadEvents(

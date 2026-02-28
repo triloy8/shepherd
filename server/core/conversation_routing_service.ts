@@ -107,7 +107,9 @@ export class ConversationRoutingService {
       throw new Error("No routing target available for this surface.");
     }
 
-    const created = await this.manager.createThread(input.approvalPolicyHint ?? surface.defaultApprovalPolicy);
+    const created = await this.manager.createThread({
+      approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
+    });
     await this.setDefaultThread(input.adapter, input.surfaceId, created.threadId);
     return {
       threadId: created.threadId,

@@ -4,7 +4,14 @@ import { randomUUID } from "node:crypto";
 
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../shared/protocol/approvals.js";
 import type { BridgeEvent, BridgeEventType } from "../../shared/protocol/events.js";
-import type { ApprovalPolicy, ListLoadedThreadsRequest, ListStoredThreadsRequest } from "../../shared/protocol/requests.js";
+import type {
+  ApprovalPolicy,
+  CreateThreadRequest,
+  ForkThreadRequest,
+  ListLoadedThreadsRequest,
+  ListStoredThreadsRequest,
+  ResumeThreadRequest,
+} from "../../shared/protocol/requests.js";
 import { EventBus } from "./event_bus.js";
 import {
   extractTextDelta,
@@ -29,6 +36,10 @@ type RawServerRequest = {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 export class CodexSession {
@@ -109,44 +120,68 @@ export class CodexSession {
 
   async ensureThread(): Promise<string> {
     if (this.threadId) return this.threadId;
-    return this.startThread(this.approvalPolicy);
+    return this.startThread({ approvalPolicy: this.approvalPolicy });
   }
 
-  async startThread(approvalPolicy: ApprovalPolicy): Promise<string> {
+  async startThread(request: CreateThreadRequest): Promise<string> {
     await this.initialize();
-    this.approvalPolicy = approvalPolicy;
+    this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     const result = await this.sendRequest("thread/start", {
-      model: DEFAULT_MODEL,
-      approvalPolicy,
+      model: request.model ?? DEFAULT_MODEL,
+      approvalPolicy: this.approvalPolicy,
+      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
+      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.config ? { config: request.config } : {}),
+      ...(request.cwd ? { cwd: request.cwd } : {}),
+      ...(request.personality ? { personality: request.personality } : {}),
+      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
+      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+      ...(request.ephemeral !== undefined ? { ephemeral: request.ephemeral } : {}),
+      ...(request.serviceName ? { serviceName: request.serviceName } : {}),
     });
 
     const threadId = this.mustSetThreadIdFromResult(result, "thread/start");
-    this.publish("thread.started", threadId, { approvalPolicy });
+    this.publish("thread.started", threadId, { approvalPolicy: this.approvalPolicy });
     return threadId;
   }
 
-  async resumeThread(threadId: string, approvalPolicy?: ApprovalPolicy): Promise<string> {
+  async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<string> {
     await this.initialize();
     const result = await this.sendRequest("thread/resume", {
       threadId,
-      ...(approvalPolicy ? { approvalPolicy } : {}),
+      ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
+      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
+      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.config ? { config: request.config } : {}),
+      ...(request.cwd ? { cwd: request.cwd } : {}),
+      ...(request.personality ? { personality: request.personality } : {}),
+      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
+      ...(request.model ? { model: request.model } : {}),
+      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
-    if (approvalPolicy) {
-      this.approvalPolicy = approvalPolicy;
+    if (request.approvalPolicy) {
+      this.approvalPolicy = request.approvalPolicy;
     }
     return this.mustSetThreadIdFromResult(result, "thread/resume");
   }
 
-  async forkThread(threadId: string, approvalPolicy?: ApprovalPolicy): Promise<string> {
+  async forkThread(threadId: string, request: ForkThreadRequest): Promise<string> {
     await this.initialize();
     const result = await this.sendRequest("thread/fork", {
       threadId,
-      ...(approvalPolicy ? { approvalPolicy } : {}),
+      ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
+      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
+      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.config ? { config: request.config } : {}),
+      ...(request.cwd ? { cwd: request.cwd } : {}),
+      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
+      ...(request.model ? { model: request.model } : {}),
+      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
-    if (approvalPolicy) {
-      this.approvalPolicy = approvalPolicy;
+    if (request.approvalPolicy) {
+      this.approvalPolicy = request.approvalPolicy;
     }
     return this.mustSetThreadIdFromResult(result, "thread/fork");
   }
@@ -390,6 +425,28 @@ export class CodexSession {
 
     if (lower.includes("turn/error") || lower.endsWith("/failed") || lower === "item/failed") {
       this.publish("turn.failed", threadId, { message: `${method} received` });
+    }
+
+    if (lower === "thread/status/changed") {
+      this.publish("thread.status.changed", threadId, { status: asRecord(params).status ?? null });
+      return;
+    }
+
+    if (lower === "thread/name/updated") {
+      this.publish("thread.name.updated", threadId, {
+        threadName: asString(asRecord(params).threadName),
+      });
+      return;
+    }
+
+    if (lower === "thread/archived") {
+      this.publish("thread.archived", threadId, {});
+      return;
+    }
+
+    if (lower === "thread/unarchived") {
+      this.publish("thread.unarchived", threadId, {});
+      return;
     }
 
     const delta = extractTextDelta(method, params);

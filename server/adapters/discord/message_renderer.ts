@@ -17,6 +17,13 @@ export function formatEventLine(event: BridgeEvent): string | null {
     return `session error: ${payload.message ?? "unknown"}`;
   }
 
+  if (event.type === "thread.name.updated") {
+    const payload = event.payload as { threadName?: string | null };
+    return `thread renamed: ${payload.threadName ?? "untitled"}`;
+  }
+  if (event.type === "thread.archived") return "thread archived";
+  if (event.type === "thread.unarchived") return "thread unarchived";
+
   if (event.type === "turn.failed") return "turn failed";
   if (event.type === "approval.failed") {
     const payload = event.payload as { message?: string };

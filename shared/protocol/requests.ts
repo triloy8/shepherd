@@ -1,6 +1,8 @@
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 
 export type ApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
+export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+export type Personality = "none" | "friendly" | "pragmatic";
 export type ThreadSortKey = "created_at" | "updated_at";
 export type ThreadSourceKind =
   | "cli"
@@ -15,7 +17,17 @@ export type ThreadSourceKind =
   | "unknown";
 
 export interface CreateThreadRequest {
-  approvalPolicy: ApprovalPolicy;
+  approvalPolicy?: ApprovalPolicy;
+  baseInstructions?: string;
+  developerInstructions?: string;
+  config?: Record<string, unknown>;
+  cwd?: string;
+  personality?: Personality;
+  sandbox?: SandboxMode;
+  model?: string;
+  modelProvider?: string;
+  ephemeral?: boolean;
+  serviceName?: string;
 }
 
 export interface CreateThreadResponse {
@@ -94,11 +106,19 @@ export interface ReadThreadRequest {
 }
 
 export interface ReadThreadResponse {
-  thread: unknown;
+  thread: ThreadRecord;
 }
 
 export interface ResumeThreadRequest {
   approvalPolicy?: ApprovalPolicy;
+  baseInstructions?: string;
+  developerInstructions?: string;
+  config?: Record<string, unknown>;
+  cwd?: string;
+  personality?: Personality;
+  sandbox?: SandboxMode;
+  model?: string;
+  modelProvider?: string;
 }
 
 export interface ResumeThreadResponse {
@@ -108,6 +128,13 @@ export interface ResumeThreadResponse {
 
 export interface ForkThreadRequest {
   approvalPolicy?: ApprovalPolicy;
+  baseInstructions?: string;
+  developerInstructions?: string;
+  config?: Record<string, unknown>;
+  cwd?: string;
+  sandbox?: SandboxMode;
+  model?: string;
+  modelProvider?: string;
 }
 
 export interface ForkThreadResponse {
@@ -136,7 +163,21 @@ export interface RollbackThreadRequest {
 }
 
 export interface RollbackThreadResponse {
-  thread: unknown;
+  thread: ThreadRecord;
+}
+
+export interface ThreadRecord {
+  id: string;
+  name?: string | null;
+  preview?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  cwd?: string;
+  modelProvider?: string;
+  source?: unknown;
+  status?: unknown;
+  turns?: unknown[];
+  [key: string]: unknown;
 }
 
 export interface ListApprovalsResponse {

@@ -4,6 +4,10 @@ export type BridgeEventType =
   | "session.started"
   | "session.error"
   | "thread.started"
+  | "thread.status.changed"
+  | "thread.name.updated"
+  | "thread.archived"
+  | "thread.unarchived"
   | "turn.started"
   | "turn.completed"
   | "turn.failed"
@@ -26,6 +30,10 @@ export interface BridgeEvent<TPayload = unknown> {
 export type SessionStartedEvent = BridgeEvent<{ model: string }>;
 export type SessionErrorEvent = BridgeEvent<{ message: string }>;
 export type ThreadStartedEvent = BridgeEvent<{ approvalPolicy: string }>;
+export type ThreadStatusChangedEvent = BridgeEvent<{ status: unknown }>;
+export type ThreadNameUpdatedEvent = BridgeEvent<{ threadName: string | null }>;
+export type ThreadArchivedEvent = BridgeEvent<Record<string, never>>;
+export type ThreadUnarchivedEvent = BridgeEvent<Record<string, never>>;
 export type TurnStartedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnCompletedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnFailedEvent = BridgeEvent<{ message: string }>;

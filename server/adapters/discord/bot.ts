@@ -304,7 +304,7 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   const createAndBindChannelThread = async (channelId: string): Promise<string> => {
-    const created = await manager.createThread(approvalPolicy);
+    const created = await manager.createThread({ approvalPolicy });
     await bindChannelToThread(channelId, created.threadId);
     return created.threadId;
   };

@@ -5,9 +5,11 @@ import type {
   ForkThreadRequest,
   ListLoadedThreadsRequest,
   ListStoredThreadsRequest,
+  Personality,
   ReadThreadRequest,
   ResumeThreadRequest,
   RollbackThreadRequest,
+  SandboxMode,
   SetThreadNameRequest,
   InterruptTurnRequest,
   ThreadSortKey,
@@ -16,6 +18,8 @@ import type {
 } from "./requests.js";
 
 const APPROVAL_POLICIES: ApprovalPolicy[] = ["untrusted", "on-failure", "on-request", "never"];
+const SANDBOX_MODES: SandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
+const PERSONALITIES: Personality[] = ["none", "friendly", "pragmatic"];
 const THREAD_SORT_KEYS: ThreadSortKey[] = ["created_at", "updated_at"];
 const THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
   "cli",
@@ -35,13 +39,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateCreateThreadRequest(value: unknown): CreateThreadRequest {
-  if (!isRecord(value) || typeof value.approvalPolicy !== "string") {
+  if (!isRecord(value)) {
     throw new Error("Invalid create thread payload.");
   }
-  if (!APPROVAL_POLICIES.includes(value.approvalPolicy as ApprovalPolicy)) {
-    throw new Error("Invalid approval policy.");
-  }
-  return { approvalPolicy: value.approvalPolicy as ApprovalPolicy };
+  return {
+    approvalPolicy: parseApprovalPolicy(value.approvalPolicy) ?? "on-request",
+    ...parseCommonThreadOverrides(value),
+    personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
+    ephemeral: parseOptionalBoolean(value.ephemeral, "ephemeral"),
+    serviceName: parseOptionalString(value.serviceName, "serviceName"),
+  };
 }
 
 function parseOptionalPositiveInteger(value: unknown, name: string): number | undefined {
@@ -67,6 +74,36 @@ function parseOptionalString(value: unknown, name: string): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string") throw new Error(`Invalid ${name}.`);
   return value.trim();
+}
+
+function parseOptionalObject(value: unknown, name: string): Record<string, unknown> | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (!isRecord(value)) throw new Error(`Invalid ${name}.`);
+  return value;
+}
+
+function parseOptionalEnum<T extends string>(
+  value: unknown,
+  name: string,
+  allowed: readonly T[],
+): T | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw new Error(`Invalid ${name}.`);
+  }
+  return value as T;
+}
+
+function parseCommonThreadOverrides(value: Record<string, unknown>) {
+  return {
+    baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
+    developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
+    config: parseOptionalObject(value.config, "config"),
+    cwd: parseOptionalString(value.cwd, "cwd"),
+    sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
+    model: parseOptionalString(value.model, "model"),
+    modelProvider: parseOptionalString(value.modelProvider, "modelProvider"),
+  };
 }
 
 function parseOptionalStringList(value: unknown, name: string): string[] | undefined {
@@ -139,6 +176,8 @@ export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest
   if (!isRecord(value)) throw new Error("Invalid resume payload.");
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
+    ...parseCommonThreadOverrides(value),
+    personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
   };
 }
 
@@ -146,6 +185,7 @@ export function validateForkThreadRequest(value: unknown): ForkThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid fork payload.");
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
+    ...parseCommonThreadOverrides(value),
   };
 }
 

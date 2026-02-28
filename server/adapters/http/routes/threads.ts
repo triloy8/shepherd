@@ -34,7 +34,7 @@ export async function handleCreateThread(
 ): Promise<Response> {
   try {
     const payload = validateCreateThreadRequest(await parseJsonBody(request));
-    const result = await manager.createThread(payload.approvalPolicy);
+    const result = await manager.createThread(payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to create thread.");

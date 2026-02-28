@@ -1,5 +1,6 @@
 import type { SessionManager } from "../../core/session_manager.js";
 import { handleApprovalDecision, handleListApprovals } from "./routes/approvals.js";
+import { handleGetAccountRateLimits } from "./routes/account.js";
 import { handleEventsSse } from "./routes/events.js";
 import { isAuthorized } from "./routes/auth.js";
 import {
@@ -62,6 +63,10 @@ export function startHttpServer(manager: SessionManager, host: string, port: num
 
       if (method === "POST" && url.pathname === "/api/threads") {
         return handleCreateThread(request, manager);
+      }
+
+      if (method === "GET" && url.pathname === "/api/account/rate-limits") {
+        return handleGetAccountRateLimits(manager);
       }
 
       if (method === "GET" && url.pathname === "/api/threads") {

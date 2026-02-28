@@ -5,6 +5,7 @@ import type {
 } from "../../shared/protocol/approvals.js";
 import type {
   ApprovalPolicy,
+  AccountRateLimitsResponse,
   ArchiveThreadResponse,
   CompactThreadResponse,
   CreateThreadRequest,
@@ -202,6 +203,14 @@ export class SessionManager {
       throw new Error("Rollback did not return updated thread state.");
     }
     return { thread: extractThreadRecord(raw.thread) };
+  }
+
+  async readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
+    const session = await this.getControlSession();
+    const raw = asRecord(await session.readAccountRateLimits());
+    return {
+      rateLimits: raw.rateLimits ?? raw,
+    };
   }
 
   subscribeToThreadEvents(

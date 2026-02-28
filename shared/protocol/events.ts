@@ -3,6 +3,7 @@ import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
 export type BridgeEventType =
   | "session.started"
   | "session.error"
+  | "session.limit.context"
   | "thread.started"
   | "thread.status.changed"
   | "thread.name.updated"
@@ -29,6 +30,7 @@ export interface BridgeEvent<TPayload = unknown> {
 
 export type SessionStartedEvent = BridgeEvent<{ model: string }>;
 export type SessionErrorEvent = BridgeEvent<{ message: string }>;
+export type SessionContextLimitEvent = BridgeEvent<{ message: string; method: string }>;
 export type ThreadStartedEvent = BridgeEvent<{ approvalPolicy: string }>;
 export type ThreadStatusChangedEvent = BridgeEvent<{ status: unknown }>;
 export type ThreadNameUpdatedEvent = BridgeEvent<{ threadName: string | null }>;

@@ -16,6 +16,9 @@ export function formatEventLine(event: BridgeEvent): string | null {
     const payload = event.payload as { message?: string };
     return `session error: ${payload.message ?? "unknown"}`;
   }
+  if (event.type === "session.limit.context") {
+    return "context window limit reached. try !compact or start a new thread.";
+  }
 
   if (event.type === "thread.name.updated") {
     const payload = event.payload as { threadName?: string | null };

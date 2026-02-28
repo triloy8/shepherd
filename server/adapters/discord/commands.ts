@@ -24,6 +24,77 @@ function parseThreadArgs(content: string): { command: string; args: string[] } {
   return { command: command.toLowerCase(), args: rest };
 }
 
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function formatResetTimestamp(seconds: unknown): string {
+  const timestamp = asNumber(seconds);
+  if (timestamp === null) return "unknown";
+  return `<t:${Math.floor(timestamp)}:f> (<t:${Math.floor(timestamp)}:R>)`;
+}
+
+function formatWindow(label: string, value: unknown): string {
+  const data = asRecord(value);
+  const used = asNumber(data.usedPercent);
+  const duration = asNumber(data.windowDurationMins);
+  const reset = formatResetTimestamp(data.resetsAt);
+  return [
+    `**${label}**`,
+    `- Used: ${used === null ? "unknown" : `${used}%`}`,
+    `- Window: ${duration === null ? "unknown" : `${duration} min`}`,
+    `- Resets: ${reset}`,
+  ].join("\n");
+}
+
+function formatRateLimitsForDiscord(value: unknown): string {
+  const limits = asRecord(value);
+  const planType = asString(limits.planType) ?? "unknown";
+  const limitId = asString(limits.limitId) ?? "unknown";
+
+  const credits = asRecord(limits.credits);
+  const hasCredits = credits.hasCredits === true ? "yes" : "no";
+  const unlimited = credits.unlimited === true ? "yes" : "no";
+  const balance = asString(credits.balance) ?? "unknown";
+
+  const lines = [
+    `**Rate Limits**`,
+    `- Plan: ${planType}`,
+    `- Limit ID: ${limitId}`,
+    "",
+    formatWindow("Primary Window", limits.primary),
+    "",
+    formatWindow("Secondary Window", limits.secondary),
+    "",
+    `**Credits**`,
+    `- Has credits: ${hasCredits}`,
+    `- Unlimited: ${unlimited}`,
+    `- Balance: ${balance}`,
+  ];
+
+  if (!limits.primary && !limits.secondary) {
+    lines.push("", "Raw payload:", "```json", safeJson(value), "```");
+  }
+
+  return lines.join("\n");
+}
+
 function chunkForDiscord(text: string, maxChunkSize = DISCORD_MESSAGE_LIMIT): string[] {
   if (!text) return [];
 
@@ -97,6 +168,7 @@ export async function handleMessage(
       "Discord Shepherd commands:",
       "- !help",
       "- !newthread",
+      "- !limits",
       "- !threads",
       "- !threads loaded",
       "- !threads archived",
@@ -128,6 +200,12 @@ export async function handleMessage(
     }
 
     await listStoredThreads(message, context, mode === "archived");
+    return { handled: true, threadId: null, input: null };
+  }
+
+  if (command === "!limits") {
+    const limits = await context.manager.readAccountRateLimits();
+    await replyChunked(message, formatRateLimitsForDiscord(limits.rateLimits));
     return { handled: true, threadId: null, input: null };
   }
 

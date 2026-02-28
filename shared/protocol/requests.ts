@@ -189,3 +189,7 @@ export interface ApprovalDecisionApiRequest extends ApprovalDecisionRequest {}
 export interface ApprovalDecisionApiResponse {
   ok: true;
 }
+
+export interface AccountRateLimitsResponse {
+  rateLimits: unknown;
+}

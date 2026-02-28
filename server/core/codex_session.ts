@@ -42,6 +42,19 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function isContextLimitError(params: unknown): boolean {
+  const record = asRecord(params);
+  const errorInfo = record.codexErrorInfo;
+  if (typeof errorInfo === "string") {
+    return errorInfo.toLowerCase().includes("contextwindowexceeded");
+  }
+  if (errorInfo && typeof errorInfo === "object") {
+    return "contextWindowExceeded" in (errorInfo as Record<string, unknown>);
+  }
+  const message = asString(record.message) ?? "";
+  return message.toLowerCase().includes("context") && message.toLowerCase().includes("window");
+}
+
 export class CodexSession {
   readonly sessionId = randomUUID();
   readonly createdAt = new Date().toISOString();
@@ -238,6 +251,11 @@ export class CodexSession {
     return this.sendRequest("thread/read", { threadId, includeTurns });
   }
 
+  async readAccountRateLimits(): Promise<unknown> {
+    await this.initialize();
+    return this.sendRequest("account/rateLimits/read", {});
+  }
+
   async startTurn(input: string, approvalPolicy?: ApprovalPolicy): Promise<string | null> {
     const threadId = await this.ensureThread();
     if (approvalPolicy) {
@@ -425,6 +443,21 @@ export class CodexSession {
 
     if (lower.includes("turn/error") || lower.endsWith("/failed") || lower === "item/failed") {
       this.publish("turn.failed", threadId, { message: `${method} received` });
+    }
+
+    if (lower === "error") {
+      const message = asString(asRecord(params).message) ?? `${method} received`;
+      if (isContextLimitError(params)) {
+        this.publish("session.limit.context", threadId, { message, method });
+      } else {
+        this.publish("session.error", threadId, { message });
+      }
+      return;
+    }
+
+    if (lower === "account/ratelimits/updated") {
+      this.publish("turn.notification", threadId, { method, params });
+      return;
     }
 
     if (lower === "thread/status/changed") {

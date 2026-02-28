@@ -16,6 +16,7 @@ import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.
 import type { BridgeEvent } from "../../../shared/protocol/events.js";
 import type { ApprovalPolicy } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
+import { ConversationRoutingService } from "../../core/conversation_routing_service.js";
 import { SessionManager } from "../../core/session_manager.js";
 import { handleMessage } from "./commands.js";
 import { handleInteraction } from "./interactions.js";
@@ -24,7 +25,6 @@ import {
   formatApprovalText,
   formatEventLine,
 } from "./message_renderer.js";
-import { ThreadStore } from "./thread_store.js";
 
 type StreamState = {
   text: string;
@@ -104,8 +104,7 @@ function isSupportedChannel(channel: Message["channel"]): channel is TextBasedCh
   return (
     channel.type === ChannelType.GuildText ||
     channel.type === ChannelType.PublicThread ||
-    channel.type === ChannelType.PrivateThread ||
-    channel.type === ChannelType.DM
+    channel.type === ChannelType.PrivateThread
   );
 }
 
@@ -134,8 +133,13 @@ export async function startDiscordBot(): Promise<void> {
   const approvalPolicy = (process.env.DISCORD_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
 
   const manager = new SessionManager();
-  const store = new ThreadStore();
+  const routing = new ConversationRoutingService(manager, {
+    autoCreateIfMissing: true,
+    defaultApprovalPolicy: approvalPolicy,
+    exclusiveThreadBinding: true,
+  });
 
+  const threadByChannel = new Map<string, string>();
   const channelByThread = new Map<string, string>();
   const unsubscribeByChannel = new Map<string, () => void>();
   const streamByChannel = new Map<string, StreamState>();
@@ -144,7 +148,6 @@ export async function startDiscordBot(): Promise<void> {
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
     ],
   });
@@ -277,17 +280,17 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   const bindChannelToThread = async (channelId: string, threadId: string): Promise<void> => {
-    manager.getThreadState(threadId);
+    const resolvedThreadId = await routing.setDefaultThread("discord", channelId, threadId);
 
-    const previousThreadId = store.getThreadId(channelId);
+    const previousThreadId = threadByChannel.get(channelId);
     if (previousThreadId) {
       channelByThread.delete(previousThreadId);
     }
 
-    store.setThreadId(channelId, threadId);
-    channelByThread.set(threadId, channelId);
+    threadByChannel.set(channelId, resolvedThreadId);
+    channelByThread.set(resolvedThreadId, channelId);
 
-    const unsubscribe = manager.subscribeToThreadEvents(threadId, (event) => handleThreadEvent(channelId, event));
+    const unsubscribe = manager.subscribeToThreadEvents(resolvedThreadId, (event) => handleThreadEvent(channelId, event));
 
     const previous = unsubscribeByChannel.get(channelId);
     if (previous) previous();
@@ -295,11 +298,12 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   const clearChannelThread = (channelId: string): void => {
-    const existing = store.getThreadId(channelId);
+    const existing = threadByChannel.get(channelId);
     if (existing) {
       channelByThread.delete(existing);
     }
-    store.clearThread(channelId);
+    threadByChannel.delete(channelId);
+    routing.clearDefaultThread("discord", channelId);
     const unsubscribe = unsubscribeByChannel.get(channelId);
     if (unsubscribe) {
       unsubscribe();
@@ -314,10 +318,16 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   const ensureChannelThread = async (channelId: string): Promise<string> => {
-    const existing = store.getThreadId(channelId);
-    if (existing) return existing;
-
-    return createAndBindChannelThread(channelId);
+    const route = await routing.resolveRoute({
+      adapter: "discord",
+      surfaceId: channelId,
+      autoCreateIfMissing: true,
+      approvalPolicyHint: approvalPolicy,
+    });
+    if (threadByChannel.get(channelId) !== route.threadId) {
+      await bindChannelToThread(channelId, route.threadId);
+    }
+    return route.threadId;
   };
 
   client.once("clientReady", () => {
@@ -327,16 +337,30 @@ export async function startDiscordBot(): Promise<void> {
   client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
     if (!isSupportedChannel(message.channel)) return;
+    if (!client.user) return;
+
+    const raw = message.content.trim();
+    if (!raw) return;
+    const isCommand = raw.startsWith("!");
+    const isMentioned = message.mentions.users.has(client.user.id);
+
+    if (!isCommand && !isMentioned) {
+      return;
+    }
+
+    const mentionPattern = new RegExp(`<@!?${client.user.id}>`, "g");
+    const sanitizedContent = isCommand ? raw : raw.replace(mentionPattern, "").trim();
+    if (!isCommand && !sanitizedContent) return;
 
     try {
       const result = await handleMessage(message, {
         manager,
-        store,
+        getActiveThreadId: (channelId) => routing.getDefaultThread("discord", channelId),
         ensureChannelThread,
         createAndBindChannelThread,
         bindChannelToThread,
         clearChannelThread,
-      });
+      }, sanitizedContent);
 
       if (result.handled || !result.threadId || !result.input) return;
 

@@ -1,14 +1,13 @@
 import type { Message } from "discord.js";
 
 import type { SessionManager } from "../../core/session_manager.js";
-import type { ThreadStore } from "./thread_store.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: string | null };
 const DISCORD_MESSAGE_LIMIT = 1900;
 
 export type CommandContext = {
   manager: SessionManager;
-  store: ThreadStore;
+  getActiveThreadId: (channelId: string) => string | null;
   ensureChannelThread: (channelId: string) => Promise<string>;
   createAndBindChannelThread: (channelId: string) => Promise<string>;
   bindChannelToThread: (channelId: string, threadId: string) => Promise<void>;
@@ -79,12 +78,17 @@ async function listStoredThreads(message: Message, context: CommandContext, arch
   await replyChunked(message, lines.join("\n"));
 }
 
-export async function handleMessage(message: Message, context: CommandContext): Promise<HandleResult> {
-  if (!message.content.trim()) {
+export async function handleMessage(
+  message: Message,
+  context: CommandContext,
+  contentOverride?: string,
+): Promise<HandleResult> {
+  const inputContent = contentOverride ?? message.content;
+  if (!inputContent.trim()) {
     return { handled: true, threadId: null, input: null };
   }
 
-  const content = message.content.trim();
+  const content = inputContent.trim();
   const channelId = message.channelId;
   const { command, args } = parseThreadArgs(content);
 
@@ -134,7 +138,7 @@ export async function handleMessage(message: Message, context: CommandContext): 
   }
 
   if (command === "!thread" && args.length === 0) {
-    const existing = context.store.getThreadId(channelId);
+    const existing = context.getActiveThreadId(channelId);
     await message.reply(existing ? `Current thread: ${existing}` : "No thread yet. Send a message to start one.");
     return { handled: true, threadId: existing, input: null };
   }
@@ -165,7 +169,7 @@ export async function handleMessage(message: Message, context: CommandContext): 
       await message.reply("Usage: !threadname <name>");
       return { handled: true, threadId: null, input: null };
     }
-    const threadId = context.store.getThreadId(channelId);
+    const threadId = context.getActiveThreadId(channelId);
     if (!threadId) {
       await message.reply("No active thread in this channel.");
       return { handled: true, threadId: null, input: null };
@@ -176,7 +180,7 @@ export async function handleMessage(message: Message, context: CommandContext): 
   }
 
   if (command === "!threadread") {
-    const threadId = args[0] ?? context.store.getThreadId(channelId);
+    const threadId = args[0] ?? context.getActiveThreadId(channelId);
     if (!threadId) {
       await message.reply("Usage: !threadread <id>");
       return { handled: true, threadId: null, input: null };
@@ -193,7 +197,7 @@ export async function handleMessage(message: Message, context: CommandContext): 
   }
 
   if (command === "!fork") {
-    const sourceThreadId = args[0] ?? context.store.getThreadId(channelId);
+    const sourceThreadId = args[0] ?? context.getActiveThreadId(channelId);
     if (!sourceThreadId) {
       await message.reply("Usage: !fork <id>");
       return { handled: true, threadId: null, input: null };
@@ -205,13 +209,13 @@ export async function handleMessage(message: Message, context: CommandContext): 
   }
 
   if (command === "!archive") {
-    const target = args[0] ?? context.store.getThreadId(channelId);
+    const target = args[0] ?? context.getActiveThreadId(channelId);
     if (!target) {
       await message.reply("Usage: !archive <id>");
       return { handled: true, threadId: null, input: null };
     }
     await context.manager.archiveThread(target);
-    if (context.store.getThreadId(channelId) === target) {
+    if (context.getActiveThreadId(channelId) === target) {
       context.clearChannelThread(channelId);
     }
     await message.reply(`Archived thread: ${target}`);
@@ -231,7 +235,7 @@ export async function handleMessage(message: Message, context: CommandContext): 
 
   if (command === "!rollback") {
     const numTurns = Number(args[0]);
-    const target = args[1] ?? context.store.getThreadId(channelId);
+    const target = args[1] ?? context.getActiveThreadId(channelId);
     if (!Number.isInteger(numTurns) || numTurns < 1 || !target) {
       await message.reply("Usage: !rollback <numTurns> [id]");
       return { handled: true, threadId: null, input: null };
@@ -242,7 +246,7 @@ export async function handleMessage(message: Message, context: CommandContext): 
   }
 
   if (command === "!compact") {
-    const target = args[0] ?? context.store.getThreadId(channelId);
+    const target = args[0] ?? context.getActiveThreadId(channelId);
     if (!target) {
       await message.reply("Usage: !compact <id>");
       return { handled: true, threadId: null, input: null };

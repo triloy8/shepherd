@@ -47,6 +47,10 @@ Bot commands:
 - `!compact [id]` compact thread context
 - any normal message sends a turn to Shepherd
 
+Guild message behavior:
+- Shepherd only processes guild channels/threads (DMs are ignored)
+- Non-command messages are processed only when the bot is mentioned (`@Shepherd`)
+
 Environment variables:
 
 - `HOST` (default `127.0.0.1`)

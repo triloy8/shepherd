@@ -1,6 +1,10 @@
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
 type Listener = (event: BridgeEvent) => void;
+type SubscribeOptions = {
+  afterId?: string;
+  replay?: boolean;
+};
 
 export class EventBus {
   private listeners = new Set<Listener>();
@@ -21,8 +25,15 @@ export class EventBus {
     }
   }
 
-  subscribe(listener: Listener, afterId?: string): () => void {
-    if (afterId) {
+  subscribe(listener: Listener, cursorOrOptions?: string | SubscribeOptions): () => void {
+    const options: SubscribeOptions =
+      typeof cursorOrOptions === "string"
+        ? { afterId: cursorOrOptions, replay: true }
+        : (cursorOrOptions ?? { replay: true });
+    const shouldReplay = options.replay ?? true;
+    const afterId = options.afterId;
+
+    if (shouldReplay && afterId) {
       let seen = false;
       for (const event of this.replay) {
         if (!seen) {
@@ -31,7 +42,7 @@ export class EventBus {
         }
         listener(event);
       }
-    } else {
+    } else if (shouldReplay) {
       for (const event of this.replay) {
         listener(event);
       }

@@ -192,10 +192,10 @@ export class SessionManager {
   subscribeToThreadEvents(
     threadId: string,
     listener: (event: import("../../shared/protocol/events.js").BridgeEvent) => void,
-    lastEventId?: string,
+    cursorOrOptions?: string | { afterId?: string; replay?: boolean },
   ): () => void {
     const managed = this.mustGet(threadId);
-    return managed.session.eventBus.subscribe(listener, lastEventId);
+    return managed.session.eventBus.subscribe(listener, cursorOrOptions);
   }
 
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {

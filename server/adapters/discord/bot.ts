@@ -140,7 +140,6 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   const threadByChannel = new Map<string, string>();
-  const channelByThread = new Map<string, string>();
   const unsubscribeByChannel = new Map<string, () => void>();
   const streamByChannel = new Map<string, StreamState>();
 
@@ -281,16 +280,13 @@ export async function startDiscordBot(): Promise<void> {
 
   const bindChannelToThread = async (channelId: string, threadId: string): Promise<void> => {
     const resolvedThreadId = await routing.setDefaultThread("discord", channelId, threadId);
-
-    const previousThreadId = threadByChannel.get(channelId);
-    if (previousThreadId) {
-      channelByThread.delete(previousThreadId);
-    }
-
     threadByChannel.set(channelId, resolvedThreadId);
-    channelByThread.set(resolvedThreadId, channelId);
 
-    const unsubscribe = manager.subscribeToThreadEvents(resolvedThreadId, (event) => handleThreadEvent(channelId, event));
+    const unsubscribe = manager.subscribeToThreadEvents(
+      resolvedThreadId,
+      (event) => handleThreadEvent(channelId, event),
+      { replay: false },
+    );
 
     const previous = unsubscribeByChannel.get(channelId);
     if (previous) previous();
@@ -298,10 +294,6 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   const clearChannelThread = (channelId: string): void => {
-    const existing = threadByChannel.get(channelId);
-    if (existing) {
-      channelByThread.delete(existing);
-    }
     threadByChannel.delete(channelId);
     routing.clearDefaultThread("discord", channelId);
     const unsubscribe = unsubscribeByChannel.get(channelId);

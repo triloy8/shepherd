@@ -20,6 +20,7 @@ import type {
   ListThreadsResponse,
   ReadThreadRequest,
   ReadThreadResponse,
+  ReadThreadTokenUsageResponse,
   ResumeThreadRequest,
   ResumeThreadResponse,
   RollbackThreadRequest,
@@ -211,6 +212,12 @@ export class SessionManager {
     return {
       rateLimits: raw.rateLimits ?? raw,
     };
+  }
+
+  async readThreadTokenUsage(threadId: string): Promise<ReadThreadTokenUsageResponse> {
+    const session = await this.getSessionForThread(threadId);
+    const tokenUsage = session.getLatestThreadTokenUsage(threadId);
+    return { threadId, tokenUsage };
   }
 
   subscribeToThreadEvents(

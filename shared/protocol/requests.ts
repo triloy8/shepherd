@@ -193,3 +193,22 @@ export interface ApprovalDecisionApiResponse {
 export interface AccountRateLimitsResponse {
   rateLimits: unknown;
 }
+
+export interface TokenUsageBreakdown {
+  cachedInputTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+}
+
+export interface ThreadTokenUsage {
+  last: TokenUsageBreakdown;
+  total: TokenUsageBreakdown;
+  modelContextWindow?: number | null;
+}
+
+export interface ReadThreadTokenUsageResponse {
+  threadId: string;
+  tokenUsage: ThreadTokenUsage | null;
+}

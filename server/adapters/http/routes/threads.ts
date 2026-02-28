@@ -11,6 +11,8 @@ import {
 import type { SessionManager } from "../../../core/session_manager.js";
 import { parseJsonBody, respondError, respondJson } from "./utils.js";
 
+const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
+
 function parseQuery(url: URL): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of url.searchParams.entries()) {
@@ -26,6 +28,14 @@ function parseQuery(url: URL): Record<string, unknown> {
     result[key] = value;
   }
   return result;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export async function handleCreateThread(
@@ -66,6 +76,45 @@ export function handleGetThread(manager: SessionManager, threadId: string): Resp
     return respondJson(200, manager.getThreadState(threadId));
   } catch (error) {
     return respondError(404, error instanceof Error ? error.message : "Thread not found.");
+  }
+}
+
+export async function handleGetThreadContext(manager: SessionManager, threadId: string): Promise<Response> {
+  try {
+    const result = await manager.readThreadTokenUsage(threadId);
+    const usage = result.tokenUsage ? asRecord(result.tokenUsage) : null;
+    const last = usage ? asRecord(usage.last) : null;
+    const total = usage ? asRecord(usage.total) : null;
+    const modelContextWindow = usage ? asNumber(usage.modelContextWindow) : null;
+
+    const lastTotalTokens = last ? asNumber(last.totalTokens) : null;
+    const effectiveWindow =
+      modelContextWindow !== null ? Math.max(modelContextWindow - CODEX_CONTEXT_BASELINE_TOKENS, 0) : null;
+    const usedInEffectiveWindow =
+      effectiveWindow !== null && lastTotalTokens !== null
+        ? Math.max(lastTotalTokens - CODEX_CONTEXT_BASELINE_TOKENS, 0)
+        : null;
+    const remainingInEffectiveWindow =
+      effectiveWindow !== null && usedInEffectiveWindow !== null
+        ? Math.max(effectiveWindow - usedInEffectiveWindow, 0)
+        : null;
+    const contextLeftPercent =
+      effectiveWindow !== null && effectiveWindow > 0 && remainingInEffectiveWindow !== null
+        ? Math.round((remainingInEffectiveWindow / effectiveWindow) * 100)
+        : null;
+
+    return respondJson(200, {
+      threadId,
+      baselineTokens: CODEX_CONTEXT_BASELINE_TOKENS,
+      modelContextWindow,
+      contextLeftPercent,
+      effectiveRemainingTokens: remainingInEffectiveWindow,
+      currentContextUsage: last,
+      lifetimeCumulativeUsage: total,
+      tokenUsage: result.tokenUsage,
+    });
+  } catch (error) {
+    return respondError(400, error instanceof Error ? error.message : "Failed to read thread context.");
   }
 }
 

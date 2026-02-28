@@ -33,6 +33,8 @@ This repository has been refactored into a clean architecture split:
 Bot commands:
 - `!help` show commands
 - `!newthread` create a fresh thread and set as active for this channel
+- `!limits` show account rate-limit windows and credits
+- `!context` show context usage for the active thread in this channel
 - `!threads` list active stored threads
 - `!threads loaded` list loaded threads in memory
 - `!threads archived` list archived threads

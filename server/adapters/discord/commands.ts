@@ -4,6 +4,7 @@ import type { SessionManager } from "../../core/session_manager.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: string | null };
 const DISCORD_MESSAGE_LIMIT = 1900;
+const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
 
 export type CommandContext = {
   manager: SessionManager;
@@ -42,6 +43,11 @@ function asNumber(value: unknown): number | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function formatNumber(value: unknown): string {
+  const num = asNumber(value);
+  return num === null ? "unknown" : num.toLocaleString();
 }
 
 function formatResetTimestamp(seconds: unknown): string {
@@ -93,6 +99,57 @@ function formatRateLimitsForDiscord(value: unknown): string {
   }
 
   return lines.join("\n");
+}
+
+function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): string {
+  const usage = asRecord(tokenUsage);
+  const last = asRecord(usage.last);
+  const total = asRecord(usage.total);
+  const contextWindow = asNumber(usage.modelContextWindow);
+
+  const lastTotalTokens = asNumber(last.totalTokens);
+  const effectiveWindow =
+    contextWindow !== null ? Math.max(contextWindow - CODEX_CONTEXT_BASELINE_TOKENS, 0) : null;
+  const usedInEffectiveWindow =
+    effectiveWindow !== null && lastTotalTokens !== null
+      ? Math.max(lastTotalTokens - CODEX_CONTEXT_BASELINE_TOKENS, 0)
+      : null;
+  const remainingInEffectiveWindow =
+    effectiveWindow !== null && usedInEffectiveWindow !== null
+      ? Math.max(effectiveWindow - usedInEffectiveWindow, 0)
+      : null;
+  const remainingPercent =
+    effectiveWindow !== null && effectiveWindow > 0 && remainingInEffectiveWindow !== null
+      ? Math.round((remainingInEffectiveWindow / effectiveWindow) * 100)
+      : null;
+
+  return [
+    `**Context Usage**`,
+    `- Thread: ${threadId}`,
+    `- Model context window: ${contextWindow === null ? "unknown" : contextWindow.toLocaleString()}`,
+    `- Context left: ${
+      remainingPercent === null ? "unknown" : `${remainingPercent}%`
+    }`,
+    `- Effective remaining tokens: ${
+      remainingInEffectiveWindow === null
+        ? "unknown"
+        : `${remainingInEffectiveWindow.toLocaleString()} (baseline ${CODEX_CONTEXT_BASELINE_TOKENS.toLocaleString()})`
+    }`,
+    "",
+    `**Current Context Usage**`,
+    `- Input: ${formatNumber(last.inputTokens)}`,
+    `- Cached input: ${formatNumber(last.cachedInputTokens)}`,
+    `- Output: ${formatNumber(last.outputTokens)}`,
+    `- Reasoning output: ${formatNumber(last.reasoningOutputTokens)}`,
+    `- Total: ${formatNumber(last.totalTokens)}`,
+    "",
+    `**Lifetime Cumulative Usage**`,
+    `- Input: ${formatNumber(total.inputTokens)}`,
+    `- Cached input: ${formatNumber(total.cachedInputTokens)}`,
+    `- Output: ${formatNumber(total.outputTokens)}`,
+    `- Reasoning output: ${formatNumber(total.reasoningOutputTokens)}`,
+    `- Total: ${formatNumber(total.totalTokens)}`,
+  ].join("\n");
 }
 
 function chunkForDiscord(text: string, maxChunkSize = DISCORD_MESSAGE_LIMIT): string[] {
@@ -169,6 +226,7 @@ export async function handleMessage(
       "- !help",
       "- !newthread",
       "- !limits",
+      "- !context",
       "- !threads",
       "- !threads loaded",
       "- !threads archived",
@@ -207,6 +265,21 @@ export async function handleMessage(
     const limits = await context.manager.readAccountRateLimits();
     await replyChunked(message, formatRateLimitsForDiscord(limits.rateLimits));
     return { handled: true, threadId: null, input: null };
+  }
+
+  if (command === "!context") {
+    const threadId = context.getActiveThreadId(channelId);
+    if (!threadId) {
+      await message.reply("No active thread in this channel yet. Use !newthread first.");
+      return { handled: true, threadId: null, input: null };
+    }
+    const result = await context.manager.readThreadTokenUsage(threadId);
+    if (!result.tokenUsage) {
+      await message.reply("No context telemetry yet for this thread. Send a turn first.");
+      return { handled: true, threadId, input: null };
+    }
+    await replyChunked(message, formatThreadContextForDiscord(threadId, result.tokenUsage));
+    return { handled: true, threadId, input: null };
   }
 
   if (command === "!newthread") {

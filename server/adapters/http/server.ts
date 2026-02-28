@@ -8,6 +8,7 @@ import {
   handleCompactThread,
   handleCreateThread,
   handleForkThread,
+  handleGetThreadContext,
   handleGetThread,
   handleListLoadedThreads,
   handleListStoredThreads,
@@ -85,6 +86,11 @@ export function startHttpServer(manager: SessionManager, host: string, port: num
       const threadReadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/read$/);
       if (method === "GET" && threadReadMatch) {
         return handleReadThread(request, manager, threadReadMatch[1]);
+      }
+
+      const threadContextMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/context$/);
+      if (method === "GET" && threadContextMatch) {
+        return handleGetThreadContext(manager, threadContextMatch[1]);
       }
 
       const threadResumeMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/resume$/);

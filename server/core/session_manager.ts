@@ -3,6 +3,7 @@ import type {
   ApprovalRecord,
   ApprovalRequestPayload,
 } from "../../shared/protocol/approvals.js";
+import type { ThreadTokenUsageUpdatedEvent } from "../../shared/protocol/events.js";
 import type {
   ApprovalPolicy,
   AccountRateLimitsResponse,
@@ -29,6 +30,7 @@ import type {
   SubmitTurnRequest,
   SubmitTurnResponse,
   ThreadRecord,
+  ThreadTokenUsage,
   UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
@@ -93,6 +95,7 @@ function extractThreadRecord(value: unknown): ThreadRecord {
 export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
   private approvals = new ApprovalsStore();
+  private tokenUsageByThread = new Map<string, ThreadTokenUsage>();
   private controlSession: CodexSession | null = null;
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
@@ -215,8 +218,7 @@ export class SessionManager {
   }
 
   async readThreadTokenUsage(threadId: string): Promise<ReadThreadTokenUsageResponse> {
-    const session = await this.getSessionForThread(threadId);
-    const tokenUsage = session.getLatestThreadTokenUsage(threadId);
+    const tokenUsage = this.tokenUsageByThread.get(threadId) ?? null;
     return { threadId, tokenUsage };
   }
 
@@ -295,33 +297,42 @@ export class SessionManager {
       managed.session.stop();
     }
     this.sessionsByThread.clear();
+    this.tokenUsageByThread.clear();
     this.controlSession?.stop();
     this.controlSession = null;
   }
 
   private async createManagedSession(approvalPolicy: ApprovalPolicy): Promise<ManagedSession> {
     const session = new CodexSession(approvalPolicy);
-    this.attachApprovalSubscription(session);
+    this.attachSessionSubscriptions(session);
     return {
       session,
       createdAt: new Date().toISOString(),
     };
   }
 
-  private attachApprovalSubscription(session: CodexSession): void {
+  private attachSessionSubscriptions(session: CodexSession): void {
     session.eventBus.subscribe((event) => {
-      if (event.type !== "approval.requested") return;
-      this.approvals.create(event.payload as ApprovalRequestPayload, {
-        threadId: event.threadId,
-        sessionId: session.sessionId,
-      });
+      if (event.type === "approval.requested") {
+        this.approvals.create(event.payload as ApprovalRequestPayload, {
+          threadId: event.threadId,
+          sessionId: session.sessionId,
+        });
+        return;
+      }
+
+      if (event.type === "thread.tokenUsage.updated") {
+        const payload = event.payload as ThreadTokenUsageUpdatedEvent["payload"];
+        if (!payload.tokenUsage) return;
+        this.tokenUsageByThread.set(event.threadId, payload.tokenUsage);
+      }
     });
   }
 
   private async getControlSession(): Promise<CodexSession> {
     if (this.controlSession) return this.controlSession;
     const session = new CodexSession("on-request");
-    this.attachApprovalSubscription(session);
+    this.attachSessionSubscriptions(session);
     await session.initialize();
     this.controlSession = session;
     return session;

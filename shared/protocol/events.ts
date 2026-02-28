@@ -1,4 +1,5 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
+import type { ThreadTokenUsage } from "./requests.js";
 
 export type BridgeEventType =
   | "session.started"
@@ -9,6 +10,7 @@ export type BridgeEventType =
   | "thread.name.updated"
   | "thread.archived"
   | "thread.unarchived"
+  | "thread.tokenUsage.updated"
   | "turn.started"
   | "turn.completed"
   | "turn.failed"
@@ -36,6 +38,7 @@ export type ThreadStatusChangedEvent = BridgeEvent<{ status: unknown }>;
 export type ThreadNameUpdatedEvent = BridgeEvent<{ threadName: string | null }>;
 export type ThreadArchivedEvent = BridgeEvent<Record<string, never>>;
 export type ThreadUnarchivedEvent = BridgeEvent<Record<string, never>>;
+export type ThreadTokenUsageUpdatedEvent = BridgeEvent<{ turnId: string | null; tokenUsage: ThreadTokenUsage | null }>;
 export type TurnStartedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnCompletedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnFailedEvent = BridgeEvent<{ message: string }>;

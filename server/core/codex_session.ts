@@ -74,7 +74,6 @@ export class CodexSession {
   private serverRequestsByApprovalId = new Map<string, RawServerRequest>();
   private approvalIdsByRawRequestId = new Map<string, string>();
   private eventCounter = 0;
-  private latestThreadTokenUsage: ThreadTokenUsage | null = null;
 
   constructor(approvalPolicy: ApprovalPolicy) {
     this.approvalPolicy = approvalPolicy;
@@ -317,13 +316,7 @@ export class CodexSession {
       throw new Error(`${method} returned an invalid thread id.`);
     }
     this.threadId = threadId;
-    this.latestThreadTokenUsage = null;
     return threadId;
-  }
-
-  getLatestThreadTokenUsage(threadId: string): ThreadTokenUsage | null {
-    if (!this.threadId || this.threadId !== threadId) return null;
-    return this.latestThreadTokenUsage;
   }
 
   private mapDecisionPayload(method: string, decision: string): Record<string, unknown> {
@@ -491,11 +484,12 @@ export class CodexSession {
     }
 
     if (lower === "thread/tokenusage/updated") {
-      const tokenUsage = asRecord(params).tokenUsage as ThreadTokenUsage | undefined;
-      if (tokenUsage) {
-        this.latestThreadTokenUsage = tokenUsage;
-      }
-      this.publish("turn.notification", threadId, { method, params });
+      const payload = asRecord(params);
+      const tokenUsage = payload.tokenUsage as ThreadTokenUsage | undefined;
+      this.publish("thread.tokenUsage.updated", threadId, {
+        turnId: asString(payload.turnId),
+        tokenUsage: tokenUsage ?? null,
+      });
       return;
     }
 

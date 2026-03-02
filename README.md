@@ -35,6 +35,11 @@ Bot commands:
 - `!newthread` create a fresh thread and set as active for this channel
 - `!limits` show account rate-limit windows and credits
 - `!context` show context usage for the active thread in this channel
+- `!skills [reload]` list discovered local skills (optionally force reload)
+- `!skills remote [enabled=true|false] [scope=example|workspace-shared|all-shared|personal] [surface=chatgpt|codex|api|atlas]` list remote skills
+- `!skill export <hazelnutId>` export a remote skill by id
+- `!skill enable <path>` enable a skill by path
+- `!skill disable <path>` disable a skill by path
 - `!threads` list active stored threads
 - `!threads loaded` list loaded threads in memory
 - `!threads archived` list archived threads
@@ -52,6 +57,12 @@ Bot commands:
 Guild message behavior:
 - Shepherd only processes guild channels/threads (DMs are ignored)
 - Non-command messages are processed only when the bot is mentioned (`@Shepherd`)
+
+HTTP skills endpoints:
+- `GET /api/skills`
+- `GET /api/skills/remote`
+- `POST /api/skills/remote/export` with `{ "hazelnutId": "..." }`
+- `POST /api/skills/config` with `{ "path": "...", "enabled": true|false }`
 
 Environment variables:
 

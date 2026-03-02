@@ -25,6 +25,26 @@ function parseThreadArgs(content: string): { command: string; args: string[] } {
   return { command: command.toLowerCase(), args: rest };
 }
 
+function parseKeyValueArgs(args: string[]): Record<string, string> {
+  const entries = args
+    .map((arg) => arg.split("=", 2))
+    .filter((parts) => parts.length === 2 && parts[0] && parts[1])
+    .map(([key, value]) => [key.toLowerCase(), value] as const);
+  return Object.fromEntries(entries);
+}
+
+function mapRemoteSkillsError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  if (lower.includes("hazelnuts") && lower.includes("403")) {
+    return "Remote skills are not enabled for this account (Hazelnut access denied).";
+  }
+  if (lower.includes("notallowed")) {
+    return "Remote skills are not enabled for this account.";
+  }
+  return message;
+}
+
 function safeJson(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
@@ -206,6 +226,56 @@ async function listStoredThreads(message: Message, context: CommandContext, arch
   await replyChunked(message, lines.join("\n"));
 }
 
+function formatSkillsForDiscord(value: unknown): string {
+  const payload = asRecord(value);
+  const entries = Array.isArray(payload.data) ? payload.data : [];
+  if (entries.length === 0) {
+    return "No skills found.";
+  }
+
+  const lines: string[] = ["**Skills**"];
+  for (const entry of entries) {
+    const record = asRecord(entry);
+    const cwd = asString(record.cwd) ?? "unknown";
+    const skills = Array.isArray(record.skills) ? record.skills : [];
+    const errors = Array.isArray(record.errors) ? record.errors : [];
+    lines.push(`- cwd: ${cwd} (skills: ${skills.length}, errors: ${errors.length})`);
+    for (const skillValue of skills) {
+      const skill = asRecord(skillValue);
+      const name = asString(skill.name) ?? "unknown";
+      const scope = asString(skill.scope) ?? "unknown";
+      const enabled = skill.enabled === true ? "enabled" : "disabled";
+      const description = asString(skill.description) ?? "";
+      lines.push(`  - ${name} [${scope}] ${enabled}${description ? ` :: ${description}` : ""}`);
+    }
+    for (const errorValue of errors) {
+      const error = asRecord(errorValue);
+      const message = asString(error.message) ?? "unknown error";
+      const path = asString(error.path) ?? "unknown path";
+      lines.push(`  - error: ${message} (${path})`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatRemoteSkillsForDiscord(value: unknown): string {
+  const payload = asRecord(value);
+  const entries = Array.isArray(payload.data) ? payload.data : [];
+  if (entries.length === 0) {
+    return "No remote skills found.";
+  }
+  return [
+    `**Remote Skills (${entries.length})**`,
+    ...entries.map((entry, index) => {
+      const record = asRecord(entry);
+      const id = asString(record.id) ?? "unknown";
+      const name = asString(record.name) ?? "unknown";
+      const description = asString(record.description) ?? "";
+      return `${index + 1}. ${name} (${id})${description ? ` :: ${description}` : ""}`;
+    }),
+  ].join("\n");
+}
+
 export async function handleMessage(
   message: Message,
   context: CommandContext,
@@ -227,6 +297,11 @@ export async function handleMessage(
       "- !newthread",
       "- !limits",
       "- !context",
+      "- !skills [reload]",
+      "- !skills remote [enabled=true|false] [scope=example|workspace-shared|all-shared|personal] [surface=chatgpt|codex|api|atlas]",
+      "- !skill export <hazelnutId>",
+      "- !skill enable <path>",
+      "- !skill disable <path>",
       "- !threads",
       "- !threads loaded",
       "- !threads archived",
@@ -286,6 +361,69 @@ export async function handleMessage(
     const threadId = await context.createAndBindChannelThread(channelId);
     await message.reply(`Started new thread: ${threadId}`);
     return { handled: true, threadId, input: null };
+  }
+
+  if (command === "!skills") {
+    const mode = (args[0] ?? "").toLowerCase();
+    if (mode === "remote") {
+      const kv = parseKeyValueArgs(args.slice(1));
+      const enabled = kv.enabled === "true" ? true : kv.enabled === "false" ? false : undefined;
+      const hazelnutScope = kv.scope;
+      const productSurface = kv.surface;
+      try {
+        const remote = await context.manager.listRemoteSkills({
+          enabled,
+          hazelnutScope: hazelnutScope as
+            | "example"
+            | "workspace-shared"
+            | "all-shared"
+            | "personal"
+            | undefined,
+          productSurface: productSurface as "chatgpt" | "codex" | "api" | "atlas" | undefined,
+        });
+        await replyChunked(message, formatRemoteSkillsForDiscord(remote));
+      } catch (error) {
+        await message.reply(mapRemoteSkillsError(error));
+      }
+      return { handled: true, threadId: null, input: null };
+    }
+
+    const forceReload = mode === "reload";
+    const listed = await context.manager.listSkills({ forceReload });
+    await replyChunked(message, formatSkillsForDiscord(listed));
+    return { handled: true, threadId: null, input: null };
+  }
+
+  if (command === "!skill") {
+    const sub = (args[0] ?? "").toLowerCase();
+    if (sub === "export") {
+      const hazelnutId = args[1]?.trim();
+      if (!hazelnutId) {
+        await message.reply("Usage: !skill export <hazelnutId>");
+        return { handled: true, threadId: null, input: null };
+      }
+      try {
+        const exported = await context.manager.exportRemoteSkill({ hazelnutId });
+        await message.reply(`Exported remote skill ${exported.id} -> ${exported.path}`);
+      } catch (error) {
+        await message.reply(mapRemoteSkillsError(error));
+      }
+      return { handled: true, threadId: null, input: null };
+    }
+
+    if (sub === "enable" || sub === "disable") {
+      const path = args.slice(1).join(" ").trim();
+      if (!path) {
+        await message.reply(`Usage: !skill ${sub} <path>`);
+        return { handled: true, threadId: null, input: null };
+      }
+      const enabled = sub === "enable";
+      const result = await context.manager.writeSkillConfig({ path, enabled });
+      await message.reply(
+        `${enabled ? "Enabled" : "Disabled"} skill at ${path} (effectiveEnabled=${result.effectiveEnabled})`,
+      );
+      return { handled: true, threadId: null, input: null };
+    }
   }
 
   if (command === "!thread" && args.length === 0) {

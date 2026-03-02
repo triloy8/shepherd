@@ -212,3 +212,100 @@ export interface ReadThreadTokenUsageResponse {
   threadId: string;
   tokenUsage: ThreadTokenUsage | null;
 }
+
+export type HazelnutScope = "example" | "workspace-shared" | "all-shared" | "personal";
+export type ProductSurface = "chatgpt" | "codex" | "api" | "atlas";
+export type SkillScope = "user" | "repo" | "system" | "admin";
+
+export interface SkillsListExtraRootsForCwd {
+  cwd: string;
+  extraUserRoots: string[];
+}
+
+export interface SkillsListRequest {
+  cwds?: string[];
+  forceReload?: boolean;
+  perCwdExtraUserRoots?: SkillsListExtraRootsForCwd[] | null;
+}
+
+export interface SkillToolDependency {
+  type: string;
+  value: string;
+  command?: string | null;
+  description?: string | null;
+  transport?: string | null;
+  url?: string | null;
+}
+
+export interface SkillDependencies {
+  tools: SkillToolDependency[];
+}
+
+export interface SkillInterface {
+  brandColor?: string | null;
+  defaultPrompt?: string | null;
+  displayName?: string | null;
+  iconLarge?: string | null;
+  iconSmall?: string | null;
+  shortDescription?: string | null;
+}
+
+export interface SkillMetadata {
+  dependencies?: SkillDependencies | null;
+  description: string;
+  enabled: boolean;
+  interface?: SkillInterface | null;
+  name: string;
+  path: string;
+  scope: SkillScope;
+  shortDescription?: string | null;
+}
+
+export interface SkillErrorInfo {
+  message: string;
+  path: string;
+}
+
+export interface SkillsListEntry {
+  cwd: string;
+  errors: SkillErrorInfo[];
+  skills: SkillMetadata[];
+}
+
+export interface SkillsListResponse {
+  data: SkillsListEntry[];
+}
+
+export interface SkillsRemoteListRequest {
+  enabled?: boolean;
+  hazelnutScope?: HazelnutScope;
+  productSurface?: ProductSurface;
+}
+
+export interface RemoteSkillSummary {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface SkillsRemoteListResponse {
+  data: RemoteSkillSummary[];
+}
+
+export interface SkillsRemoteExportRequest {
+  hazelnutId: string;
+}
+
+export interface SkillsRemoteExportResponse {
+  id: string;
+  path: string;
+}
+
+export interface SkillsConfigWriteRequest {
+  enabled: boolean;
+  path: string;
+}
+
+export interface SkillsConfigWriteResponse {
+  effectiveEnabled: boolean;
+}

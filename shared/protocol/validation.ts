@@ -5,13 +5,19 @@ import type {
   ForkThreadRequest,
   ListLoadedThreadsRequest,
   ListStoredThreadsRequest,
+  ProductSurface,
   Personality,
   ReadThreadRequest,
   ResumeThreadRequest,
   RollbackThreadRequest,
   SandboxMode,
   SetThreadNameRequest,
+  SkillsConfigWriteRequest,
+  SkillsListRequest,
+  SkillsRemoteExportRequest,
+  SkillsRemoteListRequest,
   InterruptTurnRequest,
+  HazelnutScope,
   ThreadSortKey,
   ThreadSourceKind,
   SubmitTurnRequest,
@@ -33,6 +39,8 @@ const THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
   "subAgentOther",
   "unknown",
 ];
+const HAZELNUT_SCOPES: HazelnutScope[] = ["example", "workspace-shared", "all-shared", "personal"];
+const PRODUCT_SURFACES: ProductSurface[] = ["chatgpt", "codex", "api", "atlas"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
@@ -238,5 +246,56 @@ export function validateApprovalDecisionRequest(value: unknown): ApprovalDecisio
   return {
     decision: value.decision.trim(),
     reason: typeof value.reason === "string" ? value.reason.trim() : undefined,
+  };
+}
+
+export function validateSkillsListRequest(value: unknown): SkillsListRequest {
+  if (!isRecord(value)) throw new Error("Invalid skills list payload.");
+  const perCwd = value.perCwdExtraUserRoots;
+  if (perCwd !== undefined && perCwd !== null) {
+    if (!Array.isArray(perCwd)) throw new Error("Invalid perCwdExtraUserRoots.");
+    for (const entry of perCwd) {
+      if (!isRecord(entry)) throw new Error("Invalid perCwdExtraUserRoots entry.");
+      if (typeof entry.cwd !== "string") throw new Error("Invalid perCwdExtraUserRoots.cwd.");
+      if (!Array.isArray(entry.extraUserRoots) || entry.extraUserRoots.some((root) => typeof root !== "string")) {
+        throw new Error("Invalid perCwdExtraUserRoots.extraUserRoots.");
+      }
+    }
+  }
+
+  return {
+    cwds: parseOptionalStringList(value.cwds, "cwds"),
+    forceReload: parseOptionalBoolean(value.forceReload, "forceReload"),
+    perCwdExtraUserRoots: perCwd as SkillsListRequest["perCwdExtraUserRoots"],
+  };
+}
+
+export function validateSkillsRemoteListRequest(value: unknown): SkillsRemoteListRequest {
+  if (!isRecord(value)) throw new Error("Invalid remote skills list payload.");
+  return {
+    enabled: parseOptionalBoolean(value.enabled, "enabled"),
+    hazelnutScope: parseOptionalEnum(value.hazelnutScope, "hazelnutScope", HAZELNUT_SCOPES),
+    productSurface: parseOptionalEnum(value.productSurface, "productSurface", PRODUCT_SURFACES),
+  };
+}
+
+export function validateSkillsRemoteExportRequest(value: unknown): SkillsRemoteExportRequest {
+  if (!isRecord(value) || typeof value.hazelnutId !== "string" || !value.hazelnutId.trim()) {
+    throw new Error("Invalid remote skill export payload.");
+  }
+  return { hazelnutId: value.hazelnutId.trim() };
+}
+
+export function validateSkillsConfigWriteRequest(value: unknown): SkillsConfigWriteRequest {
+  if (!isRecord(value)) throw new Error("Invalid skills config payload.");
+  if (typeof value.path !== "string" || !value.path.trim()) {
+    throw new Error("Invalid path.");
+  }
+  if (typeof value.enabled !== "boolean") {
+    throw new Error("Invalid enabled flag.");
+  }
+  return {
+    path: value.path.trim(),
+    enabled: value.enabled,
   };
 }

@@ -4,6 +4,12 @@ import { handleGetAccountRateLimits } from "./routes/account.js";
 import { handleEventsSse } from "./routes/events.js";
 import { isAuthorized } from "./routes/auth.js";
 import {
+  handleExportRemoteSkill,
+  handleListRemoteSkills,
+  handleListSkills,
+  handleWriteSkillConfig,
+} from "./routes/skills.js";
+import {
   handleArchiveThread,
   handleCompactThread,
   handleCreateThread,
@@ -68,6 +74,22 @@ export function startHttpServer(manager: SessionManager, host: string, port: num
 
       if (method === "GET" && url.pathname === "/api/account/rate-limits") {
         return handleGetAccountRateLimits(manager);
+      }
+
+      if (method === "GET" && url.pathname === "/api/skills") {
+        return handleListSkills(request, manager);
+      }
+
+      if (method === "GET" && url.pathname === "/api/skills/remote") {
+        return handleListRemoteSkills(request, manager);
+      }
+
+      if (method === "POST" && url.pathname === "/api/skills/remote/export") {
+        return handleExportRemoteSkill(request, manager);
+      }
+
+      if (method === "POST" && url.pathname === "/api/skills/config") {
+        return handleWriteSkillConfig(request, manager);
       }
 
       if (method === "GET" && url.pathname === "/api/threads") {

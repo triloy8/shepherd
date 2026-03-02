@@ -27,6 +27,14 @@ import type {
   RollbackThreadRequest,
   RollbackThreadResponse,
   SetThreadNameRequest,
+  SkillsConfigWriteRequest,
+  SkillsConfigWriteResponse,
+  SkillsListRequest,
+  SkillsListResponse,
+  SkillsRemoteExportRequest,
+  SkillsRemoteExportResponse,
+  SkillsRemoteListRequest,
+  SkillsRemoteListResponse,
   SubmitTurnRequest,
   SubmitTurnResponse,
   ThreadRecord,
@@ -215,6 +223,26 @@ export class SessionManager {
     return {
       rateLimits: raw.rateLimits ?? raw,
     };
+  }
+
+  async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
+    const session = await this.getControlSession();
+    return session.listSkills(request);
+  }
+
+  async listRemoteSkills(request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
+    const session = await this.getControlSession();
+    return session.listRemoteSkills(request);
+  }
+
+  async exportRemoteSkill(request: SkillsRemoteExportRequest): Promise<SkillsRemoteExportResponse> {
+    const session = await this.getControlSession();
+    return session.exportRemoteSkill(request);
+  }
+
+  async writeSkillConfig(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
+    const session = await this.getControlSession();
+    return session.writeSkillConfig(request);
   }
 
   async readThreadTokenUsage(threadId: string): Promise<ReadThreadTokenUsageResponse> {

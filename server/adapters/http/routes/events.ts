@@ -3,12 +3,12 @@ import { respondError } from "./utils.js";
 
 export function handleEventsSse(
   request: Request,
-  manager: ConversationService,
+  conversation: ConversationService,
   threadId: string,
   lastEventId?: string,
 ): Response {
   try {
-    manager.getThreadState(threadId);
+    conversation.getThreadState(threadId);
   } catch (error) {
     return respondError(404, error instanceof Error ? error.message : "Thread not found.");
   }
@@ -36,7 +36,7 @@ export function handleEventsSse(
         write(`: keepalive ${Date.now()}\n\n`);
       }, 20_000);
 
-      unsubscribe = manager.subscribeToThreadEvents(
+      unsubscribe = conversation.subscribeToThreadEvents(
         threadId,
         (event) => {
           write(`id: ${event.id}\n`);

@@ -40,48 +40,48 @@ function asNumber(value: unknown): number | null {
 
 export async function handleCreateThread(
   request: Request,
-  manager: ConversationService,
+  conversation: ConversationService,
 ): Promise<Response> {
   try {
     const payload = validateCreateThreadRequest(await parseJsonBody(request));
-    const result = await manager.createThread(payload);
+    const result = await conversation.createThread(payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to create thread.");
   }
 }
 
-export async function handleListStoredThreads(request: Request, manager: ConversationService): Promise<Response> {
+export async function handleListStoredThreads(request: Request, conversation: ConversationService): Promise<Response> {
   try {
     const payload = validateListStoredThreadsRequest(parseQuery(new URL(request.url)));
-    const result = await manager.listStoredThreads(payload);
+    const result = await conversation.listStoredThreads(payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to list stored threads.");
   }
 }
 
-export async function handleListLoadedThreads(request: Request, manager: ConversationService): Promise<Response> {
+export async function handleListLoadedThreads(request: Request, conversation: ConversationService): Promise<Response> {
   try {
     const payload = validateListLoadedThreadsRequest(parseQuery(new URL(request.url)));
-    const result = await manager.listLoadedThreads(payload);
+    const result = await conversation.listLoadedThreads(payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to list loaded threads.");
   }
 }
 
-export function handleGetThread(manager: ConversationService, threadId: string): Response {
+export function handleGetThread(conversation: ConversationService, threadId: string): Response {
   try {
-    return respondJson(200, manager.getThreadState(threadId));
+    return respondJson(200, conversation.getThreadState(threadId));
   } catch (error) {
     return respondError(404, error instanceof Error ? error.message : "Thread not found.");
   }
 }
 
-export async function handleGetThreadContext(manager: ConversationService, threadId: string): Promise<Response> {
+export async function handleGetThreadContext(conversation: ConversationService, threadId: string): Promise<Response> {
   try {
-    const result = await manager.readThreadTokenUsage(threadId);
+    const result = await conversation.readThreadTokenUsage(threadId);
     const usage = result.tokenUsage ? asRecord(result.tokenUsage) : null;
     const last = usage ? asRecord(usage.last) : null;
     const total = usage ? asRecord(usage.total) : null;
@@ -120,12 +120,12 @@ export async function handleGetThreadContext(manager: ConversationService, threa
 
 export async function handleReadThread(
   request: Request,
-  manager: ConversationService,
+  conversation: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
     const payload = validateReadThreadRequest(parseQuery(new URL(request.url)));
-    const result = await manager.readThread(threadId, payload);
+    const result = await conversation.readThread(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to read thread.");
@@ -134,12 +134,12 @@ export async function handleReadThread(
 
 export async function handleResumeThread(
   request: Request,
-  manager: ConversationService,
+  conversation: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
     const payload = validateResumeThreadRequest(await parseJsonBody(request));
-    const result = await manager.resumeThread(threadId, payload);
+    const result = await conversation.resumeThread(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to resume thread.");
@@ -148,12 +148,12 @@ export async function handleResumeThread(
 
 export async function handleForkThread(
   request: Request,
-  manager: ConversationService,
+  conversation: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
     const payload = validateForkThreadRequest(await parseJsonBody(request));
-    const result = await manager.forkThread(threadId, payload);
+    const result = await conversation.forkThread(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to fork thread.");
@@ -162,39 +162,39 @@ export async function handleForkThread(
 
 export async function handleSetThreadName(
   request: Request,
-  manager: ConversationService,
+  conversation: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
     const payload = validateSetThreadNameRequest(await parseJsonBody(request));
-    const result = await manager.setThreadName(threadId, payload);
+    const result = await conversation.setThreadName(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to set thread name.");
   }
 }
 
-export async function handleArchiveThread(manager: ConversationService, threadId: string): Promise<Response> {
+export async function handleArchiveThread(conversation: ConversationService, threadId: string): Promise<Response> {
   try {
-    const result = await manager.archiveThread(threadId);
+    const result = await conversation.archiveThread(threadId);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to archive thread.");
   }
 }
 
-export async function handleUnarchiveThread(manager: ConversationService, threadId: string): Promise<Response> {
+export async function handleUnarchiveThread(conversation: ConversationService, threadId: string): Promise<Response> {
   try {
-    const result = await manager.unarchiveThread(threadId);
+    const result = await conversation.unarchiveThread(threadId);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to unarchive thread.");
   }
 }
 
-export async function handleCompactThread(manager: ConversationService, threadId: string): Promise<Response> {
+export async function handleCompactThread(conversation: ConversationService, threadId: string): Promise<Response> {
   try {
-    const result = await manager.compactThread(threadId);
+    const result = await conversation.compactThread(threadId);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to compact thread.");
@@ -203,12 +203,12 @@ export async function handleCompactThread(manager: ConversationService, threadId
 
 export async function handleRollbackThread(
   request: Request,
-  manager: ConversationService,
+  conversation: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
     const payload = validateRollbackThreadRequest(await parseJsonBody(request));
-    const result = await manager.rollbackThread(threadId, payload);
+    const result = await conversation.rollbackThread(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to rollback thread.");

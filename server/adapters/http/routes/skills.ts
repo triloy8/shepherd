@@ -36,20 +36,20 @@ function parseQuery(url: URL): Record<string, unknown> {
   return result;
 }
 
-export async function handleListSkills(request: Request, manager: ConversationService): Promise<Response> {
+export async function handleListSkills(request: Request, conversation: ConversationService): Promise<Response> {
   try {
     const payload = validateSkillsListRequest(parseQuery(new URL(request.url)));
-    const result = await manager.listSkills(payload);
+    const result = await conversation.listSkills(payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to list skills.");
   }
 }
 
-export async function handleListRemoteSkills(request: Request, manager: ConversationService): Promise<Response> {
+export async function handleListRemoteSkills(request: Request, conversation: ConversationService): Promise<Response> {
   try {
     const payload = validateSkillsRemoteListRequest(parseQuery(new URL(request.url)));
-    const result = await manager.listRemoteSkills(payload);
+    const result = await conversation.listRemoteSkills(payload);
     return respondJson(200, result);
   } catch (error) {
     const mapped = mapRemoteSkillsError(error);
@@ -57,10 +57,10 @@ export async function handleListRemoteSkills(request: Request, manager: Conversa
   }
 }
 
-export async function handleExportRemoteSkill(request: Request, manager: ConversationService): Promise<Response> {
+export async function handleExportRemoteSkill(request: Request, conversation: ConversationService): Promise<Response> {
   try {
     const payload = validateSkillsRemoteExportRequest(await parseJsonBody(request));
-    const result = await manager.exportRemoteSkill(payload);
+    const result = await conversation.exportRemoteSkill(payload);
     return respondJson(200, result);
   } catch (error) {
     const mapped = mapRemoteSkillsError(error);
@@ -68,10 +68,10 @@ export async function handleExportRemoteSkill(request: Request, manager: Convers
   }
 }
 
-export async function handleWriteSkillConfig(request: Request, manager: ConversationService): Promise<Response> {
+export async function handleWriteSkillConfig(request: Request, conversation: ConversationService): Promise<Response> {
   try {
     const payload = validateSkillsConfigWriteRequest(await parseJsonBody(request));
-    const result = await manager.writeSkillConfig(payload);
+    const result = await conversation.writeSkillConfig(payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to update skill config.");

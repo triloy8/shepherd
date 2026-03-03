@@ -2,12 +2,12 @@ import {
   validateInterruptTurnRequest,
   validateSubmitTurnRequest,
 } from "../../../../shared/protocol/validation.js";
-import type { SessionManager } from "../../../core/session_manager.js";
+import type { ConversationService } from "../../../core/conversation_service.js";
 import { parseJsonBody, respondError, respondJson } from "./utils.js";
 
 export async function handleSubmitTurn(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
@@ -21,7 +21,7 @@ export async function handleSubmitTurn(
 
 export async function handleInterruptTurn(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {

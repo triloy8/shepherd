@@ -1,7 +1,7 @@
-import type { SessionManager } from "../../../core/session_manager.js";
+import type { ConversationService } from "../../../core/conversation_service.js";
 import { respondError, respondJson } from "./utils.js";
 
-export async function handleGetAccountRateLimits(manager: SessionManager): Promise<Response> {
+export async function handleGetAccountRateLimits(manager: ConversationService): Promise<Response> {
   try {
     const result = await manager.readAccountRateLimits();
     return respondJson(200, result);

@@ -1,13 +1,13 @@
 import type { Message } from "discord.js";
 
-import type { SessionManager } from "../../core/session_manager.js";
+import type { ConversationService } from "../../core/conversation_service.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: string | null };
 const DISCORD_MESSAGE_LIMIT = 1900;
 const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
 
 export type CommandContext = {
-  manager: SessionManager;
+  conversation: ConversationService;
   getActiveThreadId: (channelId: string) => string | null;
   ensureChannelThread: (channelId: string) => Promise<string>;
   createAndBindChannelThread: (channelId: string) => Promise<string>;
@@ -213,7 +213,7 @@ async function replyChunked(message: Message, text: string): Promise<void> {
 }
 
 async function listStoredThreads(message: Message, context: CommandContext, archived: boolean): Promise<void> {
-  const result = await context.manager.listStoredThreads({ archived, limit: 25 });
+  const result = await context.conversation.listStoredThreads({ archived, limit: 25 });
   if (result.threads.length === 0) {
     await message.reply(archived ? "No archived threads." : "No active threads.");
     return;
@@ -322,7 +322,7 @@ export async function handleMessage(
   if (command === "!threads") {
     const mode = (args[0] ?? "").toLowerCase();
     if (mode === "loaded") {
-      const loaded = await context.manager.listLoadedThreads({ limit: 100 });
+      const loaded = await context.conversation.listLoadedThreads({ limit: 100 });
       await replyChunked(
         message,
         loaded.threadIds.length > 0
@@ -337,7 +337,7 @@ export async function handleMessage(
   }
 
   if (command === "!limits") {
-    const limits = await context.manager.readAccountRateLimits();
+    const limits = await context.conversation.readAccountRateLimits();
     await replyChunked(message, formatRateLimitsForDiscord(limits.rateLimits));
     return { handled: true, threadId: null, input: null };
   }
@@ -348,7 +348,7 @@ export async function handleMessage(
       await message.reply("No active thread in this channel yet. Use !newthread first.");
       return { handled: true, threadId: null, input: null };
     }
-    const result = await context.manager.readThreadTokenUsage(threadId);
+    const result = await context.conversation.readThreadTokenUsage(threadId);
     if (!result.tokenUsage) {
       await message.reply("No context telemetry yet for this thread. Send a turn first.");
       return { handled: true, threadId, input: null };
@@ -371,7 +371,7 @@ export async function handleMessage(
       const hazelnutScope = kv.scope;
       const productSurface = kv.surface;
       try {
-        const remote = await context.manager.listRemoteSkills({
+        const remote = await context.conversation.listRemoteSkills({
           enabled,
           hazelnutScope: hazelnutScope as
             | "example"
@@ -389,7 +389,7 @@ export async function handleMessage(
     }
 
     const forceReload = mode === "reload";
-    const listed = await context.manager.listSkills({ forceReload });
+    const listed = await context.conversation.listSkills({ forceReload });
     await replyChunked(message, formatSkillsForDiscord(listed));
     return { handled: true, threadId: null, input: null };
   }
@@ -403,7 +403,7 @@ export async function handleMessage(
         return { handled: true, threadId: null, input: null };
       }
       try {
-        const exported = await context.manager.exportRemoteSkill({ hazelnutId });
+        const exported = await context.conversation.exportRemoteSkill({ hazelnutId });
         await message.reply(`Exported remote skill ${exported.id} -> ${exported.path}`);
       } catch (error) {
         await message.reply(mapRemoteSkillsError(error));
@@ -418,7 +418,7 @@ export async function handleMessage(
         return { handled: true, threadId: null, input: null };
       }
       const enabled = sub === "enable";
-      const result = await context.manager.writeSkillConfig({ path, enabled });
+      const result = await context.conversation.writeSkillConfig({ path, enabled });
       await message.reply(
         `${enabled ? "Enabled" : "Disabled"} skill at ${path} (effectiveEnabled=${result.effectiveEnabled})`,
       );
@@ -441,9 +441,9 @@ export async function handleMessage(
 
     let resolvedThreadId = requestedThreadId;
     try {
-      context.manager.getThreadState(requestedThreadId);
+      context.conversation.getThreadState(requestedThreadId);
     } catch {
-      const resumed = await context.manager.resumeThread(requestedThreadId, {});
+      const resumed = await context.conversation.resumeThread(requestedThreadId, {});
       resolvedThreadId = resumed.threadId;
     }
 
@@ -463,7 +463,7 @@ export async function handleMessage(
       await message.reply("No active thread in this channel.");
       return { handled: true, threadId: null, input: null };
     }
-    await context.manager.setThreadName(threadId, { name });
+    await context.conversation.setThreadName(threadId, { name });
     await replyChunked(message, `Thread renamed: ${name}`);
     return { handled: true, threadId, input: null };
   }
@@ -474,7 +474,7 @@ export async function handleMessage(
       await message.reply("Usage: !threadread <id>");
       return { handled: true, threadId: null, input: null };
     }
-    const result = await context.manager.readThread(threadId, { includeTurns: false });
+    const result = await context.conversation.readThread(threadId, { includeTurns: false });
     const thread = result.thread as { id?: string; name?: string | null; preview?: string; updatedAt?: number | null };
     await replyChunked(message, [
       `Thread: ${thread.id ?? threadId}`,
@@ -491,7 +491,7 @@ export async function handleMessage(
       await message.reply("Usage: !fork <id>");
       return { handled: true, threadId: null, input: null };
     }
-    const forked = await context.manager.forkThread(sourceThreadId, {});
+    const forked = await context.conversation.forkThread(sourceThreadId, {});
     await context.bindChannelToThread(channelId, forked.threadId);
     await message.reply(`Forked thread ${sourceThreadId} -> ${forked.threadId}`);
     return { handled: true, threadId: forked.threadId, input: null };
@@ -503,7 +503,7 @@ export async function handleMessage(
       await message.reply("Usage: !archive <id>");
       return { handled: true, threadId: null, input: null };
     }
-    await context.manager.archiveThread(target);
+    await context.conversation.archiveThread(target);
     if (context.getActiveThreadId(channelId) === target) {
       context.clearChannelThread(channelId);
     }
@@ -517,7 +517,7 @@ export async function handleMessage(
       await message.reply("Usage: !unarchive <id>");
       return { handled: true, threadId: null, input: null };
     }
-    await context.manager.unarchiveThread(target);
+    await context.conversation.unarchiveThread(target);
     await message.reply(`Unarchived thread: ${target}`);
     return { handled: true, threadId: target, input: null };
   }
@@ -529,7 +529,7 @@ export async function handleMessage(
       await message.reply("Usage: !rollback <numTurns> [id]");
       return { handled: true, threadId: null, input: null };
     }
-    await context.manager.rollbackThread(target, { numTurns });
+    await context.conversation.rollbackThread(target, { numTurns });
     await message.reply(`Rolled back ${numTurns} turn(s) on ${target}`);
     return { handled: true, threadId: target, input: null };
   }
@@ -540,7 +540,7 @@ export async function handleMessage(
       await message.reply("Usage: !compact <id>");
       return { handled: true, threadId: null, input: null };
     }
-    await context.manager.compactThread(target);
+    await context.conversation.compactThread(target);
     await message.reply(`Started compaction for thread: ${target}`);
     return { handled: true, threadId: target, input: null };
   }

@@ -8,7 +8,7 @@ import {
   validateRollbackThreadRequest,
   validateSetThreadNameRequest,
 } from "../../../../shared/protocol/validation.js";
-import type { SessionManager } from "../../../core/session_manager.js";
+import type { ConversationService } from "../../../core/conversation_service.js";
 import { parseJsonBody, respondError, respondJson } from "./utils.js";
 
 const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
@@ -40,7 +40,7 @@ function asNumber(value: unknown): number | null {
 
 export async function handleCreateThread(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
 ): Promise<Response> {
   try {
     const payload = validateCreateThreadRequest(await parseJsonBody(request));
@@ -51,7 +51,7 @@ export async function handleCreateThread(
   }
 }
 
-export async function handleListStoredThreads(request: Request, manager: SessionManager): Promise<Response> {
+export async function handleListStoredThreads(request: Request, manager: ConversationService): Promise<Response> {
   try {
     const payload = validateListStoredThreadsRequest(parseQuery(new URL(request.url)));
     const result = await manager.listStoredThreads(payload);
@@ -61,7 +61,7 @@ export async function handleListStoredThreads(request: Request, manager: Session
   }
 }
 
-export async function handleListLoadedThreads(request: Request, manager: SessionManager): Promise<Response> {
+export async function handleListLoadedThreads(request: Request, manager: ConversationService): Promise<Response> {
   try {
     const payload = validateListLoadedThreadsRequest(parseQuery(new URL(request.url)));
     const result = await manager.listLoadedThreads(payload);
@@ -71,7 +71,7 @@ export async function handleListLoadedThreads(request: Request, manager: Session
   }
 }
 
-export function handleGetThread(manager: SessionManager, threadId: string): Response {
+export function handleGetThread(manager: ConversationService, threadId: string): Response {
   try {
     return respondJson(200, manager.getThreadState(threadId));
   } catch (error) {
@@ -79,7 +79,7 @@ export function handleGetThread(manager: SessionManager, threadId: string): Resp
   }
 }
 
-export async function handleGetThreadContext(manager: SessionManager, threadId: string): Promise<Response> {
+export async function handleGetThreadContext(manager: ConversationService, threadId: string): Promise<Response> {
   try {
     const result = await manager.readThreadTokenUsage(threadId);
     const usage = result.tokenUsage ? asRecord(result.tokenUsage) : null;
@@ -120,7 +120,7 @@ export async function handleGetThreadContext(manager: SessionManager, threadId: 
 
 export async function handleReadThread(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
@@ -134,7 +134,7 @@ export async function handleReadThread(
 
 export async function handleResumeThread(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
@@ -148,7 +148,7 @@ export async function handleResumeThread(
 
 export async function handleForkThread(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
@@ -162,7 +162,7 @@ export async function handleForkThread(
 
 export async function handleSetThreadName(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {
@@ -174,7 +174,7 @@ export async function handleSetThreadName(
   }
 }
 
-export async function handleArchiveThread(manager: SessionManager, threadId: string): Promise<Response> {
+export async function handleArchiveThread(manager: ConversationService, threadId: string): Promise<Response> {
   try {
     const result = await manager.archiveThread(threadId);
     return respondJson(200, result);
@@ -183,7 +183,7 @@ export async function handleArchiveThread(manager: SessionManager, threadId: str
   }
 }
 
-export async function handleUnarchiveThread(manager: SessionManager, threadId: string): Promise<Response> {
+export async function handleUnarchiveThread(manager: ConversationService, threadId: string): Promise<Response> {
   try {
     const result = await manager.unarchiveThread(threadId);
     return respondJson(200, result);
@@ -192,7 +192,7 @@ export async function handleUnarchiveThread(manager: SessionManager, threadId: s
   }
 }
 
-export async function handleCompactThread(manager: SessionManager, threadId: string): Promise<Response> {
+export async function handleCompactThread(manager: ConversationService, threadId: string): Promise<Response> {
   try {
     const result = await manager.compactThread(threadId);
     return respondJson(200, result);
@@ -203,7 +203,7 @@ export async function handleCompactThread(manager: SessionManager, threadId: str
 
 export async function handleRollbackThread(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
 ): Promise<Response> {
   try {

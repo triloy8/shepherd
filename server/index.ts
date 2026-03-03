@@ -1,4 +1,4 @@
-import { SessionManager } from "./core/session_manager.js";
+import { ConversationService } from "./core/conversation_service.js";
 import { startHttpServer } from "./adapters/http/server.js";
 import { loadEnvironment } from "./config/environment.js";
 
@@ -7,17 +7,17 @@ loadEnvironment("http");
 const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? "8787");
 
-const manager = new SessionManager();
-const server = startHttpServer(manager, host, port);
+const conversation = new ConversationService();
+const server = startHttpServer(conversation, host, port);
 
 process.on("SIGINT", () => {
-  manager.stopAll();
+  conversation.stopAll();
   server.stop();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
-  manager.stopAll();
+  conversation.stopAll();
   server.stop();
   process.exit(0);
 });

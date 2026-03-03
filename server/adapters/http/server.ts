@@ -1,4 +1,4 @@
-import type { SessionManager } from "../../core/session_manager.js";
+import type { ConversationService } from "../../core/conversation_service.js";
 import { handleApprovalDecision, handleListApprovals } from "./routes/approvals.js";
 import { handleGetAccountRateLimits } from "./routes/account.js";
 import { handleEventsSse } from "./routes/events.js";
@@ -48,7 +48,7 @@ export type BridgeServer = {
   stop(): void;
 };
 
-export function startHttpServer(manager: SessionManager, host: string, port: number): BridgeServer {
+export function startHttpServer(conversation: ConversationService, host: string, port: number): BridgeServer {
   const runtime = (globalThis as { Bun?: BunRuntime }).Bun;
   if (!runtime) {
     throw new Error("Bun runtime is required. Start this server with Bun.");
@@ -69,110 +69,110 @@ export function startHttpServer(manager: SessionManager, host: string, port: num
       }
 
       if (method === "POST" && url.pathname === "/api/threads") {
-        return handleCreateThread(request, manager);
+        return handleCreateThread(request, conversation);
       }
 
       if (method === "GET" && url.pathname === "/api/account/rate-limits") {
-        return handleGetAccountRateLimits(manager);
+        return handleGetAccountRateLimits(conversation);
       }
 
       if (method === "GET" && url.pathname === "/api/skills") {
-        return handleListSkills(request, manager);
+        return handleListSkills(request, conversation);
       }
 
       if (method === "GET" && url.pathname === "/api/skills/remote") {
-        return handleListRemoteSkills(request, manager);
+        return handleListRemoteSkills(request, conversation);
       }
 
       if (method === "POST" && url.pathname === "/api/skills/remote/export") {
-        return handleExportRemoteSkill(request, manager);
+        return handleExportRemoteSkill(request, conversation);
       }
 
       if (method === "POST" && url.pathname === "/api/skills/config") {
-        return handleWriteSkillConfig(request, manager);
+        return handleWriteSkillConfig(request, conversation);
       }
 
       if (method === "GET" && url.pathname === "/api/threads") {
-        return handleListStoredThreads(request, manager);
+        return handleListStoredThreads(request, conversation);
       }
 
       if (method === "GET" && url.pathname === "/api/threads/loaded") {
-        return handleListLoadedThreads(request, manager);
+        return handleListLoadedThreads(request, conversation);
       }
 
       const threadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)$/);
       if (method === "GET" && threadMatch) {
-        return handleGetThread(manager, threadMatch[1]);
+        return handleGetThread(conversation, threadMatch[1]);
       }
 
       const threadReadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/read$/);
       if (method === "GET" && threadReadMatch) {
-        return handleReadThread(request, manager, threadReadMatch[1]);
+        return handleReadThread(request, conversation, threadReadMatch[1]);
       }
 
       const threadContextMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/context$/);
       if (method === "GET" && threadContextMatch) {
-        return handleGetThreadContext(manager, threadContextMatch[1]);
+        return handleGetThreadContext(conversation, threadContextMatch[1]);
       }
 
       const threadResumeMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/resume$/);
       if (method === "POST" && threadResumeMatch) {
-        return handleResumeThread(request, manager, threadResumeMatch[1]);
+        return handleResumeThread(request, conversation, threadResumeMatch[1]);
       }
 
       const threadForkMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/fork$/);
       if (method === "POST" && threadForkMatch) {
-        return handleForkThread(request, manager, threadForkMatch[1]);
+        return handleForkThread(request, conversation, threadForkMatch[1]);
       }
 
       const threadNameMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/name$/);
       if (method === "POST" && threadNameMatch) {
-        return handleSetThreadName(request, manager, threadNameMatch[1]);
+        return handleSetThreadName(request, conversation, threadNameMatch[1]);
       }
 
       const threadArchiveMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/archive$/);
       if (method === "POST" && threadArchiveMatch) {
-        return handleArchiveThread(manager, threadArchiveMatch[1]);
+        return handleArchiveThread(conversation, threadArchiveMatch[1]);
       }
 
       const threadUnarchiveMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/unarchive$/);
       if (method === "POST" && threadUnarchiveMatch) {
-        return handleUnarchiveThread(manager, threadUnarchiveMatch[1]);
+        return handleUnarchiveThread(conversation, threadUnarchiveMatch[1]);
       }
 
       const threadCompactMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/compact$/);
       if (method === "POST" && threadCompactMatch) {
-        return handleCompactThread(manager, threadCompactMatch[1]);
+        return handleCompactThread(conversation, threadCompactMatch[1]);
       }
 
       const threadRollbackMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/rollback$/);
       if (method === "POST" && threadRollbackMatch) {
-        return handleRollbackThread(request, manager, threadRollbackMatch[1]);
+        return handleRollbackThread(request, conversation, threadRollbackMatch[1]);
       }
 
       const threadTurnsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns$/);
       if (method === "POST" && threadTurnsMatch) {
-        return handleSubmitTurn(request, manager, threadTurnsMatch[1]);
+        return handleSubmitTurn(request, conversation, threadTurnsMatch[1]);
       }
 
       const interruptMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns\/interrupt$/);
       if (method === "POST" && interruptMatch) {
-        return handleInterruptTurn(request, manager, interruptMatch[1]);
+        return handleInterruptTurn(request, conversation, interruptMatch[1]);
       }
 
       const eventsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/events$/);
       if (method === "GET" && eventsMatch) {
-        return handleEventsSse(request, manager, eventsMatch[1], request.headers.get("last-event-id") ?? undefined);
+        return handleEventsSse(request, conversation, eventsMatch[1], request.headers.get("last-event-id") ?? undefined);
       }
 
       const approvalsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/approvals$/);
       if (method === "GET" && approvalsMatch) {
-        return handleListApprovals(manager, approvalsMatch[1]);
+        return handleListApprovals(conversation, approvalsMatch[1]);
       }
 
       const approvalDecisionMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/approvals\/([^/]+)\/decision$/);
       if (method === "POST" && approvalDecisionMatch) {
-        return handleApprovalDecision(request, manager, approvalDecisionMatch[1], approvalDecisionMatch[2]);
+        return handleApprovalDecision(request, conversation, approvalDecisionMatch[1], approvalDecisionMatch[2]);
       }
 
       if (url.pathname.startsWith("/api/tools")) {

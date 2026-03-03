@@ -16,8 +16,7 @@ import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.
 import type { BridgeEvent } from "../../../shared/protocol/events.js";
 import type { ApprovalPolicy } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
-import { ConversationRoutingService } from "../../core/conversation_routing_service.js";
-import { SessionManager } from "../../core/session_manager.js";
+import { ConversationService } from "../../core/conversation_service.js";
 import { handleMessage } from "./commands.js";
 import { handleInteraction } from "./interactions.js";
 import {
@@ -132,15 +131,14 @@ export async function startDiscordBot(): Promise<void> {
 
   const approvalPolicy = (process.env.DISCORD_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
 
-  const manager = new SessionManager();
-  const routing = new ConversationRoutingService(manager, {
-    autoCreateIfMissing: true,
-    defaultApprovalPolicy: approvalPolicy,
-    exclusiveThreadBinding: true,
+  const conversation = new ConversationService({
+    routing: {
+      autoCreateIfMissing: true,
+      defaultApprovalPolicy: approvalPolicy,
+      exclusiveThreadBinding: true,
+    },
   });
 
-  const threadByChannel = new Map<string, string>();
-  const unsubscribeByChannel = new Map<string, () => void>();
   const streamByChannel = new Map<string, StreamState>();
 
   const client = new Client({
@@ -279,46 +277,39 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   const bindChannelToThread = async (channelId: string, threadId: string): Promise<void> => {
-    const resolvedThreadId = await routing.setDefaultThread("discord", channelId, threadId);
-    threadByChannel.set(channelId, resolvedThreadId);
-
-    const unsubscribe = manager.subscribeToThreadEvents(
-      resolvedThreadId,
+    await conversation.bindSurfaceToThread("discord", channelId, threadId);
+    conversation.subscribeSurfaceEvents(
+      "discord",
+      channelId,
       (event) => handleThreadEvent(channelId, event),
       { replay: false },
     );
-
-    const previous = unsubscribeByChannel.get(channelId);
-    if (previous) previous();
-    unsubscribeByChannel.set(channelId, unsubscribe);
   };
 
   const clearChannelThread = (channelId: string): void => {
-    threadByChannel.delete(channelId);
-    routing.clearDefaultThread("discord", channelId);
-    const unsubscribe = unsubscribeByChannel.get(channelId);
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribeByChannel.delete(channelId);
-    }
+    conversation.clearSurfaceBinding("discord", channelId);
+    conversation.unsubscribeSurfaceEvents("discord", channelId);
   };
 
   const createAndBindChannelThread = async (channelId: string): Promise<string> => {
-    const created = await manager.createThread({ approvalPolicy });
-    await bindChannelToThread(channelId, created.threadId);
+    const created = await conversation.createSurfaceThread("discord", channelId, { approvalPolicy });
+    conversation.subscribeSurfaceEvents(
+      "discord",
+      channelId,
+      (event) => handleThreadEvent(channelId, event),
+      { replay: false },
+    );
     return created.threadId;
   };
 
   const ensureChannelThread = async (channelId: string): Promise<string> => {
-    const route = await routing.resolveRoute({
+    const route = await conversation.resolveSurfaceThread({
       adapter: "discord",
       surfaceId: channelId,
       autoCreateIfMissing: true,
       approvalPolicyHint: approvalPolicy,
     });
-    if (threadByChannel.get(channelId) !== route.threadId) {
-      await bindChannelToThread(channelId, route.threadId);
-    }
+    await bindChannelToThread(channelId, route.threadId);
     return route.threadId;
   };
 
@@ -346,8 +337,8 @@ export async function startDiscordBot(): Promise<void> {
 
     try {
       const result = await handleMessage(message, {
-        manager,
-        getActiveThreadId: (channelId) => routing.getDefaultThread("discord", channelId),
+        conversation,
+        getActiveThreadId: (channelId) => conversation.getSurfaceThread("discord", channelId),
         ensureChannelThread,
         createAndBindChannelThread,
         bindChannelToThread,
@@ -356,7 +347,7 @@ export async function startDiscordBot(): Promise<void> {
 
       if (result.handled || !result.threadId || !result.input) return;
 
-      await manager.submitTurn(result.threadId, {
+      await conversation.submitTurn(result.threadId, {
         input: result.input,
         approvalPolicy,
       });
@@ -367,16 +358,13 @@ export async function startDiscordBot(): Promise<void> {
 
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isButton()) return;
-    await handleInteraction(interaction, manager);
+    await handleInteraction(interaction, conversation);
   });
 
   await client.login(token);
 
   const shutdown = async (): Promise<void> => {
-    for (const unsubscribe of unsubscribeByChannel.values()) {
-      unsubscribe();
-    }
-    manager.stopAll();
+    conversation.stopAll();
     await client.destroy();
   };
 

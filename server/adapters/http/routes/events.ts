@@ -1,9 +1,9 @@
-import type { SessionManager } from "../../../core/session_manager.js";
+import type { ConversationService } from "../../../core/conversation_service.js";
 import { respondError } from "./utils.js";
 
 export function handleEventsSse(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
   lastEventId?: string,
 ): Response {

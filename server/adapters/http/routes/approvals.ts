@@ -1,8 +1,8 @@
 import { validateApprovalDecisionRequest } from "../../../../shared/protocol/validation.js";
-import type { SessionManager } from "../../../core/session_manager.js";
+import type { ConversationService } from "../../../core/conversation_service.js";
 import { parseJsonBody, respondError, respondJson } from "./utils.js";
 
-export function handleListApprovals(manager: SessionManager, threadId: string): Response {
+export function handleListApprovals(manager: ConversationService, threadId: string): Response {
   try {
     return respondJson(200, { approvals: manager.listApprovals(threadId) });
   } catch (error) {
@@ -12,7 +12,7 @@ export function handleListApprovals(manager: SessionManager, threadId: string): 
 
 export async function handleApprovalDecision(
   request: Request,
-  manager: SessionManager,
+  manager: ConversationService,
   threadId: string,
   approvalId: string,
 ): Promise<Response> {

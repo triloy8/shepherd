@@ -4,7 +4,7 @@ import {
   validateSkillsRemoteExportRequest,
   validateSkillsRemoteListRequest,
 } from "../../../../shared/protocol/validation.js";
-import type { SessionManager } from "../../../core/session_manager.js";
+import type { ConversationService } from "../../../core/conversation_service.js";
 import { parseJsonBody, respondError, respondJson } from "./utils.js";
 
 function mapRemoteSkillsError(error: unknown): { status: number; message: string } {
@@ -36,7 +36,7 @@ function parseQuery(url: URL): Record<string, unknown> {
   return result;
 }
 
-export async function handleListSkills(request: Request, manager: SessionManager): Promise<Response> {
+export async function handleListSkills(request: Request, manager: ConversationService): Promise<Response> {
   try {
     const payload = validateSkillsListRequest(parseQuery(new URL(request.url)));
     const result = await manager.listSkills(payload);
@@ -46,7 +46,7 @@ export async function handleListSkills(request: Request, manager: SessionManager
   }
 }
 
-export async function handleListRemoteSkills(request: Request, manager: SessionManager): Promise<Response> {
+export async function handleListRemoteSkills(request: Request, manager: ConversationService): Promise<Response> {
   try {
     const payload = validateSkillsRemoteListRequest(parseQuery(new URL(request.url)));
     const result = await manager.listRemoteSkills(payload);
@@ -57,7 +57,7 @@ export async function handleListRemoteSkills(request: Request, manager: SessionM
   }
 }
 
-export async function handleExportRemoteSkill(request: Request, manager: SessionManager): Promise<Response> {
+export async function handleExportRemoteSkill(request: Request, manager: ConversationService): Promise<Response> {
   try {
     const payload = validateSkillsRemoteExportRequest(await parseJsonBody(request));
     const result = await manager.exportRemoteSkill(payload);
@@ -68,7 +68,7 @@ export async function handleExportRemoteSkill(request: Request, manager: Session
   }
 }
 
-export async function handleWriteSkillConfig(request: Request, manager: SessionManager): Promise<Response> {
+export async function handleWriteSkillConfig(request: Request, manager: ConversationService): Promise<Response> {
   try {
     const payload = validateSkillsConfigWriteRequest(await parseJsonBody(request));
     const result = await manager.writeSkillConfig(payload);

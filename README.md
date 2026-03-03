@@ -26,6 +26,7 @@ This repository has been refactored into a clean architecture split:
 1. Set env vars:
    - `DISCORD_BOT_TOKEN` (required)
    - `DISCORD_APPROVAL_POLICY` (optional, default `on-request`)
+   - `DISCORD_SANDBOX` (optional: `read-only` | `workspace-write` | `danger-full-access`)
 2. Run:
    - `bun run dev:discord` (Bun watch runtime)
    - or `bun run start:discord`
@@ -69,6 +70,7 @@ Environment variables:
 - `HOST` (default `127.0.0.1`)
 - `PORT` (default `8787`)
 - `CODEX_MODEL` (default `gpt-5.3-codex`)
+- `CODEX_SANDBOX` (optional: `read-only` | `workspace-write` | `danger-full-access`; used by HTTP thread creation when request omits sandbox, and as Discord fallback)
 
 Runtime env files are loaded from `envs/`:
 

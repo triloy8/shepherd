@@ -1,6 +1,7 @@
 import type {
   ApprovalPolicy,
   ResumeThreadRequest,
+  SandboxMode,
 } from "../../shared/protocol/requests.js";
 import type { SessionManager } from "./session_manager.js";
 
@@ -13,6 +14,7 @@ type SurfaceState = {
   attachedThreadIds: Set<string>;
   autoCreateIfMissing: boolean;
   defaultApprovalPolicy: ApprovalPolicy;
+  defaultSandbox?: SandboxMode;
   exclusiveThreadBinding: boolean;
 };
 
@@ -22,6 +24,7 @@ export type ResolveRouteInput = {
   explicitThreadId?: string;
   autoCreateIfMissing?: boolean;
   approvalPolicyHint?: ApprovalPolicy;
+  sandboxHint?: SandboxMode;
 };
 
 export type ResolveRouteResult = {
@@ -34,6 +37,7 @@ export type ResolveRouteResult = {
 export type ConversationRoutingServiceOptions = {
   autoCreateIfMissing?: boolean;
   defaultApprovalPolicy?: ApprovalPolicy;
+  defaultSandbox?: SandboxMode;
   exclusiveThreadBinding?: boolean;
 };
 
@@ -42,6 +46,7 @@ export class ConversationRoutingService {
   private readonly surfaceByThread = new Map<string, SurfaceKey>();
   private readonly autoCreateIfMissing: boolean;
   private readonly defaultApprovalPolicy: ApprovalPolicy;
+  private readonly defaultSandbox?: SandboxMode;
   private readonly exclusiveThreadBinding: boolean;
 
   constructor(
@@ -50,6 +55,7 @@ export class ConversationRoutingService {
   ) {
     this.autoCreateIfMissing = options.autoCreateIfMissing ?? true;
     this.defaultApprovalPolicy = options.defaultApprovalPolicy ?? "on-request";
+    this.defaultSandbox = options.defaultSandbox;
     this.exclusiveThreadBinding = options.exclusiveThreadBinding ?? false;
   }
 
@@ -109,6 +115,7 @@ export class ConversationRoutingService {
 
     const created = await this.manager.createThread({
       approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
+      sandbox: input.sandboxHint ?? surface.defaultSandbox,
     });
     await this.setDefaultThread(input.adapter, input.surfaceId, created.threadId);
     return {
@@ -131,6 +138,7 @@ export class ConversationRoutingService {
       attachedThreadIds: new Set<string>(),
       autoCreateIfMissing: this.autoCreateIfMissing,
       defaultApprovalPolicy: this.defaultApprovalPolicy,
+      defaultSandbox: this.defaultSandbox,
       exclusiveThreadBinding: this.exclusiveThreadBinding,
     };
     this.surfaces.set(key, created);

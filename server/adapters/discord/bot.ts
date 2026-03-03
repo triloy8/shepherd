@@ -14,7 +14,7 @@ import {
 
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../../../shared/protocol/events.js";
-import type { ApprovalPolicy } from "../../../shared/protocol/requests.js";
+import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
 import { handleMessage } from "./commands.js";
@@ -35,6 +35,15 @@ type StreamState = {
 };
 
 const DISCORD_STREAM_CHUNK_LIMIT = 1900;
+const SANDBOX_MODES: SandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
+
+function readSandboxMode(value: string | undefined): SandboxMode | undefined {
+  if (!value) return undefined;
+  if (SANDBOX_MODES.includes(value as SandboxMode)) {
+    return value as SandboxMode;
+  }
+  return undefined;
+}
 
 function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT): string[] {
   if (!text) return [];
@@ -130,11 +139,13 @@ export async function startDiscordBot(): Promise<void> {
   }
 
   const approvalPolicy = (process.env.DISCORD_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
+  const defaultSandbox = readSandboxMode(process.env.DISCORD_SANDBOX) ?? readSandboxMode(process.env.CODEX_SANDBOX);
 
   const conversation = new ConversationService({
     routing: {
       autoCreateIfMissing: true,
       defaultApprovalPolicy: approvalPolicy,
+      defaultSandbox,
       exclusiveThreadBinding: true,
     },
   });
@@ -292,7 +303,10 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   const createAndBindChannelThread = async (channelId: string): Promise<string> => {
-    const created = await conversation.createSurfaceThread("discord", channelId, { approvalPolicy });
+    const created = await conversation.createSurfaceThread("discord", channelId, {
+      approvalPolicy,
+      ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
+    });
     conversation.subscribeSurfaceEvents(
       "discord",
       channelId,
@@ -308,6 +322,7 @@ export async function startDiscordBot(): Promise<void> {
       surfaceId: channelId,
       autoCreateIfMissing: true,
       approvalPolicyHint: approvalPolicy,
+      ...(defaultSandbox ? { sandboxHint: defaultSandbox } : {}),
     });
     await bindChannelToThread(channelId, route.threadId);
     return route.threadId;

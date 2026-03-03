@@ -9,9 +9,20 @@ import {
   validateSetThreadNameRequest,
 } from "../../../../shared/protocol/validation.js";
 import type { ConversationService } from "../../../core/conversation_service.js";
+import type { SandboxMode } from "../../../../shared/protocol/requests.js";
 import { parseJsonBody, respondError, respondJson } from "./utils.js";
 
 const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
+const SANDBOX_MODES: SandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
+
+function readDefaultSandbox(): SandboxMode | undefined {
+  const raw = process.env.CODEX_SANDBOX;
+  if (!raw) return undefined;
+  if (SANDBOX_MODES.includes(raw as SandboxMode)) {
+    return raw as SandboxMode;
+  }
+  return undefined;
+}
 
 function parseQuery(url: URL): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -44,6 +55,7 @@ export async function handleCreateThread(
 ): Promise<Response> {
   try {
     const payload = validateCreateThreadRequest(await parseJsonBody(request));
+    payload.sandbox = payload.sandbox ?? readDefaultSandbox();
     const result = await conversation.createThread(payload);
     return respondJson(200, result);
   } catch (error) {

@@ -217,16 +217,35 @@ export class ConversationService {
     return this.manager.listSkills(request);
   }
 
+  listSkillsForThread(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
+    return this.manager.listSkillsForThread(threadId, request);
+  }
+
   listRemoteSkills(request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
     return this.manager.listRemoteSkills(request);
+  }
+
+  listRemoteSkillsForThread(threadId: string, request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
+    return this.manager.listRemoteSkillsForThread(threadId, request);
   }
 
   exportRemoteSkill(request: SkillsRemoteExportRequest): Promise<SkillsRemoteExportResponse> {
     return this.manager.exportRemoteSkill(request);
   }
 
+  exportRemoteSkillForThread(
+    threadId: string,
+    request: SkillsRemoteExportRequest,
+  ): Promise<SkillsRemoteExportResponse> {
+    return this.manager.exportRemoteSkillForThread(threadId, request);
+  }
+
   writeSkillConfig(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
     return this.manager.writeSkillConfig(request);
+  }
+
+  writeSkillConfigForThread(threadId: string, request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
+    return this.manager.writeSkillConfigForThread(threadId, request);
   }
 
   readThreadTokenUsage(threadId: string): Promise<ReadThreadTokenUsageResponse> {

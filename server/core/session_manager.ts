@@ -232,9 +232,22 @@ export class SessionManager {
     return session.listSkills(request);
   }
 
+  async listSkillsForThread(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
+    const managed = this.mustGet(threadId);
+    return managed.session.listSkills(request);
+  }
+
   async listRemoteSkills(request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
     const session = await this.getControlSession();
     return session.listRemoteSkills(request);
+  }
+
+  async listRemoteSkillsForThread(
+    threadId: string,
+    request: SkillsRemoteListRequest,
+  ): Promise<SkillsRemoteListResponse> {
+    const managed = this.mustGet(threadId);
+    return managed.session.listRemoteSkills(request);
   }
 
   async exportRemoteSkill(request: SkillsRemoteExportRequest): Promise<SkillsRemoteExportResponse> {
@@ -242,9 +255,25 @@ export class SessionManager {
     return session.exportRemoteSkill(request);
   }
 
+  async exportRemoteSkillForThread(
+    threadId: string,
+    request: SkillsRemoteExportRequest,
+  ): Promise<SkillsRemoteExportResponse> {
+    const managed = this.mustGet(threadId);
+    return managed.session.exportRemoteSkill(request);
+  }
+
   async writeSkillConfig(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
     const session = await this.getControlSession();
     return session.writeSkillConfig(request);
+  }
+
+  async writeSkillConfigForThread(
+    threadId: string,
+    request: SkillsConfigWriteRequest,
+  ): Promise<SkillsConfigWriteResponse> {
+    const managed = this.mustGet(threadId);
+    return managed.session.writeSkillConfig(request);
   }
 
   async readThreadTokenUsage(threadId: string): Promise<ReadThreadTokenUsageResponse> {

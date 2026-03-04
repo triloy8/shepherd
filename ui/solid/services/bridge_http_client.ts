@@ -17,11 +17,11 @@ async function asJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function createThread(approvalPolicy: ApprovalPolicy): Promise<CreateThreadResponse> {
+export async function createThread(approvalPolicy: ApprovalPolicy, cwd: string): Promise<CreateThreadResponse> {
   const response = await fetch("/api/threads", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ approvalPolicy }),
+    body: JSON.stringify({ approvalPolicy, cwd }),
   });
   return asJson<CreateThreadResponse>(response);
 }

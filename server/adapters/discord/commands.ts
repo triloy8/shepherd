@@ -10,6 +10,7 @@ export type CommandContext = {
   conversation: ConversationService;
   getActiveThreadId: (channelId: string) => string | null;
   getChannelRepo: (channelId: string) => string | null;
+  getChannelSkillsCwd: (channelId: string) => Promise<string | null>;
   setChannelRepo: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   ensureChannelThread: (channelId: string) => Promise<string>;
   createAndBindChannelThread: (channelId: string) => Promise<string>;
@@ -392,6 +393,12 @@ export async function handleMessage(
   }
 
   if (command === "!skills") {
+    const skillsCwd = await context.getChannelSkillsCwd(channelId);
+    if (!skillsCwd) {
+      await message.reply("No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.");
+      return { handled: true, threadId: null, input: null };
+    }
+
     const mode = (args[0] ?? "").toLowerCase();
     if (mode === "remote") {
       const kv = parseKeyValueArgs(args.slice(1));
@@ -417,12 +424,18 @@ export async function handleMessage(
     }
 
     const forceReload = mode === "reload";
-    const listed = await context.conversation.listSkills({ forceReload });
+    const listed = await context.conversation.listSkills({ cwds: [skillsCwd], forceReload });
     await replyChunked(message, formatSkillsForDiscord(listed));
     return { handled: true, threadId: null, input: null };
   }
 
   if (command === "!skill") {
+    const skillsCwd = await context.getChannelSkillsCwd(channelId);
+    if (!skillsCwd) {
+      await message.reply("No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.");
+      return { handled: true, threadId: null, input: null };
+    }
+
     const sub = (args[0] ?? "").toLowerCase();
     if (sub === "export") {
       const hazelnutId = args[1]?.trim();

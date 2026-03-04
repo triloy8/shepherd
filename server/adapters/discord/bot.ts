@@ -380,6 +380,15 @@ export async function startDiscordBot(): Promise<void> {
     }
   };
 
+  const getChannelSkillsCwd = async (channelId: string): Promise<string | null> => {
+    const target = repoByChannel.get(channelId);
+    if (!target) return null;
+    if (target.kind === "local") {
+      return target.rootPath;
+    }
+    return ensureWorkspaceForSession(target.slug, "skills");
+  };
+
   const createSessionWorkspace = async (
     channelId: string,
   ): Promise<{ workspaceId: string; cwd: string }> => {
@@ -469,6 +478,7 @@ export async function startDiscordBot(): Promise<void> {
         conversation,
         getActiveThreadId: (channelId) => conversation.getSurfaceThread("discord", channelId),
         getChannelRepo: (channelId) => repoByChannel.get(channelId)?.display ?? null,
+        getChannelSkillsCwd,
         setChannelRepo: async (channelId, repoSlug) => {
           const localTarget = parseLocalWorkspaceRoot(repoSlug);
           if (localTarget) {

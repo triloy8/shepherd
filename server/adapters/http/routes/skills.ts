@@ -60,7 +60,7 @@ export async function handleListSkills(request: Request, conversation: Conversat
     const url = new URL(request.url);
     const threadId = readThreadIdFromQuery(url);
     const payload = validateSkillsListRequest(parseQuery(url));
-    const result = await conversation.listSkillsForThread(threadId, payload);
+    const result = await conversation.listSkills(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to list skills.");
@@ -72,7 +72,7 @@ export async function handleListRemoteSkills(request: Request, conversation: Con
     const url = new URL(request.url);
     const threadId = readThreadIdFromQuery(url);
     const payload = validateSkillsRemoteListRequest(parseQuery(url));
-    const result = await conversation.listRemoteSkillsForThread(threadId, payload);
+    const result = await conversation.listRemoteSkills(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     const mapped = mapRemoteSkillsError(error);
@@ -85,7 +85,7 @@ export async function handleExportRemoteSkill(request: Request, conversation: Co
     const body = await parseJsonBody(request);
     const threadId = readThreadIdFromBody(body);
     const payload = validateSkillsRemoteExportRequest(body);
-    const result = await conversation.exportRemoteSkillForThread(threadId, payload);
+    const result = await conversation.exportRemoteSkill(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     const mapped = mapRemoteSkillsError(error);
@@ -98,7 +98,7 @@ export async function handleWriteSkillConfig(request: Request, conversation: Con
     const body = await parseJsonBody(request);
     const threadId = readThreadIdFromBody(body);
     const payload = validateSkillsConfigWriteRequest(body);
-    const result = await conversation.writeSkillConfigForThread(threadId, payload);
+    const result = await conversation.writeSkillConfig(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to update skill config.");

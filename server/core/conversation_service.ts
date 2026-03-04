@@ -213,23 +213,23 @@ export class ConversationService {
     return this.manager.readAccountRateLimits();
   }
 
-  listSkillsForThread(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
-    return this.manager.listSkillsForThread(threadId, request);
+  listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
+    return this.manager.listSkills(threadId, request);
   }
 
-  listRemoteSkillsForThread(threadId: string, request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
-    return this.manager.listRemoteSkillsForThread(threadId, request);
+  listRemoteSkills(threadId: string, request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
+    return this.manager.listRemoteSkills(threadId, request);
   }
 
-  exportRemoteSkillForThread(
+  exportRemoteSkill(
     threadId: string,
     request: SkillsRemoteExportRequest,
   ): Promise<SkillsRemoteExportResponse> {
-    return this.manager.exportRemoteSkillForThread(threadId, request);
+    return this.manager.exportRemoteSkill(threadId, request);
   }
 
-  writeSkillConfigForThread(threadId: string, request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
-    return this.manager.writeSkillConfigForThread(threadId, request);
+  writeSkillConfig(threadId: string, request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
+    return this.manager.writeSkillConfig(threadId, request);
   }
 
   readThreadTokenUsage(threadId: string): Promise<ReadThreadTokenUsageResponse> {

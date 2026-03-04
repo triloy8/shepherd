@@ -227,12 +227,12 @@ export class SessionManager {
     };
   }
 
-  async listSkillsForThread(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
+  async listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
     const managed = this.mustGet(threadId);
     return managed.session.listSkills(request);
   }
 
-  async listRemoteSkillsForThread(
+  async listRemoteSkills(
     threadId: string,
     request: SkillsRemoteListRequest,
   ): Promise<SkillsRemoteListResponse> {
@@ -240,7 +240,7 @@ export class SessionManager {
     return managed.session.listRemoteSkills(request);
   }
 
-  async exportRemoteSkillForThread(
+  async exportRemoteSkill(
     threadId: string,
     request: SkillsRemoteExportRequest,
   ): Promise<SkillsRemoteExportResponse> {
@@ -248,7 +248,7 @@ export class SessionManager {
     return managed.session.exportRemoteSkill(request);
   }
 
-  async writeSkillConfigForThread(
+  async writeSkillConfig(
     threadId: string,
     request: SkillsConfigWriteRequest,
   ): Promise<SkillsConfigWriteResponse> {

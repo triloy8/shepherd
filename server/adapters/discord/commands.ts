@@ -405,7 +405,7 @@ export async function handleMessage(
       const hazelnutScope = kv.scope;
       const productSurface = kv.surface;
       try {
-        const remote = await context.conversation.listRemoteSkillsForThread(activeThreadId, {
+        const remote = await context.conversation.listRemoteSkills(activeThreadId, {
           enabled,
           hazelnutScope: hazelnutScope as
             | "example"
@@ -423,7 +423,7 @@ export async function handleMessage(
     }
 
     const forceReload = mode === "reload";
-    const listed = await context.conversation.listSkillsForThread(activeThreadId, { forceReload });
+    const listed = await context.conversation.listSkills(activeThreadId, { forceReload });
     await replyChunked(message, formatSkillsForDiscord(listed));
     return { handled: true, threadId: null, input: null };
   }
@@ -443,7 +443,7 @@ export async function handleMessage(
         return { handled: true, threadId: null, input: null };
       }
       try {
-        const exported = await context.conversation.exportRemoteSkillForThread(activeThreadId, { hazelnutId });
+        const exported = await context.conversation.exportRemoteSkill(activeThreadId, { hazelnutId });
         await message.reply(`Exported remote skill ${exported.id} -> ${exported.path}`);
       } catch (error) {
         await message.reply(mapRemoteSkillsError(error));
@@ -458,7 +458,7 @@ export async function handleMessage(
         return { handled: true, threadId: null, input: null };
       }
       const enabled = sub === "enable";
-      const result = await context.conversation.writeSkillConfigForThread(activeThreadId, { path, enabled });
+      const result = await context.conversation.writeSkillConfig(activeThreadId, { path, enabled });
       await message.reply(
         `${enabled ? "Enabled" : "Disabled"} skill at ${path} (effectiveEnabled=${result.effectiveEnabled})`,
       );

@@ -41,7 +41,7 @@ type StreamState = {
 
 type ChannelWorkspaceTarget =
   | { kind: "github"; slug: string; display: string }
-  | { kind: "local"; rootPath: string; display: string };
+  | { kind: "local"; rootPath: string; display: string; appendWorkspaceId: boolean };
 
 const execFileAsync = promisify(execFile);
 
@@ -145,18 +145,22 @@ function parseRepoSlug(value: string): string | null {
   return trimmed;
 }
 
-function parseLocalWorkspaceRoot(value: string): { rootPath: string; display: string } | null {
+function parseLocalWorkspaceRoot(
+  value: string,
+): { rootPath: string; display: string; appendWorkspaceId: boolean } | null {
   const trimmed = value.trim();
   if (trimmed === "~") {
     return {
       rootPath: path.join(homedir(), ".agent-workspaces", "local"),
       display: "~",
+      appendWorkspaceId: true,
     };
   }
   if (trimmed.startsWith("~/")) {
     return {
       rootPath: path.join(homedir(), trimmed.slice(2)),
       display: trimmed,
+      appendWorkspaceId: false,
     };
   }
   return null;
@@ -387,7 +391,9 @@ export async function startDiscordBot(): Promise<void> {
     const cwd =
       target.kind === "github"
         ? await ensureWorkspaceForSession(target.slug, workspaceId)
-        : path.join(target.rootPath, workspaceId);
+        : target.appendWorkspaceId
+          ? path.join(target.rootPath, workspaceId)
+          : target.rootPath;
     if (target.kind === "local") {
       await fs.mkdir(cwd, { recursive: true });
     }
@@ -470,6 +476,7 @@ export async function startDiscordBot(): Promise<void> {
               kind: "local",
               rootPath: localTarget.rootPath,
               display: localTarget.display,
+              appendWorkspaceId: localTarget.appendWorkspaceId,
             });
             return { repoSlug: localTarget.display };
           }

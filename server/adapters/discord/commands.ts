@@ -417,23 +417,7 @@ export async function handleMessage(
     }
 
     const forceReload = mode === "reload";
-    let cwds: string[] | undefined;
-    const activeThreadId = context.getActiveThreadId(channelId);
-    if (activeThreadId) {
-      try {
-        const thread = await context.conversation.readThread(activeThreadId, { includeTurns: false });
-        const cwd = typeof thread.thread.cwd === "string" ? thread.thread.cwd.trim() : "";
-        if (cwd) {
-          cwds = [cwd];
-        }
-      } catch {
-        // Fall back to codex defaults if thread metadata is unavailable.
-      }
-    }
-    const listed = await context.conversation.listSkills({
-      forceReload,
-      ...(cwds ? { cwds } : {}),
-    });
+    const listed = await context.conversation.listSkills({ forceReload });
     await replyChunked(message, formatSkillsForDiscord(listed));
     return { handled: true, threadId: null, input: null };
   }

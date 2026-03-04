@@ -106,6 +106,7 @@ export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
   private approvals = new ApprovalsStore();
   private tokenUsageByThread = new Map<string, ThreadTokenUsage>();
+  private controlSession: CodexSession | null = null;
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
     const approvalPolicy = request.approvalPolicy ?? "on-request";
@@ -147,9 +148,8 @@ export class SessionManager {
   }
 
   async listStoredThreads(request: ListStoredThreadsRequest): Promise<ListStoredThreadsResponse> {
-    const raw = await this.runWithTemporarySession(
-      async (session) => (await session.listStoredThreads(request)) as ThreadListRawResponse,
-    );
+    const session = await this.getControlSession();
+    const raw = (await session.listStoredThreads(request)) as ThreadListRawResponse;
     const data = Array.isArray(raw.data) ? raw.data : [];
     return {
       threads: data.map(extractThreadSummary).filter((entry) => entry.threadId !== "unknown"),
@@ -158,7 +158,8 @@ export class SessionManager {
   }
 
   async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<ListLoadedThreadsResponse> {
-    const raw = await this.runWithTemporarySession(async (session) => asRecord(await session.listLoadedThreads(request)));
+    const session = await this.getControlSession();
+    const raw = asRecord(await session.listLoadedThreads(request));
     const data = Array.isArray(raw.data) ? raw.data : [];
     return {
       threadIds: data.map((entry) => asString(entry)).filter((entry): entry is string => Boolean(entry)),
@@ -177,9 +178,8 @@ export class SessionManager {
   }
 
   async readThread(threadId: string, request: ReadThreadRequest): Promise<ReadThreadResponse> {
-    const raw = await this.runWithThreadSession(threadId, async (session) =>
-      asRecord(await session.readThread(threadId, request.includeTurns ?? false)),
-    );
+    const session = await this.getSessionForThread(threadId);
+    const raw = asRecord(await session.readThread(threadId, request.includeTurns ?? false));
     if (!raw.thread) {
       throw new Error(`Failed to read thread ${threadId}.`);
     }
@@ -187,37 +187,32 @@ export class SessionManager {
   }
 
   async setThreadName(threadId: string, request: SetThreadNameRequest): Promise<{ ok: true }> {
-    await this.runWithThreadSession(threadId, async (session) => {
-      await session.setThreadName(threadId, request.name);
-    });
+    const session = await this.getSessionForThread(threadId);
+    await session.setThreadName(threadId, request.name);
     return { ok: true };
   }
 
   async archiveThread(threadId: string): Promise<ArchiveThreadResponse> {
-    await this.runWithThreadSession(threadId, async (session) => {
-      await session.archiveThread(threadId);
-    });
+    const session = await this.getSessionForThread(threadId);
+    await session.archiveThread(threadId);
     return { ok: true };
   }
 
   async unarchiveThread(threadId: string): Promise<UnarchiveThreadResponse> {
-    await this.runWithThreadSession(threadId, async (session) => {
-      await session.unarchiveThread(threadId);
-    });
+    const session = await this.getSessionForThread(threadId);
+    await session.unarchiveThread(threadId);
     return { ok: true };
   }
 
   async compactThread(threadId: string): Promise<CompactThreadResponse> {
-    await this.runWithThreadSession(threadId, async (session) => {
-      await session.compactThread(threadId);
-    });
+    const session = await this.getSessionForThread(threadId);
+    await session.compactThread(threadId);
     return { ok: true };
   }
 
   async rollbackThread(threadId: string, request: RollbackThreadRequest): Promise<RollbackThreadResponse> {
-    const raw = await this.runWithThreadSession(threadId, async (session) =>
-      asRecord(await session.rollbackThread(threadId, request.numTurns)),
-    );
+    const session = await this.getSessionForThread(threadId);
+    const raw = asRecord(await session.rollbackThread(threadId, request.numTurns));
     if (!raw.thread) {
       throw new Error("Rollback did not return updated thread state.");
     }
@@ -225,26 +220,31 @@ export class SessionManager {
   }
 
   async readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
-    const raw = await this.runWithTemporarySession(async (session) => asRecord(await session.readAccountRateLimits()));
+    const session = await this.getControlSession();
+    const raw = asRecord(await session.readAccountRateLimits());
     return {
       rateLimits: raw.rateLimits ?? raw,
     };
   }
 
   async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
-    return this.runWithTemporarySession((session) => session.listSkills(request));
+    const session = await this.getControlSession();
+    return session.listSkills(request);
   }
 
   async listRemoteSkills(request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
-    return this.runWithTemporarySession((session) => session.listRemoteSkills(request));
+    const session = await this.getControlSession();
+    return session.listRemoteSkills(request);
   }
 
   async exportRemoteSkill(request: SkillsRemoteExportRequest): Promise<SkillsRemoteExportResponse> {
-    return this.runWithTemporarySession((session) => session.exportRemoteSkill(request));
+    const session = await this.getControlSession();
+    return session.exportRemoteSkill(request);
   }
 
   async writeSkillConfig(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
-    return this.runWithTemporarySession((session) => session.writeSkillConfig(request));
+    const session = await this.getControlSession();
+    return session.writeSkillConfig(request);
   }
 
   async readThreadTokenUsage(threadId: string): Promise<ReadThreadTokenUsageResponse> {
@@ -334,6 +334,8 @@ export class SessionManager {
     }
     this.sessionsByThread.clear();
     this.tokenUsageByThread.clear();
+    this.controlSession?.stop();
+    this.controlSession = null;
   }
 
   private async createManagedSession(approvalPolicy: ApprovalPolicy): Promise<ManagedSession> {
@@ -363,22 +365,19 @@ export class SessionManager {
     });
   }
 
-  private async runWithTemporarySession<T>(fn: (session: CodexSession) => Promise<T>): Promise<T> {
-    const managed = await this.createManagedSession("on-request");
-    try {
-      await managed.session.initialize();
-      return await fn(managed.session);
-    } finally {
-      managed.session.stop();
-    }
+  private async getControlSession(): Promise<CodexSession> {
+    if (this.controlSession) return this.controlSession;
+    const session = new CodexSession("on-request");
+    this.attachSessionSubscriptions(session);
+    await session.initialize();
+    this.controlSession = session;
+    return session;
   }
 
-  private async runWithThreadSession<T>(threadId: string, fn: (session: CodexSession) => Promise<T>): Promise<T> {
+  private async getSessionForThread(threadId: string): Promise<CodexSession> {
     const loaded = this.sessionsByThread.get(threadId);
-    if (loaded) {
-      return fn(loaded.session);
-    }
-    return this.runWithTemporarySession(fn);
+    if (loaded) return loaded.session;
+    return this.getControlSession();
   }
 
   private mustGet(threadId: string): ManagedSession {

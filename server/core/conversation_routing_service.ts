@@ -25,6 +25,7 @@ export type ResolveRouteInput = {
   autoCreateIfMissing?: boolean;
   approvalPolicyHint?: ApprovalPolicy;
   sandboxHint?: SandboxMode;
+  cwdHint?: string;
 };
 
 export type ResolveRouteResult = {
@@ -69,9 +70,14 @@ export class ConversationRoutingService {
     return [...surface.attachedThreadIds];
   }
 
-  async setDefaultThread(adapter: string, surfaceId: string, threadId: string): Promise<string> {
+  async setDefaultThread(
+    adapter: string,
+    surfaceId: string,
+    threadId: string,
+    request?: ResumeThreadRequest,
+  ): Promise<string> {
     const surface = this.ensureSurface(adapter, surfaceId);
-    const canonicalThreadId = await this.ensureThreadAvailable(threadId, { approvalPolicy: surface.defaultApprovalPolicy });
+    const canonicalThreadId = await this.ensureThreadAvailable(threadId, request);
     this.enforceExclusiveBinding(surface, canonicalThreadId);
 
     const previousDefault = surface.defaultThreadId;
@@ -99,7 +105,11 @@ export class ConversationRoutingService {
     const candidate = input.explicitThreadId ?? surface.defaultThreadId;
 
     if (candidate) {
-      const resolved = await this.setDefaultThread(input.adapter, input.surfaceId, candidate);
+      const resolved = await this.setDefaultThread(input.adapter, input.surfaceId, candidate, {
+        approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
+        ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
+        ...(input.cwdHint ? { cwd: input.cwdHint } : {}),
+      });
       return {
         threadId: resolved,
         created: false,
@@ -116,8 +126,13 @@ export class ConversationRoutingService {
     const created = await this.manager.createThread({
       approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
       sandbox: input.sandboxHint ?? surface.defaultSandbox,
+      ...(input.cwdHint ? { cwd: input.cwdHint } : {}),
     });
-    await this.setDefaultThread(input.adapter, input.surfaceId, created.threadId);
+    await this.setDefaultThread(input.adapter, input.surfaceId, created.threadId, {
+      approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
+      ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
+      ...(input.cwdHint ? { cwd: input.cwdHint } : {}),
+    });
     return {
       threadId: created.threadId,
       created: true,
@@ -163,11 +178,14 @@ export class ConversationRoutingService {
     }
   }
 
-  private async ensureThreadAvailable(threadId: string, request: ResumeThreadRequest): Promise<string> {
+  private async ensureThreadAvailable(threadId: string, request?: ResumeThreadRequest): Promise<string> {
     try {
       this.manager.getThreadState(threadId);
       return threadId;
     } catch {
+      if (!request?.cwd) {
+        throw new Error(`Thread ${threadId} is not loaded. Resume it with an explicit cwd before binding.`);
+      }
       const resumed = await this.manager.resumeThread(threadId, request);
       return resumed.threadId;
     }

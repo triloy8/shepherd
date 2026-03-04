@@ -385,7 +385,7 @@ export async function handleMessage(
     const activeThreadId = context.getActiveThreadId(channelId);
     await message.reply(
       activeThreadId
-        ? `Repo set for this channel: ${configured.repoSlug}\nNote: active thread ${activeThreadId} keeps its current session/cwd; this repo applies to future !newthread/!fork/unloaded !thread resumes.`
+        ? `Repo set for this channel: ${configured.repoSlug}\nNote: active thread ${activeThreadId} keeps its current session/cwd; this repo applies to future !newthread/!fork.`
         : `Repo set for this channel: ${configured.repoSlug}`,
     );
     return { handled: true, threadId: null, input: null };

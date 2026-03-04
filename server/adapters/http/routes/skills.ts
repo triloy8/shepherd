@@ -36,10 +36,31 @@ function parseQuery(url: URL): Record<string, unknown> {
   return result;
 }
 
+function readThreadIdFromQuery(url: URL): string {
+  const threadId = url.searchParams.get("threadId")?.trim();
+  if (!threadId) {
+    throw new Error("Missing threadId query parameter.");
+  }
+  return threadId;
+}
+
+function readThreadIdFromBody(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid request payload.");
+  }
+  const threadId = (value as Record<string, unknown>).threadId;
+  if (typeof threadId !== "string" || !threadId.trim()) {
+    throw new Error("Missing threadId.");
+  }
+  return threadId.trim();
+}
+
 export async function handleListSkills(request: Request, conversation: ConversationService): Promise<Response> {
   try {
-    const payload = validateSkillsListRequest(parseQuery(new URL(request.url)));
-    const result = await conversation.listSkills(payload);
+    const url = new URL(request.url);
+    const threadId = readThreadIdFromQuery(url);
+    const payload = validateSkillsListRequest(parseQuery(url));
+    const result = await conversation.listSkills(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to list skills.");
@@ -48,8 +69,10 @@ export async function handleListSkills(request: Request, conversation: Conversat
 
 export async function handleListRemoteSkills(request: Request, conversation: ConversationService): Promise<Response> {
   try {
-    const payload = validateSkillsRemoteListRequest(parseQuery(new URL(request.url)));
-    const result = await conversation.listRemoteSkills(payload);
+    const url = new URL(request.url);
+    const threadId = readThreadIdFromQuery(url);
+    const payload = validateSkillsRemoteListRequest(parseQuery(url));
+    const result = await conversation.listRemoteSkills(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     const mapped = mapRemoteSkillsError(error);
@@ -59,8 +82,10 @@ export async function handleListRemoteSkills(request: Request, conversation: Con
 
 export async function handleExportRemoteSkill(request: Request, conversation: ConversationService): Promise<Response> {
   try {
-    const payload = validateSkillsRemoteExportRequest(await parseJsonBody(request));
-    const result = await conversation.exportRemoteSkill(payload);
+    const body = await parseJsonBody(request);
+    const threadId = readThreadIdFromBody(body);
+    const payload = validateSkillsRemoteExportRequest(body);
+    const result = await conversation.exportRemoteSkill(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     const mapped = mapRemoteSkillsError(error);
@@ -70,8 +95,10 @@ export async function handleExportRemoteSkill(request: Request, conversation: Co
 
 export async function handleWriteSkillConfig(request: Request, conversation: ConversationService): Promise<Response> {
   try {
-    const payload = validateSkillsConfigWriteRequest(await parseJsonBody(request));
-    const result = await conversation.writeSkillConfig(payload);
+    const body = await parseJsonBody(request);
+    const threadId = readThreadIdFromBody(body);
+    const payload = validateSkillsConfigWriteRequest(body);
+    const result = await conversation.writeSkillConfig(threadId, payload);
     return respondJson(200, result);
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to update skill config.");

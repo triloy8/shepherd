@@ -392,6 +392,12 @@ export async function handleMessage(
   }
 
   if (command === "!skills") {
+    const activeThreadId = context.getActiveThreadId(channelId);
+    if (!activeThreadId) {
+      await message.reply("No active thread in this channel. Use !newthread or !thread <id> first.");
+      return { handled: true, threadId: null, input: null };
+    }
+
     const mode = (args[0] ?? "").toLowerCase();
     if (mode === "remote") {
       const kv = parseKeyValueArgs(args.slice(1));
@@ -399,7 +405,7 @@ export async function handleMessage(
       const hazelnutScope = kv.scope;
       const productSurface = kv.surface;
       try {
-        const remote = await context.conversation.listRemoteSkills({
+        const remote = await context.conversation.listRemoteSkills(activeThreadId, {
           enabled,
           hazelnutScope: hazelnutScope as
             | "example"
@@ -417,12 +423,18 @@ export async function handleMessage(
     }
 
     const forceReload = mode === "reload";
-    const listed = await context.conversation.listSkills({ forceReload });
+    const listed = await context.conversation.listSkills(activeThreadId, { forceReload });
     await replyChunked(message, formatSkillsForDiscord(listed));
     return { handled: true, threadId: null, input: null };
   }
 
   if (command === "!skill") {
+    const activeThreadId = context.getActiveThreadId(channelId);
+    if (!activeThreadId) {
+      await message.reply("No active thread in this channel. Use !newthread or !thread <id> first.");
+      return { handled: true, threadId: null, input: null };
+    }
+
     const sub = (args[0] ?? "").toLowerCase();
     if (sub === "export") {
       const hazelnutId = args[1]?.trim();
@@ -431,7 +443,7 @@ export async function handleMessage(
         return { handled: true, threadId: null, input: null };
       }
       try {
-        const exported = await context.conversation.exportRemoteSkill({ hazelnutId });
+        const exported = await context.conversation.exportRemoteSkill(activeThreadId, { hazelnutId });
         await message.reply(`Exported remote skill ${exported.id} -> ${exported.path}`);
       } catch (error) {
         await message.reply(mapRemoteSkillsError(error));
@@ -446,7 +458,7 @@ export async function handleMessage(
         return { handled: true, threadId: null, input: null };
       }
       const enabled = sub === "enable";
-      const result = await context.conversation.writeSkillConfig({ path, enabled });
+      const result = await context.conversation.writeSkillConfig(activeThreadId, { path, enabled });
       await message.reply(
         `${enabled ? "Enabled" : "Disabled"} skill at ${path} (effectiveEnabled=${result.effectiveEnabled})`,
       );

@@ -320,6 +320,7 @@ export async function handleMessage(
       "- !unarchive <id>",
       "- !rollback <numTurns> [id]",
       "- !compact [id]",
+      "- !interrupt",
       "Any other message is sent as a Shepherd turn.",
     ].join("\n"));
     return { handled: true, threadId: null, input: null };
@@ -567,6 +568,21 @@ export async function handleMessage(
     }
     await context.conversation.compactThread(target);
     await message.reply(`Started compaction for thread: ${target}`);
+    return { handled: true, threadId: target, input: null };
+  }
+
+  if (command === "!interrupt") {
+    if (args.length > 0) {
+      await message.reply("Usage: !interrupt");
+      return { handled: true, threadId: null, input: null };
+    }
+    const target = context.getActiveThreadId(channelId);
+    if (!target) {
+      await message.reply("No active thread in this channel.");
+      return { handled: true, threadId: null, input: null };
+    }
+    await context.conversation.interruptTurn(target);
+    await message.reply(`Interrupt requested for thread: ${target}`);
     return { handled: true, threadId: target, input: null };
   }
 

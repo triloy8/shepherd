@@ -11,6 +11,7 @@ import type {
   ResumeThreadRequest,
   RollbackThreadRequest,
   SandboxMode,
+  SteerTurnRequest,
   SetThreadNameRequest,
   SkillsConfigWriteRequest,
   SkillsListRequest,
@@ -234,6 +235,19 @@ export function validateInterruptTurnRequest(value: unknown): InterruptTurnReque
     throw new Error("Invalid turn id.");
   }
   return { turnId: value.turnId as string | undefined };
+}
+
+export function validateSteerTurnRequest(value: unknown): SteerTurnRequest {
+  if (!isRecord(value) || typeof value.input !== "string" || !value.input.trim()) {
+    throw new Error("Invalid steer payload.");
+  }
+  if (value.turnId !== undefined && typeof value.turnId !== "string") {
+    throw new Error("Invalid turn id.");
+  }
+  return {
+    input: value.input.trim(),
+    turnId: value.turnId as string | undefined,
+  };
 }
 
 export function validateApprovalDecisionRequest(value: unknown): ApprovalDecisionApiRequest {

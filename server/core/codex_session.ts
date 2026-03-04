@@ -325,6 +325,23 @@ export class CodexSession {
     await this.sendRequest("turn/interrupt", { threadId, turnId: targetTurnId });
   }
 
+  async steerTurn(input: string, turnId?: string): Promise<string | null> {
+    const threadId = await this.ensureThread();
+    const targetTurnId = turnId ?? this.activeTurnId;
+    if (!targetTurnId) {
+      throw new Error("No active turn to steer.");
+    }
+
+    const result = await this.sendRequest("turn/steer", {
+      threadId,
+      expectedTurnId: targetTurnId,
+      input: [{ type: "text", text: input }],
+    });
+    const returnedTurnId = extractTurnId(result) ?? targetTurnId;
+    this.activeTurnId = returnedTurnId;
+    return returnedTurnId;
+  }
+
   async applyApprovalDecision(
     approvalId: string,
     decision: ApprovalDecisionRequest,

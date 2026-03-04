@@ -53,6 +53,16 @@ export interface InterruptTurnResponse {
   ok: true;
 }
 
+export interface SteerTurnRequest {
+  input: string;
+  turnId?: string;
+}
+
+export interface SteerTurnResponse {
+  ok: true;
+  turnId: string | null;
+}
+
 export interface ListThreadsResponse {
   threads: Array<{ threadId: string; sessionId: string; createdAt: string }>;
 }

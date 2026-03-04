@@ -24,7 +24,7 @@ Status legend:
 | `thread/unsubscribe` | Missing | Maybe Later | Useful for lifecycle cleanup/stream controls; not required for current correctness |
 | `turn/start` | Partial | Core | Uses text input path; no richer turn controls |
 | `turn/interrupt` | Implemented | Core | |
-| `turn/steer` | Missing | Maybe Later | Useful for live steering/agent control |
+| `turn/steer` | Implemented | Core | Exposed via HTTP `POST /api/threads/:id/turns/steer`; Discord mentions steer active turns |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
 | `model/list` | Missing | Maybe Later | Useful for diagnostics/config UI |
 | `skills/list` | Implemented | Core | Wrapped in core and exposed via HTTP `GET /api/skills` + Discord `!skills` |

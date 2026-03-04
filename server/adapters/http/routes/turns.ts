@@ -1,5 +1,6 @@
 import {
   validateInterruptTurnRequest,
+  validateSteerTurnRequest,
   validateSubmitTurnRequest,
 } from "../../../../shared/protocol/validation.js";
 import type { ConversationService } from "../../../core/conversation_service.js";
@@ -30,5 +31,19 @@ export async function handleInterruptTurn(
     return respondJson(200, { ok: true });
   } catch (error) {
     return respondError(400, error instanceof Error ? error.message : "Failed to interrupt turn.");
+  }
+}
+
+export async function handleSteerTurn(
+  request: Request,
+  conversation: ConversationService,
+  threadId: string,
+): Promise<Response> {
+  try {
+    const payload = validateSteerTurnRequest(await parseJsonBody(request));
+    const result = await conversation.steerTurn(threadId, payload);
+    return respondJson(200, result);
+  } catch (error) {
+    return respondError(400, error instanceof Error ? error.message : "Failed to steer turn.");
   }
 }

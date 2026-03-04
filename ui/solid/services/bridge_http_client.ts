@@ -5,6 +5,7 @@ import type {
   CreateThreadResponse,
   GetThreadStateResponse,
   ListThreadsResponse,
+  SteerTurnResponse,
   SubmitTurnResponse,
 } from "../../../shared/protocol/requests.js";
 
@@ -53,6 +54,15 @@ export async function interruptTurn(threadId: string, turnId?: string): Promise<
     body: JSON.stringify({ turnId }),
   });
   return asJson<{ ok: true }>(response);
+}
+
+export async function steerTurn(threadId: string, input: string, turnId?: string): Promise<SteerTurnResponse> {
+  const response = await fetch(`/api/threads/${threadId}/turns/steer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input, turnId }),
+  });
+  return asJson<SteerTurnResponse>(response);
 }
 
 export async function listApprovals(threadId: string): Promise<{ approvals: ApprovalRecord[] }> {

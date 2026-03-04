@@ -53,11 +53,13 @@ Bot commands:
 - `!unarchive <id>` unarchive a thread
 - `!rollback <numTurns> [id]` rollback thread history
 - `!compact [id]` compact thread context
+- `!interrupt` interrupt the active turn for this channel's current thread
 - any normal message sends a turn to Shepherd
 
 Guild message behavior:
 - Shepherd only processes guild channels/threads (DMs are ignored)
 - Non-command messages are processed only when the bot is mentioned (`@Shepherd`)
+- Mentioning the bot while a turn is active steers that in-flight turn instead of starting a new turn
 
 HTTP skills endpoints:
 - `GET /api/skills`

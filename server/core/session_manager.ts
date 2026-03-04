@@ -35,6 +35,8 @@ import type {
   SkillsRemoteExportResponse,
   SkillsRemoteListRequest,
   SkillsRemoteListResponse,
+  SteerTurnRequest,
+  SteerTurnResponse,
   SubmitTurnRequest,
   SubmitTurnResponse,
   ThreadRecord,
@@ -268,6 +270,12 @@ export class SessionManager {
   async interruptTurn(threadId: string, turnId?: string): Promise<void> {
     const managed = this.mustGet(threadId);
     await managed.session.interruptTurn(turnId);
+  }
+
+  async steerTurn(threadId: string, request: SteerTurnRequest): Promise<SteerTurnResponse> {
+    const managed = this.mustGet(threadId);
+    const turnId = await managed.session.steerTurn(request.input, request.turnId);
+    return { ok: true, turnId };
   }
 
   listApprovals(threadId: string): ApprovalRecord[] {

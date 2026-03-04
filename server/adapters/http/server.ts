@@ -25,7 +25,7 @@ import {
   handleUnarchiveThread,
 } from "./routes/threads.js";
 import { handleToolsNotImplemented } from "./routes/tools.js";
-import { handleInterruptTurn, handleSubmitTurn } from "./routes/turns.js";
+import { handleInterruptTurn, handleSteerTurn, handleSubmitTurn } from "./routes/turns.js";
 import { notFound, respondError } from "./routes/utils.js";
 import { serveStaticUi } from "./static_ui.js";
 
@@ -158,6 +158,11 @@ export function startHttpServer(conversation: ConversationService, host: string,
       const interruptMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns\/interrupt$/);
       if (method === "POST" && interruptMatch) {
         return handleInterruptTurn(request, conversation, interruptMatch[1]);
+      }
+
+      const steerMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns\/steer$/);
+      if (method === "POST" && steerMatch) {
+        return handleSteerTurn(request, conversation, steerMatch[1]);
       }
 
       const eventsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/events$/);

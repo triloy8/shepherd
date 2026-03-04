@@ -28,6 +28,8 @@ import type {
   SkillsRemoteExportResponse,
   SkillsRemoteListRequest,
   SkillsRemoteListResponse,
+  SteerTurnRequest,
+  SteerTurnResponse,
   SubmitTurnRequest,
   SubmitTurnResponse,
 } from "../../shared/protocol/requests.js";
@@ -245,6 +247,10 @@ export class ConversationService {
 
   interruptTurn(threadId: string, turnId?: string): Promise<void> {
     return this.manager.interruptTurn(threadId, turnId);
+  }
+
+  steerTurn(threadId: string, request: SteerTurnRequest): Promise<SteerTurnResponse> {
+    return this.manager.steerTurn(threadId, request);
   }
 
   listApprovals(threadId: string): ApprovalRecord[] {

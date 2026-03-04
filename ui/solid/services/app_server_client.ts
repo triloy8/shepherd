@@ -5,6 +5,7 @@ import type {
   FileChangeApprovalDecision,
   InterruptTurnResponse,
   ReviewApprovalDecision,
+  SteerTurnResponse,
   StartThreadResponse,
   StartTurnResponse,
 } from "../types/ui_types.js";
@@ -164,6 +165,19 @@ export async function interruptTurn(turnId: string | null): Promise<InterruptTur
     body: JSON.stringify({ turnId }),
   });
   return parseJson<InterruptTurnResponse>(response);
+}
+
+export async function steerTurn(input: string, turnId: string | null): Promise<SteerTurnResponse> {
+  if (!currentThreadId) {
+    throw new Error("No active thread.");
+  }
+
+  const response = await fetch(`/api/threads/${currentThreadId}/turns/steer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input, turnId }),
+  });
+  return parseJson<SteerTurnResponse>(response);
 }
 
 async function submitDecision(requestId: string, decision: string): Promise<{ ok: true }> {

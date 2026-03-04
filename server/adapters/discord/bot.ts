@@ -505,6 +505,17 @@ export async function startDiscordBot(): Promise<void> {
 
       if (result.handled || !result.threadId || !result.input) return;
 
+      if (!isCommand && isMentioned) {
+        const state = conversation.getThreadState(result.threadId);
+        if (state.activeTurnId) {
+          await conversation.steerTurn(result.threadId, {
+            input: result.input,
+            turnId: state.activeTurnId,
+          });
+          return;
+        }
+      }
+
       await conversation.submitTurn(result.threadId, {
         input: result.input,
         approvalPolicy,

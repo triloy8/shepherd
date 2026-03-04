@@ -66,6 +66,11 @@ export interface InterruptTurnResponse {
   ok: boolean;
 }
 
+export interface SteerTurnResponse {
+  ok: boolean;
+  turnId?: string;
+}
+
 export interface OutputSegment {
   id: string;
   kind: "text" | "subBlock";

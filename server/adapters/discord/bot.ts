@@ -1,5 +1,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { promises as fs } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import {
   ActionRowBuilder,
@@ -33,6 +38,12 @@ type StreamState = {
   flushing: boolean;
   pendingFlush: boolean;
 };
+
+type ChannelWorkspaceTarget =
+  | { kind: "github"; slug: string; display: string }
+  | { kind: "local"; rootPath: string; display: string };
+
+const execFileAsync = promisify(execFile);
 
 const DISCORD_STREAM_CHUNK_LIMIT = 1900;
 const SANDBOX_MODES: SandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
@@ -125,6 +136,50 @@ function isSendableChannel(channel: unknown): channel is TextBasedChannel & {
   return typeof record.send === "function";
 }
 
+function parseRepoSlug(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function parseLocalWorkspaceRoot(value: string): { rootPath: string; display: string } | null {
+  const trimmed = value.trim();
+  if (trimmed === "~") {
+    return {
+      rootPath: path.join(homedir(), ".agent-workspaces", "local"),
+      display: "~",
+    };
+  }
+  if (trimmed.startsWith("~/")) {
+    return {
+      rootPath: path.join(homedir(), trimmed.slice(2)),
+      display: trimmed,
+    };
+  }
+  return null;
+}
+
+function repoNameFromSlug(slug: string): string {
+  return slug.split("/")[1] ?? slug;
+}
+
+async function runGh(args: string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("gh", args, {
+      cwd: process.cwd(),
+      env: process.env,
+      maxBuffer: 1024 * 1024 * 10,
+    });
+    return stdout.trim();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`gh ${args.join(" ")} failed: ${message}`);
+  }
+}
+
 async function sendChannelMessage(client: Client, channelId: string, text: string): Promise<void> {
   const channel = await client.channels.fetch(channelId);
   if (!isSendableChannel(channel)) return;
@@ -151,6 +206,7 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   const streamByChannel = new Map<string, StreamState>();
+  const repoByChannel = new Map<string, ChannelWorkspaceTarget>();
 
   const client = new Client({
     intents: [
@@ -302,9 +358,47 @@ export async function startDiscordBot(): Promise<void> {
     conversation.unsubscribeSurfaceEvents("discord", channelId);
   };
 
+  const getChannelRepo = (channelId: string): string | null => {
+    return repoByChannel.get(channelId)?.display ?? null;
+  };
+
+  const ensureWorkspaceForSession = async (repoSlug: string, sessionId: string): Promise<string> => {
+    const repoName = repoNameFromSlug(repoSlug);
+    const workspacePath = path.join(homedir(), ".agent-workspaces", repoName, sessionId);
+    const marker = path.join(workspacePath, ".git");
+    try {
+      await fs.stat(marker);
+      return workspacePath;
+    } catch {
+      await fs.mkdir(path.dirname(workspacePath), { recursive: true });
+      await runGh(["repo", "clone", repoSlug, workspacePath]);
+      return workspacePath;
+    }
+  };
+
+  const createSessionWorkspace = async (
+    channelId: string,
+  ): Promise<{ workspaceId: string; cwd: string }> => {
+    const target = repoByChannel.get(channelId);
+    if (!target) {
+      throw new Error("No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.");
+    }
+    const workspaceId = randomUUID();
+    const cwd =
+      target.kind === "github"
+        ? await ensureWorkspaceForSession(target.slug, workspaceId)
+        : path.join(target.rootPath, workspaceId);
+    if (target.kind === "local") {
+      await fs.mkdir(cwd, { recursive: true });
+    }
+    return { workspaceId, cwd };
+  };
+
   const createAndBindChannelThread = async (channelId: string): Promise<string> => {
+    const workspace = await createSessionWorkspace(channelId);
     const created = await conversation.createSurfaceThread("discord", channelId, {
       approvalPolicy,
+      cwd: workspace.cwd,
       ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
     });
     conversation.subscribeSurfaceEvents(
@@ -316,16 +410,30 @@ export async function startDiscordBot(): Promise<void> {
     return created.threadId;
   };
 
-  const ensureChannelThread = async (channelId: string): Promise<string> => {
-    const route = await conversation.resolveSurfaceThread({
-      adapter: "discord",
-      surfaceId: channelId,
-      autoCreateIfMissing: true,
-      approvalPolicyHint: approvalPolicy,
-      ...(defaultSandbox ? { sandboxHint: defaultSandbox } : {}),
+  const resumeChannelThread = async (channelId: string, threadId: string): Promise<string> => {
+    const workspace = await createSessionWorkspace(channelId);
+    const resumed = await conversation.resumeThread(threadId, {
+      cwd: workspace.cwd,
+      ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
     });
-    await bindChannelToThread(channelId, route.threadId);
-    return route.threadId;
+    await bindChannelToThread(channelId, resumed.threadId);
+    return resumed.threadId;
+  };
+
+  const forkChannelThread = async (channelId: string, sourceThreadId: string): Promise<string> => {
+    const workspace = await createSessionWorkspace(channelId);
+    const forked = await conversation.forkThread(sourceThreadId, {
+      cwd: workspace.cwd,
+      ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
+    });
+    await bindChannelToThread(channelId, forked.threadId);
+    return forked.threadId;
+  };
+
+  const ensureChannelThread = async (channelId: string): Promise<string> => {
+    const current = conversation.getSurfaceThread("discord", channelId);
+    if (current) return current;
+    return createAndBindChannelThread(channelId);
   };
 
   client.once("clientReady", () => {
@@ -354,8 +462,36 @@ export async function startDiscordBot(): Promise<void> {
       const result = await handleMessage(message, {
         conversation,
         getActiveThreadId: (channelId) => conversation.getSurfaceThread("discord", channelId),
+        getChannelRepo: (channelId) => repoByChannel.get(channelId)?.display ?? null,
+        setChannelRepo: async (channelId, repoSlug) => {
+          const localTarget = parseLocalWorkspaceRoot(repoSlug);
+          if (localTarget) {
+            repoByChannel.set(channelId, {
+              kind: "local",
+              rootPath: localTarget.rootPath,
+              display: localTarget.display,
+            });
+            return { repoSlug: localTarget.display };
+          }
+          const parsed = parseRepoSlug(repoSlug);
+          if (!parsed) {
+            throw new Error("Invalid repo target. Use `<owner>/<repo>`, `~`, or `~/path`.");
+          }
+          const resolved = await runGh(["repo", "view", parsed, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+          if (!resolved || resolved.toLowerCase() !== parsed.toLowerCase()) {
+            throw new Error(`Unable to resolve repo ${parsed}.`);
+          }
+          repoByChannel.set(channelId, {
+            kind: "github",
+            slug: resolved,
+            display: resolved,
+          });
+          return { repoSlug: resolved };
+        },
         ensureChannelThread,
         createAndBindChannelThread,
+        resumeChannelThread,
+        forkChannelThread,
         bindChannelToThread,
         clearChannelThread,
       }, sanitizedContent);

@@ -9,8 +9,12 @@ const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
 export type CommandContext = {
   conversation: ConversationService;
   getActiveThreadId: (channelId: string) => string | null;
+  getChannelRepo: (channelId: string) => string | null;
+  setChannelRepo: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   ensureChannelThread: (channelId: string) => Promise<string>;
   createAndBindChannelThread: (channelId: string) => Promise<string>;
+  resumeChannelThread: (channelId: string, threadId: string) => Promise<string>;
+  forkChannelThread: (channelId: string, sourceThreadId: string) => Promise<string>;
   bindChannelToThread: (channelId: string, threadId: string) => Promise<void>;
   clearChannelThread: (channelId: string) => void;
 };
@@ -295,6 +299,8 @@ export async function handleMessage(
       "Discord Shepherd commands:",
       "- !help",
       "- !newthread",
+      "- !repo",
+      "- !repo <owner>/<repo>",
       "- !limits",
       "- !context",
       "- !skills [reload]",
@@ -361,6 +367,22 @@ export async function handleMessage(
     const threadId = await context.createAndBindChannelThread(channelId);
     await message.reply(`Started new thread: ${threadId}`);
     return { handled: true, threadId, input: null };
+  }
+
+  if (command === "!repo") {
+    const repoSlug = args[0]?.trim();
+    if (!repoSlug) {
+      const current = context.getChannelRepo(channelId);
+      await message.reply(
+        current
+          ? `Current repo for this channel: ${current}`
+          : "No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path`.",
+      );
+      return { handled: true, threadId: null, input: null };
+    }
+    const configured = await context.setChannelRepo(channelId, repoSlug);
+    await message.reply(`Repo set for this channel: ${configured.repoSlug}`);
+    return { handled: true, threadId: null, input: null };
   }
 
   if (command === "!skills") {
@@ -443,8 +465,7 @@ export async function handleMessage(
     try {
       context.conversation.getThreadState(requestedThreadId);
     } catch {
-      const resumed = await context.conversation.resumeThread(requestedThreadId, {});
-      resolvedThreadId = resumed.threadId;
+      resolvedThreadId = await context.resumeChannelThread(channelId, requestedThreadId);
     }
 
     await context.bindChannelToThread(channelId, resolvedThreadId);
@@ -491,10 +512,9 @@ export async function handleMessage(
       await message.reply("Usage: !fork <id>");
       return { handled: true, threadId: null, input: null };
     }
-    const forked = await context.conversation.forkThread(sourceThreadId, {});
-    await context.bindChannelToThread(channelId, forked.threadId);
-    await message.reply(`Forked thread ${sourceThreadId} -> ${forked.threadId}`);
-    return { handled: true, threadId: forked.threadId, input: null };
+    const forkedThreadId = await context.forkChannelThread(channelId, sourceThreadId);
+    await message.reply(`Forked thread ${sourceThreadId} -> ${forkedThreadId}`);
+    return { handled: true, threadId: forkedThreadId, input: null };
   }
 
   if (command === "!archive") {

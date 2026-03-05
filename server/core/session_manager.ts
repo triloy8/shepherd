@@ -182,7 +182,7 @@ export class SessionManager {
   }
 
   async readThread(threadId: string, request: ReadThreadRequest): Promise<ReadThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     const raw = asRecord(await session.readThread(threadId, request.includeTurns ?? false));
     if (!raw.thread) {
       throw new Error(`Failed to read thread ${threadId}.`);
@@ -191,31 +191,31 @@ export class SessionManager {
   }
 
   async setThreadName(threadId: string, request: SetThreadNameRequest): Promise<{ ok: true }> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     await session.setThreadName(threadId, request.name);
     return { ok: true };
   }
 
   async archiveThread(threadId: string): Promise<ArchiveThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     await session.archiveThread(threadId);
     return { ok: true };
   }
 
   async unarchiveThread(threadId: string): Promise<UnarchiveThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     await session.unarchiveThread(threadId);
     return { ok: true };
   }
 
   async compactThread(threadId: string): Promise<CompactThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     await session.compactThread(threadId);
     return { ok: true };
   }
 
   async rollbackThread(threadId: string, request: RollbackThreadRequest): Promise<RollbackThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     const raw = asRecord(await session.rollbackThread(threadId, request.numTurns));
     if (!raw.thread) {
       throw new Error("Rollback did not return updated thread state.");
@@ -246,6 +246,7 @@ export class SessionManager {
     request: SkillsRemoteListRequest,
   ): Promise<SkillsRemoteListResponse> {
     const managed = this.mustGet(threadId);
+    await this.resolveThreadCwd(threadId);
     return managed.session.listRemoteSkills(request);
   }
 
@@ -254,6 +255,7 @@ export class SessionManager {
     request: SkillsRemoteExportRequest,
   ): Promise<SkillsRemoteExportResponse> {
     const managed = this.mustGet(threadId);
+    await this.resolveThreadCwd(threadId);
     return managed.session.exportRemoteSkill(request);
   }
 
@@ -262,6 +264,7 @@ export class SessionManager {
     request: SkillsConfigWriteRequest,
   ): Promise<SkillsConfigWriteResponse> {
     const managed = this.mustGet(threadId);
+    await this.resolveThreadCwd(threadId);
     return managed.session.writeSkillConfig(request);
   }
 
@@ -391,12 +394,6 @@ export class SessionManager {
     await session.initialize();
     this.controlSession = session;
     return session;
-  }
-
-  private async getSessionForThread(threadId: string): Promise<CodexSession> {
-    const loaded = this.sessionsByThread.get(threadId);
-    if (loaded) return loaded.session;
-    return this.getControlSession();
   }
 
   private mustGet(threadId: string): ManagedSession {

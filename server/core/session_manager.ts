@@ -106,6 +106,7 @@ export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
   private approvals = new ApprovalsStore();
   private tokenUsageByThread = new Map<string, ThreadTokenUsage>();
+  private cwdByThread = new Map<string, string>();
   private controlSession: CodexSession | null = null;
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
@@ -113,6 +114,7 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const threadId = await managed.session.startThread(request);
     this.sessionsByThread.set(threadId, managed);
+    this.cwdByThread.set(threadId, request.cwd);
     return { threadId, sessionId: managed.session.sessionId };
   }
 
@@ -126,6 +128,7 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const resumedThreadId = await managed.session.resumeThread(threadId, request);
     this.sessionsByThread.set(resumedThreadId, managed);
+    this.cwdByThread.set(resumedThreadId, request.cwd);
     return { threadId: resumedThreadId, sessionId: managed.session.sessionId };
   }
 
@@ -134,6 +137,7 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const forkedThreadId = await managed.session.forkThread(threadId, request);
     this.sessionsByThread.set(forkedThreadId, managed);
+    this.cwdByThread.set(forkedThreadId, request.cwd);
     return { threadId: forkedThreadId, sessionId: managed.session.sessionId };
   }
 
@@ -229,7 +233,12 @@ export class SessionManager {
 
   async listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
     const managed = this.mustGet(threadId);
-    return managed.session.listSkills(request);
+    const cwds = request.cwds ?? [await this.resolveThreadCwd(threadId)];
+    return managed.session.listSkills({ ...request, cwds });
+  }
+
+  async getThreadCwd(threadId: string): Promise<string> {
+    return this.resolveThreadCwd(threadId);
   }
 
   async listRemoteSkills(
@@ -343,6 +352,7 @@ export class SessionManager {
     }
     this.sessionsByThread.clear();
     this.tokenUsageByThread.clear();
+    this.cwdByThread.clear();
     this.controlSession?.stop();
     this.controlSession = null;
   }
@@ -395,5 +405,20 @@ export class SessionManager {
       throw new Error(`Unknown thread ${threadId}.`);
     }
     return managed;
+  }
+
+  private async resolveThreadCwd(threadId: string): Promise<string> {
+    const cached = this.cwdByThread.get(threadId);
+    if (cached) return cached;
+
+    const session = this.mustGet(threadId).session;
+    const raw = asRecord(await session.readThread(threadId, false));
+    const thread = asRecord(raw.thread);
+    const cwd = asString(thread.cwd);
+    if (!cwd) {
+      throw new Error(`Thread ${threadId} is missing cwd.`);
+    }
+    this.cwdByThread.set(threadId, cwd);
+    return cwd;
   }
 }

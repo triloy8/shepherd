@@ -236,6 +236,10 @@ export class ConversationService {
     return this.manager.readThreadTokenUsage(threadId);
   }
 
+  getThreadCwd(threadId: string): Promise<string> {
+    return this.manager.getThreadCwd(threadId);
+  }
+
   subscribeToThreadEvents(
     threadId: string,
     listener: (event: BridgeEvent) => void,

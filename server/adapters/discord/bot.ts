@@ -375,7 +375,7 @@ export async function startDiscordBot(): Promise<void> {
       return workspacePath;
     } catch {
       await fs.mkdir(path.dirname(workspacePath), { recursive: true });
-      await runGh(["repo", "clone", repoSlug, workspacePath]);
+      await runGh(["repo", "clone", repoSlug, workspacePath, "--", "--recurse-submodules"]);
       return workspacePath;
     }
   };

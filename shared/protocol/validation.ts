@@ -51,9 +51,15 @@ export function validateCreateThreadRequest(value: unknown): CreateThreadRequest
   if (!isRecord(value)) {
     throw new Error("Invalid create thread payload.");
   }
+  const overrides = parseCommonThreadOverrides(value);
+  const cwd = parseOptionalString(value.cwd, "cwd");
+  if (!cwd) {
+    throw new Error("Invalid cwd.");
+  }
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy) ?? "on-request",
-    ...parseCommonThreadOverrides(value),
+    ...overrides,
+    cwd,
     personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
     ephemeral: parseOptionalBoolean(value.ephemeral, "ephemeral"),
     serviceName: parseOptionalString(value.serviceName, "serviceName"),
@@ -108,7 +114,6 @@ function parseCommonThreadOverrides(value: Record<string, unknown>) {
     baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
     developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
     config: parseOptionalObject(value.config, "config"),
-    cwd: parseOptionalString(value.cwd, "cwd"),
     sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
     model: parseOptionalString(value.model, "model"),
     modelProvider: parseOptionalString(value.modelProvider, "modelProvider"),
@@ -183,18 +188,30 @@ function parseApprovalPolicy(value: unknown): ApprovalPolicy | undefined {
 
 export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid resume payload.");
+  const overrides = parseCommonThreadOverrides(value);
+  const cwd = parseOptionalString(value.cwd, "cwd");
+  if (!cwd) {
+    throw new Error("Invalid cwd.");
+  }
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
-    ...parseCommonThreadOverrides(value),
+    ...overrides,
+    cwd,
     personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
   };
 }
 
 export function validateForkThreadRequest(value: unknown): ForkThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid fork payload.");
+  const overrides = parseCommonThreadOverrides(value);
+  const cwd = parseOptionalString(value.cwd, "cwd");
+  if (!cwd) {
+    throw new Error("Invalid cwd.");
+  }
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
-    ...parseCommonThreadOverrides(value),
+    ...overrides,
+    cwd,
   };
 }
 

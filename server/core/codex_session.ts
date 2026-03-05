@@ -142,7 +142,7 @@ export class CodexSession {
 
   async ensureThread(): Promise<string> {
     if (this.threadId) return this.threadId;
-    return this.startThread({ approvalPolicy: this.approvalPolicy });
+    throw new Error("No active thread bound to this session.");
   }
 
   async startThread(request: CreateThreadRequest): Promise<string> {

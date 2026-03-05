@@ -106,6 +106,7 @@ export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
   private approvals = new ApprovalsStore();
   private tokenUsageByThread = new Map<string, ThreadTokenUsage>();
+  private cwdByThread = new Map<string, string>();
   private controlSession: CodexSession | null = null;
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
@@ -113,6 +114,7 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const threadId = await managed.session.startThread(request);
     this.sessionsByThread.set(threadId, managed);
+    this.cwdByThread.set(threadId, request.cwd);
     return { threadId, sessionId: managed.session.sessionId };
   }
 
@@ -126,6 +128,7 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const resumedThreadId = await managed.session.resumeThread(threadId, request);
     this.sessionsByThread.set(resumedThreadId, managed);
+    this.cwdByThread.set(resumedThreadId, request.cwd);
     return { threadId: resumedThreadId, sessionId: managed.session.sessionId };
   }
 
@@ -134,6 +137,7 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const forkedThreadId = await managed.session.forkThread(threadId, request);
     this.sessionsByThread.set(forkedThreadId, managed);
+    this.cwdByThread.set(forkedThreadId, request.cwd);
     return { threadId: forkedThreadId, sessionId: managed.session.sessionId };
   }
 
@@ -178,7 +182,7 @@ export class SessionManager {
   }
 
   async readThread(threadId: string, request: ReadThreadRequest): Promise<ReadThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     const raw = asRecord(await session.readThread(threadId, request.includeTurns ?? false));
     if (!raw.thread) {
       throw new Error(`Failed to read thread ${threadId}.`);
@@ -187,31 +191,31 @@ export class SessionManager {
   }
 
   async setThreadName(threadId: string, request: SetThreadNameRequest): Promise<{ ok: true }> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     await session.setThreadName(threadId, request.name);
     return { ok: true };
   }
 
   async archiveThread(threadId: string): Promise<ArchiveThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     await session.archiveThread(threadId);
     return { ok: true };
   }
 
   async unarchiveThread(threadId: string): Promise<UnarchiveThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     await session.unarchiveThread(threadId);
     return { ok: true };
   }
 
   async compactThread(threadId: string): Promise<CompactThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     await session.compactThread(threadId);
     return { ok: true };
   }
 
   async rollbackThread(threadId: string, request: RollbackThreadRequest): Promise<RollbackThreadResponse> {
-    const session = await this.getSessionForThread(threadId);
+    const session = this.mustGet(threadId).session;
     const raw = asRecord(await session.rollbackThread(threadId, request.numTurns));
     if (!raw.thread) {
       throw new Error("Rollback did not return updated thread state.");
@@ -229,7 +233,12 @@ export class SessionManager {
 
   async listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
     const managed = this.mustGet(threadId);
-    return managed.session.listSkills(request);
+    const cwds = request.cwds ?? [await this.resolveThreadCwd(threadId)];
+    return managed.session.listSkills({ ...request, cwds });
+  }
+
+  async getThreadCwd(threadId: string): Promise<string> {
+    return this.resolveThreadCwd(threadId);
   }
 
   async listRemoteSkills(
@@ -237,6 +246,7 @@ export class SessionManager {
     request: SkillsRemoteListRequest,
   ): Promise<SkillsRemoteListResponse> {
     const managed = this.mustGet(threadId);
+    await this.resolveThreadCwd(threadId);
     return managed.session.listRemoteSkills(request);
   }
 
@@ -245,6 +255,7 @@ export class SessionManager {
     request: SkillsRemoteExportRequest,
   ): Promise<SkillsRemoteExportResponse> {
     const managed = this.mustGet(threadId);
+    await this.resolveThreadCwd(threadId);
     return managed.session.exportRemoteSkill(request);
   }
 
@@ -253,6 +264,7 @@ export class SessionManager {
     request: SkillsConfigWriteRequest,
   ): Promise<SkillsConfigWriteResponse> {
     const managed = this.mustGet(threadId);
+    await this.resolveThreadCwd(threadId);
     return managed.session.writeSkillConfig(request);
   }
 
@@ -343,6 +355,7 @@ export class SessionManager {
     }
     this.sessionsByThread.clear();
     this.tokenUsageByThread.clear();
+    this.cwdByThread.clear();
     this.controlSession?.stop();
     this.controlSession = null;
   }
@@ -383,17 +396,26 @@ export class SessionManager {
     return session;
   }
 
-  private async getSessionForThread(threadId: string): Promise<CodexSession> {
-    const loaded = this.sessionsByThread.get(threadId);
-    if (loaded) return loaded.session;
-    return this.getControlSession();
-  }
-
   private mustGet(threadId: string): ManagedSession {
     const managed = this.sessionsByThread.get(threadId);
     if (!managed) {
       throw new Error(`Unknown thread ${threadId}.`);
     }
     return managed;
+  }
+
+  private async resolveThreadCwd(threadId: string): Promise<string> {
+    const cached = this.cwdByThread.get(threadId);
+    if (cached) return cached;
+
+    const session = this.mustGet(threadId).session;
+    const raw = asRecord(await session.readThread(threadId, false));
+    const thread = asRecord(raw.thread);
+    const cwd = asString(thread.cwd);
+    if (!cwd) {
+      throw new Error(`Thread ${threadId} is missing cwd.`);
+    }
+    this.cwdByThread.set(threadId, cwd);
+    return cwd;
   }
 }

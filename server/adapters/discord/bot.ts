@@ -211,7 +211,6 @@ export async function startDiscordBot(): Promise<void> {
 
   const streamByChannel = new Map<string, StreamState>();
   const repoByChannel = new Map<string, ChannelWorkspaceTarget>();
-  const threadCwdById = new Map<string, string>();
 
   const client = new Client({
     intents: [
@@ -408,7 +407,6 @@ export async function startDiscordBot(): Promise<void> {
       cwd: workspace.cwd,
       ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
     });
-    threadCwdById.set(created.threadId, workspace.cwd);
     conversation.subscribeSurfaceEvents(
       "discord",
       channelId,
@@ -424,7 +422,6 @@ export async function startDiscordBot(): Promise<void> {
       cwd: workspace.cwd,
       ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
     });
-    threadCwdById.set(resumed.threadId, workspace.cwd);
     await bindChannelToThread(channelId, resumed.threadId);
     return resumed.threadId;
   };
@@ -435,7 +432,6 @@ export async function startDiscordBot(): Promise<void> {
       cwd: workspace.cwd,
       ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
     });
-    threadCwdById.set(forked.threadId, workspace.cwd);
     await bindChannelToThread(channelId, forked.threadId);
     return forked.threadId;
   };
@@ -473,22 +469,6 @@ export async function startDiscordBot(): Promise<void> {
         conversation,
         getActiveThreadId: (channelId) => conversation.getSurfaceThread("discord", channelId),
         getChannelRepo: (channelId) => repoByChannel.get(channelId)?.display ?? null,
-        getThreadCwd: async (threadId) => {
-          const cached = threadCwdById.get(threadId);
-          if (cached) return cached;
-          try {
-            const thread = await conversation.readThread(threadId, { includeTurns: false });
-            const raw = thread.thread as { cwd?: unknown };
-            if (typeof raw.cwd === "string" && raw.cwd.trim()) {
-              const cwd = raw.cwd.trim();
-              threadCwdById.set(threadId, cwd);
-              return cwd;
-            }
-          } catch {
-            // Best-effort fallback for older or unloaded thread metadata.
-          }
-          return null;
-        },
         setChannelRepo: async (channelId, repoSlug) => {
           const localTarget = parseLocalWorkspaceRoot(repoSlug);
           if (localTarget) {

@@ -10,7 +10,6 @@ export type CommandContext = {
   conversation: ConversationService;
   getActiveThreadId: (channelId: string) => string | null;
   getChannelRepo: (channelId: string) => string | null;
-  getThreadCwd: (threadId: string) => Promise<string | null>;
   setChannelRepo: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   ensureChannelThread: (channelId: string) => Promise<string>;
   createAndBindChannelThread: (channelId: string) => Promise<string>;
@@ -424,11 +423,7 @@ export async function handleMessage(
     }
 
     const forceReload = mode === "reload";
-    const threadCwd = await context.getThreadCwd(activeThreadId);
-    const listed = await context.conversation.listSkills(activeThreadId, {
-      forceReload,
-      ...(threadCwd ? { cwds: [threadCwd] } : {}),
-    });
+    const listed = await context.conversation.listSkills(activeThreadId, { forceReload });
     await replyChunked(message, formatSkillsForDiscord(listed));
     return { handled: true, threadId: null, input: null };
   }

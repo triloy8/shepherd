@@ -114,7 +114,6 @@ function parseCommonThreadOverrides(value: Record<string, unknown>) {
     baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
     developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
     config: parseOptionalObject(value.config, "config"),
-    cwd: parseOptionalString(value.cwd, "cwd"),
     sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
     model: parseOptionalString(value.model, "model"),
     modelProvider: parseOptionalString(value.modelProvider, "modelProvider"),

@@ -21,11 +21,11 @@ type SurfaceState = {
 export type ResolveRouteInput = {
   adapter: string;
   surfaceId: string;
+  cwd: string;
   explicitThreadId?: string;
   autoCreateIfMissing?: boolean;
   approvalPolicyHint?: ApprovalPolicy;
   sandboxHint?: SandboxMode;
-  cwdHint?: string;
 };
 
 export type ResolveRouteResult = {
@@ -105,13 +105,11 @@ export class ConversationRoutingService {
     const candidate = input.explicitThreadId ?? surface.defaultThreadId;
 
     if (candidate) {
-      const resumeRequest = input.cwdHint
-        ? {
-            approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
-            ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
-            cwd: input.cwdHint,
-          }
-        : undefined;
+      const resumeRequest = {
+        approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
+        ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
+        cwd: input.cwd,
+      };
       const resolved = await this.setDefaultThread(input.adapter, input.surfaceId, candidate, resumeRequest);
       return {
         threadId: resolved,
@@ -125,14 +123,10 @@ export class ConversationRoutingService {
     if (!allowAutoCreate) {
       throw new Error("No routing target available for this surface.");
     }
-    if (!input.cwdHint) {
-      throw new Error("Routing requires cwdHint to create a new thread.");
-    }
-
     const created = await this.manager.createThread({
       approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
       sandbox: input.sandboxHint ?? surface.defaultSandbox,
-      cwd: input.cwdHint,
+      cwd: input.cwd,
     });
     await this.setDefaultThread(input.adapter, input.surfaceId, created.threadId);
     return {

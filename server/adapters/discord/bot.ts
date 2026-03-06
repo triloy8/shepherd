@@ -18,7 +18,7 @@ import {
 } from "discord.js";
 
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
-import type { BridgeEvent } from "../../../shared/protocol/events.js";
+import type { BridgeEvent, MessagePhase } from "../../../shared/protocol/events.js";
 import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
@@ -34,6 +34,7 @@ type StreamState = {
   text: string;
   messageIds: string[];
   renderedChunks: string[];
+  lastPhase: MessagePhase | null;
   timer: NodeJS.Timeout | null;
   flushing: boolean;
   pendingFlush: boolean;
@@ -75,6 +76,11 @@ function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT
   }
 
   return chunks;
+}
+
+function phaseHeader(phase: MessagePhase, hasExistingText: boolean): string {
+  const label = phase === "commentary" ? "Thinking" : "Final Answer";
+  return hasExistingText ? `\n\n**${label}**\n` : `**${label}**\n`;
 }
 
 function pickButtonStyle(decision: string): ButtonStyle {
@@ -287,6 +293,7 @@ export async function startDiscordBot(): Promise<void> {
         text: "",
         messageIds: [],
         renderedChunks: [],
+        lastPhase: null,
         timer: null,
         flushing: false,
         pendingFlush: false,
@@ -295,7 +302,7 @@ export async function startDiscordBot(): Promise<void> {
     }
 
     if (event.type === "turn.stream.delta") {
-      const payload = event.payload as { textDelta?: string; method?: string };
+      const payload = event.payload as { textDelta?: string; method?: string; phase?: MessagePhase | null };
       const method = payload.method?.toLowerCase() ?? "";
       if (method && !method.includes("agentmessage")) {
         return;
@@ -309,10 +316,16 @@ export async function startDiscordBot(): Promise<void> {
           text: "",
           messageIds: [],
           renderedChunks: [],
+          lastPhase: null,
           timer: null,
           flushing: false,
           pendingFlush: false,
         } as StreamState);
+      const phase = payload.phase;
+      if ((phase === "commentary" || phase === "final_answer") && phase !== state.lastPhase) {
+        state.text += phaseHeader(phase, state.text.length > 0);
+        state.lastPhase = phase;
+      }
       state.text += delta;
       streamByChannel.set(channelId, state);
       scheduleStreamFlush(channelId);

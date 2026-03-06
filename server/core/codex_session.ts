@@ -3,7 +3,7 @@ import readline, { type Interface as ReadlineInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../shared/protocol/approvals.js";
-import type { BridgeEvent, BridgeEventType } from "../../shared/protocol/events.js";
+import type { BridgeEvent, BridgeEventType, MessagePhase } from "../../shared/protocol/events.js";
 import type {
   ApprovalPolicy,
   CreateThreadRequest,
@@ -23,6 +23,7 @@ import type {
 } from "../../shared/protocol/requests.js";
 import { EventBus } from "./event_bus.js";
 import {
+  extractItemId,
   extractTextDelta,
   extractThreadId,
   extractTurnId,
@@ -81,6 +82,7 @@ export class CodexSession {
   private pendingRequests = new Map<number, PendingRequest>();
   private serverRequestsByApprovalId = new Map<string, RawServerRequest>();
   private approvalIdsByRawRequestId = new Map<string, string>();
+  private messagePhaseByItemId = new Map<string, MessagePhase | null>();
   private eventCounter = 0;
 
   constructor(approvalPolicy: ApprovalPolicy) {
@@ -303,6 +305,7 @@ export class CodexSession {
     if (approvalPolicy) {
       this.approvalPolicy = approvalPolicy;
     }
+    this.messagePhaseByItemId.clear();
 
     const result = await this.sendRequest("turn/start", {
       threadId,
@@ -496,11 +499,13 @@ export class CodexSession {
     if (lower === "turn/completed") {
       const turnId = extractTurnId(params) ?? this.activeTurnId;
       this.activeTurnId = null;
+      this.messagePhaseByItemId.clear();
       this.publish("turn.completed", threadId, { turnId });
       return;
     }
 
     if (lower.includes("turn/error") || lower.endsWith("/failed") || lower === "item/failed") {
+      this.messagePhaseByItemId.clear();
       this.publish("turn.failed", threadId, { message: `${method} received` });
     }
 
@@ -551,9 +556,15 @@ export class CodexSession {
       return;
     }
 
+    if (lower === "item/started" || lower === "item/completed") {
+      this.captureAgentMessagePhase(params);
+    }
+
     const delta = extractTextDelta(method, params);
     if (delta) {
-      this.publish("turn.stream.delta", threadId, { method, textDelta: delta });
+      const itemId = extractItemId(params);
+      const phase = itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null;
+      this.publish("turn.stream.delta", threadId, { method, textDelta: delta, itemId, phase });
       return;
     }
 
@@ -570,5 +581,28 @@ export class CodexSession {
       payload,
     };
     this.eventBus.publish(event);
+  }
+
+  private captureAgentMessagePhase(params: unknown): void {
+    const payload = asRecord(params);
+    const item = asRecord(payload.item);
+    const itemType = asString(item.type)?.replace(/[_\s]/g, "").toLowerCase();
+    if (itemType !== "agentmessage") {
+      return;
+    }
+
+    const itemId = asString(item.id);
+    if (!itemId) {
+      return;
+    }
+
+    this.messagePhaseByItemId.set(itemId, this.parseMessagePhase(item.phase));
+  }
+
+  private parseMessagePhase(value: unknown): MessagePhase | null {
+    if (value === "commentary" || value === "final_answer") {
+      return value;
+    }
+    return null;
   }
 }

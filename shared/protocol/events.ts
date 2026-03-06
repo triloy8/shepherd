@@ -1,6 +1,8 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
 import type { ThreadTokenUsage } from "./requests.js";
 
+export type MessagePhase = "commentary" | "final_answer";
+
 export type BridgeEventType =
   | "session.started"
   | "session.error"
@@ -42,7 +44,12 @@ export type ThreadTokenUsageUpdatedEvent = BridgeEvent<{ turnId: string | null; 
 export type TurnStartedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnCompletedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnFailedEvent = BridgeEvent<{ message: string }>;
-export type TurnStreamDeltaEvent = BridgeEvent<{ method: string; textDelta: string }>;
+export type TurnStreamDeltaEvent = BridgeEvent<{
+  method: string;
+  textDelta: string;
+  itemId: string | null;
+  phase: MessagePhase | null;
+}>;
 export type TurnNotificationEvent = BridgeEvent<{ method: string; params: unknown }>;
 export type ApprovalRequestedEvent = BridgeEvent<ApprovalRequestPayload>;
 export type ApprovalDecidedEvent = BridgeEvent<{ approvalId: string; decision: string; state: ApprovalRecord["status"] }>;

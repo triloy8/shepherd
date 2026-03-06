@@ -32,7 +32,9 @@ export function extractTurnId(result: unknown): string | null {
 
 export function extractTextDelta(method: string, params: unknown): string {
   const lower = method.toLowerCase();
-  if (!lower.includes("delta")) return "";
+  if (!lower.includes("delta")) {
+    return "";
+  }
 
   const record = asRecord(params);
   const msg = asRecord(record.msg);
@@ -55,6 +57,17 @@ export function extractTextDelta(method: string, params: unknown): string {
     }
   }
   return "";
+}
+
+export function extractItemId(params: unknown): string | null {
+  const record = asRecord(params);
+  const msg = asRecord(record.msg);
+  return (
+    asString(record.itemId) ||
+    asString(record.item_id) ||
+    asString(msg.itemId) ||
+    asString(msg.item_id)
+  );
 }
 
 export function mapApprovalChoices(method: string): ApprovalChoice[] {

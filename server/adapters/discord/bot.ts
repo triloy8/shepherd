@@ -35,6 +35,7 @@ type StreamState = {
   messageIds: string[];
   renderedChunks: string[];
   lastPhase: MessagePhase | null;
+  lastItemId: string | null;
   timer: NodeJS.Timeout | null;
   flushing: boolean;
   pendingFlush: boolean;
@@ -294,6 +295,7 @@ export async function startDiscordBot(): Promise<void> {
         messageIds: [],
         renderedChunks: [],
         lastPhase: null,
+        lastItemId: null,
         timer: null,
         flushing: false,
         pendingFlush: false,
@@ -302,7 +304,12 @@ export async function startDiscordBot(): Promise<void> {
     }
 
     if (event.type === "turn.stream.delta") {
-      const payload = event.payload as { textDelta?: string; method?: string; phase?: MessagePhase | null };
+      const payload = event.payload as {
+        textDelta?: string;
+        method?: string;
+        phase?: MessagePhase | null;
+        itemId?: string | null;
+      };
       const method = payload.method?.toLowerCase() ?? "";
       if (method && !method.includes("agentmessage")) {
         return;
@@ -317,16 +324,30 @@ export async function startDiscordBot(): Promise<void> {
           messageIds: [],
           renderedChunks: [],
           lastPhase: null,
+          lastItemId: null,
           timer: null,
           flushing: false,
           pendingFlush: false,
         } as StreamState);
       const phase = payload.phase;
+      const itemId = payload.itemId ?? null;
       if ((phase === "commentary" || phase === "final_answer") && phase !== state.lastPhase) {
         state.text += phaseHeader(phase, state.text.length > 0);
         state.lastPhase = phase;
       }
+      if (
+        phase === "commentary" &&
+        itemId &&
+        state.lastItemId &&
+        itemId !== state.lastItemId &&
+        !state.text.endsWith("\n")
+      ) {
+        state.text += "\n";
+      }
       state.text += delta;
+      if (itemId) {
+        state.lastItemId = itemId;
+      }
       streamByChannel.set(channelId, state);
       scheduleStreamFlush(channelId);
       return;

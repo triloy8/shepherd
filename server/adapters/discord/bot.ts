@@ -205,8 +205,8 @@ export async function startDiscordBot(): Promise<void> {
     throw new Error("Missing DISCORD_BOT_TOKEN.");
   }
 
-  const approvalPolicy = (process.env.DISCORD_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
-  const defaultSandbox = readSandboxMode(process.env.DISCORD_SANDBOX) ?? readSandboxMode(process.env.CODEX_SANDBOX);
+  const approvalPolicy = (process.env.CODEX_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
+  const defaultSandbox = readSandboxMode(process.env.CODEX_SANDBOX);
 
   const conversation = new ConversationService({
     routing: {

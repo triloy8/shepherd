@@ -36,6 +36,7 @@ type StreamState = {
   renderedChunks: string[];
   lastPhase: MessagePhase | null;
   lastItemId: string | null;
+  commentaryOpen: boolean;
   timer: NodeJS.Timeout | null;
   flushing: boolean;
   pendingFlush: boolean;
@@ -80,7 +81,7 @@ function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT
 }
 
 function phaseHeader(phase: MessagePhase, hasExistingText: boolean): string {
-  const label = phase === "commentary" ? "Thinking" : "Final Answer";
+  const label = phase === "commentary" ? "🧠 Working" : "📦 Final Answer";
   return hasExistingText ? `\n\n**${label}**\n` : `**${label}**\n`;
 }
 
@@ -296,6 +297,7 @@ export async function startDiscordBot(): Promise<void> {
         renderedChunks: [],
         lastPhase: null,
         lastItemId: null,
+        commentaryOpen: false,
         timer: null,
         flushing: false,
         pendingFlush: false,
@@ -325,24 +327,34 @@ export async function startDiscordBot(): Promise<void> {
           renderedChunks: [],
           lastPhase: null,
           lastItemId: null,
+          commentaryOpen: false,
           timer: null,
           flushing: false,
           pendingFlush: false,
         } as StreamState);
       const phase = payload.phase;
       const itemId = payload.itemId ?? null;
+      if (state.lastPhase === "commentary" && phase !== "commentary" && state.commentaryOpen) {
+        state.text += "*";
+        state.commentaryOpen = false;
+      }
       if ((phase === "commentary" || phase === "final_answer") && phase !== state.lastPhase) {
         state.text += phaseHeader(phase, state.text.length > 0);
         state.lastPhase = phase;
       }
-      if (
-        phase === "commentary" &&
-        itemId &&
-        state.lastItemId &&
-        itemId !== state.lastItemId &&
-        !state.text.endsWith("\n")
-      ) {
-        state.text += "\n";
+      if (phase === "commentary") {
+        const switchedItem = Boolean(itemId && state.lastItemId && itemId !== state.lastItemId);
+        if (switchedItem && state.commentaryOpen) {
+          state.text += "*";
+          state.commentaryOpen = false;
+        }
+        if (!state.commentaryOpen) {
+          if (!state.text.endsWith("\n")) {
+            state.text += "\n";
+          }
+          state.text += "| *";
+          state.commentaryOpen = true;
+        }
       }
       state.text += delta;
       if (itemId) {
@@ -368,6 +380,10 @@ export async function startDiscordBot(): Promise<void> {
 
     if (event.type === "turn.completed" || event.type === "turn.failed") {
       const state = streamByChannel.get(channelId);
+      if (state?.commentaryOpen) {
+        state.text += "*";
+        state.commentaryOpen = false;
+      }
       if (state?.timer) {
         clearTimeout(state.timer);
         state.timer = null;

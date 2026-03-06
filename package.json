@@ -8,8 +8,8 @@
     "build:bin:discord": "bun build --compile server/adapters/discord/bot.ts --outfile release/shepherd-discord",
     "build:bin:all": "bun run build:bin && bun run build:bin:discord",
     "start:discord": "bun run server/adapters/discord/bot.ts",
-    "dev:discord": "bun --watch run server/adapters/discord/bot.ts",
-    "dev:discord:build": "bun run build && bun run start:discord"
+    "dev:discord:watch": "bun --watch run server/adapters/discord/bot.ts",
+    "dev:discord": "bun run build && bun run start:discord"
   },
   "dependencies": {
     "solid-js": "^1.9.4",

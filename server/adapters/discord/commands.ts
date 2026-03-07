@@ -280,6 +280,67 @@ function formatRemoteSkillsForDiscord(value: unknown): string {
   ].join("\n");
 }
 
+type SkillLookup = { name: string; scope: string; path: string };
+
+function parseSkillLookups(value: unknown): SkillLookup[] {
+  const payload = asRecord(value);
+  const entries = Array.isArray(payload.data) ? payload.data : [];
+  const lookups: SkillLookup[] = [];
+
+  for (const entry of entries) {
+    const record = asRecord(entry);
+    const skills = Array.isArray(record.skills) ? record.skills : [];
+    for (const skillValue of skills) {
+      const skill = asRecord(skillValue);
+      const name = asString(skill.name);
+      const scope = asString(skill.scope);
+      const path = asString(skill.path);
+      if (name && scope && path) {
+        lookups.push({ name, scope, path });
+      }
+    }
+  }
+
+  return lookups;
+}
+
+async function resolveSkillPath(
+  threadId: string,
+  rawValue: string,
+  context: CommandContext,
+): Promise<{ path: string } | { error: string }> {
+  const value = rawValue.trim();
+  if (!value) {
+    return { error: "Invalid skill name or path." };
+  }
+
+  if (value.includes("/") || value.endsWith(".md")) {
+    return { path: value };
+  }
+
+  const listed = await context.conversation.listSkills(threadId, {});
+  const skills = parseSkillLookups(listed);
+  const normalized = value.toLowerCase();
+
+  const exactNameMatches = skills.filter((skill) => skill.name.toLowerCase() === normalized);
+  if (exactNameMatches.length === 1) {
+    return { path: exactNameMatches[0]!.path };
+  }
+  if (exactNameMatches.length > 1) {
+    const options = exactNameMatches.map((skill) => `${skill.name} [${skill.scope}]`).join(", ");
+    return { error: `Multiple skills match \`${value}\`: ${options}. Use the full path.` };
+  }
+
+  const qualifiedMatches = skills.filter(
+    (skill) => `${skill.name} [${skill.scope}]`.toLowerCase() === normalized,
+  );
+  if (qualifiedMatches.length === 1) {
+    return { path: qualifiedMatches[0]!.path };
+  }
+
+  return { error: `No loaded skill matches \`${value}\`. Use \`!skills\` to inspect available names.` };
+}
+
 export async function handleMessage(
   message: Message,
   context: CommandContext,
@@ -306,8 +367,8 @@ export async function handleMessage(
       "- !skills [reload]",
       "- !skills remote [enabled=true|false] [scope=example|workspace-shared|all-shared|personal] [surface=chatgpt|codex|api|atlas]",
       "- !skill export <hazelnutId>",
-      "- !skill enable <path>",
-      "- !skill disable <path>",
+      "- !skill enable <name-or-path>",
+      "- !skill disable <name-or-path>",
       "- !threads",
       "- !threads loaded",
       "- !threads archived",
@@ -452,15 +513,23 @@ export async function handleMessage(
     }
 
     if (sub === "enable" || sub === "disable") {
-      const path = args.slice(1).join(" ").trim();
-      if (!path) {
-        await message.reply(`Usage: !skill ${sub} <path>`);
+      const requestedSkill = args.slice(1).join(" ").trim();
+      if (!requestedSkill) {
+        await message.reply(`Usage: !skill ${sub} <name-or-path>`);
+        return { handled: true, threadId: null, input: null };
+      }
+      const resolved = await resolveSkillPath(activeThreadId, requestedSkill, context);
+      if ("error" in resolved) {
+        await message.reply(resolved.error);
         return { handled: true, threadId: null, input: null };
       }
       const enabled = sub === "enable";
-      const result = await context.conversation.writeSkillConfig(activeThreadId, { path, enabled });
+      const result = await context.conversation.writeSkillConfig(activeThreadId, {
+        path: resolved.path,
+        enabled,
+      });
       await message.reply(
-        `${enabled ? "Enabled" : "Disabled"} skill at ${path} (effectiveEnabled=${result.effectiveEnabled})`,
+        `${enabled ? "Enabled" : "Disabled"} skill ${requestedSkill} (effectiveEnabled=${result.effectiveEnabled})`,
       );
       return { handled: true, threadId: null, input: null };
     }

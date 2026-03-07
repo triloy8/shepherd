@@ -80,9 +80,9 @@ function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT
   return chunks;
 }
 
-function phaseHeader(phase: MessagePhase, hasExistingText: boolean): string {
+export function phaseHeader(phase: MessagePhase, hasExistingText: boolean): string {
   const label = phase === "commentary" ? "🧠 Working" : "📦 Final Answer";
-  return hasExistingText ? `\n\n**${label}**\n` : `**${label}**\n`;
+  return hasExistingText ? `\n\n**${label}**\n\n` : `**${label}**\n\n`;
 }
 
 function pickButtonStyle(decision: string): ButtonStyle {

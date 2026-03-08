@@ -31,7 +31,9 @@ import {
   mapApprovalPrompt,
 } from "./codex_rpc_mapper.js";
 
-const DEFAULT_MODEL = process.env.CODEX_MODEL ?? "gpt-5.3-codex";
+function getDefaultModel(): string {
+  return process.env.CODEX_MODEL ?? "gpt-5.3-codex";
+}
 
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -132,7 +134,7 @@ export class CodexSession {
       });
       this.sendNotification("initialized", {});
       this.initialized = true;
-      this.publish("session.started", this.threadId ?? "unbound", { model: DEFAULT_MODEL });
+      this.publish("session.started", this.threadId ?? "unbound", { model: getDefaultModel() });
     })();
 
     try {
@@ -151,7 +153,7 @@ export class CodexSession {
     await this.initialize();
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     const result = await this.sendRequest("thread/start", {
-      model: request.model ?? DEFAULT_MODEL,
+      model: request.model ?? getDefaultModel(),
       approvalPolicy: this.approvalPolicy,
       ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
       ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),

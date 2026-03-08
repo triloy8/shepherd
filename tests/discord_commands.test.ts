@@ -20,8 +20,12 @@ function makeMessage(content: string) {
 function makeContext(overrides?: {
   listSkills?: () => Promise<unknown>;
   writeSkillConfig?: (threadId: string, request: { path: string; enabled: boolean }) => Promise<{ effectiveEnabled: boolean }>;
+  listModels?: () => Promise<unknown>;
+  getThreadModel?: () => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
+  setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
+  const modelWrites: Array<{ threadId: string; model: string }> = [];
   const context: CommandContext = {
     conversation: {
       async listSkills() {
@@ -49,6 +53,51 @@ function makeContext(overrides?: {
         if (overrides?.writeSkillConfig) return overrides.writeSkillConfig(threadId, request);
         return { effectiveEnabled: !request.enabled ? false : true };
       },
+      async listModels() {
+        if (overrides?.listModels) return overrides.listModels();
+        return {
+          data: [
+            {
+              id: "gpt-5.3-codex",
+              model: "gpt-5.3-codex",
+              displayName: "GPT-5.3 Codex",
+              description: "Default coding model",
+              hidden: false,
+              isDefault: true,
+              supportsPersonality: true,
+            },
+            {
+              id: "o4-mini",
+              model: "o4-mini",
+              displayName: "o4-mini",
+              description: "Fast fallback",
+              hidden: false,
+              isDefault: false,
+              supportsPersonality: true,
+            },
+          ],
+          nextCursor: null,
+        };
+      },
+      getThreadModel() {
+        if (overrides?.getThreadModel) return overrides.getThreadModel();
+        return {
+          threadId: "thread-1",
+          currentModel: "o4-mini",
+          modelProvider: "openai",
+          pendingModel: null,
+        };
+      },
+      setThreadModel(threadId: string, model: string) {
+        modelWrites.push({ threadId, model });
+        if (overrides?.setThreadModel) return overrides.setThreadModel(threadId, model);
+        return {
+          threadId,
+          currentModel: "o4-mini",
+          modelProvider: "openai",
+          pendingModel: model,
+        };
+      },
     } as unknown as CommandContext["conversation"],
     getActiveThreadId() {
       return "thread-1";
@@ -75,7 +124,7 @@ function makeContext(overrides?: {
     clearChannelThread() {},
   };
 
-  return { context, writes };
+  return { context, writes, modelWrites };
 }
 
 describe("Discord !skill commands", () => {
@@ -131,6 +180,41 @@ describe("Discord !skill commands", () => {
     expect(writes).toHaveLength(0);
     expect(replies).toEqual([
       "Multiple skills match `github`: github [workspace], github [personal]. Use the full path.",
+    ]);
+  });
+
+  test("lists models and marks current/default state", async () => {
+    const { message, replies } = makeMessage("!models");
+    const { context } = makeContext({
+      getThreadModel() {
+        return {
+          threadId: "thread-1",
+          currentModel: "o4-mini",
+          modelProvider: "openai",
+          pendingModel: "gpt-5.3-codex",
+        };
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain("**Models**");
+    expect(replies[0]).toContain("Current: o4-mini");
+    expect(replies[0]).toContain("Pending next turn: gpt-5.3-codex");
+    expect(replies[0]).toContain("`gpt-5.3-codex` [pending, default]");
+    expect(replies[0]).toContain("`o4-mini` [current]");
+  });
+
+  test("stores a thread-scoped pending model override", async () => {
+    const { message, replies } = makeMessage("!model set gpt-5.3-codex");
+    const { context, modelWrites } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    expect(modelWrites).toEqual([{ threadId: "thread-1", model: "gpt-5.3-codex" }]);
+    expect(replies).toEqual([
+      "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
     ]);
   });
 });

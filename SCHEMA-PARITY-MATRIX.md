@@ -26,7 +26,7 @@ Status legend:
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Implemented | Core | Exposed via HTTP `POST /api/threads/:id/turns/steer`; Discord mentions steer active turns |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
-| `model/list` | Missing | Maybe Later | Useful for diagnostics/config UI |
+| `model/list` | Implemented | Core | Exposed via Discord `!models` |
 | `skills/list` | Implemented | Core | Wrapped in core and exposed via HTTP `GET /api/skills` + Discord `!skills` |
 | `skills/remote/list` | Implemented | Core | Wrapped in core and exposed via HTTP `GET /api/skills/remote` + Discord `!skills remote` |
 | `skills/remote/export` | Implemented | Core | Wrapped in core and exposed via HTTP `POST /api/skills/remote/export` + Discord `!skill export` |

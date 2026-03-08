@@ -1,6 +1,7 @@
 import type { Message } from "discord.js";
 
 import type { ConversationService } from "../../core/conversation_service.js";
+import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: string | null };
 const DISCORD_MESSAGE_LIMIT = 1900;
@@ -174,6 +175,77 @@ function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): s
     `- Reasoning output: ${formatNumber(total.reasoningOutputTokens)}`,
     `- Total: ${formatNumber(total.totalTokens)}`,
   ].join("\n");
+}
+
+function formatThreadModelForDiscord(modelState: ThreadModelState): string {
+  const lines = [
+    "**Model**",
+    `- Thread: ${modelState.threadId}`,
+    `- Current: ${modelState.currentModel ?? "unknown"}`,
+    `- Provider: ${modelState.modelProvider ?? "unknown"}`,
+  ];
+  if (modelState.pendingModel) {
+    lines.push(`- Pending next turn: ${modelState.pendingModel}`);
+  }
+  return lines.join("\n");
+}
+
+function formatModelEntry(
+  model: ModelSummary,
+  index: number,
+  modelState: ThreadModelState | null,
+  defaultModel: string | null,
+): string {
+  const flags: string[] = [];
+  if (model.model === modelState?.currentModel) flags.push("current");
+  if (model.model === modelState?.pendingModel) flags.push("pending");
+  if (model.model === defaultModel || model.isDefault) flags.push("default");
+  const description = model.description ? ` - ${model.description}` : "";
+  const suffix = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
+  return `${index + 1}. \`${model.model}\`${suffix}${description}`;
+}
+
+function formatModelsForDiscord(result: ListModelsResponse, modelState: ThreadModelState | null): string {
+  if (result.data.length === 0) {
+    return "No models returned by Codex app-server.";
+  }
+
+  const defaultEntry = result.data.find((entry) => entry.isDefault) ?? null;
+  const lines = ["**Models**"];
+
+  if (modelState) {
+    lines.push(`- Thread: ${modelState.threadId}`);
+    lines.push(`- Current: ${modelState.currentModel ?? "unknown"}`);
+    if (modelState.pendingModel) {
+      lines.push(`- Pending next turn: ${modelState.pendingModel}`);
+    }
+  }
+  if (defaultEntry) {
+    lines.push(`- App default: ${defaultEntry.model}`);
+  }
+  lines.push("");
+
+  const defaultModel = defaultEntry?.model ?? null;
+  const visibleEntries = result.data.slice(0, 20);
+  for (const [index, entry] of visibleEntries.entries()) {
+    lines.push(formatModelEntry(entry, index, modelState, defaultModel));
+  }
+
+  if (result.nextCursor) {
+    lines.push("", "More models are available but not shown.");
+  }
+
+  return lines.join("\n");
+}
+
+function resolveModelArgument(models: ModelSummary[], raw: string): ModelSummary | null {
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) return null;
+  return (
+    models.find((entry) => entry.model.toLowerCase() === normalized) ??
+    models.find((entry) => entry.id.toLowerCase() === normalized) ??
+    null
+  );
 }
 
 function chunkForDiscord(text: string, maxChunkSize = DISCORD_MESSAGE_LIMIT): string[] {
@@ -363,6 +435,9 @@ export async function handleMessage(
       "- !repo",
       "- !repo <owner>/<repo>",
       "- !limits",
+      "- !models",
+      "- !model",
+      "- !model set <id>",
       "- !context",
       "- !skills [reload]",
       "- !skills remote [enabled=true|false] [scope=example|workspace-shared|all-shared|personal] [surface=chatgpt|codex|api|atlas]",
@@ -408,6 +483,52 @@ export async function handleMessage(
     const limits = await context.conversation.readAccountRateLimits();
     await replyChunked(message, formatRateLimitsForDiscord(limits.rateLimits));
     return { handled: true, threadId: null, input: null };
+  }
+
+  if (command === "!models") {
+    const threadId = context.getActiveThreadId(channelId);
+    const models = await context.conversation.listModels({ limit: 20 });
+    const modelState = threadId ? context.conversation.getThreadModel(threadId) : null;
+    await replyChunked(message, formatModelsForDiscord(models, modelState));
+    return { handled: true, threadId, input: null };
+  }
+
+  if (command === "!model") {
+    const subcommand = (args[0] ?? "").toLowerCase();
+    const threadId = context.getActiveThreadId(channelId);
+    if (!threadId) {
+      await message.reply("No active thread in this channel yet. Use !newthread first.");
+      return { handled: true, threadId: null, input: null };
+    }
+
+    if (!subcommand) {
+      await replyChunked(message, formatThreadModelForDiscord(context.conversation.getThreadModel(threadId)));
+      return { handled: true, threadId, input: null };
+    }
+
+    if (subcommand !== "set") {
+      await message.reply("Usage: !model\nUsage: !model set <id>");
+      return { handled: true, threadId, input: null };
+    }
+
+    const requestedModel = args.slice(1).join(" ").trim();
+    if (!requestedModel) {
+      await message.reply("Usage: !model set <id>");
+      return { handled: true, threadId, input: null };
+    }
+
+    const models = await context.conversation.listModels({ limit: 100, includeHidden: true });
+    const resolved = resolveModelArgument(models.data, requestedModel);
+    if (!resolved) {
+      await message.reply(`Unknown model: \`${requestedModel}\`. Use \`!models\` to inspect available models.`);
+      return { handled: true, threadId, input: null };
+    }
+
+    const updated = context.conversation.setThreadModel(threadId, resolved.model);
+    await message.reply(
+      `Model for thread ${threadId} set to \`${resolved.model}\`.\nApplies to the next new turn and subsequent turns.`,
+    );
+    return { handled: true, threadId: updated.threadId, input: null };
   }
 
   if (command === "!context") {

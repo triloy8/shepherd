@@ -9,6 +9,8 @@ import type {
   CreateThreadRequest,
   ForkThreadRequest,
   ListLoadedThreadsRequest,
+  ListModelsRequest,
+  ListModelsResponse,
   ListStoredThreadsRequest,
   ResumeThreadRequest,
   SkillsConfigWriteRequest,
@@ -53,6 +55,12 @@ function asRecord(value: unknown): Record<string, unknown> {
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
+
+type ThreadBootstrapInfo = {
+  threadId: string;
+  model: string | null;
+  modelProvider: string | null;
+};
 
 function isContextLimitError(params: unknown): boolean {
   const record = asRecord(params);
@@ -149,7 +157,7 @@ export class CodexSession {
     throw new Error("No active thread bound to this session.");
   }
 
-  async startThread(request: CreateThreadRequest): Promise<string> {
+  async startThread(request: CreateThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     const result = await this.sendRequest("thread/start", {
@@ -166,12 +174,12 @@ export class CodexSession {
       ...(request.serviceName ? { serviceName: request.serviceName } : {}),
     });
 
-    const threadId = this.mustSetThreadIdFromResult(result, "thread/start");
-    this.publish("thread.started", threadId, { approvalPolicy: this.approvalPolicy });
-    return threadId;
+    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/start");
+    this.publish("thread.started", bootstrap.threadId, { approvalPolicy: this.approvalPolicy });
+    return bootstrap;
   }
 
-  async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<string> {
+  async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
     const result = await this.sendRequest("thread/resume", {
       threadId,
@@ -189,10 +197,10 @@ export class CodexSession {
     if (request.approvalPolicy) {
       this.approvalPolicy = request.approvalPolicy;
     }
-    return this.mustSetThreadIdFromResult(result, "thread/resume");
+    return this.extractThreadBootstrapInfo(result, "thread/resume");
   }
 
-  async forkThread(threadId: string, request: ForkThreadRequest): Promise<string> {
+  async forkThread(threadId: string, request: ForkThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
     const result = await this.sendRequest("thread/fork", {
       threadId,
@@ -209,7 +217,7 @@ export class CodexSession {
     if (request.approvalPolicy) {
       this.approvalPolicy = request.approvalPolicy;
     }
-    return this.mustSetThreadIdFromResult(result, "thread/fork");
+    return this.extractThreadBootstrapInfo(result, "thread/fork");
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -269,6 +277,15 @@ export class CodexSession {
     return this.sendRequest("account/rateLimits/read", {});
   }
 
+  async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
+    await this.initialize();
+    return this.sendRequest("model/list", {
+      cursor: request.cursor ?? null,
+      limit: request.limit ?? null,
+      includeHidden: request.includeHidden ?? null,
+    }) as Promise<ListModelsResponse>;
+  }
+
   async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
     await this.initialize();
     return this.sendRequest("skills/list", {
@@ -302,7 +319,7 @@ export class CodexSession {
     }) as Promise<SkillsConfigWriteResponse>;
   }
 
-  async startTurn(input: string, approvalPolicy?: ApprovalPolicy): Promise<string | null> {
+  async startTurn(input: string, approvalPolicy?: ApprovalPolicy, model?: string): Promise<string | null> {
     const threadId = await this.ensureThread();
     if (approvalPolicy) {
       this.approvalPolicy = approvalPolicy;
@@ -313,6 +330,7 @@ export class CodexSession {
       threadId,
       approvalPolicy: this.approvalPolicy,
       input: [{ type: "text", text: input }],
+      ...(model ? { model } : {}),
     });
 
     const turnId = extractTurnId(result);
@@ -380,6 +398,17 @@ export class CodexSession {
     }
     this.threadId = threadId;
     return threadId;
+  }
+
+  private extractThreadBootstrapInfo(result: unknown, method: string): ThreadBootstrapInfo {
+    const threadId = this.mustSetThreadIdFromResult(result, method);
+    const record = asRecord(result);
+    const thread = asRecord(record.thread);
+    return {
+      threadId,
+      model: asString(record.model),
+      modelProvider: asString(record.modelProvider) ?? asString(thread.modelProvider),
+    };
   }
 
   private mapDecisionPayload(method: string, decision: string): Record<string, unknown> {

@@ -10,6 +10,8 @@ import type {
   GetThreadStateResponse,
   ListLoadedThreadsRequest,
   ListLoadedThreadsResponse,
+  ListModelsRequest,
+  ListModelsResponse,
   ListStoredThreadsRequest,
   ListStoredThreadsResponse,
   ReadThreadRequest,
@@ -32,6 +34,7 @@ import type {
   SteerTurnResponse,
   SubmitTurnRequest,
   SubmitTurnResponse,
+  ThreadModelState,
 } from "../../shared/protocol/requests.js";
 import {
   ConversationRoutingService,
@@ -211,6 +214,18 @@ export class ConversationService {
 
   readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
     return this.manager.readAccountRateLimits();
+  }
+
+  listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
+    return this.manager.listModels(request);
+  }
+
+  getThreadModel(threadId: string): ThreadModelState {
+    return this.manager.getThreadModel(threadId);
+  }
+
+  setThreadModel(threadId: string, model: string): ThreadModelState {
+    return this.manager.setThreadModel(threadId, model);
   }
 
   listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {

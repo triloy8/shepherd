@@ -241,6 +241,7 @@ export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
   return {
     input: value.input.trim(),
     approvalPolicy: value.approvalPolicy as ApprovalPolicy | undefined,
+    model: parseOptionalString(value.model, "model"),
   };
 }
 

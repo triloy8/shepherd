@@ -38,6 +38,7 @@ export interface CreateThreadResponse {
 export interface SubmitTurnRequest {
   input: string;
   approvalPolicy?: ApprovalPolicy;
+  model?: string;
 }
 
 export interface SubmitTurnResponse {
@@ -221,6 +222,34 @@ export interface ThreadTokenUsage {
 export interface ReadThreadTokenUsageResponse {
   threadId: string;
   tokenUsage: ThreadTokenUsage | null;
+}
+
+export interface ListModelsRequest {
+  cursor?: string;
+  limit?: number;
+  includeHidden?: boolean;
+}
+
+export interface ModelSummary {
+  id: string;
+  model: string;
+  displayName: string;
+  description: string;
+  hidden: boolean;
+  isDefault: boolean;
+  supportsPersonality: boolean;
+}
+
+export interface ListModelsResponse {
+  data: ModelSummary[];
+  nextCursor: string | null;
+}
+
+export interface ThreadModelState {
+  threadId: string;
+  currentModel: string | null;
+  modelProvider: string | null;
+  pendingModel: string | null;
 }
 
 export type HazelnutScope = "example" | "workspace-shared" | "all-shared" | "personal";

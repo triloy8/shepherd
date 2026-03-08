@@ -16,9 +16,12 @@ import type {
   GetThreadStateResponse,
   ListLoadedThreadsRequest,
   ListLoadedThreadsResponse,
+  ListModelsRequest,
+  ListModelsResponse,
   ListStoredThreadsRequest,
   ListStoredThreadsResponse,
   ListThreadsResponse,
+  ThreadModelState,
   ReadThreadRequest,
   ReadThreadResponse,
   ReadThreadTokenUsageResponse,
@@ -50,6 +53,12 @@ interface ManagedSession {
   session: CodexSession;
   createdAt: string;
 }
+
+type ManagedModelState = {
+  currentModel: string | null;
+  modelProvider: string | null;
+  pendingModel: string | null;
+};
 
 type ThreadListRawResponse = {
   data?: ThreadRecord[];
@@ -107,15 +116,21 @@ export class SessionManager {
   private approvals = new ApprovalsStore();
   private tokenUsageByThread = new Map<string, ThreadTokenUsage>();
   private cwdByThread = new Map<string, string>();
+  private modelStateByThread = new Map<string, ManagedModelState>();
   private controlSession: CodexSession | null = null;
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
     const approvalPolicy = request.approvalPolicy ?? "on-request";
     const managed = await this.createManagedSession(approvalPolicy);
-    const threadId = await managed.session.startThread(request);
-    this.sessionsByThread.set(threadId, managed);
-    this.cwdByThread.set(threadId, request.cwd);
-    return { threadId, sessionId: managed.session.sessionId };
+    const created = await managed.session.startThread(request);
+    this.sessionsByThread.set(created.threadId, managed);
+    this.cwdByThread.set(created.threadId, request.cwd);
+    this.modelStateByThread.set(created.threadId, {
+      currentModel: created.model,
+      modelProvider: created.modelProvider,
+      pendingModel: null,
+    });
+    return { threadId: created.threadId, sessionId: managed.session.sessionId };
   }
 
   async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ResumeThreadResponse> {
@@ -126,19 +141,29 @@ export class SessionManager {
 
     const approvalPolicy = request.approvalPolicy ?? "on-request";
     const managed = await this.createManagedSession(approvalPolicy);
-    const resumedThreadId = await managed.session.resumeThread(threadId, request);
-    this.sessionsByThread.set(resumedThreadId, managed);
-    this.cwdByThread.set(resumedThreadId, request.cwd);
-    return { threadId: resumedThreadId, sessionId: managed.session.sessionId };
+    const resumed = await managed.session.resumeThread(threadId, request);
+    this.sessionsByThread.set(resumed.threadId, managed);
+    this.cwdByThread.set(resumed.threadId, request.cwd);
+    this.modelStateByThread.set(resumed.threadId, {
+      currentModel: resumed.model,
+      modelProvider: resumed.modelProvider,
+      pendingModel: null,
+    });
+    return { threadId: resumed.threadId, sessionId: managed.session.sessionId };
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
     const approvalPolicy = request.approvalPolicy ?? "on-request";
     const managed = await this.createManagedSession(approvalPolicy);
-    const forkedThreadId = await managed.session.forkThread(threadId, request);
-    this.sessionsByThread.set(forkedThreadId, managed);
-    this.cwdByThread.set(forkedThreadId, request.cwd);
-    return { threadId: forkedThreadId, sessionId: managed.session.sessionId };
+    const forked = await managed.session.forkThread(threadId, request);
+    this.sessionsByThread.set(forked.threadId, managed);
+    this.cwdByThread.set(forked.threadId, request.cwd);
+    this.modelStateByThread.set(forked.threadId, {
+      currentModel: forked.model,
+      modelProvider: forked.modelProvider,
+      pendingModel: null,
+    });
+    return { threadId: forked.threadId, sessionId: managed.session.sessionId };
   }
 
   listThreads(): ListThreadsResponse {
@@ -231,6 +256,58 @@ export class SessionManager {
     };
   }
 
+  async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
+    const session = await this.getControlSession();
+    const raw = asRecord(await session.listModels(request));
+    const items = Array.isArray(raw.data) ? raw.data : [];
+    return {
+      data: items.map((item) => {
+        const record = asRecord(item);
+        return {
+          id: asString(record.id) ?? asString(record.model) ?? "unknown",
+          model: asString(record.model) ?? "unknown",
+          displayName: asString(record.displayName) ?? asString(record.model) ?? "unknown",
+          description: asString(record.description) ?? "",
+          hidden: record.hidden === true,
+          isDefault: record.isDefault === true,
+          supportsPersonality: record.supportsPersonality === true,
+        };
+      }),
+      nextCursor: asString(raw.nextCursor),
+    };
+  }
+
+  getThreadModel(threadId: string): ThreadModelState {
+    this.mustGet(threadId);
+    const state = this.modelStateByThread.get(threadId);
+    return {
+      threadId,
+      currentModel: state?.currentModel ?? null,
+      modelProvider: state?.modelProvider ?? null,
+      pendingModel: state?.pendingModel ?? null,
+    };
+  }
+
+  setThreadModel(threadId: string, model: string): ThreadModelState {
+    this.mustGet(threadId);
+    const current = this.modelStateByThread.get(threadId) ?? {
+      currentModel: null,
+      modelProvider: null,
+      pendingModel: null,
+    };
+    const next = {
+      ...current,
+      pendingModel: model,
+    };
+    this.modelStateByThread.set(threadId, next);
+    return {
+      threadId,
+      currentModel: next.currentModel,
+      modelProvider: next.modelProvider,
+      pendingModel: next.pendingModel,
+    };
+  }
+
   async listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
     const managed = this.mustGet(threadId);
     const cwds = request.cwds ?? [await this.resolveThreadCwd(threadId)];
@@ -284,7 +361,16 @@ export class SessionManager {
 
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     const managed = this.mustGet(threadId);
-    const turnId = await managed.session.startTurn(request.input, request.approvalPolicy);
+    const modelState = this.modelStateByThread.get(threadId);
+    const model = request.model ?? modelState?.pendingModel ?? undefined;
+    const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model);
+    if (model) {
+      this.modelStateByThread.set(threadId, {
+        currentModel: model,
+        modelProvider: modelState?.modelProvider ?? null,
+        pendingModel: null,
+      });
+    }
     return { ok: true, turnId };
   }
 
@@ -356,6 +442,7 @@ export class SessionManager {
     this.sessionsByThread.clear();
     this.tokenUsageByThread.clear();
     this.cwdByThread.clear();
+    this.modelStateByThread.clear();
     this.controlSession?.stop();
     this.controlSession = null;
   }

@@ -37,6 +37,7 @@ type StreamState = {
   lastPhase: MessagePhase | null;
   lastItemId: string | null;
   commentaryOpen: boolean;
+  commentaryLineStart: boolean;
   timer: NodeJS.Timeout | null;
   flushing: boolean;
   pendingFlush: boolean;
@@ -81,8 +82,26 @@ function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT
 }
 
 export function phaseHeader(phase: MessagePhase, hasExistingText: boolean): string {
-  const label = phase === "commentary" ? "🧠 Working" : "📦 Final Answer";
+  if (phase === "commentary") {
+    return "";
+  }
+  const label = "📦 Final Answer";
   return hasExistingText ? `\n\n**${label}**\n\n` : `**${label}**\n\n`;
+}
+
+export function formatCommentaryDelta(delta: string, atLineStart: boolean): {
+  text: string;
+  endsAtLineStart: boolean;
+} {
+  if (!delta) {
+    return { text: "", endsAtLineStart: atLineStart };
+  }
+
+  const prefix = atLineStart ? "> " : "";
+  return {
+    text: `${prefix}${delta.replaceAll("\n", "\n> ")}`,
+    endsAtLineStart: delta.endsWith("\n"),
+  };
 }
 
 function pickButtonStyle(decision: string): ButtonStyle {
@@ -328,6 +347,7 @@ export async function startDiscordBot(): Promise<void> {
           lastPhase: null,
           lastItemId: null,
           commentaryOpen: false,
+          commentaryLineStart: true,
           timer: null,
           flushing: false,
           pendingFlush: false,
@@ -335,8 +355,8 @@ export async function startDiscordBot(): Promise<void> {
       const phase = payload.phase;
       const itemId = payload.itemId ?? null;
       if (state.lastPhase === "commentary" && phase !== "commentary" && state.commentaryOpen) {
-        state.text += "*";
         state.commentaryOpen = false;
+        state.commentaryLineStart = true;
       }
       if ((phase === "commentary" || phase === "final_answer") && phase !== state.lastPhase) {
         state.text += phaseHeader(phase, state.text.length > 0);
@@ -345,18 +365,25 @@ export async function startDiscordBot(): Promise<void> {
       if (phase === "commentary") {
         const switchedItem = Boolean(itemId && state.lastItemId && itemId !== state.lastItemId);
         if (switchedItem && state.commentaryOpen) {
-          state.text += "*";
+          if (!state.text.endsWith("\n")) {
+            state.text += "\n";
+          }
           state.commentaryOpen = false;
+          state.commentaryLineStart = true;
         }
         if (!state.commentaryOpen) {
           if (!state.text.endsWith("\n")) {
             state.text += "\n";
           }
-          state.text += "| *";
           state.commentaryOpen = true;
+          state.commentaryLineStart = true;
         }
+        const formatted = formatCommentaryDelta(delta, state.commentaryLineStart);
+        state.text += formatted.text;
+        state.commentaryLineStart = formatted.endsAtLineStart;
+      } else {
+        state.text += delta;
       }
-      state.text += delta;
       if (itemId) {
         state.lastItemId = itemId;
       }
@@ -381,8 +408,8 @@ export async function startDiscordBot(): Promise<void> {
     if (event.type === "turn.completed" || event.type === "turn.failed") {
       const state = streamByChannel.get(channelId);
       if (state?.commentaryOpen) {
-        state.text += "*";
         state.commentaryOpen = false;
+        state.commentaryLineStart = true;
       }
       if (state?.timer) {
         clearTimeout(state.timer);

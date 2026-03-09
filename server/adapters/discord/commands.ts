@@ -788,6 +788,11 @@ export async function handleMessage(
     return { handled: true, threadId: target, input: null };
   }
 
+  if (command.startsWith("!")) {
+    await message.reply(`Unknown command: \`${command}\`. Use \`!help\` to inspect available commands.`);
+    return { handled: true, threadId: null, input: null };
+  }
+
   const threadId = await context.ensureChannelThread(channelId);
   return { handled: false, threadId, input: content };
 }

@@ -217,4 +217,16 @@ describe("Discord !skill commands", () => {
       "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
     ]);
   });
+
+  test("rejects unknown bang commands instead of treating them as conversation input", async () => {
+    const { message, replies } = makeMessage("!doesnotexist");
+    const { context } = makeContext();
+
+    const result = await handleMessage(message as never, context);
+
+    expect(result).toEqual({ handled: true, threadId: null, input: null });
+    expect(replies).toEqual([
+      "Unknown command: `!doesnotexist`. Use `!help` to inspect available commands.",
+    ]);
+  });
 });

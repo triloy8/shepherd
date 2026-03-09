@@ -317,6 +317,7 @@ export async function startDiscordBot(): Promise<void> {
         lastPhase: null,
         lastItemId: null,
         commentaryOpen: false,
+        commentaryLineStart: true,
         timer: null,
         flushing: false,
         pendingFlush: false,

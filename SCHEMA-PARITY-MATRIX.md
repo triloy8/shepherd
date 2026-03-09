@@ -24,13 +24,13 @@ Status legend:
 | `thread/unsubscribe` | Missing | Maybe Later | Useful for lifecycle cleanup/stream controls; not required for current correctness |
 | `turn/start` | Partial | Core | Uses text input path; no richer turn controls |
 | `turn/interrupt` | Implemented | Core | |
-| `turn/steer` | Implemented | Core | Exposed via HTTP `POST /api/threads/:id/turns/steer`; Discord mentions steer active turns |
+| `turn/steer` | Implemented | Core | Exposed through Discord mention steering of active turns |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
 | `model/list` | Implemented | Core | Exposed via Discord `!models` |
-| `skills/list` | Implemented | Core | Wrapped in core and exposed via HTTP `GET /api/skills` + Discord `!skills` |
-| `skills/remote/list` | Implemented | Core | Wrapped in core and exposed via HTTP `GET /api/skills/remote` + Discord `!skills remote` |
-| `skills/remote/export` | Implemented | Core | Wrapped in core and exposed via HTTP `POST /api/skills/remote/export` + Discord `!skill export` |
-| `skills/config/write` | Implemented | Core | Wrapped in core and exposed via HTTP `POST /api/skills/config` + Discord `!skill enable|disable` |
+| `skills/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills` |
+| `skills/remote/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills remote` |
+| `skills/remote/export` | Implemented | Core | Wrapped in core and exposed via Discord `!skill export` |
+| `skills/config/write` | Implemented | Core | Wrapped in core and exposed via Discord `!skill enable|disable` |
 | `mcpServer/oauth/login` | Missing | Out of Scope (for now) | |
 | `mcpServerStatus/list` | Missing | Out of Scope (for now) | |
 | `config/mcpServer/reload` | Missing | Out of Scope (for now) | |
@@ -46,7 +46,7 @@ Status legend:
 | `externalAgentConfig/detect` | Missing | Out of Scope (for now) | |
 | `externalAgentConfig/import` | Missing | Out of Scope (for now) | |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
-| `account/rateLimits/read` | Implemented | Core | Exposed via Discord `!limits` and HTTP `GET /api/account/rate-limits` |
+| `account/rateLimits/read` | Implemented | Core | Exposed via Discord `!limits` |
 | `account/login/start` | Missing | Out of Scope (for now) | |
 | `account/login/cancel` | Missing | Out of Scope (for now) | |
 | `account/logout` | Missing | Out of Scope (for now) | |

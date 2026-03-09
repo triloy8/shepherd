@@ -1,26 +1,20 @@
 {
   "type": "module",
   "scripts": {
-    "build": "vite build && tsc -p tsconfig.server.json",
-    "serve": "bun run server/index.ts",
-    "dev": "bun --watch run server/index.ts",
-    "build:bin": "bun build --compile server/index.ts --outfile release/shepherd",
-    "build:bin:discord": "bun build --compile server/adapters/discord/bot.ts --outfile release/shepherd-discord",
-    "build:bin:all": "bun run build:bin && bun run build:bin:discord",
+    "build": "tsc -p tsconfig.server.json",
+    "serve": "bun run server/adapters/discord/bot.ts",
+    "dev": "bun --watch run server/adapters/discord/bot.ts",
+    "build:bin": "bun build --compile server/adapters/discord/bot.ts --outfile release/shepherd-discord",
     "start:discord": "bun run server/adapters/discord/bot.ts",
     "dev:discord:watch": "bun --watch run server/adapters/discord/bot.ts",
     "dev:discord": "bun run build && bun run start:discord"
   },
   "dependencies": {
-    "solid-js": "^1.9.4",
     "discord.js": "^14.22.1"
   },
   "devDependencies": {
     "@types/node": "^22.18.5",
-    "playwright": "^1.58.2",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.3",
-    "vite-plugin-solid": "^2.11.8"
+    "typescript": "^5.9.3"
   }
 }

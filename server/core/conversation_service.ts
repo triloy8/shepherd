@@ -52,6 +52,7 @@ import {
 } from "./conversation_routing_service.js";
 import { SessionManager } from "./session_manager.js";
 import { WorkspaceService } from "./workspace_service.js";
+import { GitHubWorkspaceProvider, LocalWorkspaceProvider } from "./workspace_providers.js";
 
 type EventCursorOptions = string | { afterId?: string; replay?: boolean } | undefined;
 
@@ -79,7 +80,10 @@ export class ConversationService {
   constructor(options: ConversationServiceOptions = {}) {
     this.manager = new SessionManager();
     this.routing = new ConversationRoutingService(this.manager, options.routing);
-    this.workspaces = new WorkspaceService();
+    this.workspaces = new WorkspaceService([
+      new GitHubWorkspaceProvider(),
+      new LocalWorkspaceProvider(),
+    ]);
   }
 
   getSurfaceThread(adapter: string, surfaceId: string): string | null {

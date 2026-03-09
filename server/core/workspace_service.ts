@@ -1,10 +1,3 @@
-import path from "node:path";
-import { homedir } from "node:os";
-import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import type {
   WorkspaceTarget,
   CreateThreadRequest,
@@ -12,38 +5,30 @@ import type {
   ResumeThreadRequest,
 } from "../../shared/protocol/requests.js";
 
-const execFileAsync = promisify(execFile);
-
-function toSurfaceKey(adapter: string, surfaceId: string): string {
-  return `${adapter}:${surfaceId}`;
-}
-
-function repoNameFromSlug(slug: string): string {
-  return slug.split("/")[1] ?? slug;
-}
-
-async function runGh(args: string[]): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync("gh", args, {
-      cwd: process.cwd(),
-      env: process.env,
-      maxBuffer: 1024 * 1024 * 10,
-    });
-    return stdout.trim();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`gh ${args.join(" ")} failed: ${message}`);
-  }
-}
-
 export type MaterializedWorkspace = {
   workspaceId: string;
   cwd: string;
   target: WorkspaceTarget;
 };
 
+export interface WorkspaceProvider<T extends WorkspaceTarget = WorkspaceTarget> {
+  kind: T["kind"];
+  materialize(target: T): Promise<MaterializedWorkspace>;
+}
+
+function toSurfaceKey(adapter: string, surfaceId: string): string {
+  return `${adapter}:${surfaceId}`;
+}
+
 export class WorkspaceService {
   private readonly targetsBySurface = new Map<string, WorkspaceTarget>();
+  private readonly providers = new Map<WorkspaceTarget["kind"], WorkspaceProvider>();
+
+  constructor(providers: WorkspaceProvider[] = []) {
+    for (const provider of providers) {
+      this.providers.set(provider.kind, provider);
+    }
+  }
 
   getSurfaceTarget(adapter: string, surfaceId: string): WorkspaceTarget | null {
     return this.targetsBySurface.get(toSurfaceKey(adapter, surfaceId)) ?? null;
@@ -66,23 +51,11 @@ export class WorkspaceService {
   }
 
   async materializeTarget(target: WorkspaceTarget): Promise<MaterializedWorkspace> {
-    const workspaceId = randomUUID();
-    if (target.kind === "github") {
-      const repoName = repoNameFromSlug(target.repoSlug);
-      const workspacePath = path.join(homedir(), ".agent-workspaces", repoName, workspaceId);
-      const marker = path.join(workspacePath, ".git");
-      try {
-        await fs.stat(marker);
-      } catch {
-        await fs.mkdir(path.dirname(workspacePath), { recursive: true });
-        await runGh(["repo", "clone", target.repoSlug, workspacePath, "--", "--recurse-submodules"]);
-      }
-      return { workspaceId, cwd: workspacePath, target };
+    const provider = this.providers.get(target.kind);
+    if (!provider) {
+      throw new Error(`No workspace provider registered for target kind ${target.kind}.`);
     }
-
-    const cwd = target.appendWorkspaceId ? path.join(target.rootPath, workspaceId) : target.rootPath;
-    await fs.mkdir(cwd, { recursive: true });
-    return { workspaceId, cwd, target };
+    return provider.materialize(target);
   }
 
   applyCwdToCreateRequest(request: Omit<CreateThreadRequest, "cwd">, cwd: string): CreateThreadRequest {

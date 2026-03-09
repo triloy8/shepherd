@@ -1,13 +1,36 @@
 import { describe, expect, test } from "bun:test";
 
-import { phaseHeader } from "../server/adapters/discord/bot.js";
+import { formatCommentaryDelta, phaseHeader } from "../server/adapters/discord/bot.js";
 
 describe("Discord bot phaseHeader", () => {
-  test("adds a blank line after the working title at the start of a message", () => {
-    expect(phaseHeader("commentary", false)).toBe("**🧠 Working**\n\n");
+  test("omits a heading for commentary updates", () => {
+    expect(phaseHeader("commentary", false)).toBe("");
   });
 
   test("adds spacing before and after the final answer title when appending", () => {
     expect(phaseHeader("final", true)).toBe("\n\n**📦 Final Answer**\n\n");
+  });
+});
+
+describe("Discord bot commentary formatting", () => {
+  test("prefixes each commentary line with a blockquote marker", () => {
+    expect(formatCommentaryDelta("first line\nsecond line", true)).toEqual({
+      text: "> first line\n> second line",
+      endsAtLineStart: false,
+    });
+  });
+
+  test("continues an existing commentary line without adding an extra prefix", () => {
+    expect(formatCommentaryDelta("continued", false)).toEqual({
+      text: "continued",
+      endsAtLineStart: false,
+    });
+  });
+
+  test("marks the next chunk as starting on a new quoted line after a newline", () => {
+    expect(formatCommentaryDelta("line one\n", true)).toEqual({
+      text: "> line one\n> ",
+      endsAtLineStart: true,
+    });
   });
 });

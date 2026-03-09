@@ -2,17 +2,24 @@ import type {
   ApprovalDecisionApiRequest,
   ApprovalPolicy,
   CreateThreadRequest,
+  CreateSurfaceThreadRequest,
   ForkThreadRequest,
+  ForkSurfaceThreadRequest,
   ListLoadedThreadsRequest,
+  ListModelsRequest,
   ListStoredThreadsRequest,
   ProductSurface,
   Personality,
   ReadThreadRequest,
   ResumeThreadRequest,
+  ResumeSurfaceThreadRequest,
   RollbackThreadRequest,
   SandboxMode,
   SteerTurnRequest,
+  SubmitSurfaceTurnRequest,
   SetThreadNameRequest,
+  SetSurfaceWorkspaceTargetRequest,
+  SetThreadModelRequest,
   SkillsConfigWriteRequest,
   SkillsListRequest,
   SkillsRemoteExportRequest,
@@ -22,6 +29,7 @@ import type {
   ThreadSortKey,
   ThreadSourceKind,
   SubmitTurnRequest,
+  WorkspaceTarget,
 } from "./requests.js";
 
 const APPROVAL_POLICIES: ApprovalPolicy[] = ["untrusted", "on-failure", "on-request", "never"];
@@ -120,6 +128,37 @@ function parseCommonThreadOverrides(value: Record<string, unknown>) {
   };
 }
 
+function parseWorkspaceTarget(value: unknown): WorkspaceTarget {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw new Error("Invalid workspace target.");
+  }
+
+  if (value.kind === "github") {
+    const repoSlug = parseOptionalString(value.repoSlug, "repoSlug");
+    const display = parseOptionalString(value.display, "display");
+    if (!repoSlug || !display) {
+      throw new Error("Invalid github workspace target.");
+    }
+    return { kind: "github", repoSlug, display };
+  }
+
+  if (value.kind === "local") {
+    const rootPath = parseOptionalString(value.rootPath, "rootPath");
+    const display = parseOptionalString(value.display, "display");
+    if (!rootPath || !display) {
+      throw new Error("Invalid local workspace target.");
+    }
+    return {
+      kind: "local",
+      rootPath,
+      display,
+      appendWorkspaceId: parseOptionalBoolean(value.appendWorkspaceId, "appendWorkspaceId") ?? false,
+    };
+  }
+
+  throw new Error("Invalid workspace target.");
+}
+
 function parseOptionalStringList(value: unknown, name: string): string[] | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (Array.isArray(value)) {
@@ -171,6 +210,15 @@ export function validateListLoadedThreadsRequest(value: unknown): ListLoadedThre
   };
 }
 
+export function validateListModelsRequest(value: unknown): ListModelsRequest {
+  if (!isRecord(value)) throw new Error("Invalid list models payload.");
+  return {
+    cursor: parseOptionalString(value.cursor, "cursor"),
+    limit: parseOptionalPositiveInteger(value.limit, "limit"),
+    includeHidden: parseOptionalBoolean(value.includeHidden, "includeHidden"),
+  };
+}
+
 export function validateReadThreadRequest(value: unknown): ReadThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid read thread payload.");
   return {
@@ -215,11 +263,55 @@ export function validateForkThreadRequest(value: unknown): ForkThreadRequest {
   };
 }
 
+export function validateCreateSurfaceThreadRequest(value: unknown): CreateSurfaceThreadRequest {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const overrides = parseCommonThreadOverrides(value);
+  return {
+    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
+    ...overrides,
+    personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
+    ephemeral: parseOptionalBoolean(value.ephemeral, "ephemeral"),
+    serviceName: parseOptionalString(value.serviceName, "serviceName"),
+  };
+}
+
+export function validateResumeSurfaceThreadRequest(value: unknown): ResumeSurfaceThreadRequest {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const overrides = parseCommonThreadOverrides(value);
+  return {
+    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
+    ...overrides,
+    personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
+  };
+}
+
+export function validateForkSurfaceThreadRequest(value: unknown): ForkSurfaceThreadRequest {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const overrides = parseCommonThreadOverrides(value);
+  return {
+    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
+    ...overrides,
+  };
+}
+
 export function validateSetThreadNameRequest(value: unknown): SetThreadNameRequest {
   if (!isRecord(value) || typeof value.name !== "string" || !value.name.trim()) {
     throw new Error("Invalid thread name.");
   }
   return { name: value.name.trim() };
+}
+
+export function validateSetThreadModelRequest(value: unknown): SetThreadModelRequest {
+  if (!isRecord(value) || typeof value.model !== "string" || !value.model.trim()) {
+    throw new Error("Invalid model.");
+  }
+  return { model: value.model.trim() };
 }
 
 export function validateRollbackThreadRequest(value: unknown): RollbackThreadRequest {
@@ -266,6 +358,31 @@ export function validateSteerTurnRequest(value: unknown): SteerTurnRequest {
     input: value.input.trim(),
     turnId: value.turnId as string | undefined,
   };
+}
+
+export function validateSubmitSurfaceTurnRequest(value: unknown): SubmitSurfaceTurnRequest {
+  if (!isRecord(value) || typeof value.input !== "string" || !value.input.trim()) {
+    throw new Error("Invalid surface turn payload.");
+  }
+  if (value.approvalPolicy && !APPROVAL_POLICIES.includes(value.approvalPolicy as ApprovalPolicy)) {
+    throw new Error("Invalid approval policy.");
+  }
+  return {
+    input: value.input.trim(),
+    approvalPolicy: value.approvalPolicy as ApprovalPolicy | undefined,
+    model: parseOptionalString(value.model, "model"),
+    explicitThreadId: parseOptionalString(value.explicitThreadId, "explicitThreadId"),
+    autoCreateIfMissing: parseOptionalBoolean(value.autoCreateIfMissing, "autoCreateIfMissing"),
+    autoSteerActiveTurn: parseOptionalBoolean(value.autoSteerActiveTurn, "autoSteerActiveTurn"),
+    sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
+  };
+}
+
+export function validateSetSurfaceWorkspaceTargetRequest(value: unknown): SetSurfaceWorkspaceTargetRequest {
+  if (!isRecord(value)) {
+    throw new Error("Invalid workspace target payload.");
+  }
+  return { target: parseWorkspaceTarget(value.target) };
 }
 
 export function validateApprovalDecisionRequest(value: unknown): ApprovalDecisionApiRequest {

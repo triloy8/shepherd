@@ -5,8 +5,10 @@ import type {
   ApprovalPolicy,
   CreateThreadRequest,
   CreateThreadResponse,
+  CreateSurfaceThreadRequest,
   ForkThreadRequest,
   ForkThreadResponse,
+  ForkSurfaceThreadRequest,
   GetThreadStateResponse,
   ListLoadedThreadsRequest,
   ListLoadedThreadsResponse,
@@ -19,9 +21,13 @@ import type {
   ReadThreadTokenUsageResponse,
   ResumeThreadRequest,
   ResumeThreadResponse,
+  ResumeSurfaceThreadRequest,
   RollbackThreadRequest,
   RollbackThreadResponse,
   SetThreadNameRequest,
+  SetThreadModelRequest,
+  SubmitSurfaceTurnRequest,
+  SubmitSurfaceTurnResponse,
   SkillsConfigWriteRequest,
   SkillsConfigWriteResponse,
   SkillsListRequest,
@@ -34,7 +40,9 @@ import type {
   SteerTurnResponse,
   SubmitTurnRequest,
   SubmitTurnResponse,
+  SurfaceStateResponse,
   ThreadModelState,
+  WorkspaceTarget,
 } from "../../shared/protocol/requests.js";
 import {
   ConversationRoutingService,
@@ -43,6 +51,7 @@ import {
   type ResolveRouteResult,
 } from "./conversation_routing_service.js";
 import { SessionManager } from "./session_manager.js";
+import { WorkspaceService } from "./workspace_service.js";
 
 type EventCursorOptions = string | { afterId?: string; replay?: boolean } | undefined;
 
@@ -64,11 +73,13 @@ export type ConversationServiceOptions = {
 export class ConversationService {
   private readonly manager: SessionManager;
   private readonly routing: ConversationRoutingService;
+  private readonly workspaces: WorkspaceService;
   private readonly subscriptionsBySurface = new Map<string, SurfaceSubscription>();
 
   constructor(options: ConversationServiceOptions = {}) {
     this.manager = new SessionManager();
     this.routing = new ConversationRoutingService(this.manager, options.routing);
+    this.workspaces = new WorkspaceService();
   }
 
   getSurfaceThread(adapter: string, surfaceId: string): string | null {
@@ -153,6 +164,117 @@ export class ConversationService {
     return created;
   }
 
+  getSurfaceState(adapter: string, surfaceId: string): SurfaceStateResponse {
+    return {
+      adapter,
+      surfaceId,
+      activeThreadId: this.routing.getDefaultThread(adapter, surfaceId),
+      attachedThreadIds: this.routing.getAttachedThreads(adapter, surfaceId),
+      workspaceTarget: this.workspaces.getSurfaceTarget(adapter, surfaceId),
+    };
+  }
+
+  getSurfaceWorkspaceTarget(adapter: string, surfaceId: string): WorkspaceTarget | null {
+    return this.workspaces.getSurfaceTarget(adapter, surfaceId);
+  }
+
+  setSurfaceWorkspaceTarget(adapter: string, surfaceId: string, target: WorkspaceTarget): WorkspaceTarget {
+    this.workspaces.setSurfaceTarget(adapter, surfaceId, target);
+    return target;
+  }
+
+  async createSurfaceThreadFromContext(
+    adapter: string,
+    surfaceId: string,
+    request: CreateSurfaceThreadRequest,
+  ): Promise<CreateThreadResponse> {
+    const workspace = await this.workspaces.materializeSurfaceWorkspace(adapter, surfaceId);
+    return this.createSurfaceThread(
+      adapter,
+      surfaceId,
+      this.workspaces.applyCwdToCreateRequest(request, workspace.cwd),
+    );
+  }
+
+  async resumeSurfaceThreadFromContext(
+    adapter: string,
+    surfaceId: string,
+    threadId: string,
+    request: ResumeSurfaceThreadRequest,
+  ): Promise<ResumeThreadResponse> {
+    const workspace = await this.workspaces.materializeSurfaceWorkspace(adapter, surfaceId);
+    const resumed = await this.manager.resumeThread(
+      threadId,
+      this.workspaces.applyCwdToResumeRequest(request, workspace.cwd),
+    );
+    await this.bindSurfaceToThread(adapter, surfaceId, resumed.threadId);
+    return resumed;
+  }
+
+  async forkSurfaceThreadFromContext(
+    adapter: string,
+    surfaceId: string,
+    threadId: string,
+    request: ForkSurfaceThreadRequest,
+  ): Promise<ForkThreadResponse> {
+    const workspace = await this.workspaces.materializeSurfaceWorkspace(adapter, surfaceId);
+    const forked = await this.manager.forkThread(
+      threadId,
+      this.workspaces.applyCwdToForkRequest(request, workspace.cwd),
+    );
+    await this.bindSurfaceToThread(adapter, surfaceId, forked.threadId);
+    return forked;
+  }
+
+  async submitSurfaceTurn(
+    adapter: string,
+    surfaceId: string,
+    request: SubmitSurfaceTurnRequest,
+  ): Promise<SubmitSurfaceTurnResponse> {
+    let threadId = request.explicitThreadId ?? this.routing.getDefaultThread(adapter, surfaceId);
+
+    if (!threadId) {
+      if (request.autoCreateIfMissing === false) {
+        throw new Error("No routing target available for this surface.");
+      }
+      const created = await this.createSurfaceThreadFromContext(adapter, surfaceId, {
+        approvalPolicy: request.approvalPolicy,
+        sandbox: request.sandbox,
+      });
+      threadId = created.threadId;
+    } else if (request.explicitThreadId) {
+      try {
+        await this.bindSurfaceToThread(adapter, surfaceId, threadId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes("not loaded")) {
+          throw error;
+        }
+        const resumed = await this.resumeSurfaceThreadFromContext(adapter, surfaceId, threadId, {
+          approvalPolicy: request.approvalPolicy,
+          sandbox: request.sandbox,
+        });
+        threadId = resumed.threadId;
+      }
+    }
+
+    const state = this.manager.getThreadState(threadId);
+    if (request.autoSteerActiveTurn && state.activeTurnId) {
+      const steered = await this.manager.steerTurn(threadId, {
+        input: request.input,
+        turnId: state.activeTurnId,
+      });
+      return { threadId, action: "steered", turnId: steered.turnId };
+    }
+
+    const submitted = await this.manager.submitTurn(threadId, {
+      input: request.input,
+      approvalPolicy: request.approvalPolicy,
+      model: request.model,
+    });
+    return { threadId, action: "submitted", turnId: submitted.turnId };
+  }
+
   async submitSurfaceInput(
     input: ResolveRouteInput & { text: string; approvalPolicy?: ApprovalPolicy },
   ): Promise<{ threadId: string; turn: SubmitTurnResponse; route: ResolveRouteResult }> {
@@ -226,6 +348,10 @@ export class ConversationService {
 
   setThreadModel(threadId: string, model: string): ThreadModelState {
     return this.manager.setThreadModel(threadId, model);
+  }
+
+  setThreadModelFromRequest(threadId: string, request: SetThreadModelRequest): ThreadModelState {
+    return this.manager.setThreadModel(threadId, request.model);
   }
 
   listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {

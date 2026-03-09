@@ -2,6 +2,7 @@ import type { ConversationService } from "../../core/conversation_service.js";
 import { handleApprovalDecision, handleListApprovals } from "./routes/approvals.js";
 import { handleGetAccountRateLimits } from "./routes/account.js";
 import { handleEventsSse } from "./routes/events.js";
+import { handleGetThreadModel, handleListModels, handleSetThreadModel } from "./routes/models.js";
 import { isAuthorized } from "./routes/auth.js";
 import {
   handleExportRemoteSkill,
@@ -9,6 +10,14 @@ import {
   handleListSkills,
   handleWriteSkillConfig,
 } from "./routes/skills.js";
+import {
+  handleCreateSurfaceThread,
+  handleForkSurfaceThread,
+  handleGetSurfaceState,
+  handleResumeSurfaceThread,
+  handleSetSurfaceWorkspaceTarget,
+  handleSubmitSurfaceTurn,
+} from "./routes/surfaces.js";
 import {
   handleArchiveThread,
   handleCompactThread,
@@ -76,6 +85,10 @@ export function startHttpServer(conversation: ConversationService, host: string,
         return handleGetAccountRateLimits(conversation);
       }
 
+      if (method === "GET" && url.pathname === "/api/models") {
+        return handleListModels(request, conversation);
+      }
+
       if (method === "GET" && url.pathname === "/api/skills") {
         return handleListSkills(request, conversation);
       }
@@ -113,6 +126,14 @@ export function startHttpServer(conversation: ConversationService, host: string,
       const threadContextMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/context$/);
       if (method === "GET" && threadContextMatch) {
         return handleGetThreadContext(conversation, threadContextMatch[1]);
+      }
+
+      const threadModelMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/model$/);
+      if (method === "GET" && threadModelMatch) {
+        return handleGetThreadModel(conversation, threadModelMatch[1]);
+      }
+      if (method === "POST" && threadModelMatch) {
+        return handleSetThreadModel(request, conversation, threadModelMatch[1]);
       }
 
       const threadResumeMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/resume$/);
@@ -178,6 +199,67 @@ export function startHttpServer(conversation: ConversationService, host: string,
       const approvalDecisionMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/approvals\/([^/]+)\/decision$/);
       if (method === "POST" && approvalDecisionMatch) {
         return handleApprovalDecision(request, conversation, approvalDecisionMatch[1], approvalDecisionMatch[2]);
+      }
+
+      const surfaceMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)$/);
+      if (method === "GET" && surfaceMatch) {
+        return handleGetSurfaceState(
+          conversation,
+          decodeURIComponent(surfaceMatch[1]),
+          decodeURIComponent(surfaceMatch[2]),
+        );
+      }
+
+      const surfaceTargetMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/workspace-target$/);
+      if (method === "POST" && surfaceTargetMatch) {
+        return handleSetSurfaceWorkspaceTarget(
+          request,
+          conversation,
+          decodeURIComponent(surfaceTargetMatch[1]),
+          decodeURIComponent(surfaceTargetMatch[2]),
+        );
+      }
+
+      const surfaceThreadsMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/threads$/);
+      if (method === "POST" && surfaceThreadsMatch) {
+        return handleCreateSurfaceThread(
+          request,
+          conversation,
+          decodeURIComponent(surfaceThreadsMatch[1]),
+          decodeURIComponent(surfaceThreadsMatch[2]),
+        );
+      }
+
+      const surfaceResumeMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/threads\/([^/]+)\/resume$/);
+      if (method === "POST" && surfaceResumeMatch) {
+        return handleResumeSurfaceThread(
+          request,
+          conversation,
+          decodeURIComponent(surfaceResumeMatch[1]),
+          decodeURIComponent(surfaceResumeMatch[2]),
+          decodeURIComponent(surfaceResumeMatch[3]),
+        );
+      }
+
+      const surfaceForkMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/threads\/([^/]+)\/fork$/);
+      if (method === "POST" && surfaceForkMatch) {
+        return handleForkSurfaceThread(
+          request,
+          conversation,
+          decodeURIComponent(surfaceForkMatch[1]),
+          decodeURIComponent(surfaceForkMatch[2]),
+          decodeURIComponent(surfaceForkMatch[3]),
+        );
+      }
+
+      const surfaceTurnsMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/turns$/);
+      if (method === "POST" && surfaceTurnsMatch) {
+        return handleSubmitSurfaceTurn(
+          request,
+          conversation,
+          decodeURIComponent(surfaceTurnsMatch[1]),
+          decodeURIComponent(surfaceTurnsMatch[2]),
+        );
       }
 
       if (url.pathname.startsWith("/api/tools")) {

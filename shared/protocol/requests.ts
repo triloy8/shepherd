@@ -252,6 +252,85 @@ export interface ThreadModelState {
   pendingModel: string | null;
 }
 
+export interface SetThreadModelRequest {
+  model: string;
+}
+
+export type WorkspaceTarget =
+  | {
+      kind: "github";
+      repoSlug: string;
+      display: string;
+    }
+  | {
+      kind: "local";
+      rootPath: string;
+      display: string;
+      appendWorkspaceId: boolean;
+    };
+
+export interface SurfaceStateResponse {
+  adapter: string;
+  surfaceId: string;
+  activeThreadId: string | null;
+  attachedThreadIds: string[];
+  workspaceTarget: WorkspaceTarget | null;
+}
+
+export interface SetSurfaceWorkspaceTargetRequest {
+  target: WorkspaceTarget;
+}
+
+export interface CreateSurfaceThreadRequest {
+  approvalPolicy?: ApprovalPolicy;
+  baseInstructions?: string;
+  developerInstructions?: string;
+  config?: Record<string, unknown>;
+  personality?: Personality;
+  sandbox?: SandboxMode;
+  model?: string;
+  modelProvider?: string;
+  ephemeral?: boolean;
+  serviceName?: string;
+}
+
+export interface ResumeSurfaceThreadRequest {
+  approvalPolicy?: ApprovalPolicy;
+  baseInstructions?: string;
+  developerInstructions?: string;
+  config?: Record<string, unknown>;
+  personality?: Personality;
+  sandbox?: SandboxMode;
+  model?: string;
+  modelProvider?: string;
+}
+
+export interface ForkSurfaceThreadRequest {
+  approvalPolicy?: ApprovalPolicy;
+  baseInstructions?: string;
+  developerInstructions?: string;
+  config?: Record<string, unknown>;
+  sandbox?: SandboxMode;
+  model?: string;
+  modelProvider?: string;
+}
+
+export interface SubmitSurfaceTurnRequest {
+  input: string;
+  approvalPolicy?: ApprovalPolicy;
+  model?: string;
+  explicitThreadId?: string;
+  autoCreateIfMissing?: boolean;
+  autoSteerActiveTurn?: boolean;
+  sandbox?: SandboxMode;
+}
+
+export interface SubmitSurfaceTurnResponse {
+  threadId: string;
+  action: "submitted" | "steered";
+  turnId: string | null;
+}
+
 export type HazelnutScope = "example" | "workspace-shared" | "all-shared" | "personal";
 export type ProductSurface = "chatgpt" | "codex" | "api" | "atlas";
 export type SkillScope = "user" | "repo" | "system" | "admin";

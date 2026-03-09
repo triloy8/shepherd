@@ -35,7 +35,7 @@ function loadEnvFile(filePath: string): void {
   }
 }
 
-export function loadEnvironment(scope: "http" | "discord" | "all"): void {
+export function loadEnvironment(scope: "discord" | "all"): void {
   const envsDir = path.resolve(process.cwd(), "envs");
   const legacyDir = path.resolve(process.cwd(), "environment");
   const envDir = fs.existsSync(envsDir) ? envsDir : legacyDir;

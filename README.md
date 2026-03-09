@@ -1,25 +1,23 @@
 # Shepherd
 
-This repository has been refactored into a clean architecture split:
+This repository is now focused on the Discord bot path:
 
 - `shared/protocol`: canonical event/request/approval contracts
-- `server/core`: session runtime, approval lifecycle, event bus
-- `server/adapters/http`: HTTP + SSE transport adapter
-- `ui/solid`: Solid UI entrypoint, styles, controller, presentation, and services
+- `server/core`: surface workflow, session runtime, approval lifecycle, and event bus
+- `server/adapters/discord`: Discord transport, commands, interactions, and rendering
+- `envs`: runtime environment templates
 
 ## Run (dev)
 
 1. `bun install`
-2. `bun run build` (build UI assets into `dist/`)
-3. `bun run dev` (single Bun server binary entrypoint with watch mode)
+2. `bun run build`
+3. `bun run dev`
 
 ## Run (production-like)
 
 1. `bun run build`
 2. `bun run serve`
-3. Optional single executable: `bun run build:bin` then run `./release/shepherd`
-4. Optional Discord bot executable: `bun run build:bin:discord` then run `./release/shepherd-discord`
-5. Build both executables: `bun run build:bin:all`
+3. Optional single executable: `bun run build:bin` then run `./release/shepherd-discord`
 
 ## Discord Bot
 
@@ -54,23 +52,15 @@ Bot commands:
 - `!rollback <numTurns> [id]` rollback thread history
 - `!compact [id]` compact thread context
 - `!interrupt` interrupt the active turn for this channel's current thread
-- any normal message sends a turn to Shepherd
+- non-command messages are processed only when the bot is mentioned
 
 Guild message behavior:
 - Shepherd only processes guild channels/threads (DMs are ignored)
 - Non-command messages are processed only when the bot is mentioned (`@Shepherd`)
 - Mentioning the bot while a turn is active steers that in-flight turn instead of starting a new turn
 
-HTTP skills endpoints:
-- `GET /api/skills`
-- `GET /api/skills/remote`
-- `POST /api/skills/remote/export` with `{ "hazelnutId": "..." }`
-- `POST /api/skills/config` with `{ "path": "...", "enabled": true|false }`
-
 Environment variables:
 
-- `HOST` (default `127.0.0.1`)
-- `PORT` (default `8787`)
 - `CODEX_MODEL` (default `gpt-5.3-codex`)
 - `CODEX_APPROVAL_POLICY` (optional, default `on-request`; used as the shared default approval policy)
 - `CODEX_SANDBOX` (optional: `read-only` | `workspace-write` | `danger-full-access`; used as the shared default sandbox)
@@ -78,6 +68,5 @@ Environment variables:
 Runtime env files are loaded from `envs/`:
 
 - `envs/common.env` shared keys
-- `envs/http.env` HTTP adapter keys
 - `envs/discord.env` Discord adapter keys
 - `envs/*.env.example` templates you can copy to `.env`

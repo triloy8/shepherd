@@ -187,6 +187,10 @@ export class ConversationService {
     return target;
   }
 
+  clearSurfaceWorkspaceTarget(adapter: string, surfaceId: string): void {
+    this.workspaces.clearSurfaceTarget(adapter, surfaceId);
+  }
+
   async createSurfaceThreadFromContext(
     adapter: string,
     surfaceId: string,
@@ -358,6 +362,22 @@ export class ConversationService {
     return this.manager.setThreadModel(threadId, request.model);
   }
 
+  getSurfaceContext(adapter: string, surfaceId: string): Promise<ReadThreadTokenUsageResponse> {
+    return this.readThreadTokenUsage(this.requireSurfaceThread(adapter, surfaceId));
+  }
+
+  getSurfaceModel(adapter: string, surfaceId: string): ThreadModelState {
+    return this.getThreadModel(this.requireSurfaceThread(adapter, surfaceId));
+  }
+
+  setSurfaceModel(adapter: string, surfaceId: string, request: SetThreadModelRequest): ThreadModelState {
+    return this.setThreadModelFromRequest(this.requireSurfaceThread(adapter, surfaceId), request);
+  }
+
+  interruptSurfaceTurn(adapter: string, surfaceId: string, turnId?: string): Promise<void> {
+    return this.interruptTurn(this.requireSurfaceThread(adapter, surfaceId), turnId);
+  }
+
   listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
     return this.manager.listSkills(threadId, request);
   }
@@ -440,5 +460,13 @@ export class ConversationService {
       subscription.cursorOrOptions,
     );
     subscription.threadId = threadId;
+  }
+
+  private requireSurfaceThread(adapter: string, surfaceId: string): string {
+    const threadId = this.routing.getDefaultThread(adapter, surfaceId);
+    if (!threadId) {
+      throw new Error("No active thread for this surface.");
+    }
+    return threadId;
   }
 }

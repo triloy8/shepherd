@@ -1,7 +1,7 @@
 import type { ConversationService } from "../../core/conversation_service.js";
 import { handleApprovalDecision, handleListApprovals } from "./routes/approvals.js";
 import { handleGetAccountRateLimits } from "./routes/account.js";
-import { handleEventsSse } from "./routes/events.js";
+import { handleEventsSse, handleSurfaceEventsSse } from "./routes/events.js";
 import { handleGetThreadModel, handleListModels, handleSetThreadModel } from "./routes/models.js";
 import { isAuthorized } from "./routes/auth.js";
 import {
@@ -11,11 +11,19 @@ import {
   handleWriteSkillConfig,
 } from "./routes/skills.js";
 import {
+  handleBindSurfaceThread,
+  handleClearSurfaceThread,
+  handleClearSurfaceWorkspaceTarget,
   handleCreateSurfaceThread,
   handleForkSurfaceThread,
+  handleGetSurfaceContext,
   handleGetSurfaceState,
+  handleGetSurfaceWorkspaceTarget,
+  handleGetSurfaceModel,
+  handleInterruptSurfaceTurn,
   handleResumeSurfaceThread,
   handleSetSurfaceWorkspaceTarget,
+  handleSetSurfaceModel,
   handleSubmitSurfaceTurn,
 } from "./routes/surfaces.js";
 import {
@@ -211,12 +219,43 @@ export function startHttpServer(conversation: ConversationService, host: string,
       }
 
       const surfaceTargetMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/workspace-target$/);
+      if (method === "GET" && surfaceTargetMatch) {
+        return handleGetSurfaceWorkspaceTarget(
+          conversation,
+          decodeURIComponent(surfaceTargetMatch[1]),
+          decodeURIComponent(surfaceTargetMatch[2]),
+        );
+      }
       if (method === "POST" && surfaceTargetMatch) {
         return handleSetSurfaceWorkspaceTarget(
           request,
           conversation,
           decodeURIComponent(surfaceTargetMatch[1]),
           decodeURIComponent(surfaceTargetMatch[2]),
+        );
+      }
+      if (method === "DELETE" && surfaceTargetMatch) {
+        return handleClearSurfaceWorkspaceTarget(
+          conversation,
+          decodeURIComponent(surfaceTargetMatch[1]),
+          decodeURIComponent(surfaceTargetMatch[2]),
+        );
+      }
+
+      const surfaceBindMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/thread$/);
+      if (method === "POST" && surfaceBindMatch) {
+        return handleBindSurfaceThread(
+          request,
+          conversation,
+          decodeURIComponent(surfaceBindMatch[1]),
+          decodeURIComponent(surfaceBindMatch[2]),
+        );
+      }
+      if (method === "DELETE" && surfaceBindMatch) {
+        return handleClearSurfaceThread(
+          conversation,
+          decodeURIComponent(surfaceBindMatch[1]),
+          decodeURIComponent(surfaceBindMatch[2]),
         );
       }
 
@@ -259,6 +298,53 @@ export function startHttpServer(conversation: ConversationService, host: string,
           conversation,
           decodeURIComponent(surfaceTurnsMatch[1]),
           decodeURIComponent(surfaceTurnsMatch[2]),
+        );
+      }
+
+      const surfaceEventsMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/events$/);
+      if (method === "GET" && surfaceEventsMatch) {
+        return handleSurfaceEventsSse(
+          request,
+          conversation,
+          decodeURIComponent(surfaceEventsMatch[1]),
+          decodeURIComponent(surfaceEventsMatch[2]),
+          request.headers.get("last-event-id") ?? undefined,
+        );
+      }
+
+      const surfaceContextMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/context$/);
+      if (method === "GET" && surfaceContextMatch) {
+        return handleGetSurfaceContext(
+          conversation,
+          decodeURIComponent(surfaceContextMatch[1]),
+          decodeURIComponent(surfaceContextMatch[2]),
+        );
+      }
+
+      const surfaceModelMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/model$/);
+      if (method === "GET" && surfaceModelMatch) {
+        return handleGetSurfaceModel(
+          conversation,
+          decodeURIComponent(surfaceModelMatch[1]),
+          decodeURIComponent(surfaceModelMatch[2]),
+        );
+      }
+      if (method === "POST" && surfaceModelMatch) {
+        return handleSetSurfaceModel(
+          request,
+          conversation,
+          decodeURIComponent(surfaceModelMatch[1]),
+          decodeURIComponent(surfaceModelMatch[2]),
+        );
+      }
+
+      const surfaceInterruptMatch = url.pathname.match(/^\/api\/surfaces\/([^/]+)\/([^/]+)\/interrupt$/);
+      if (method === "POST" && surfaceInterruptMatch) {
+        return handleInterruptSurfaceTurn(
+          request,
+          conversation,
+          decodeURIComponent(surfaceInterruptMatch[1]),
+          decodeURIComponent(surfaceInterruptMatch[2]),
         );
       }
 

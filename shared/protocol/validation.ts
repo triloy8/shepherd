@@ -1,6 +1,7 @@
 import type {
   ApprovalDecisionApiRequest,
   ApprovalPolicy,
+  BindSurfaceThreadRequest,
   CreateThreadRequest,
   CreateSurfaceThreadRequest,
   ForkThreadRequest,
@@ -383,6 +384,13 @@ export function validateSetSurfaceWorkspaceTargetRequest(value: unknown): SetSur
     throw new Error("Invalid workspace target payload.");
   }
   return { target: parseWorkspaceTarget(value.target) };
+}
+
+export function validateBindSurfaceThreadRequest(value: unknown): BindSurfaceThreadRequest {
+  if (!isRecord(value) || typeof value.threadId !== "string" || !value.threadId.trim()) {
+    throw new Error("Invalid threadId.");
+  }
+  return { threadId: value.threadId.trim() };
 }
 
 export function validateApprovalDecisionRequest(value: unknown): ApprovalDecisionApiRequest {

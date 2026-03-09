@@ -281,6 +281,10 @@ export interface SetSurfaceWorkspaceTargetRequest {
   target: WorkspaceTarget;
 }
 
+export interface BindSurfaceThreadRequest {
+  threadId: string;
+}
+
 export interface CreateSurfaceThreadRequest {
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;

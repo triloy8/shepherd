@@ -1,18 +1,12 @@
 import type { ConversationService } from "../../../core/conversation_service.js";
 import { respondError } from "./utils.js";
 
-export function handleEventsSse(
+function createSseResponse(
   request: Request,
-  conversation: ConversationService,
-  threadId: string,
-  lastEventId?: string,
+  subscribe: (
+    listener: (event: import("../../../../shared/protocol/events.js").BridgeEvent) => void,
+  ) => () => void,
 ): Response {
-  try {
-    conversation.getThreadState(threadId);
-  } catch (error) {
-    return respondError(404, error instanceof Error ? error.message : "Thread not found.");
-  }
-
   const encoder = new TextEncoder();
   let keepAlive: ReturnType<typeof setInterval> | undefined;
   let unsubscribe: (() => void) | undefined;
@@ -36,15 +30,11 @@ export function handleEventsSse(
         write(`: keepalive ${Date.now()}\n\n`);
       }, 20_000);
 
-      unsubscribe = conversation.subscribeToThreadEvents(
-        threadId,
-        (event) => {
-          write(`id: ${event.id}\n`);
-          write(`event: ${event.type}\n`);
-          write(`data: ${JSON.stringify(event)}\n\n`);
-        },
-        lastEventId,
-      );
+      unsubscribe = subscribe((event) => {
+        write(`id: ${event.id}\n`);
+        write(`event: ${event.type}\n`);
+        write(`data: ${JSON.stringify(event)}\n\n`);
+      });
 
       request.signal.addEventListener(
         "abort",
@@ -72,4 +62,33 @@ export function handleEventsSse(
       Connection: "keep-alive",
     },
   });
+}
+
+export function handleEventsSse(
+  request: Request,
+  conversation: ConversationService,
+  threadId: string,
+  lastEventId?: string,
+): Response {
+  try {
+    conversation.getThreadState(threadId);
+  } catch (error) {
+    return respondError(404, error instanceof Error ? error.message : "Thread not found.");
+  }
+
+  return createSseResponse(request, (listener) =>
+    conversation.subscribeToThreadEvents(threadId, listener, lastEventId),
+  );
+}
+
+export function handleSurfaceEventsSse(
+  request: Request,
+  conversation: ConversationService,
+  adapter: string,
+  surfaceId: string,
+  lastEventId?: string,
+): Response {
+  return createSseResponse(request, (listener) =>
+    conversation.subscribeSurfaceEvents(adapter, surfaceId, listener, lastEventId),
+  );
 }

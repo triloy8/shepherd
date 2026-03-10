@@ -96,9 +96,26 @@ export function formatCommentaryDelta(delta: string, atLineStart: boolean): {
     return { text: "", endsAtLineStart: atLineStart };
   }
 
-  const prefix = atLineStart ? "> " : "";
+  const lines = delta.split("\n");
+  let text = "";
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const isLast = index === lines.length - 1;
+    const needsPrefix = index === 0 ? atLineStart : true;
+
+    if (isLast) {
+      if (!delta.endsWith("\n")) {
+        text += `${needsPrefix ? "> " : ""}${line}`;
+      }
+      continue;
+    }
+
+    text += `${needsPrefix ? "> " : ""}${line}\n`;
+  }
+
   return {
-    text: `${prefix}${delta.replaceAll("\n", "\n> ")}`,
+    text,
     endsAtLineStart: delta.endsWith("\n"),
   };
 }

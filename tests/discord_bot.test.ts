@@ -7,8 +7,8 @@ describe("Discord bot phaseHeader", () => {
     expect(phaseHeader("commentary", false)).toBe("");
   });
 
-  test("omits a heading for final answers", () => {
-    expect(phaseHeader("final_answer", true)).toBe("");
+  test("adds spacing before final answers without a visible heading", () => {
+    expect(phaseHeader("final_answer", true)).toBe("\n\n");
   });
 });
 
@@ -29,8 +29,15 @@ describe("Discord bot commentary formatting", () => {
 
   test("marks the next chunk as starting on a new quoted line after a newline", () => {
     expect(formatCommentaryDelta("line one\n", true)).toEqual({
-      text: "> line one\n> ",
+      text: "> line one\n",
       endsAtLineStart: true,
+    });
+  });
+
+  test("quotes empty lines inside commentary without leaving a dangling quote marker", () => {
+    expect(formatCommentaryDelta("line one\n\nline three", true)).toEqual({
+      text: "> line one\n> \n> line three",
+      endsAtLineStart: false,
     });
   });
 });

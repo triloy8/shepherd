@@ -85,7 +85,7 @@ export function phaseHeader(phase: MessagePhase, hasExistingText: boolean): stri
   if (phase === "commentary") {
     return "";
   }
-  return hasExistingText ? '\n' : "";
+  return hasExistingText ? '\n\n' : "";
 }
 
 export function formatCommentaryDelta(delta: string, atLineStart: boolean): {

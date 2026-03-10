@@ -7,8 +7,8 @@ describe("Discord bot phaseHeader", () => {
     expect(phaseHeader("commentary", false)).toBe("");
   });
 
-  test("adds spacing before and after the final answer title when appending", () => {
-    expect(phaseHeader("final", true)).toBe("\n\n**📦 Final Answer**\n\n");
+  test("omits a heading for final answers", () => {
+    expect(phaseHeader("final_answer", true)).toBe("");
   });
 });
 

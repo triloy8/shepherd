@@ -82,9 +82,10 @@ function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT
 }
 
 export function phaseHeader(phase: MessagePhase, hasExistingText: boolean): string {
-  void phase;
-  void hasExistingText;
-  return "";
+  if (phase === "commentary") {
+    return "";
+  }
+  return hasExistingText ? '\n' : "";
 }
 
 export function formatCommentaryDelta(delta: string, atLineStart: boolean): {

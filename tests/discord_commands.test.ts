@@ -23,6 +23,8 @@ function makeContext(overrides?: {
   listModels?: () => Promise<unknown>;
   getThreadModel?: () => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
   setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
+  getChannelRepo?: () => string | null;
+  setChannelRepo?: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
   const modelWrites: Array<{ threadId: string; model: string }> = [];
@@ -103,9 +105,11 @@ function makeContext(overrides?: {
       return "thread-1";
     },
     getChannelRepo() {
+      if (overrides?.getChannelRepo) return overrides.getChannelRepo();
       return null;
     },
-    async setChannelRepo() {
+    async setChannelRepo(channelId: string, repoSlug: string) {
+      if (overrides?.setChannelRepo) return overrides.setChannelRepo(channelId, repoSlug);
       return { repoSlug: "owner/repo" };
     },
     async ensureChannelThread() {
@@ -215,6 +219,34 @@ describe("Discord !skill commands", () => {
     expect(modelWrites).toEqual([{ threadId: "thread-1", model: "gpt-5.3-codex" }]);
     expect(replies).toEqual([
       "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
+    ]);
+  });
+
+  test("reports the current repo binding for the channel", async () => {
+    const { message, replies } = makeMessage("!repo");
+    const { context } = makeContext({
+      getChannelRepo() {
+        return "owner/repo";
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual(["Current repo for this channel: owner/repo"]);
+  });
+
+  test("formats repo set replies using active thread context", async () => {
+    const { message, replies } = makeMessage("!repo owner/repo");
+    const { context } = makeContext({
+      async setChannelRepo(_channelId, repoSlug) {
+        return { repoSlug };
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Repo set for this channel: owner/repo\nNote: active thread thread-1 keeps its current session/cwd; this repo applies to future !newthread/!fork.",
     ]);
   });
 

@@ -1,7 +1,7 @@
 import type { Message } from "discord.js";
 
+import { executeControlAction } from "../../core/control_actions_service.js";
 import type { ConversationService } from "../../core/conversation_service.js";
-import { resolveSkillPathFromList } from "../../core/skill_resolution_service.js";
 import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: string | null };
@@ -239,16 +239,6 @@ function formatModelsForDiscord(result: ListModelsResponse, modelState: ThreadMo
   return lines.join("\n");
 }
 
-function resolveModelArgument(models: ModelSummary[], raw: string): ModelSummary | null {
-  const normalized = raw.trim().toLowerCase();
-  if (!normalized) return null;
-  return (
-    models.find((entry) => entry.model.toLowerCase() === normalized) ??
-    models.find((entry) => entry.id.toLowerCase() === normalized) ??
-    null
-  );
-}
-
 function chunkForDiscord(text: string, maxChunkSize = DISCORD_MESSAGE_LIMIT): string[] {
   if (!text) return [];
 
@@ -351,15 +341,6 @@ function formatRemoteSkillsForDiscord(value: unknown): string {
       return `${index + 1}. ${name} (${id})${description ? ` :: ${description}` : ""}`;
     }),
   ].join("\n");
-}
-
-async function resolveSkillPath(
-  threadId: string,
-  rawValue: string,
-  context: CommandContext,
-): Promise<{ path: string } | { error: string }> {
-  const listed = await context.conversation.listSkills(threadId, {});
-  return resolveSkillPathFromList(listed, rawValue);
 }
 
 export async function handleMessage(
@@ -466,18 +447,23 @@ export async function handleMessage(
       return { handled: true, threadId, input: null };
     }
 
-    const models = await context.conversation.listModels({ limit: 100, includeHidden: true });
-    const resolved = resolveModelArgument(models.data, requestedModel);
-    if (!resolved) {
-      await message.reply(`Unknown model: \`${requestedModel}\`. Use \`!models\` to inspect available models.`);
+    const result = await executeControlAction(context, {
+      type: "model.set",
+      channelId,
+      requestedModel,
+    });
+    if (result.type !== "model.set") {
+      throw new Error("Unexpected control action result for model.set.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId, input: null };
     }
 
-    const updated = context.conversation.setThreadModel(threadId, resolved.model);
     await message.reply(
-      `Model for thread ${threadId} set to \`${resolved.model}\`.\nApplies to the next new turn and subsequent turns.`,
+      `Model for thread ${result.threadId} set to \`${result.model}\`.\nApplies to the next new turn and subsequent turns.`,
     );
-    return { handled: true, threadId: updated.threadId, input: null };
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!context") {
@@ -504,7 +490,11 @@ export async function handleMessage(
   if (command === "!repo") {
     const repoSlug = args[0]?.trim();
     if (!repoSlug) {
-      const current = context.getChannelRepo(channelId);
+      const result = await executeControlAction(context, { type: "repo.get", channelId });
+      if (result.type !== "repo.get") {
+        throw new Error("Unexpected control action result for repo.get.");
+      }
+      const current = result.currentRepo;
       await message.reply(
         current
           ? `Current repo for this channel: ${current}`
@@ -512,11 +502,17 @@ export async function handleMessage(
       );
       return { handled: true, threadId: null, input: null };
     }
-    const configured = await context.setChannelRepo(channelId, repoSlug);
-    const activeThreadId = context.getActiveThreadId(channelId);
+    const configured = await executeControlAction(context, {
+      type: "repo.set",
+      channelId,
+      repoInput: repoSlug,
+    });
+    if (configured.type !== "repo.set") {
+      throw new Error("Unexpected control action result for repo.set.");
+    }
     await message.reply(
-      activeThreadId
-        ? `Repo set for this channel: ${configured.repoSlug}\nNote: active thread ${activeThreadId} keeps its current session/cwd; this repo applies to future !newthread/!fork.`
+      configured.activeThreadId
+        ? `Repo set for this channel: ${configured.repoSlug}\nNote: active thread ${configured.activeThreadId} keeps its current session/cwd; this repo applies to future !newthread/!fork.`
         : `Repo set for this channel: ${configured.repoSlug}`,
     );
     return { handled: true, threadId: null, input: null };
@@ -588,18 +584,21 @@ export async function handleMessage(
         await message.reply(`Usage: !skill ${sub} <name-or-path>`);
         return { handled: true, threadId: null, input: null };
       }
-      const resolved = await resolveSkillPath(activeThreadId, requestedSkill, context);
-      if ("error" in resolved) {
-        await message.reply(resolved.error);
+      const result = await executeControlAction(context, {
+        type: "skill.set-enabled",
+        channelId,
+        requestedSkill,
+        enabled: sub === "enable",
+      });
+      if (result.type !== "skill.set-enabled") {
+        throw new Error("Unexpected control action result for skill.set-enabled.");
+      }
+      if (!result.ok) {
+        await message.reply(result.message);
         return { handled: true, threadId: null, input: null };
       }
-      const enabled = sub === "enable";
-      const result = await context.conversation.writeSkillConfig(activeThreadId, {
-        path: resolved.path,
-        enabled,
-      });
       await message.reply(
-        `${enabled ? "Enabled" : "Disabled"} skill ${requestedSkill} (effectiveEnabled=${result.effectiveEnabled})`,
+        `${result.enabled ? "Enabled" : "Disabled"} skill ${result.requestedSkill} (effectiveEnabled=${result.effectiveEnabled})`,
       );
       return { handled: true, threadId: null, input: null };
     }

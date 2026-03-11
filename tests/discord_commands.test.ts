@@ -25,6 +25,7 @@ function makeContext(overrides?: {
   setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
   getChannelRepo?: () => string | null;
   setChannelRepo?: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
+  readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
   const modelWrites: Array<{ threadId: string; model: string }> = [];
@@ -100,6 +101,28 @@ function makeContext(overrides?: {
           pendingModel: model,
         };
       },
+      async setThreadName() {
+        return { ok: true };
+      },
+      async readThread(threadId: string) {
+        if (overrides?.readThread) return overrides.readThread(threadId);
+        return {
+          thread: { id: threadId, name: "demo", preview: "preview", updatedAt: 123 },
+        };
+      },
+      async archiveThread() {
+        return { ok: true };
+      },
+      async unarchiveThread() {
+        return { ok: true };
+      },
+      async rollbackThread(threadId: string) {
+        return { thread: { id: threadId } };
+      },
+      async compactThread() {
+        return { ok: true };
+      },
+      async interruptTurn() {},
     } as unknown as CommandContext["conversation"],
     getActiveThreadId() {
       return "thread-1";
@@ -247,6 +270,26 @@ describe("Discord !skill commands", () => {
 
     expect(replies).toEqual([
       "Repo set for this channel: owner/repo\nNote: active thread thread-1 keeps its current session/cwd; this repo applies to future !newthread/!fork.",
+    ]);
+  });
+
+  test("formats current thread replies using the control action result", async () => {
+    const { message, replies } = makeMessage("!thread");
+    const { context } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual(["Current thread: thread-1"]);
+  });
+
+  test("formats thread read replies from structured thread data", async () => {
+    const { message, replies } = makeMessage("!threadread");
+    const { context } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Thread: thread-1\nName: demo\nUpdated: 1970-01-01T00:02:03.000Z\nPreview: preview",
     ]);
   });
 

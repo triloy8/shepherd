@@ -605,7 +605,14 @@ export async function handleMessage(
   }
 
   if (command === "!thread" && args.length === 0) {
-    const existing = context.getActiveThreadId(channelId);
+    const result = await executeControlAction(context, {
+      type: "thread.get-current",
+      channelId,
+    });
+    if (result.type !== "thread.get-current") {
+      throw new Error("Unexpected control action result for thread.get-current.");
+    }
+    const existing = result.threadId;
     await message.reply(existing ? `Current thread: ${existing}` : "No thread yet. Send a message to start one.");
     return { handled: true, threadId: existing, input: null };
   }
@@ -635,23 +642,36 @@ export async function handleMessage(
       await message.reply("Usage: !threadname <name>");
       return { handled: true, threadId: null, input: null };
     }
-    const threadId = context.getActiveThreadId(channelId);
-    if (!threadId) {
-      await message.reply("No active thread in this channel.");
+    const result = await executeControlAction(context, {
+      type: "thread.rename",
+      channelId,
+      name,
+    });
+    if (result.type !== "thread.rename") {
+      throw new Error("Unexpected control action result for thread.rename.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId: null, input: null };
     }
-    await context.conversation.setThreadName(threadId, { name });
-    await replyChunked(message, `Thread renamed: ${name}`);
-    return { handled: true, threadId, input: null };
+    await replyChunked(message, `Thread renamed: ${result.name}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!threadread") {
-    const threadId = args[0] ?? context.getActiveThreadId(channelId);
-    if (!threadId) {
-      await message.reply("Usage: !threadread <id>");
+    const result = await executeControlAction(context, {
+      type: "thread.read",
+      channelId,
+      threadId: args[0],
+    });
+    if (result.type !== "thread.read") {
+      throw new Error("Unexpected control action result for thread.read.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId: null, input: null };
     }
-    const result = await context.conversation.readThread(threadId, { includeTurns: false });
+    const threadId = result.threadId;
     const thread = result.thread as { id?: string; name?: string | null; preview?: string; updatedAt?: number | null };
     await replyChunked(message, [
       `Thread: ${thread.id ?? threadId}`,
@@ -674,17 +694,20 @@ export async function handleMessage(
   }
 
   if (command === "!archive") {
-    const target = args[0] ?? context.getActiveThreadId(channelId);
-    if (!target) {
-      await message.reply("Usage: !archive <id>");
+    const result = await executeControlAction(context, {
+      type: "thread.archive",
+      channelId,
+      threadId: args[0],
+    });
+    if (result.type !== "thread.archive") {
+      throw new Error("Unexpected control action result for thread.archive.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId: null, input: null };
     }
-    await context.conversation.archiveThread(target);
-    if (context.getActiveThreadId(channelId) === target) {
-      context.clearChannelThread(channelId);
-    }
-    await message.reply(`Archived thread: ${target}`);
-    return { handled: true, threadId: target, input: null };
+    await message.reply(`Archived thread: ${result.threadId}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!unarchive") {
@@ -693,32 +716,50 @@ export async function handleMessage(
       await message.reply("Usage: !unarchive <id>");
       return { handled: true, threadId: null, input: null };
     }
-    await context.conversation.unarchiveThread(target);
-    await message.reply(`Unarchived thread: ${target}`);
-    return { handled: true, threadId: target, input: null };
+    const result = await executeControlAction(context, {
+      type: "thread.unarchive",
+      threadId: target,
+    });
+    if (result.type !== "thread.unarchive") {
+      throw new Error("Unexpected control action result for thread.unarchive.");
+    }
+    await message.reply(`Unarchived thread: ${result.threadId}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!rollback") {
-    const numTurns = Number(args[0]);
-    const target = args[1] ?? context.getActiveThreadId(channelId);
-    if (!Number.isInteger(numTurns) || numTurns < 1 || !target) {
-      await message.reply("Usage: !rollback <numTurns> [id]");
+    const result = await executeControlAction(context, {
+      type: "thread.rollback",
+      channelId,
+      numTurns: Number(args[0]),
+      threadId: args[1],
+    });
+    if (result.type !== "thread.rollback") {
+      throw new Error("Unexpected control action result for thread.rollback.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId: null, input: null };
     }
-    await context.conversation.rollbackThread(target, { numTurns });
-    await message.reply(`Rolled back ${numTurns} turn(s) on ${target}`);
-    return { handled: true, threadId: target, input: null };
+    await message.reply(`Rolled back ${result.numTurns} turn(s) on ${result.threadId}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!compact") {
-    const target = args[0] ?? context.getActiveThreadId(channelId);
-    if (!target) {
-      await message.reply("Usage: !compact <id>");
+    const result = await executeControlAction(context, {
+      type: "thread.compact",
+      channelId,
+      threadId: args[0],
+    });
+    if (result.type !== "thread.compact") {
+      throw new Error("Unexpected control action result for thread.compact.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId: null, input: null };
     }
-    await context.conversation.compactThread(target);
-    await message.reply(`Started compaction for thread: ${target}`);
-    return { handled: true, threadId: target, input: null };
+    await message.reply(`Started compaction for thread: ${result.threadId}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!interrupt") {
@@ -726,14 +767,19 @@ export async function handleMessage(
       await message.reply("Usage: !interrupt");
       return { handled: true, threadId: null, input: null };
     }
-    const target = context.getActiveThreadId(channelId);
-    if (!target) {
-      await message.reply("No active thread in this channel.");
+    const result = await executeControlAction(context, {
+      type: "turn.interrupt",
+      channelId,
+    });
+    if (result.type !== "turn.interrupt") {
+      throw new Error("Unexpected control action result for turn.interrupt.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId: null, input: null };
     }
-    await context.conversation.interruptTurn(target);
-    await message.reply(`Interrupt requested for thread: ${target}`);
-    return { handled: true, threadId: target, input: null };
+    await message.reply(`Interrupt requested for thread: ${result.threadId}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command.startsWith("!")) {

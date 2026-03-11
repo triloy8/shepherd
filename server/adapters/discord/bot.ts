@@ -18,10 +18,15 @@ import {
 } from "discord.js";
 
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
-import type { BridgeEvent, MessagePhase } from "../../../shared/protocol/events.js";
+import type { BridgeEvent } from "../../../shared/protocol/events.js";
 import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
+import {
+  createResponseStreamState,
+  reduceResponseStream,
+  type ResponseStreamState,
+} from "../../core/response_stream_reducer.js";
 import { SurfaceConversationOrchestrator } from "../../core/surface_conversation_orchestrator.js";
 import { SurfaceStateService } from "../../core/surface_state_service.js";
 import { classifySurfaceInput } from "../../core/turn_routing_policy.js";
@@ -36,13 +41,9 @@ import {
 } from "./message_renderer.js";
 
 type StreamState = {
-  text: string;
+  stream: ResponseStreamState;
   messageIds: string[];
   renderedChunks: string[];
-  lastPhase: MessagePhase | null;
-  lastItemId: string | null;
-  commentaryOpen: boolean;
-  commentaryLineStart: boolean;
   timer: NodeJS.Timeout | null;
   flushing: boolean;
   pendingFlush: boolean;
@@ -80,45 +81,6 @@ function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT
   }
 
   return chunks;
-}
-
-export function phaseHeader(phase: MessagePhase, hasExistingText: boolean): string {
-  if (phase === "commentary") {
-    return "";
-  }
-  return hasExistingText ? '\n\n' : "";
-}
-
-export function formatCommentaryDelta(delta: string, atLineStart: boolean): {
-  text: string;
-  endsAtLineStart: boolean;
-} {
-  if (!delta) {
-    return { text: "", endsAtLineStart: atLineStart };
-  }
-
-  const lines = delta.split("\n");
-  let text = "";
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const isLast = index === lines.length - 1;
-    const needsPrefix = index === 0 ? atLineStart : true;
-
-    if (isLast) {
-      if (!delta.endsWith("\n")) {
-        text += `${needsPrefix ? "> " : ""}${line}`;
-      }
-      continue;
-    }
-
-    text += `${needsPrefix ? "> " : ""}${line}\n`;
-  }
-
-  return {
-    text,
-    endsAtLineStart: delta.endsWith("\n"),
-  };
 }
 
 function pickButtonStyle(decision: string): ButtonStyle {
@@ -241,7 +203,7 @@ export async function startDiscordBot(): Promise<void> {
 
   const flushStream = async (channelId: string): Promise<void> => {
     const state = streamByChannel.get(channelId);
-    if (!state || !state.text.trim()) return;
+    if (!state || !state.stream.text.trim()) return;
     if (state.flushing) {
       state.pendingFlush = true;
       return;
@@ -252,7 +214,7 @@ export async function startDiscordBot(): Promise<void> {
       const channel = await client.channels.fetch(channelId);
       if (!isSendableChannel(channel)) return;
 
-      const chunks = chunkForDiscord(state.text);
+      const chunks = chunkForDiscord(state.stream.text);
       for (let index = 0; index < chunks.length; index += 1) {
         const content = chunks[index]!;
         const prior = state.renderedChunks[index];
@@ -299,88 +261,31 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   const handleThreadEvent = (channelId: string, event: BridgeEvent): void => {
-    if (event.type === "turn.started") {
-      const prior = streamByChannel.get(channelId);
+    const prior = streamByChannel.get(channelId) ?? null;
+    const reduction = reduceResponseStream(prior?.stream ?? null, event);
+    if (reduction.type === "reset") {
       if (prior?.timer) clearTimeout(prior.timer);
       streamByChannel.set(channelId, {
-        text: "",
+        stream: reduction.state,
         messageIds: [],
         renderedChunks: [],
-        lastPhase: null,
-        lastItemId: null,
-        commentaryOpen: false,
-        commentaryLineStart: true,
         timer: null,
         flushing: false,
         pendingFlush: false,
       });
       return;
     }
-
-    if (event.type === "turn.stream.delta") {
-      const payload = event.payload as {
-        textDelta?: string;
-        method?: string;
-        phase?: MessagePhase | null;
-        itemId?: string | null;
+    if (reduction.type === "schedule-flush") {
+      const nextState = prior ?? {
+        stream: createResponseStreamState(),
+        messageIds: [],
+        renderedChunks: [],
+        timer: null,
+        flushing: false,
+        pendingFlush: false,
       };
-      const method = payload.method?.toLowerCase() ?? "";
-      if (method && !method.includes("agentmessage")) {
-        return;
-      }
-      const delta = payload.textDelta ?? "";
-      if (!delta) return;
-
-      const state =
-        streamByChannel.get(channelId) ??
-        ({
-          text: "",
-          messageIds: [],
-          renderedChunks: [],
-          lastPhase: null,
-          lastItemId: null,
-          commentaryOpen: false,
-          commentaryLineStart: true,
-          timer: null,
-          flushing: false,
-          pendingFlush: false,
-        } as StreamState);
-      const phase = payload.phase;
-      const itemId = payload.itemId ?? null;
-      if (state.lastPhase === "commentary" && phase !== "commentary" && state.commentaryOpen) {
-        state.commentaryOpen = false;
-        state.commentaryLineStart = true;
-      }
-      if ((phase === "commentary" || phase === "final_answer") && phase !== state.lastPhase) {
-        state.text += phaseHeader(phase, state.text.length > 0);
-        state.lastPhase = phase;
-      }
-      if (phase === "commentary") {
-        const switchedItem = Boolean(itemId && state.lastItemId && itemId !== state.lastItemId);
-        if (switchedItem && state.commentaryOpen) {
-          if (!state.text.endsWith("\n")) {
-            state.text += "\n";
-          }
-          state.commentaryOpen = false;
-          state.commentaryLineStart = true;
-        }
-        if (!state.commentaryOpen) {
-          if (!state.text.endsWith("\n")) {
-            state.text += "\n";
-          }
-          state.commentaryOpen = true;
-          state.commentaryLineStart = true;
-        }
-        const formatted = formatCommentaryDelta(delta, state.commentaryLineStart);
-        state.text += formatted.text;
-        state.commentaryLineStart = formatted.endsAtLineStart;
-      } else {
-        state.text += delta;
-      }
-      if (itemId) {
-        state.lastItemId = itemId;
-      }
-      streamByChannel.set(channelId, state);
+      nextState.stream = reduction.state;
+      streamByChannel.set(channelId, nextState);
       scheduleStreamFlush(channelId);
       return;
     }
@@ -398,11 +303,10 @@ export async function startDiscordBot(): Promise<void> {
       return;
     }
 
-    if (event.type === "turn.completed" || event.type === "turn.failed") {
+    if (reduction.type === "flush-now") {
       const state = streamByChannel.get(channelId);
-      if (state?.commentaryOpen) {
-        state.commentaryOpen = false;
-        state.commentaryLineStart = true;
+      if (state && reduction.state) {
+        state.stream = reduction.state;
       }
       if (state?.timer) {
         clearTimeout(state.timer);

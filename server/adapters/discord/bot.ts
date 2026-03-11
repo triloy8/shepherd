@@ -430,32 +430,28 @@ export async function startDiscordBot(): Promise<void> {
     },
   );
 
-  const bindChannelToThread = async (channelId: string, threadId: string): Promise<void> => {
-    await orchestrator.bindSurfaceToThread(channelId, threadId, (event) => handleThreadEvent(channelId, event));
+  const bindChannelToThread = async (surfaceId: string, threadId: string): Promise<void> => {
+    await orchestrator.bindSurfaceToThread(surfaceId, threadId, (event) => handleThreadEvent(surfaceId, event));
   };
 
-  const clearChannelThread = (channelId: string): void => {
-    orchestrator.clearSurfaceThread(channelId);
+  const clearSurfaceThread = (surfaceId: string): void => {
+    orchestrator.clearSurfaceThread(surfaceId);
   };
 
-  const createAndBindChannelThread = async (channelId: string): Promise<string> => {
-    return orchestrator.createAndBindSurfaceThread(channelId, (event) => handleThreadEvent(channelId, event));
+  const createSurfaceThread = async (surfaceId: string): Promise<string> => {
+    return orchestrator.createAndBindSurfaceThread(surfaceId, (event) => handleThreadEvent(surfaceId, event));
   };
 
-  const resumeChannelThread = async (channelId: string, threadId: string): Promise<string> => {
-    return orchestrator.resumeSurfaceThread(channelId, threadId, (event) => handleThreadEvent(channelId, event));
+  const forkSurfaceThread = async (surfaceId: string, sourceThreadId: string): Promise<string> => {
+    return orchestrator.forkSurfaceThread(surfaceId, sourceThreadId, (event) => handleThreadEvent(surfaceId, event));
   };
 
-  const forkChannelThread = async (channelId: string, sourceThreadId: string): Promise<string> => {
-    return orchestrator.forkSurfaceThread(channelId, sourceThreadId, (event) => handleThreadEvent(channelId, event));
+  const switchSurfaceThread = async (surfaceId: string, threadId: string): Promise<string> => {
+    return orchestrator.switchSurfaceThread(surfaceId, threadId, (event) => handleThreadEvent(surfaceId, event));
   };
 
-  const switchChannelThread = async (channelId: string, threadId: string): Promise<string> => {
-    return orchestrator.switchSurfaceThread(channelId, threadId, (event) => handleThreadEvent(channelId, event));
-  };
-
-  const ensureChannelThread = async (channelId: string): Promise<string> => {
-    return orchestrator.ensureSurfaceThread(channelId, (event) => handleThreadEvent(channelId, event));
+  const ensureSurfaceThread = async (surfaceId: string): Promise<string> => {
+    return orchestrator.ensureSurfaceThread(surfaceId, (event) => handleThreadEvent(surfaceId, event));
   };
 
   client.once("clientReady", () => {
@@ -483,15 +479,14 @@ export async function startDiscordBot(): Promise<void> {
     try {
       const result = await handleMessage(message, {
         conversation,
-        getActiveThreadId: (channelId) => conversation.getSurfaceThread("discord", channelId),
-        getChannelRepo: (channelId) => orchestrator.getSurfaceProjectDisplay(channelId),
-        setChannelRepo: async (channelId, repoSlug) => orchestrator.setSurfaceProject(channelId, repoSlug),
-        ensureChannelThread,
-        createSurfaceThread: createAndBindChannelThread,
-        switchSurfaceThread: switchChannelThread,
-        forkSurfaceThread: forkChannelThread,
-        switchChannelThread,
-        clearChannelThread,
+        getSurfaceThreadId: (surfaceId) => conversation.getSurfaceThread("discord", surfaceId),
+        getSurfaceProject: (surfaceId) => orchestrator.getSurfaceProjectDisplay(surfaceId),
+        setSurfaceProject: async (surfaceId, repoSlug) => orchestrator.setSurfaceProject(surfaceId, repoSlug),
+        ensureSurfaceThread,
+        createSurfaceThread,
+        switchSurfaceThread,
+        forkSurfaceThread,
+        clearSurfaceThread,
       }, sanitizedContent);
 
       if (result.handled || !result.threadId || !result.input) return;

@@ -154,13 +154,13 @@ function makeContext(overrides?: {
         interruptedThreads.push(threadId);
       },
     },
-    getActiveThreadId() {
+    getSurfaceThreadId() {
       return overrides?.activeThreadId === undefined ? "thread-1" : overrides.activeThreadId;
     },
-    getChannelRepo() {
+    getSurfaceProject() {
       return overrides?.currentRepo ?? null;
     },
-    async setChannelRepo(channelId, repoSlug) {
+    async setSurfaceProject(channelId, repoSlug) {
       repoWrites.push({ channelId, repoSlug });
       return { repoSlug };
     },
@@ -176,7 +176,7 @@ function makeContext(overrides?: {
       forkedSurfaceThreads.push({ channelId, sourceThreadId });
       return "thread-forked";
     },
-    clearChannelThread(channelId) {
+    clearSurfaceThread(channelId) {
       clearedChannels.push(channelId);
     },
   };

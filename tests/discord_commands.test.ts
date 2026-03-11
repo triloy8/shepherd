@@ -23,8 +23,8 @@ function makeContext(overrides?: {
   listModels?: () => Promise<unknown>;
   getThreadModel?: () => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
   setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
-  getChannelRepo?: () => string | null;
-  setChannelRepo?: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
+  getSurfaceProject?: () => string | null;
+  setSurfaceProject?: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
   listRemoteSkills?: () => Promise<{ data: Array<{ id: string; name: string; description: string }> }>;
@@ -144,18 +144,18 @@ function makeContext(overrides?: {
       },
       async interruptTurn() {},
     } as unknown as CommandContext["conversation"],
-    getActiveThreadId() {
+    getSurfaceThreadId() {
       return "thread-1";
     },
-    getChannelRepo() {
-      if (overrides?.getChannelRepo) return overrides.getChannelRepo();
+    getSurfaceProject() {
+      if (overrides?.getSurfaceProject) return overrides.getSurfaceProject();
       return null;
     },
-    async setChannelRepo(channelId: string, repoSlug: string) {
-      if (overrides?.setChannelRepo) return overrides.setChannelRepo(channelId, repoSlug);
+    async setSurfaceProject(channelId: string, repoSlug: string) {
+      if (overrides?.setSurfaceProject) return overrides.setSurfaceProject(channelId, repoSlug);
       return { repoSlug: "owner/repo" };
     },
-    async ensureChannelThread() {
+    async ensureSurfaceThread() {
       return "thread-1";
     },
     async createSurfaceThread() {
@@ -164,13 +164,10 @@ function makeContext(overrides?: {
     async forkSurfaceThread() {
       return "thread-2";
     },
-    async switchChannelThread(_channelId: string, threadId: string) {
-      return threadId;
-    },
     async switchSurfaceThread(_channelId: string, threadId: string) {
       return threadId;
     },
-    clearChannelThread() {},
+    clearSurfaceThread() {},
   };
 
   return { context, writes, modelWrites };
@@ -270,7 +267,7 @@ describe("Discord !skill commands", () => {
   test("reports the current repo binding for the channel", async () => {
     const { message, replies } = makeMessage("!repo");
     const { context } = makeContext({
-      getChannelRepo() {
+      getSurfaceProject() {
         return "owner/repo";
       },
     });
@@ -283,7 +280,7 @@ describe("Discord !skill commands", () => {
   test("formats repo set replies using active thread context", async () => {
     const { message, replies } = makeMessage("!repo owner/repo");
     const { context } = makeContext({
-      async setChannelRepo(_channelId, repoSlug) {
+      async setSurfaceProject(_channelId, repoSlug) {
         return { repoSlug };
       },
     });

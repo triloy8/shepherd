@@ -10,15 +10,14 @@ const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
 
 export type CommandContext = {
   conversation: ConversationService;
-  getActiveThreadId: (channelId: string) => string | null;
-  getChannelRepo: (channelId: string) => string | null;
-  setChannelRepo: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
-  ensureChannelThread: (channelId: string) => Promise<string>;
-  createSurfaceThread: (channelId: string) => Promise<string>;
-  switchSurfaceThread: (channelId: string, threadId: string) => Promise<string>;
-  forkSurfaceThread: (channelId: string, sourceThreadId: string) => Promise<string>;
-  switchChannelThread: (channelId: string, threadId: string) => Promise<string>;
-  clearChannelThread: (channelId: string) => void;
+  getSurfaceThreadId: (surfaceId: string) => string | null;
+  getSurfaceProject: (surfaceId: string) => string | null;
+  setSurfaceProject: (surfaceId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
+  ensureSurfaceThread: (surfaceId: string) => Promise<string>;
+  createSurfaceThread: (surfaceId: string) => Promise<string>;
+  switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;
+  forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
+  clearSurfaceThread: (surfaceId: string) => void;
 };
 
 function formatTimestamp(seconds: number | null): string {
@@ -429,7 +428,7 @@ export async function handleMessage(
 
   if (command === "!model") {
     const subcommand = (args[0] ?? "").toLowerCase();
-    const threadId = context.getActiveThreadId(channelId);
+    const threadId = context.getSurfaceThreadId(channelId);
     if (!threadId) {
       await message.reply("No active thread in this channel yet. Use !newthread first.");
       return { handled: true, threadId: null, input: null };
@@ -528,7 +527,7 @@ export async function handleMessage(
   }
 
   if (command === "!skills") {
-    const activeThreadId = context.getActiveThreadId(channelId);
+    const activeThreadId = context.getSurfaceThreadId(channelId);
     if (!activeThreadId) {
       await message.reply("No active thread in this channel. Use !newthread or !thread <id> first.");
       return { handled: true, threadId: null, input: null };
@@ -562,7 +561,7 @@ export async function handleMessage(
   }
 
   if (command === "!skill") {
-    const activeThreadId = context.getActiveThreadId(channelId);
+    const activeThreadId = context.getSurfaceThreadId(channelId);
     if (!activeThreadId) {
       await message.reply("No active thread in this channel. Use !newthread or !thread <id> first.");
       return { handled: true, threadId: null, input: null };
@@ -806,6 +805,6 @@ export async function handleMessage(
     return { handled: true, threadId: null, input: null };
   }
 
-  const threadId = await context.ensureChannelThread(channelId);
+  const threadId = await context.ensureSurfaceThread(channelId);
   return { handled: false, threadId, input: content };
 }

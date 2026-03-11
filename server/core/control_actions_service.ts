@@ -47,13 +47,13 @@ type ControlConversation = {
 
 export type ControlActionsContext = {
   conversation: ControlConversation;
-  getActiveThreadId: (channelId: string) => string | null;
-  getChannelRepo: (channelId: string) => string | null;
-  setChannelRepo: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
-  createSurfaceThread?: (channelId: string) => Promise<string>;
-  switchSurfaceThread?: (channelId: string, threadId: string) => Promise<string>;
-  forkSurfaceThread?: (channelId: string, sourceThreadId: string) => Promise<string>;
-  clearChannelThread?: (channelId: string) => void;
+  getSurfaceThreadId: (surfaceId: string) => string | null;
+  getSurfaceProject: (surfaceId: string) => string | null;
+  setSurfaceProject: (surfaceId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
+  createSurfaceThread?: (surfaceId: string) => Promise<string>;
+  switchSurfaceThread?: (surfaceId: string, threadId: string) => Promise<string>;
+  forkSurfaceThread?: (surfaceId: string, sourceThreadId: string) => Promise<string>;
+  clearSurfaceThread?: (surfaceId: string) => void;
 };
 
 export type ControlActionRequest =
@@ -135,16 +135,16 @@ export async function executeControlAction(
   if (request.type === "repo.get") {
     return {
       type: "repo.get",
-      currentRepo: context.getChannelRepo(request.channelId),
+      currentRepo: context.getSurfaceProject(request.channelId),
     };
   }
 
   if (request.type === "repo.set") {
-    const configured = await context.setChannelRepo(request.channelId, request.repoInput);
+    const configured = await context.setSurfaceProject(request.channelId, request.repoInput);
     return {
       type: "repo.set",
       repoSlug: configured.repoSlug,
-      activeThreadId: context.getActiveThreadId(request.channelId),
+      activeThreadId: context.getSurfaceThreadId(request.channelId),
     };
   }
 
@@ -157,7 +157,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "models.list") {
-    const threadId = context.getActiveThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.channelId);
     const models = await context.conversation.listModels({ limit: 20 });
     return {
       type: "models.list",
@@ -167,7 +167,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "model.set") {
-    const threadId = context.getActiveThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "model.set",
@@ -196,7 +196,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "context.read") {
-    const threadId = context.getActiveThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "context.read",
@@ -214,7 +214,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "skills.list-remote") {
-    const threadId = context.getActiveThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "skills.list-remote",
@@ -243,7 +243,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "skill.export-remote") {
-    const threadId = context.getActiveThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "skill.export-remote",
@@ -272,7 +272,7 @@ export async function executeControlAction(
   if (request.type === "thread.get-current") {
     return {
       type: "thread.get-current",
-      threadId: context.getActiveThreadId(request.channelId),
+      threadId: context.getSurfaceThreadId(request.channelId),
     };
   }
 
@@ -297,7 +297,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.rename") {
-    const threadId = context.getActiveThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "thread.rename",
@@ -315,7 +315,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.read") {
-    const threadId = request.threadId ?? context.getActiveThreadId(request.channelId);
+    const threadId = request.threadId ?? context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "thread.read",
@@ -333,7 +333,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.fork") {
-    const sourceThreadId = request.sourceThreadId ?? context.getActiveThreadId(request.channelId);
+    const sourceThreadId = request.sourceThreadId ?? context.getSurfaceThreadId(request.channelId);
     if (!sourceThreadId) {
       return {
         type: "thread.fork",
@@ -353,7 +353,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.archive") {
-    const threadId = request.threadId ?? context.getActiveThreadId(request.channelId);
+    const threadId = request.threadId ?? context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "thread.archive",
@@ -362,9 +362,9 @@ export async function executeControlAction(
       };
     }
     await context.conversation.archiveThread(threadId);
-    const clearedActiveBinding = context.getActiveThreadId(request.channelId) === threadId;
+    const clearedActiveBinding = context.getSurfaceThreadId(request.channelId) === threadId;
     if (clearedActiveBinding) {
-      context.clearChannelThread?.(request.channelId);
+      context.clearSurfaceThread?.(request.channelId);
     }
     return {
       type: "thread.archive",
@@ -384,7 +384,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.rollback") {
-    const threadId = request.threadId ?? context.getActiveThreadId(request.channelId);
+    const threadId = request.threadId ?? context.getSurfaceThreadId(request.channelId);
     if (!Number.isInteger(request.numTurns) || request.numTurns < 1 || !threadId) {
       return {
         type: "thread.rollback",
@@ -402,7 +402,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.compact") {
-    const threadId = request.threadId ?? context.getActiveThreadId(request.channelId);
+    const threadId = request.threadId ?? context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "thread.compact",
@@ -419,7 +419,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "turn.interrupt") {
-    const threadId = context.getActiveThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.channelId);
     if (!threadId) {
       return {
         type: "turn.interrupt",
@@ -435,7 +435,7 @@ export async function executeControlAction(
     };
   }
 
-  const threadId = context.getActiveThreadId(request.channelId);
+  const threadId = context.getSurfaceThreadId(request.channelId);
   if (!threadId) {
     return {
       type: "skill.set-enabled",

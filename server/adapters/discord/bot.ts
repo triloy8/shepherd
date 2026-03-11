@@ -24,7 +24,8 @@ import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
 import { SurfaceConversationOrchestrator } from "../../core/surface_conversation_orchestrator.js";
 import { SurfaceStateService } from "../../core/surface_state_service.js";
-import { classifySurfaceInput, decideTurnRouting } from "../../core/turn_routing_policy.js";
+import { classifySurfaceInput } from "../../core/turn_routing_policy.js";
+import { executeTurnRouting } from "../../core/turn_routing_service.js";
 import { WorkspaceProvisioner } from "../../core/workspace_provisioner.js";
 import { handleMessage } from "./commands.js";
 import { handleInteraction } from "./interactions.js";
@@ -492,29 +493,16 @@ export async function startDiscordBot(): Promise<void> {
         clearSurfaceThread,
       }, classified.surface.content);
 
-      const activeTurnId = result.threadId ? conversation.getThreadState(result.threadId).activeTurnId : null;
-      const decision = decideTurnRouting({
-        surface: classified.surface,
-        handled: result.handled,
-        threadId: result.threadId,
-        input: result.input,
-        activeTurnId,
-        approvalPolicy,
-      });
-
-      if (decision.type === "ignore") return;
-      if (decision.type === "steer") {
-        await conversation.steerTurn(decision.threadId, {
-          input: decision.input,
-          turnId: decision.turnId,
-        });
-        return;
-      }
-
-      await conversation.submitTurn(decision.threadId, {
-        input: decision.input,
-        approvalPolicy: decision.approvalPolicy,
-      });
+      await executeTurnRouting(
+        { conversation },
+        {
+          surface: classified.surface,
+          handled: result.handled,
+          threadId: result.threadId,
+          input: result.input,
+          approvalPolicy,
+        },
+      );
     } catch (error) {
       await message.reply(error instanceof Error ? error.message : "Failed to process message.");
     }

@@ -18,6 +18,7 @@ export type CommandContext = {
   resumeChannelThread: (channelId: string, threadId: string) => Promise<string>;
   forkChannelThread: (channelId: string, sourceThreadId: string) => Promise<string>;
   bindChannelToThread: (channelId: string, threadId: string) => Promise<void>;
+  switchChannelThread: (channelId: string, threadId: string) => Promise<string>;
   clearChannelThread: (channelId: string) => void;
 };
 
@@ -634,14 +635,7 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
 
-    let resolvedThreadId = requestedThreadId;
-    try {
-      context.conversation.getThreadState(requestedThreadId);
-    } catch {
-      resolvedThreadId = await context.resumeChannelThread(channelId, requestedThreadId);
-    }
-
-    await context.bindChannelToThread(channelId, resolvedThreadId);
+    const resolvedThreadId = await context.switchChannelThread(channelId, requestedThreadId);
     await message.reply(`Switched active thread to: ${resolvedThreadId}`);
     return { handled: true, threadId: resolvedThreadId, input: null };
   }

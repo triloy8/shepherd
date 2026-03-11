@@ -450,6 +450,10 @@ export async function startDiscordBot(): Promise<void> {
     return orchestrator.forkSurfaceThread(channelId, sourceThreadId, (event) => handleThreadEvent(channelId, event));
   };
 
+  const switchChannelThread = async (channelId: string, threadId: string): Promise<string> => {
+    return orchestrator.switchSurfaceThread(channelId, threadId, (event) => handleThreadEvent(channelId, event));
+  };
+
   const ensureChannelThread = async (channelId: string): Promise<string> => {
     return orchestrator.ensureSurfaceThread(channelId, (event) => handleThreadEvent(channelId, event));
   };
@@ -487,6 +491,7 @@ export async function startDiscordBot(): Promise<void> {
         resumeChannelThread,
         forkChannelThread,
         bindChannelToThread,
+        switchChannelThread,
         clearChannelThread,
       }, sanitizedContent);
 

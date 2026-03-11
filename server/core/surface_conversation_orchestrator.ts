@@ -107,6 +107,21 @@ export class SurfaceConversationOrchestrator {
     return forked.threadId;
   }
 
+  async switchSurfaceThread(
+    surfaceId: string,
+    requestedThreadId: string,
+    listener: (event: BridgeEvent) => void,
+  ): Promise<string> {
+    let resolvedThreadId = requestedThreadId;
+    try {
+      this.conversation.getThreadState(requestedThreadId);
+      await this.bindSurfaceToThread(surfaceId, requestedThreadId, listener);
+    } catch {
+      resolvedThreadId = await this.resumeSurfaceThread(surfaceId, requestedThreadId, listener);
+    }
+    return resolvedThreadId;
+  }
+
   async ensureSurfaceThread(
     surfaceId: string,
     listener: (event: BridgeEvent) => void,

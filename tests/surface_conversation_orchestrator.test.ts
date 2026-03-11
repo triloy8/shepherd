@@ -39,6 +39,12 @@ function makeHarness() {
       surfaceThreads.set(`${adapter}:${surfaceId}`, threadId);
       return threadId;
     },
+    getThreadState(threadId: string) {
+      if (threadId === "thread-missing") {
+        throw new Error("missing");
+      }
+      return { threadId };
+    },
     subscribeSurfaceEvents(adapter: string, surfaceId: string, _listener: (event: BridgeEvent) => void) {
       calls.subscribeSurfaceEvents.push({ adapter, surfaceId });
       return () => undefined;
@@ -105,6 +111,26 @@ describe("SurfaceConversationOrchestrator", () => {
     expect(calls.resumeThread).toHaveLength(1);
     expect(calls.forkThread).toHaveLength(1);
     expect(calls.bindSurfaceToThread).toHaveLength(2);
+  });
+
+  test("switches directly to loaded threads and resumes missing ones", async () => {
+    const { orchestrator, calls } = makeHarness();
+    await orchestrator.setSurfaceProject("chan-1", "~");
+
+    const loaded = await orchestrator.switchSurfaceThread("chan-1", "thread-loaded", () => undefined);
+    const resumed = await orchestrator.switchSurfaceThread("chan-1", "thread-missing", () => undefined);
+
+    expect(loaded).toBe("thread-loaded");
+    expect(resumed).toBe("thread-missing");
+    expect(calls.bindSurfaceToThread).toContainEqual({
+      adapter: "discord",
+      surfaceId: "chan-1",
+      threadId: "thread-loaded",
+    });
+    expect(calls.resumeThread).toContainEqual({
+      threadId: "thread-missing",
+      request: { cwd: "/tmp/ws-1", sandbox: "workspace-write" },
+    });
   });
 
   test("clears surface thread bindings and subscriptions", () => {

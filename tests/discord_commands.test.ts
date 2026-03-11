@@ -168,6 +168,9 @@ function makeContext(overrides?: {
       return "thread-2";
     },
     async bindChannelToThread() {},
+    async switchChannelThread(_channelId: string, threadId: string) {
+      return threadId;
+    },
     clearChannelThread() {},
   };
 
@@ -300,6 +303,15 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(replies).toEqual(["Current thread: thread-1"]);
+  });
+
+  test("switches thread ids through the orchestration context", async () => {
+    const { message, replies } = makeMessage("!thread thread-9");
+    const { context } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual(["Switched active thread to: thread-9"]);
   });
 
   test("formats thread read replies from structured thread data", async () => {

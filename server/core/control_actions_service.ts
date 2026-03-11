@@ -1,8 +1,12 @@
 import type {
+  AccountRateLimitsResponse,
   ListModelsResponse,
+  ReadThreadTokenUsageResponse,
   ModelSummary,
   ReadThreadResponse,
   RollbackThreadResponse,
+  SkillsRemoteExportResponse,
+  SkillsRemoteListResponse,
   SkillsConfigWriteResponse,
   SkillsListResponse,
   ThreadModelState,
@@ -16,7 +20,22 @@ type ControlConversation = {
     request: { path: string; enabled: boolean },
   ) => Promise<SkillsConfigWriteResponse>;
   listModels: (request: { limit?: number; includeHidden?: boolean }) => Promise<ListModelsResponse>;
+  getThreadModel: (threadId: string) => ThreadModelState;
   setThreadModel: (threadId: string, model: string) => ThreadModelState;
+  readAccountRateLimits: () => Promise<AccountRateLimitsResponse>;
+  listRemoteSkills: (
+    threadId: string,
+    request: {
+      enabled?: boolean;
+      hazelnutScope?: "example" | "workspace-shared" | "all-shared" | "personal";
+      productSurface?: "chatgpt" | "codex" | "api" | "atlas";
+    },
+  ) => Promise<SkillsRemoteListResponse>;
+  exportRemoteSkill: (
+    threadId: string,
+    request: { hazelnutId: string },
+  ) => Promise<SkillsRemoteExportResponse>;
+  readThreadTokenUsage: (threadId: string) => Promise<ReadThreadTokenUsageResponse>;
   setThreadName: (threadId: string, request: { name: string }) => Promise<{ ok: true }>;
   readThread: (threadId: string, request: { includeTurns: boolean }) => Promise<ReadThreadResponse>;
   archiveThread: (threadId: string) => Promise<{ ok: true }>;
@@ -37,7 +56,18 @@ export type ControlActionsContext = {
 export type ControlActionRequest =
   | { type: "repo.get"; channelId: string }
   | { type: "repo.set"; channelId: string; repoInput: string }
+  | { type: "limits.read" }
+  | { type: "models.list"; channelId: string }
   | { type: "model.set"; channelId: string; requestedModel: string }
+  | { type: "context.read"; channelId: string }
+  | {
+      type: "skills.list-remote";
+      channelId: string;
+      enabled?: boolean;
+      hazelnutScope?: "example" | "workspace-shared" | "all-shared" | "personal";
+      productSurface?: "chatgpt" | "codex" | "api" | "atlas";
+    }
+  | { type: "skill.export-remote"; channelId: string; hazelnutId: string }
   | { type: "skill.set-enabled"; channelId: string; requestedSkill: string; enabled: boolean }
   | { type: "thread.get-current"; channelId: string }
   | { type: "thread.rename"; channelId: string; name: string }
@@ -51,8 +81,16 @@ export type ControlActionRequest =
 export type ControlActionResult =
   | { type: "repo.get"; currentRepo: string | null }
   | { type: "repo.set"; repoSlug: string; activeThreadId: string | null }
+  | { type: "limits.read"; rateLimits: unknown }
+  | { type: "models.list"; models: ListModelsResponse; modelState: ThreadModelState | null }
   | { type: "model.set"; ok: true; threadId: string; model: string }
   | { type: "model.set"; ok: false; message: string }
+  | { type: "context.read"; ok: true; threadId: string; tokenUsage: ReadThreadTokenUsageResponse["tokenUsage"] }
+  | { type: "context.read"; ok: false; message: string }
+  | { type: "skills.list-remote"; ok: true; remote: SkillsRemoteListResponse }
+  | { type: "skills.list-remote"; ok: false; message: string }
+  | { type: "skill.export-remote"; ok: true; exported: SkillsRemoteExportResponse }
+  | { type: "skill.export-remote"; ok: false; message: string }
   | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; effectiveEnabled: boolean }
   | { type: "skill.set-enabled"; ok: false; message: string }
   | { type: "thread.get-current"; threadId: string | null }
@@ -100,6 +138,24 @@ export async function executeControlAction(
     };
   }
 
+  if (request.type === "limits.read") {
+    const result = await context.conversation.readAccountRateLimits();
+    return {
+      type: "limits.read",
+      rateLimits: result.rateLimits,
+    };
+  }
+
+  if (request.type === "models.list") {
+    const threadId = context.getActiveThreadId(request.channelId);
+    const models = await context.conversation.listModels({ limit: 20 });
+    return {
+      type: "models.list",
+      models,
+      modelState: threadId ? context.conversation.getThreadModel(threadId) : null,
+    };
+  }
+
   if (request.type === "model.set") {
     const threadId = context.getActiveThreadId(request.channelId);
     if (!threadId) {
@@ -127,6 +183,80 @@ export async function executeControlAction(
       threadId: updated.threadId,
       model: resolved.model,
     };
+  }
+
+  if (request.type === "context.read") {
+    const threadId = context.getActiveThreadId(request.channelId);
+    if (!threadId) {
+      return {
+        type: "context.read",
+        ok: false,
+        message: "No active thread in this channel yet. Use !newthread first.",
+      };
+    }
+    const result = await context.conversation.readThreadTokenUsage(threadId);
+    return {
+      type: "context.read",
+      ok: true,
+      threadId,
+      tokenUsage: result.tokenUsage,
+    };
+  }
+
+  if (request.type === "skills.list-remote") {
+    const threadId = context.getActiveThreadId(request.channelId);
+    if (!threadId) {
+      return {
+        type: "skills.list-remote",
+        ok: false,
+        message: "No active thread in this channel. Use !newthread or !thread <id> first.",
+      };
+    }
+    try {
+      const remote = await context.conversation.listRemoteSkills(threadId, {
+        enabled: request.enabled,
+        hazelnutScope: request.hazelnutScope,
+        productSurface: request.productSurface,
+      });
+      return {
+        type: "skills.list-remote",
+        ok: true,
+        remote,
+      };
+    } catch (error) {
+      return {
+        type: "skills.list-remote",
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  if (request.type === "skill.export-remote") {
+    const threadId = context.getActiveThreadId(request.channelId);
+    if (!threadId) {
+      return {
+        type: "skill.export-remote",
+        ok: false,
+        message: "No active thread in this channel. Use !newthread or !thread <id> first.",
+      };
+    }
+    try {
+      const exported = await context.conversation.exportRemoteSkill(threadId, {
+        hazelnutId: request.hazelnutId,
+      });
+      return {
+        type: "skill.export-remote",
+        ok: true,
+        exported,
+      };
+    } catch (error) {
+      return {
+        type: "skill.export-remote",
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   if (request.type === "thread.get-current") {

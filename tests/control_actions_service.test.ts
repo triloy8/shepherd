@@ -6,6 +6,10 @@ function makeContext(overrides?: {
   currentRepo?: string | null;
   activeThreadId?: string | null;
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
+  readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
+  listRemoteSkills?: () => Promise<{ data: Array<{ id: string; name: string; description: string }> }>;
+  exportRemoteSkill?: () => Promise<{ id: string; path: string }>;
+  readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
   listModels?: () => Promise<{
     data: Array<{
       id: string;
@@ -84,6 +88,30 @@ function makeContext(overrides?: {
             },
           ],
           nextCursor: null,
+        };
+      },
+      async readAccountRateLimits() {
+        if (overrides?.readAccountRateLimits) return overrides.readAccountRateLimits();
+        return { rateLimits: { planType: "pro" } };
+      },
+      async listRemoteSkills() {
+        if (overrides?.listRemoteSkills) return overrides.listRemoteSkills();
+        return { data: [{ id: "hz-1", name: "Remote", description: "desc" }] };
+      },
+      async exportRemoteSkill() {
+        if (overrides?.exportRemoteSkill) return overrides.exportRemoteSkill();
+        return { id: "hz-1", path: "/tmp/remote-skill" };
+      },
+      async readThreadTokenUsage(threadId: string) {
+        if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
+        return { threadId, tokenUsage: { total: { totalTokens: 42 } } };
+      },
+      getThreadModel(threadId: string) {
+        return {
+          threadId,
+          currentModel: "o4-mini",
+          modelProvider: "openai",
+          pendingModel: null,
         };
       },
       setThreadModel(threadId, model) {
@@ -376,5 +404,62 @@ describe("ControlActionsService", () => {
       threadId: "thread-1",
     });
     expect(interruptedThreads).toEqual(["thread-1"]);
+  });
+
+  test("reads account limits through the service", async () => {
+    const { context } = makeContext();
+    await expect(executeControlAction(context, { type: "limits.read" })).resolves.toEqual({
+      type: "limits.read",
+      rateLimits: { planType: "pro" },
+    });
+  });
+
+  test("lists models with current thread model state", async () => {
+    const { context } = makeContext();
+    const result = await executeControlAction(context, { type: "models.list", channelId: "chan-1" });
+    expect(result.type).toBe("models.list");
+    if (result.type !== "models.list") {
+      throw new Error("Expected models.list result");
+    }
+    expect(result.modelState?.threadId).toBe("thread-1");
+    expect(result.models.data[0]?.model).toBe("gpt-5.3-codex");
+  });
+
+  test("reads thread context telemetry", async () => {
+    const { context } = makeContext();
+    await expect(
+      executeControlAction(context, { type: "context.read", channelId: "chan-1" }),
+    ).resolves.toEqual({
+      type: "context.read",
+      ok: true,
+      threadId: "thread-1",
+      tokenUsage: { total: { totalTokens: 42 } },
+    });
+  });
+
+  test("lists remote skills", async () => {
+    const { context } = makeContext();
+    await expect(
+      executeControlAction(context, { type: "skills.list-remote", channelId: "chan-1" }),
+    ).resolves.toEqual({
+      type: "skills.list-remote",
+      ok: true,
+      remote: { data: [{ id: "hz-1", name: "Remote", description: "desc" }] },
+    });
+  });
+
+  test("exports a remote skill", async () => {
+    const { context } = makeContext();
+    await expect(
+      executeControlAction(context, {
+        type: "skill.export-remote",
+        channelId: "chan-1",
+        hazelnutId: "hz-1",
+      }),
+    ).resolves.toEqual({
+      type: "skill.export-remote",
+      ok: true,
+      exported: { id: "hz-1", path: "/tmp/remote-skill" },
+    });
   });
 });

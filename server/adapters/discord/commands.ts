@@ -410,17 +410,21 @@ export async function handleMessage(
   }
 
   if (command === "!limits") {
-    const limits = await context.conversation.readAccountRateLimits();
-    await replyChunked(message, formatRateLimitsForDiscord(limits.rateLimits));
+    const result = await executeControlAction(context, { type: "limits.read" });
+    if (result.type !== "limits.read") {
+      throw new Error("Unexpected control action result for limits.read.");
+    }
+    await replyChunked(message, formatRateLimitsForDiscord(result.rateLimits));
     return { handled: true, threadId: null, input: null };
   }
 
   if (command === "!models") {
-    const threadId = context.getActiveThreadId(channelId);
-    const models = await context.conversation.listModels({ limit: 20 });
-    const modelState = threadId ? context.conversation.getThreadModel(threadId) : null;
-    await replyChunked(message, formatModelsForDiscord(models, modelState));
-    return { handled: true, threadId, input: null };
+    const result = await executeControlAction(context, { type: "models.list", channelId });
+    if (result.type !== "models.list") {
+      throw new Error("Unexpected control action result for models.list.");
+    }
+    await replyChunked(message, formatModelsForDiscord(result.models, result.modelState));
+    return { handled: true, threadId: result.modelState?.threadId ?? null, input: null };
   }
 
   if (command === "!model") {
@@ -467,18 +471,20 @@ export async function handleMessage(
   }
 
   if (command === "!context") {
-    const threadId = context.getActiveThreadId(channelId);
-    if (!threadId) {
-      await message.reply("No active thread in this channel yet. Use !newthread first.");
+    const result = await executeControlAction(context, { type: "context.read", channelId });
+    if (result.type !== "context.read") {
+      throw new Error("Unexpected control action result for context.read.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId: null, input: null };
     }
-    const result = await context.conversation.readThreadTokenUsage(threadId);
     if (!result.tokenUsage) {
       await message.reply("No context telemetry yet for this thread. Send a turn first.");
-      return { handled: true, threadId, input: null };
+      return { handled: true, threadId: result.threadId, input: null };
     }
-    await replyChunked(message, formatThreadContextForDiscord(threadId, result.tokenUsage));
-    return { handled: true, threadId, input: null };
+    await replyChunked(message, formatThreadContextForDiscord(result.threadId, result.tokenUsage));
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!newthread") {
@@ -528,24 +534,21 @@ export async function handleMessage(
     const mode = (args[0] ?? "").toLowerCase();
     if (mode === "remote") {
       const kv = parseKeyValueArgs(args.slice(1));
-      const enabled = kv.enabled === "true" ? true : kv.enabled === "false" ? false : undefined;
-      const hazelnutScope = kv.scope;
-      const productSurface = kv.surface;
-      try {
-        const remote = await context.conversation.listRemoteSkills(activeThreadId, {
-          enabled,
-          hazelnutScope: hazelnutScope as
-            | "example"
-            | "workspace-shared"
-            | "all-shared"
-            | "personal"
-            | undefined,
-          productSurface: productSurface as "chatgpt" | "codex" | "api" | "atlas" | undefined,
-        });
-        await replyChunked(message, formatRemoteSkillsForDiscord(remote));
-      } catch (error) {
-        await message.reply(mapRemoteSkillsError(error));
+      const result = await executeControlAction(context, {
+        type: "skills.list-remote",
+        channelId,
+        enabled: kv.enabled === "true" ? true : kv.enabled === "false" ? false : undefined,
+        hazelnutScope: kv.scope as "example" | "workspace-shared" | "all-shared" | "personal" | undefined,
+        productSurface: kv.surface as "chatgpt" | "codex" | "api" | "atlas" | undefined,
+      });
+      if (result.type !== "skills.list-remote") {
+        throw new Error("Unexpected control action result for skills.list-remote.");
       }
+      if (!result.ok) {
+        await message.reply(mapRemoteSkillsError(result.message));
+        return { handled: true, threadId: null, input: null };
+      }
+      await replyChunked(message, formatRemoteSkillsForDiscord(result.remote));
       return { handled: true, threadId: null, input: null };
     }
 
@@ -569,12 +572,19 @@ export async function handleMessage(
         await message.reply("Usage: !skill export <hazelnutId>");
         return { handled: true, threadId: null, input: null };
       }
-      try {
-        const exported = await context.conversation.exportRemoteSkill(activeThreadId, { hazelnutId });
-        await message.reply(`Exported remote skill ${exported.id} -> ${exported.path}`);
-      } catch (error) {
-        await message.reply(mapRemoteSkillsError(error));
+      const result = await executeControlAction(context, {
+        type: "skill.export-remote",
+        channelId,
+        hazelnutId,
+      });
+      if (result.type !== "skill.export-remote") {
+        throw new Error("Unexpected control action result for skill.export-remote.");
       }
+      if (!result.ok) {
+        await message.reply(mapRemoteSkillsError(result.message));
+        return { handled: true, threadId: null, input: null };
+      }
+      await message.reply(`Exported remote skill ${result.exported.id} -> ${result.exported.path}`);
       return { handled: true, threadId: null, input: null };
     }
 

@@ -17,10 +17,8 @@ import {
 import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
-import { classifySurfaceInput } from "../../core/turn_routing_policy.js";
-import { executeTurnRouting } from "../../core/turn_routing_service.js";
-import { handleMessage } from "./commands.js";
 import { handleInteraction } from "./interactions.js";
+import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
 import { createDiscordThreadEventHandler } from "./thread_event_handler.js";
 
@@ -106,34 +104,13 @@ export async function startDiscordBot(): Promise<void> {
     if (!isSupportedChannel(message.channel)) return;
     if (!client.user) return;
 
-    const raw = message.content.trim();
-    const isCommand = raw.startsWith("!");
-    const isMentioned = message.mentions.users.has(client.user.id);
-
-    const mentionPattern = new RegExp(`<@!?${client.user.id}>`, "g");
-    const sanitizedContent = isCommand ? raw : raw.replace(mentionPattern, "").trim();
-    const classified = classifySurfaceInput({
-      adapter: "discord",
-      surfaceId: message.channelId,
-      content: sanitizedContent,
-      isCommand,
-      isDirectAddressed: isMentioned,
-    });
-    if (classified.type === "ignore") return;
-
     try {
-      const result = await handleMessage(message, runtime.commandContext, classified.surface.content);
-
-      await executeTurnRouting(
-        { conversation },
-        {
-          surface: classified.surface,
-          handled: result.handled,
-          threadId: result.threadId,
-          input: result.input,
-          approvalPolicy,
-        },
-      );
+      await processDiscordMessage(message, {
+        botUserId: client.user.id,
+        conversation,
+        commandContext: runtime.commandContext,
+        approvalPolicy,
+      });
     } catch (error) {
       await message.reply(error instanceof Error ? error.message : "Failed to process message.");
     }

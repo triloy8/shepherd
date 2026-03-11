@@ -20,7 +20,6 @@ export type DiscordSurfaceRuntimeOptions = {
 };
 
 export type DiscordSurfaceRuntime = {
-  orchestrator: SurfaceConversationOrchestrator;
   commandContext: CommandContext;
 };
 
@@ -60,7 +59,6 @@ export function createDiscordSurfaceRuntime(
     orchestrator.ensureSurfaceThread(surfaceId, (event) => options.onThreadEvent(surfaceId, event));
 
   return {
-    orchestrator,
     commandContext: {
       conversation: options.conversation,
       getSurfaceThreadId: (surfaceId) => options.conversation.getSurfaceThread("discord", surfaceId),

@@ -1,8 +1,5 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
-import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 

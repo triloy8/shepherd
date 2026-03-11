@@ -24,6 +24,7 @@ import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
 import { SurfaceConversationOrchestrator } from "../../core/surface_conversation_orchestrator.js";
 import { SurfaceStateService } from "../../core/surface_state_service.js";
+import { decideTurnRouting } from "../../core/turn_routing_policy.js";
 import { WorkspaceProvisioner } from "../../core/workspace_provisioner.js";
 import { handleMessage } from "./commands.js";
 import { handleInteraction } from "./interactions.js";
@@ -489,22 +490,29 @@ export async function startDiscordBot(): Promise<void> {
         clearSurfaceThread,
       }, sanitizedContent);
 
-      if (result.handled || !result.threadId || !result.input) return;
+      const activeTurnId = result.threadId ? conversation.getThreadState(result.threadId).activeTurnId : null;
+      const decision = decideTurnRouting({
+        handled: result.handled,
+        threadId: result.threadId,
+        input: result.input,
+        isCommand,
+        isDirectAddressed: isMentioned,
+        activeTurnId,
+        approvalPolicy,
+      });
 
-      if (!isCommand && isMentioned) {
-        const state = conversation.getThreadState(result.threadId);
-        if (state.activeTurnId) {
-          await conversation.steerTurn(result.threadId, {
-            input: result.input,
-            turnId: state.activeTurnId,
-          });
-          return;
-        }
+      if (decision.type === "ignore") return;
+      if (decision.type === "steer") {
+        await conversation.steerTurn(decision.threadId, {
+          input: decision.input,
+          turnId: decision.turnId,
+        });
+        return;
       }
 
-      await conversation.submitTurn(result.threadId, {
-        input: result.input,
-        approvalPolicy,
+      await conversation.submitTurn(decision.threadId, {
+        input: decision.input,
+        approvalPolicy: decision.approvalPolicy,
       });
     } catch (error) {
       await message.reply(error instanceof Error ? error.message : "Failed to process message.");

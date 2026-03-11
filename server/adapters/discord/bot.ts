@@ -22,11 +22,9 @@ import type { BridgeEvent, MessagePhase } from "../../../shared/protocol/events.
 import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
-import {
-  describeProjectTarget,
-  resolveProjectTarget,
-  type ProjectTarget,
-} from "../../core/project_target_service.js";
+import { SurfaceConversationOrchestrator } from "../../core/surface_conversation_orchestrator.js";
+import { SurfaceStateService } from "../../core/surface_state_service.js";
+import { WorkspaceProvisioner } from "../../core/workspace_provisioner.js";
 import { handleMessage } from "./commands.js";
 import { handleInteraction } from "./interactions.js";
 import {
@@ -224,7 +222,12 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   const streamByChannel = new Map<string, StreamState>();
-  const repoByChannel = new Map<string, ProjectTarget>();
+  const surfaceState = new SurfaceStateService();
+  const workspaceProvisioner = new WorkspaceProvisioner({
+    async cloneGithubRepo(slug, workspacePath) {
+      await runGh(["repo", "clone", slug, workspacePath, "--", "--recurse-submodules"]);
+    },
+  });
 
   const client = new Client({
     intents: [
@@ -412,99 +415,43 @@ export async function startDiscordBot(): Promise<void> {
     }
   };
 
+  const orchestrator = new SurfaceConversationOrchestrator(
+    conversation,
+    surfaceState,
+    workspaceProvisioner,
+    {
+      adapter: "discord",
+      approvalPolicy,
+      sandbox: defaultSandbox,
+      projectTargetResolver: {
+        resolveGithubRepo: async (slug) =>
+          runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
+      },
+    },
+  );
+
   const bindChannelToThread = async (channelId: string, threadId: string): Promise<void> => {
-    await conversation.bindSurfaceToThread("discord", channelId, threadId);
-    conversation.subscribeSurfaceEvents(
-      "discord",
-      channelId,
-      (event) => handleThreadEvent(channelId, event),
-      { replay: false },
-    );
+    await orchestrator.bindSurfaceToThread(channelId, threadId, (event) => handleThreadEvent(channelId, event));
   };
 
   const clearChannelThread = (channelId: string): void => {
-    conversation.clearSurfaceBinding("discord", channelId);
-    conversation.unsubscribeSurfaceEvents("discord", channelId);
-  };
-
-  const getChannelRepo = (channelId: string): string | null => {
-    return repoByChannel.get(channelId)?.display ?? null;
-  };
-
-  const ensureWorkspaceForSession = async (repoSlug: string, sessionId: string): Promise<string> => {
-    const repoName = repoNameFromSlug(repoSlug);
-    const workspacePath = path.join(homedir(), ".agent-workspaces", repoName, sessionId);
-    const marker = path.join(workspacePath, ".git");
-    try {
-      await fs.stat(marker);
-      return workspacePath;
-    } catch {
-      await fs.mkdir(path.dirname(workspacePath), { recursive: true });
-      await runGh(["repo", "clone", repoSlug, workspacePath, "--", "--recurse-submodules"]);
-      return workspacePath;
-    }
-  };
-
-  const createSessionWorkspace = async (
-    channelId: string,
-  ): Promise<{ workspaceId: string; cwd: string }> => {
-    const target = repoByChannel.get(channelId);
-    if (!target) {
-      throw new Error("No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.");
-    }
-    const workspaceId = randomUUID();
-    const cwd =
-      target.kind === "github"
-        ? await ensureWorkspaceForSession(target.slug, workspaceId)
-        : target.appendWorkspaceId
-          ? path.join(target.rootPath, workspaceId)
-          : target.rootPath;
-    if (target.kind === "local") {
-      await fs.mkdir(cwd, { recursive: true });
-    }
-    return { workspaceId, cwd };
+    orchestrator.clearSurfaceThread(channelId);
   };
 
   const createAndBindChannelThread = async (channelId: string): Promise<string> => {
-    const workspace = await createSessionWorkspace(channelId);
-    const created = await conversation.createSurfaceThread("discord", channelId, {
-      approvalPolicy,
-      cwd: workspace.cwd,
-      ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
-    });
-    conversation.subscribeSurfaceEvents(
-      "discord",
-      channelId,
-      (event) => handleThreadEvent(channelId, event),
-      { replay: false },
-    );
-    return created.threadId;
+    return orchestrator.createAndBindSurfaceThread(channelId, (event) => handleThreadEvent(channelId, event));
   };
 
   const resumeChannelThread = async (channelId: string, threadId: string): Promise<string> => {
-    const workspace = await createSessionWorkspace(channelId);
-    const resumed = await conversation.resumeThread(threadId, {
-      cwd: workspace.cwd,
-      ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
-    });
-    await bindChannelToThread(channelId, resumed.threadId);
-    return resumed.threadId;
+    return orchestrator.resumeSurfaceThread(channelId, threadId, (event) => handleThreadEvent(channelId, event));
   };
 
   const forkChannelThread = async (channelId: string, sourceThreadId: string): Promise<string> => {
-    const workspace = await createSessionWorkspace(channelId);
-    const forked = await conversation.forkThread(sourceThreadId, {
-      cwd: workspace.cwd,
-      ...(defaultSandbox ? { sandbox: defaultSandbox } : {}),
-    });
-    await bindChannelToThread(channelId, forked.threadId);
-    return forked.threadId;
+    return orchestrator.forkSurfaceThread(channelId, sourceThreadId, (event) => handleThreadEvent(channelId, event));
   };
 
   const ensureChannelThread = async (channelId: string): Promise<string> => {
-    const current = conversation.getSurfaceThread("discord", channelId);
-    if (current) return current;
-    return createAndBindChannelThread(channelId);
+    return orchestrator.ensureSurfaceThread(channelId, (event) => handleThreadEvent(channelId, event));
   };
 
   client.once("clientReady", () => {
@@ -533,18 +480,8 @@ export async function startDiscordBot(): Promise<void> {
       const result = await handleMessage(message, {
         conversation,
         getActiveThreadId: (channelId) => conversation.getSurfaceThread("discord", channelId),
-        getChannelRepo: (channelId) => {
-          const target = repoByChannel.get(channelId);
-          return target ? describeProjectTarget(target) : null;
-        },
-        setChannelRepo: async (channelId, repoSlug) => {
-          const target = await resolveProjectTarget(repoSlug, {
-            resolveGithubRepo: async (slug) =>
-              runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
-          });
-          repoByChannel.set(channelId, target);
-          return { repoSlug: describeProjectTarget(target) };
-        },
+        getChannelRepo: (channelId) => orchestrator.getSurfaceProjectDisplay(channelId),
+        setChannelRepo: async (channelId, repoSlug) => orchestrator.setSurfaceProject(channelId, repoSlug),
         ensureChannelThread,
         createAndBindChannelThread,
         resumeChannelThread,

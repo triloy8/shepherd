@@ -24,7 +24,7 @@ import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
 import { SurfaceConversationOrchestrator } from "../../core/surface_conversation_orchestrator.js";
 import { SurfaceStateService } from "../../core/surface_state_service.js";
-import { decideTurnRouting } from "../../core/turn_routing_policy.js";
+import { classifySurfaceInput, decideTurnRouting } from "../../core/turn_routing_policy.js";
 import { WorkspaceProvisioner } from "../../core/workspace_provisioner.js";
 import { handleMessage } from "./commands.js";
 import { handleInteraction } from "./interactions.js";
@@ -465,17 +465,17 @@ export async function startDiscordBot(): Promise<void> {
     if (!client.user) return;
 
     const raw = message.content.trim();
-    if (!raw) return;
     const isCommand = raw.startsWith("!");
     const isMentioned = message.mentions.users.has(client.user.id);
 
-    if (!isCommand && !isMentioned) {
-      return;
-    }
-
     const mentionPattern = new RegExp(`<@!?${client.user.id}>`, "g");
     const sanitizedContent = isCommand ? raw : raw.replace(mentionPattern, "").trim();
-    if (!isCommand && !sanitizedContent) return;
+    const classified = classifySurfaceInput({
+      content: sanitizedContent,
+      isCommand,
+      isDirectAddressed: isMentioned,
+    });
+    if (classified.type === "ignore") return;
 
     try {
       const result = await handleMessage(message, {
@@ -488,15 +488,15 @@ export async function startDiscordBot(): Promise<void> {
         switchSurfaceThread,
         forkSurfaceThread,
         clearSurfaceThread,
-      }, sanitizedContent);
+      }, classified.content);
 
       const activeTurnId = result.threadId ? conversation.getThreadState(result.threadId).activeTurnId : null;
       const decision = decideTurnRouting({
         handled: result.handled,
         threadId: result.threadId,
         input: result.input,
-        isCommand,
-        isDirectAddressed: isMentioned,
+        isCommand: classified.isCommand,
+        isDirectAddressed: classified.isDirectAddressed,
         activeTurnId,
         approvalPolicy,
       });

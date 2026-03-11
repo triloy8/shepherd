@@ -1,8 +1,56 @@
 import { describe, expect, test } from "bun:test";
 
-import { decideTurnRouting } from "../server/core/turn_routing_policy.js";
+import { classifySurfaceInput, decideTurnRouting } from "../server/core/turn_routing_policy.js";
 
 describe("TurnRoutingPolicy", () => {
+  test("ignores empty surface input", () => {
+    expect(
+      classifySurfaceInput({
+        content: "   ",
+        isCommand: false,
+        isDirectAddressed: true,
+      }),
+    ).toEqual({ type: "ignore" });
+  });
+
+  test("ignores non-command input that is not direct-addressed", () => {
+    expect(
+      classifySurfaceInput({
+        content: "hello",
+        isCommand: false,
+        isDirectAddressed: false,
+      }),
+    ).toEqual({ type: "ignore" });
+  });
+
+  test("processes command and direct-addressed surface input", () => {
+    expect(
+      classifySurfaceInput({
+        content: " !models ",
+        isCommand: true,
+        isDirectAddressed: false,
+      }),
+    ).toEqual({
+      type: "process",
+      content: "!models",
+      isCommand: true,
+      isDirectAddressed: false,
+    });
+
+    expect(
+      classifySurfaceInput({
+        content: "hello",
+        isCommand: false,
+        isDirectAddressed: true,
+      }),
+    ).toEqual({
+      type: "process",
+      content: "hello",
+      isCommand: false,
+      isDirectAddressed: true,
+    });
+  });
+
   test("ignores handled command results", () => {
     expect(
       decideTurnRouting({

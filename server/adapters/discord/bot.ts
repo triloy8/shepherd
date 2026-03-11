@@ -471,6 +471,8 @@ export async function startDiscordBot(): Promise<void> {
     const mentionPattern = new RegExp(`<@!?${client.user.id}>`, "g");
     const sanitizedContent = isCommand ? raw : raw.replace(mentionPattern, "").trim();
     const classified = classifySurfaceInput({
+      adapter: "discord",
+      surfaceId: message.channelId,
       content: sanitizedContent,
       isCommand,
       isDirectAddressed: isMentioned,
@@ -488,15 +490,14 @@ export async function startDiscordBot(): Promise<void> {
         switchSurfaceThread,
         forkSurfaceThread,
         clearSurfaceThread,
-      }, classified.content);
+      }, classified.surface.content);
 
       const activeTurnId = result.threadId ? conversation.getThreadState(result.threadId).activeTurnId : null;
       const decision = decideTurnRouting({
+        surface: classified.surface,
         handled: result.handled,
         threadId: result.threadId,
         input: result.input,
-        isCommand: classified.isCommand,
-        isDirectAddressed: classified.isDirectAddressed,
         activeTurnId,
         approvalPolicy,
       });

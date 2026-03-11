@@ -6,6 +6,8 @@ describe("TurnRoutingPolicy", () => {
   test("ignores empty surface input", () => {
     expect(
       classifySurfaceInput({
+        adapter: "discord",
+        surfaceId: "chan-1",
         content: "   ",
         isCommand: false,
         isDirectAddressed: true,
@@ -16,6 +18,8 @@ describe("TurnRoutingPolicy", () => {
   test("ignores non-command input that is not direct-addressed", () => {
     expect(
       classifySurfaceInput({
+        adapter: "discord",
+        surfaceId: "chan-1",
         content: "hello",
         isCommand: false,
         isDirectAddressed: false,
@@ -26,28 +30,40 @@ describe("TurnRoutingPolicy", () => {
   test("processes command and direct-addressed surface input", () => {
     expect(
       classifySurfaceInput({
+        adapter: "discord",
+        surfaceId: "chan-1",
         content: " !models ",
         isCommand: true,
         isDirectAddressed: false,
       }),
     ).toEqual({
       type: "process",
-      content: "!models",
-      isCommand: true,
-      isDirectAddressed: false,
+      surface: {
+        adapter: "discord",
+        surfaceId: "chan-1",
+        content: "!models",
+        isCommand: true,
+        isDirectAddressed: false,
+      },
     });
 
     expect(
       classifySurfaceInput({
+        adapter: "discord",
+        surfaceId: "chan-1",
         content: "hello",
         isCommand: false,
         isDirectAddressed: true,
       }),
     ).toEqual({
       type: "process",
-      content: "hello",
-      isCommand: false,
-      isDirectAddressed: true,
+      surface: {
+        adapter: "discord",
+        surfaceId: "chan-1",
+        content: "hello",
+        isCommand: false,
+        isDirectAddressed: true,
+      },
     });
   });
 
@@ -55,10 +71,15 @@ describe("TurnRoutingPolicy", () => {
     expect(
       decideTurnRouting({
         handled: true,
+        surface: {
+          adapter: "discord",
+          surfaceId: "chan-1",
+          content: "hello",
+          isCommand: true,
+          isDirectAddressed: false,
+        },
         threadId: "thread-1",
         input: "hello",
-        isCommand: true,
-        isDirectAddressed: false,
         activeTurnId: null,
         approvalPolicy: "on-request",
       }),
@@ -69,10 +90,15 @@ describe("TurnRoutingPolicy", () => {
     expect(
       decideTurnRouting({
         handled: false,
+        surface: {
+          adapter: "discord",
+          surfaceId: "chan-1",
+          content: "hello",
+          isCommand: false,
+          isDirectAddressed: true,
+        },
         threadId: null,
         input: "hello",
-        isCommand: false,
-        isDirectAddressed: true,
         activeTurnId: null,
         approvalPolicy: "on-request",
       }),
@@ -81,10 +107,15 @@ describe("TurnRoutingPolicy", () => {
     expect(
       decideTurnRouting({
         handled: false,
+        surface: {
+          adapter: "discord",
+          surfaceId: "chan-1",
+          content: "hello",
+          isCommand: false,
+          isDirectAddressed: true,
+        },
         threadId: "thread-1",
         input: null,
-        isCommand: false,
-        isDirectAddressed: true,
         activeTurnId: null,
         approvalPolicy: "on-request",
       }),
@@ -95,10 +126,15 @@ describe("TurnRoutingPolicy", () => {
     expect(
       decideTurnRouting({
         handled: false,
+        surface: {
+          adapter: "discord",
+          surfaceId: "chan-1",
+          content: "continue",
+          isCommand: false,
+          isDirectAddressed: true,
+        },
         threadId: "thread-1",
         input: "continue",
-        isCommand: false,
-        isDirectAddressed: true,
         activeTurnId: "turn-1",
         approvalPolicy: "on-request",
       }),
@@ -114,10 +150,15 @@ describe("TurnRoutingPolicy", () => {
     expect(
       decideTurnRouting({
         handled: false,
+        surface: {
+          adapter: "discord",
+          surfaceId: "chan-1",
+          content: "continue",
+          isCommand: false,
+          isDirectAddressed: true,
+        },
         threadId: "thread-1",
         input: "continue",
-        isCommand: false,
-        isDirectAddressed: true,
         activeTurnId: null,
         approvalPolicy: "never",
       }),
@@ -133,10 +174,15 @@ describe("TurnRoutingPolicy", () => {
     expect(
       decideTurnRouting({
         handled: false,
+        surface: {
+          adapter: "discord",
+          surfaceId: "chan-1",
+          content: "continue",
+          isCommand: false,
+          isDirectAddressed: false,
+        },
         threadId: "thread-1",
         input: "continue",
-        isCommand: false,
-        isDirectAddressed: false,
         activeTurnId: "turn-1",
         approvalPolicy: "on-request",
       }),

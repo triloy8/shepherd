@@ -1,21 +1,24 @@
 import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
 
-export type SurfaceInputClassificationInput = {
+export type NormalizedSurfaceInput = {
+  adapter: string;
+  surfaceId: string;
   content: string;
   isCommand: boolean;
   isDirectAddressed: boolean;
 };
 
+export type SurfaceInputClassificationInput = NormalizedSurfaceInput;
+
 export type SurfaceInputClassification =
   | { type: "ignore" }
-  | { type: "process"; content: string; isCommand: boolean; isDirectAddressed: boolean };
+  | { type: "process"; surface: NormalizedSurfaceInput };
 
 export type TurnRoutingInput = {
+  surface: NormalizedSurfaceInput;
   handled: boolean;
   threadId: string | null;
   input: string | null;
-  isCommand: boolean;
-  isDirectAddressed: boolean;
   activeTurnId: string | null;
   approvalPolicy: ApprovalPolicy;
 };
@@ -39,9 +42,10 @@ export function classifySurfaceInput(
 
   return {
     type: "process",
-    content,
-    isCommand: input.isCommand,
-    isDirectAddressed: input.isDirectAddressed,
+    surface: {
+      ...input,
+      content,
+    },
   };
 }
 
@@ -50,7 +54,7 @@ export function decideTurnRouting(input: TurnRoutingInput): TurnRoutingDecision 
     return { type: "ignore" };
   }
 
-  if (!input.isCommand && input.isDirectAddressed && input.activeTurnId) {
+  if (!input.surface.isCommand && input.surface.isDirectAddressed && input.activeTurnId) {
     return {
       type: "steer",
       threadId: input.threadId,

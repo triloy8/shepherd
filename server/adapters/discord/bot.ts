@@ -25,7 +25,6 @@ import { ConversationService } from "../../core/conversation_service.js";
 import {
   createResponseStreamState,
   reduceResponseStream,
-  type ResponseStreamState,
 } from "../../core/response_stream_reducer.js";
 import { SurfaceConversationOrchestrator } from "../../core/surface_conversation_orchestrator.js";
 import { SurfaceStateService } from "../../core/surface_state_service.js";
@@ -39,19 +38,17 @@ import {
   formatApprovalText,
   formatEventLine,
 } from "./message_renderer.js";
+import {
+  createDiscordStreamState,
+  flushDiscordStream,
+  isSendableChannel,
+  type DiscordStreamState,
+} from "./stream_delivery.js";
 
-type StreamState = {
-  stream: ResponseStreamState;
-  messageIds: string[];
-  renderedChunks: string[];
-  timer: NodeJS.Timeout | null;
-  flushing: boolean;
-  pendingFlush: boolean;
-};
+type StreamState = DiscordStreamState;
 
 const execFileAsync = promisify(execFile);
 
-const DISCORD_STREAM_CHUNK_LIMIT = 1900;
 const SANDBOX_MODES: SandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
 
 function readSandboxMode(value: string | undefined): SandboxMode | undefined {
@@ -60,27 +57,6 @@ function readSandboxMode(value: string | undefined): SandboxMode | undefined {
     return value as SandboxMode;
   }
   return undefined;
-}
-
-function chunkForDiscord(text: string, maxChunkSize = DISCORD_STREAM_CHUNK_LIMIT): string[] {
-  if (!text) return [];
-
-  const chunks: string[] = [];
-  let remaining = text;
-
-  while (remaining.length > maxChunkSize) {
-    const slice = remaining.slice(0, maxChunkSize);
-    const breakAt = Math.max(slice.lastIndexOf("\n"), slice.lastIndexOf(" "));
-    const boundary = breakAt >= Math.floor(maxChunkSize * 0.6) ? breakAt + 1 : maxChunkSize;
-    chunks.push(remaining.slice(0, boundary));
-    remaining = remaining.slice(boundary);
-  }
-
-  if (remaining.length > 0) {
-    chunks.push(remaining);
-  }
-
-  return chunks;
 }
 
 function pickButtonStyle(decision: string): ButtonStyle {
@@ -131,15 +107,6 @@ function isSupportedChannel(channel: Message["channel"]): channel is TextBasedCh
     channel.type === ChannelType.PublicThread ||
     channel.type === ChannelType.PrivateThread
   );
-}
-
-function isSendableChannel(channel: unknown): channel is TextBasedChannel & {
-  send: (content: string | { content: string; components?: ActionRowBuilder<ButtonBuilder>[] }) => Promise<{ id: string }>;
-  messages: { fetch: (id: string) => Promise<{ edit: (content: string) => Promise<unknown> }> };
-} {
-  if (!channel || typeof channel !== "object") return false;
-  const record = channel as Record<string, unknown>;
-  return typeof record.send === "function";
 }
 
 function repoNameFromSlug(slug: string): string {
@@ -213,32 +180,7 @@ export async function startDiscordBot(): Promise<void> {
     try {
       const channel = await client.channels.fetch(channelId);
       if (!isSendableChannel(channel)) return;
-
-      const chunks = chunkForDiscord(state.stream.text);
-      for (let index = 0; index < chunks.length; index += 1) {
-        const content = chunks[index]!;
-        const prior = state.renderedChunks[index];
-
-        if (prior === content) {
-          continue;
-        }
-
-        const existingMessageId = state.messageIds[index];
-        if (existingMessageId) {
-          try {
-            const message = await channel.messages.fetch(existingMessageId);
-            await message.edit(content);
-          } catch {
-            const sent = await channel.send(content);
-            state.messageIds[index] = sent.id;
-          }
-        } else {
-          const sent = await channel.send(content);
-          state.messageIds[index] = sent.id;
-        }
-      }
-
-      state.renderedChunks = chunks;
+      await flushDiscordStream(channel, state);
     } finally {
       state.flushing = false;
       if (state.pendingFlush) {
@@ -265,25 +207,11 @@ export async function startDiscordBot(): Promise<void> {
     const reduction = reduceResponseStream(prior?.stream ?? null, event);
     if (reduction.type === "reset") {
       if (prior?.timer) clearTimeout(prior.timer);
-      streamByChannel.set(channelId, {
-        stream: reduction.state,
-        messageIds: [],
-        renderedChunks: [],
-        timer: null,
-        flushing: false,
-        pendingFlush: false,
-      });
+      streamByChannel.set(channelId, createDiscordStreamState(reduction.state));
       return;
     }
     if (reduction.type === "schedule-flush") {
-      const nextState = prior ?? {
-        stream: createResponseStreamState(),
-        messageIds: [],
-        renderedChunks: [],
-        timer: null,
-        flushing: false,
-        pendingFlush: false,
-      };
+      const nextState = prior ?? createDiscordStreamState(createResponseStreamState());
       nextState.stream = reduction.state;
       streamByChannel.set(channelId, nextState);
       scheduleStreamFlush(channelId);

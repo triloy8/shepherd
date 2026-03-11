@@ -158,17 +158,16 @@ function makeContext(overrides?: {
     async ensureChannelThread() {
       return "thread-1";
     },
-    async createAndBindChannelThread() {
+    async createSurfaceThread() {
       return "thread-1";
     },
-    async resumeChannelThread() {
-      return "thread-1";
-    },
-    async forkChannelThread() {
+    async forkSurfaceThread() {
       return "thread-2";
     },
-    async bindChannelToThread() {},
     async switchChannelThread(_channelId: string, threadId: string) {
+      return threadId;
+    },
+    async switchSurfaceThread(_channelId: string, threadId: string) {
       return threadId;
     },
     clearChannelThread() {},
@@ -305,6 +304,15 @@ describe("Discord !skill commands", () => {
     expect(replies).toEqual(["Current thread: thread-1"]);
   });
 
+  test("formats new thread replies through the orchestration action result", async () => {
+    const { message, replies } = makeMessage("!newthread");
+    const { context } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual(["Started new thread: thread-1"]);
+  });
+
   test("switches thread ids through the orchestration context", async () => {
     const { message, replies } = makeMessage("!thread thread-9");
     const { context } = makeContext();
@@ -312,6 +320,15 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(replies).toEqual(["Switched active thread to: thread-9"]);
+  });
+
+  test("formats fork replies through the orchestration action result", async () => {
+    const { message, replies } = makeMessage("!fork");
+    const { context } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual(["Forked thread thread-1 -> thread-2"]);
   });
 
   test("formats thread read replies from structured thread data", async () => {

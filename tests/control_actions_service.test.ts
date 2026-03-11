@@ -46,6 +46,9 @@ function makeContext(overrides?: {
   const compactedThreads: string[] = [];
   const interruptedThreads: string[] = [];
   const clearedChannels: string[] = [];
+  const createdSurfaceThreads: string[] = [];
+  const switchedSurfaceThreads: Array<{ channelId: string; threadId: string }> = [];
+  const forkedSurfaceThreads: Array<{ channelId: string; sourceThreadId: string }> = [];
 
   const context: ControlActionsContext = {
     conversation: {
@@ -161,6 +164,18 @@ function makeContext(overrides?: {
       repoWrites.push({ channelId, repoSlug });
       return { repoSlug };
     },
+    async createSurfaceThread(channelId) {
+      createdSurfaceThreads.push(channelId);
+      return "thread-created";
+    },
+    async switchSurfaceThread(channelId, threadId) {
+      switchedSurfaceThreads.push({ channelId, threadId });
+      return threadId;
+    },
+    async forkSurfaceThread(channelId, sourceThreadId) {
+      forkedSurfaceThreads.push({ channelId, sourceThreadId });
+      return "thread-forked";
+    },
     clearChannelThread(channelId) {
       clearedChannels.push(channelId);
     },
@@ -178,6 +193,9 @@ function makeContext(overrides?: {
     compactedThreads,
     interruptedThreads,
     clearedChannels,
+    createdSurfaceThreads,
+    switchedSurfaceThreads,
+    forkedSurfaceThreads,
   };
 }
 
@@ -404,6 +422,41 @@ describe("ControlActionsService", () => {
       threadId: "thread-1",
     });
     expect(interruptedThreads).toEqual(["thread-1"]);
+  });
+
+  test("creates a new surface thread through the orchestration hook", async () => {
+    const { context, createdSurfaceThreads } = makeContext();
+    await expect(
+      executeControlAction(context, { type: "thread.create", channelId: "chan-1" }),
+    ).resolves.toEqual({
+      type: "thread.create",
+      threadId: "thread-created",
+    });
+    expect(createdSurfaceThreads).toEqual(["chan-1"]);
+  });
+
+  test("switches surface threads through the orchestration hook", async () => {
+    const { context, switchedSurfaceThreads } = makeContext();
+    await expect(
+      executeControlAction(context, { type: "thread.switch", channelId: "chan-1", threadId: "thread-9" }),
+    ).resolves.toEqual({
+      type: "thread.switch",
+      threadId: "thread-9",
+    });
+    expect(switchedSurfaceThreads).toEqual([{ channelId: "chan-1", threadId: "thread-9" }]);
+  });
+
+  test("forks surface threads through the orchestration hook", async () => {
+    const { context, forkedSurfaceThreads } = makeContext();
+    await expect(
+      executeControlAction(context, { type: "thread.fork", channelId: "chan-1", sourceThreadId: "thread-1" }),
+    ).resolves.toEqual({
+      type: "thread.fork",
+      ok: true,
+      threadId: "thread-forked",
+      sourceThreadId: "thread-1",
+    });
+    expect(forkedSurfaceThreads).toEqual([{ channelId: "chan-1", sourceThreadId: "thread-1" }]);
   });
 
   test("reads account limits through the service", async () => {

@@ -50,6 +50,9 @@ export type ControlActionsContext = {
   getActiveThreadId: (channelId: string) => string | null;
   getChannelRepo: (channelId: string) => string | null;
   setChannelRepo: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
+  createSurfaceThread?: (channelId: string) => Promise<string>;
+  switchSurfaceThread?: (channelId: string, threadId: string) => Promise<string>;
+  forkSurfaceThread?: (channelId: string, sourceThreadId: string) => Promise<string>;
   clearChannelThread?: (channelId: string) => void;
 };
 
@@ -70,8 +73,11 @@ export type ControlActionRequest =
   | { type: "skill.export-remote"; channelId: string; hazelnutId: string }
   | { type: "skill.set-enabled"; channelId: string; requestedSkill: string; enabled: boolean }
   | { type: "thread.get-current"; channelId: string }
+  | { type: "thread.create"; channelId: string }
+  | { type: "thread.switch"; channelId: string; threadId: string }
   | { type: "thread.rename"; channelId: string; name: string }
   | { type: "thread.read"; channelId: string; threadId?: string }
+  | { type: "thread.fork"; channelId: string; sourceThreadId?: string }
   | { type: "thread.archive"; channelId: string; threadId?: string }
   | { type: "thread.unarchive"; threadId: string }
   | { type: "thread.rollback"; channelId: string; numTurns: number; threadId?: string }
@@ -94,10 +100,14 @@ export type ControlActionResult =
   | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; effectiveEnabled: boolean }
   | { type: "skill.set-enabled"; ok: false; message: string }
   | { type: "thread.get-current"; threadId: string | null }
+  | { type: "thread.create"; threadId: string }
+  | { type: "thread.switch"; threadId: string }
   | { type: "thread.rename"; ok: true; threadId: string; name: string }
   | { type: "thread.rename"; ok: false; message: string }
   | { type: "thread.read"; ok: true; threadId: string; thread: ReadThreadResponse["thread"] }
   | { type: "thread.read"; ok: false; message: string }
+  | { type: "thread.fork"; ok: true; threadId: string; sourceThreadId: string }
+  | { type: "thread.fork"; ok: false; message: string }
   | { type: "thread.archive"; ok: true; threadId: string; clearedActiveBinding: boolean }
   | { type: "thread.archive"; ok: false; message: string }
   | { type: "thread.unarchive"; ok: true; threadId: string }
@@ -266,6 +276,26 @@ export async function executeControlAction(
     };
   }
 
+  if (request.type === "thread.create") {
+    if (!context.createSurfaceThread) {
+      throw new Error("Surface thread creation is not configured.");
+    }
+    return {
+      type: "thread.create",
+      threadId: await context.createSurfaceThread(request.channelId),
+    };
+  }
+
+  if (request.type === "thread.switch") {
+    if (!context.switchSurfaceThread) {
+      throw new Error("Surface thread switching is not configured.");
+    }
+    return {
+      type: "thread.switch",
+      threadId: await context.switchSurfaceThread(request.channelId, request.threadId),
+    };
+  }
+
   if (request.type === "thread.rename") {
     const threadId = context.getActiveThreadId(request.channelId);
     if (!threadId) {
@@ -299,6 +329,26 @@ export async function executeControlAction(
       ok: true,
       threadId,
       thread: result.thread,
+    };
+  }
+
+  if (request.type === "thread.fork") {
+    const sourceThreadId = request.sourceThreadId ?? context.getActiveThreadId(request.channelId);
+    if (!sourceThreadId) {
+      return {
+        type: "thread.fork",
+        ok: false,
+        message: "Usage: !fork <id>",
+      };
+    }
+    if (!context.forkSurfaceThread) {
+      throw new Error("Surface thread forking is not configured.");
+    }
+    return {
+      type: "thread.fork",
+      ok: true,
+      threadId: await context.forkSurfaceThread(request.channelId, sourceThreadId),
+      sourceThreadId,
     };
   }
 

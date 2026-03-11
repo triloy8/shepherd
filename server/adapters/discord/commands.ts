@@ -14,10 +14,9 @@ export type CommandContext = {
   getChannelRepo: (channelId: string) => string | null;
   setChannelRepo: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   ensureChannelThread: (channelId: string) => Promise<string>;
-  createAndBindChannelThread: (channelId: string) => Promise<string>;
-  resumeChannelThread: (channelId: string, threadId: string) => Promise<string>;
-  forkChannelThread: (channelId: string, sourceThreadId: string) => Promise<string>;
-  bindChannelToThread: (channelId: string, threadId: string) => Promise<void>;
+  createSurfaceThread: (channelId: string) => Promise<string>;
+  switchSurfaceThread: (channelId: string, threadId: string) => Promise<string>;
+  forkSurfaceThread: (channelId: string, sourceThreadId: string) => Promise<string>;
   switchChannelThread: (channelId: string, threadId: string) => Promise<string>;
   clearChannelThread: (channelId: string) => void;
 };
@@ -489,9 +488,12 @@ export async function handleMessage(
   }
 
   if (command === "!newthread") {
-    const threadId = await context.createAndBindChannelThread(channelId);
-    await message.reply(`Started new thread: ${threadId}`);
-    return { handled: true, threadId, input: null };
+    const result = await executeControlAction(context, { type: "thread.create", channelId });
+    if (result.type !== "thread.create") {
+      throw new Error("Unexpected control action result for thread.create.");
+    }
+    await message.reply(`Started new thread: ${result.threadId}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!repo") {
@@ -635,9 +637,16 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
 
-    const resolvedThreadId = await context.switchChannelThread(channelId, requestedThreadId);
-    await message.reply(`Switched active thread to: ${resolvedThreadId}`);
-    return { handled: true, threadId: resolvedThreadId, input: null };
+    const result = await executeControlAction(context, {
+      type: "thread.switch",
+      channelId,
+      threadId: requestedThreadId,
+    });
+    if (result.type !== "thread.switch") {
+      throw new Error("Unexpected control action result for thread.switch.");
+    }
+    await message.reply(`Switched active thread to: ${result.threadId}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!threadname") {
@@ -687,14 +696,20 @@ export async function handleMessage(
   }
 
   if (command === "!fork") {
-    const sourceThreadId = args[0] ?? context.getActiveThreadId(channelId);
-    if (!sourceThreadId) {
-      await message.reply("Usage: !fork <id>");
+    const result = await executeControlAction(context, {
+      type: "thread.fork",
+      channelId,
+      sourceThreadId: args[0],
+    });
+    if (result.type !== "thread.fork") {
+      throw new Error("Unexpected control action result for thread.fork.");
+    }
+    if (!result.ok) {
+      await message.reply(result.message);
       return { handled: true, threadId: null, input: null };
     }
-    const forkedThreadId = await context.forkChannelThread(channelId, sourceThreadId);
-    await message.reply(`Forked thread ${sourceThreadId} -> ${forkedThreadId}`);
-    return { handled: true, threadId: forkedThreadId, input: null };
+    await message.reply(`Forked thread ${result.sourceThreadId} -> ${result.threadId}`);
+    return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command === "!archive") {

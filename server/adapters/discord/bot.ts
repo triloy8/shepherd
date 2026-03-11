@@ -487,10 +487,9 @@ export async function startDiscordBot(): Promise<void> {
         getChannelRepo: (channelId) => orchestrator.getSurfaceProjectDisplay(channelId),
         setChannelRepo: async (channelId, repoSlug) => orchestrator.setSurfaceProject(channelId, repoSlug),
         ensureChannelThread,
-        createAndBindChannelThread,
-        resumeChannelThread,
-        forkChannelThread,
-        bindChannelToThread,
+        createSurfaceThread: createAndBindChannelThread,
+        switchSurfaceThread: switchChannelThread,
+        forkSurfaceThread: forkChannelThread,
         switchChannelThread,
         clearChannelThread,
       }, sanitizedContent);

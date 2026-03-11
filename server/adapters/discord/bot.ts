@@ -22,6 +22,11 @@ import type { BridgeEvent, MessagePhase } from "../../../shared/protocol/events.
 import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
+import {
+  describeProjectTarget,
+  resolveProjectTarget,
+  type ProjectTarget,
+} from "../../core/project_target_service.js";
 import { handleMessage } from "./commands.js";
 import { handleInteraction } from "./interactions.js";
 import {
@@ -42,10 +47,6 @@ type StreamState = {
   flushing: boolean;
   pendingFlush: boolean;
 };
-
-type ChannelWorkspaceTarget =
-  | { kind: "github"; slug: string; display: string }
-  | { kind: "local"; rootPath: string; display: string; appendWorkspaceId: boolean };
 
 const execFileAsync = promisify(execFile);
 
@@ -179,36 +180,6 @@ function isSendableChannel(channel: unknown): channel is TextBasedChannel & {
   return typeof record.send === "function";
 }
 
-function parseRepoSlug(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed)) {
-    return null;
-  }
-  return trimmed;
-}
-
-function parseLocalWorkspaceRoot(
-  value: string,
-): { rootPath: string; display: string; appendWorkspaceId: boolean } | null {
-  const trimmed = value.trim();
-  if (trimmed === "~") {
-    return {
-      rootPath: path.join(homedir(), ".agent-workspaces", "local"),
-      display: "~",
-      appendWorkspaceId: true,
-    };
-  }
-  if (trimmed.startsWith("~/")) {
-    return {
-      rootPath: path.join(homedir(), trimmed.slice(2)),
-      display: trimmed,
-      appendWorkspaceId: false,
-    };
-  }
-  return null;
-}
-
 function repoNameFromSlug(slug: string): string {
   return slug.split("/")[1] ?? slug;
 }
@@ -253,7 +224,7 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   const streamByChannel = new Map<string, StreamState>();
-  const repoByChannel = new Map<string, ChannelWorkspaceTarget>();
+  const repoByChannel = new Map<string, ProjectTarget>();
 
   const client = new Client({
     intents: [
@@ -562,32 +533,17 @@ export async function startDiscordBot(): Promise<void> {
       const result = await handleMessage(message, {
         conversation,
         getActiveThreadId: (channelId) => conversation.getSurfaceThread("discord", channelId),
-        getChannelRepo: (channelId) => repoByChannel.get(channelId)?.display ?? null,
+        getChannelRepo: (channelId) => {
+          const target = repoByChannel.get(channelId);
+          return target ? describeProjectTarget(target) : null;
+        },
         setChannelRepo: async (channelId, repoSlug) => {
-          const localTarget = parseLocalWorkspaceRoot(repoSlug);
-          if (localTarget) {
-            repoByChannel.set(channelId, {
-              kind: "local",
-              rootPath: localTarget.rootPath,
-              display: localTarget.display,
-              appendWorkspaceId: localTarget.appendWorkspaceId,
-            });
-            return { repoSlug: localTarget.display };
-          }
-          const parsed = parseRepoSlug(repoSlug);
-          if (!parsed) {
-            throw new Error("Invalid repo target. Use `<owner>/<repo>`, `~`, or `~/path`.");
-          }
-          const resolved = await runGh(["repo", "view", parsed, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
-          if (!resolved || resolved.toLowerCase() !== parsed.toLowerCase()) {
-            throw new Error(`Unable to resolve repo ${parsed}.`);
-          }
-          repoByChannel.set(channelId, {
-            kind: "github",
-            slug: resolved,
-            display: resolved,
+          const target = await resolveProjectTarget(repoSlug, {
+            resolveGithubRepo: async (slug) =>
+              runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
           });
-          return { repoSlug: resolved };
+          repoByChannel.set(channelId, target);
+          return { repoSlug: describeProjectTarget(target) };
         },
         ensureChannelThread,
         createAndBindChannelThread,

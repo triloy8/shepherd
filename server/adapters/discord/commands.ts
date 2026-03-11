@@ -1,6 +1,7 @@
 import type { Message } from "discord.js";
 
 import type { ConversationService } from "../../core/conversation_service.js";
+import { resolveSkillPathFromList } from "../../core/skill_resolution_service.js";
 import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: string | null };
@@ -352,65 +353,13 @@ function formatRemoteSkillsForDiscord(value: unknown): string {
   ].join("\n");
 }
 
-type SkillLookup = { name: string; scope: string; path: string };
-
-function parseSkillLookups(value: unknown): SkillLookup[] {
-  const payload = asRecord(value);
-  const entries = Array.isArray(payload.data) ? payload.data : [];
-  const lookups: SkillLookup[] = [];
-
-  for (const entry of entries) {
-    const record = asRecord(entry);
-    const skills = Array.isArray(record.skills) ? record.skills : [];
-    for (const skillValue of skills) {
-      const skill = asRecord(skillValue);
-      const name = asString(skill.name);
-      const scope = asString(skill.scope);
-      const path = asString(skill.path);
-      if (name && scope && path) {
-        lookups.push({ name, scope, path });
-      }
-    }
-  }
-
-  return lookups;
-}
-
 async function resolveSkillPath(
   threadId: string,
   rawValue: string,
   context: CommandContext,
 ): Promise<{ path: string } | { error: string }> {
-  const value = rawValue.trim();
-  if (!value) {
-    return { error: "Invalid skill name or path." };
-  }
-
-  if (value.includes("/") || value.endsWith(".md")) {
-    return { path: value };
-  }
-
   const listed = await context.conversation.listSkills(threadId, {});
-  const skills = parseSkillLookups(listed);
-  const normalized = value.toLowerCase();
-
-  const exactNameMatches = skills.filter((skill) => skill.name.toLowerCase() === normalized);
-  if (exactNameMatches.length === 1) {
-    return { path: exactNameMatches[0]!.path };
-  }
-  if (exactNameMatches.length > 1) {
-    const options = exactNameMatches.map((skill) => `${skill.name} [${skill.scope}]`).join(", ");
-    return { error: `Multiple skills match \`${value}\`: ${options}. Use the full path.` };
-  }
-
-  const qualifiedMatches = skills.filter(
-    (skill) => `${skill.name} [${skill.scope}]`.toLowerCase() === normalized,
-  );
-  if (qualifiedMatches.length === 1) {
-    return { path: qualifiedMatches[0]!.path };
-  }
-
-  return { error: `No loaded skill matches \`${value}\`. Use \`!skills\` to inspect available names.` };
+  return resolveSkillPathFromList(listed, rawValue);
 }
 
 export async function handleMessage(

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatCommentaryDelta, phaseHeader } from "../server/adapters/discord/bot.js";
+import { formatCommentaryDelta, phaseHeader } from "../server/core/response_stream_reducer.js";
 
-describe("Discord bot phaseHeader", () => {
+describe("Response stream reducer phaseHeader", () => {
   test("omits a heading for commentary updates", () => {
     expect(phaseHeader("commentary", false)).toBe("");
   });
@@ -12,7 +12,7 @@ describe("Discord bot phaseHeader", () => {
   });
 });
 
-describe("Discord bot commentary formatting", () => {
+describe("Response stream reducer commentary formatting", () => {
   test("prefixes each commentary line with a blockquote marker", () => {
     expect(formatCommentaryDelta("first line\nsecond line", true)).toEqual({
       text: "> first line\n> second line",

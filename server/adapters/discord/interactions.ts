@@ -1,7 +1,7 @@
 import { MessageFlags, type ButtonInteraction } from "discord.js";
 
 import type { ConversationService } from "../../core/conversation_service.js";
-import { decodeApprovalButtonId } from "./message_renderer.js";
+import { decodeApprovalButtonId, formatApprovalDecisionReply } from "./message_renderer.js";
 
 export async function handleInteraction(
   interaction: ButtonInteraction,
@@ -16,7 +16,7 @@ export async function handleInteraction(
     });
 
     await interaction.reply({
-      content: `Decision submitted: ${parsed.decision}`,
+      content: formatApprovalDecisionReply(parsed.decision),
       flags: MessageFlags.Ephemeral,
     });
   } catch (error) {

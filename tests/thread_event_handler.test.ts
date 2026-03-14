@@ -6,6 +6,7 @@ import {
   buildApprovalRows,
   createDiscordThreadEventHandler,
 } from "../server/adapters/discord/thread_event_handler.js";
+import { formatApprovalText } from "../server/adapters/discord/message_renderer.js";
 
 function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): BridgeEvent<TPayload> {
   return {
@@ -36,6 +37,23 @@ describe("Discord thread event handler", () => {
     expect(rows[0]?.components).toHaveLength(2);
     expect(rows[0]?.components[0]?.data.custom_id).toBe("approval|thread-1|approval-1|approve");
     expect(rows[0]?.components[1]?.data.custom_id).toBe("approval|thread-1|approval-1|reject");
+  });
+
+  test("formats approval content as a structured prompt", () => {
+    const approval: ApprovalRequestPayload = {
+      approvalId: "approval-1",
+      method: "shell.exec",
+      prompt: "Run `bun install`?",
+      params: {},
+      choices: [
+        { value: "approve", label: "Approve" },
+        { value: "reject", label: "Reject" },
+      ],
+    };
+
+    expect(formatApprovalText(approval)).toContain("Approval Required");
+    expect(formatApprovalText(approval)).toContain("Action: shell.exec");
+    expect(formatApprovalText(approval)).toContain("Options: Approve / Reject");
   });
 
   test("flushes streamed text to the channel on turn completion", async () => {

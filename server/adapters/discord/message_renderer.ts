@@ -38,9 +38,36 @@ export function formatEventLine(event: BridgeEvent): string | null {
 
 export function formatApprovalText(approval: ApprovalRequestPayload): string {
   const lines: string[] = [];
-  lines.push(`approval requested: ${approval.method}`);
-  lines.push(approval.prompt);
+  lines.push("Approval Required");
+  lines.push("");
+  lines.push(`Action: ${approval.method}`);
+  lines.push("");
+  lines.push(approval.prompt.trim());
+
+  if (approval.choices.length > 0) {
+    lines.push("");
+    lines.push(`Options: ${approval.choices.map((choice) => choice.label).join(" / ")}`);
+  }
+
   return lines.join("\n");
+}
+
+export function formatApprovalDecisionLabel(decision: string): string {
+  const normalized = decision.trim().toLowerCase();
+  if (!normalized) return "Submitted";
+
+  if (normalized.includes("approve") || normalized.includes("accept")) {
+    return "Approved";
+  }
+  if (normalized.includes("reject") || normalized.includes("deny") || normalized.includes("decline")) {
+    return "Declined";
+  }
+
+  return decision;
+}
+
+export function formatApprovalDecisionReply(decision: string): string {
+  return `Approval decision recorded: ${formatApprovalDecisionLabel(decision)}`;
 }
 
 export function encodeApprovalButtonId(threadId: string, approvalId: string, decision: string): string {

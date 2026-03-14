@@ -442,7 +442,7 @@ This is the recommended execution order for Plan A.
 - [x] Create a dedicated Discord chunking helper instead of leaving chunk logic embedded in stream delivery
 - [x] Replace the naive splitter with fence-aware and soft-line-aware chunk planning
 - [x] Add phase-1 tests for fenced blocks, long unbroken lines, and soft line overflow
-- [ ] Verify chunk stability against real streamed commentary and final-answer transcripts
+- [x] Verify chunk stability against real streamed commentary and final-answer transcripts
 - [x] Rewrite approval prompt rendering into a structured, scan-friendly layout
 - [x] Normalize approval response wording and failure text
 - [x] Upgrade high-signal event messages from flat one-liners to clearer status formatting

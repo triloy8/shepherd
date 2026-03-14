@@ -445,7 +445,7 @@ This is the recommended execution order for Plan A.
 - [ ] Verify chunk stability against real streamed commentary and final-answer transcripts
 - [x] Rewrite approval prompt rendering into a structured, scan-friendly layout
 - [x] Normalize approval response wording and failure text
-- [ ] Upgrade high-signal event messages from flat one-liners to clearer status formatting
+- [x] Upgrade high-signal event messages from flat one-liners to clearer status formatting
 - [ ] Reassess whether a Discord-local structured render model is still needed after the targeted upgrade
 
 ## Phase 1: Chunking

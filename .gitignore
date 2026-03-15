@@ -146,3 +146,4 @@ node_modules
 schemas/
 release/
 *.env
+.playwright-cli

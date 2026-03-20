@@ -179,10 +179,7 @@ export class ConversationRoutingService {
       this.manager.getThreadState(threadId);
       return threadId;
     } catch {
-      if (!request?.cwd) {
-        throw new Error(`Thread ${threadId} is not loaded. Resume it with an explicit cwd before binding.`);
-      }
-      const resumed = await this.manager.resumeThread(threadId, request);
+      const resumed = await this.manager.resumeThread(threadId, request ?? {});
       return resumed.threadId;
     }
   }

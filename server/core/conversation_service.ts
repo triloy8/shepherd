@@ -240,6 +240,10 @@ export class ConversationService {
     return this.manager.getThreadCwd(threadId);
   }
 
+  setThreadCwd(threadId: string, cwd: string): void {
+    this.manager.setThreadCwd(threadId, cwd);
+  }
+
   subscribeToThreadEvents(
     threadId: string,
     listener: (event: BridgeEvent) => void,

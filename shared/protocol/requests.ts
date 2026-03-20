@@ -21,7 +21,7 @@ export interface CreateThreadRequest {
   baseInstructions?: string;
   developerInstructions?: string;
   config?: Record<string, unknown>;
-  cwd: string;
+  cwd?: string;
   personality?: Personality;
   sandbox?: SandboxMode;
   model?: string;
@@ -125,7 +125,7 @@ export interface ResumeThreadRequest {
   baseInstructions?: string;
   developerInstructions?: string;
   config?: Record<string, unknown>;
-  cwd: string;
+  cwd?: string;
   personality?: Personality;
   sandbox?: SandboxMode;
   model?: string;
@@ -142,7 +142,7 @@ export interface ForkThreadRequest {
   baseInstructions?: string;
   developerInstructions?: string;
   config?: Record<string, unknown>;
-  cwd: string;
+  cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
   modelProvider?: string;

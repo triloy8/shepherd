@@ -120,7 +120,9 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const created = await managed.session.startThread(request);
     this.sessionsByThread.set(created.threadId, managed);
-    this.cwdByThread.set(created.threadId, request.cwd);
+    if (request.cwd) {
+      this.cwdByThread.set(created.threadId, request.cwd);
+    }
     this.modelStateByThread.set(created.threadId, {
       currentModel: created.model,
       modelProvider: created.modelProvider,
@@ -139,7 +141,9 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const resumed = await managed.session.resumeThread(threadId, request);
     this.sessionsByThread.set(resumed.threadId, managed);
-    this.cwdByThread.set(resumed.threadId, request.cwd);
+    if (request.cwd) {
+      this.cwdByThread.set(resumed.threadId, request.cwd);
+    }
     this.modelStateByThread.set(resumed.threadId, {
       currentModel: resumed.model,
       modelProvider: resumed.modelProvider,
@@ -153,7 +157,9 @@ export class SessionManager {
     const managed = await this.createManagedSession(approvalPolicy);
     const forked = await managed.session.forkThread(threadId, request);
     this.sessionsByThread.set(forked.threadId, managed);
-    this.cwdByThread.set(forked.threadId, request.cwd);
+    if (request.cwd) {
+      this.cwdByThread.set(forked.threadId, request.cwd);
+    }
     this.modelStateByThread.set(forked.threadId, {
       currentModel: forked.model,
       modelProvider: forked.modelProvider,
@@ -314,6 +320,11 @@ export class SessionManager {
     return this.resolveThreadCwd(threadId);
   }
 
+  setThreadCwd(threadId: string, cwd: string): void {
+    this.mustGet(threadId);
+    this.cwdByThread.set(threadId, cwd);
+  }
+
   async writeSkillConfig(
     threadId: string,
     request: SkillsConfigWriteRequest,
@@ -341,7 +352,8 @@ export class SessionManager {
     const managed = this.mustGet(threadId);
     const modelState = this.modelStateByThread.get(threadId);
     const model = request.model ?? modelState?.pendingModel ?? undefined;
-    const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model);
+    const cwd = await this.resolveThreadCwd(threadId);
+    const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd);
     if (model) {
       this.modelStateByThread.set(threadId, {
         currentModel: model,

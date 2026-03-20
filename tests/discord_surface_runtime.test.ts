@@ -5,11 +5,13 @@ import { createDiscordSurfaceRuntime } from "../server/adapters/discord/surface_
 
 function makeConversation() {
   const boundThreads: Array<{ adapter: string; surfaceId: string; threadId: string }> = [];
-  const createdThreads: Array<{ adapter: string; surfaceId: string; cwd: string }> = [];
+  const createdThreads: Array<{ adapter: string; surfaceId: string; request: Record<string, unknown> }> = [];
+  const threadCwds: Array<{ threadId: string; cwd: string }> = [];
 
   return {
     boundThreads,
     createdThreads,
+    threadCwds,
     conversation: {
       getSurfaceThread(_adapter: string, _surfaceId: string) {
         return "thread-current";
@@ -23,8 +25,8 @@ function makeConversation() {
         return () => {};
       },
       unsubscribeSurfaceEvents() {},
-      async createSurfaceThread(adapter: string, surfaceId: string, request: { cwd: string }) {
-        createdThreads.push({ adapter, surfaceId, cwd: request.cwd });
+      async createSurfaceThread(adapter: string, surfaceId: string, request: Record<string, unknown>) {
+        createdThreads.push({ adapter, surfaceId, request });
         return { threadId: "thread-created", sessionId: "session-1" };
       },
       async resumeThread(threadId: string) {
@@ -32,6 +34,9 @@ function makeConversation() {
       },
       async forkThread() {
         return { threadId: "thread-forked", sessionId: "session-1" };
+      },
+      setThreadCwd(threadId: string, cwd: string) {
+        threadCwds.push({ threadId, cwd });
       },
       getThreadState() {
         return { threadId: "thread-1", sessionId: "session-1", activeTurnId: null, approvalPolicy: "on-request" };
@@ -76,7 +81,7 @@ describe("Discord surface runtime", () => {
   });
 
   test("wires thread creation through the orchestrator and thread event callback", async () => {
-    const { conversation, createdThreads } = makeConversation();
+    const { conversation, createdThreads, threadCwds } = makeConversation();
     const events: Array<{ surfaceId: string; event: BridgeEvent }> = [];
 
     const runtime = createDiscordSurfaceRuntime({
@@ -98,6 +103,16 @@ describe("Discord surface runtime", () => {
     await expect(runtime.commandContext.createSurfaceThread("chan-1")).resolves.toBe("thread-created");
     expect(createdThreads).toHaveLength(1);
     expect(createdThreads[0]?.surfaceId).toBe("chan-1");
+    expect(createdThreads[0]?.request).toEqual({
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+    });
+    expect(threadCwds).toEqual([
+      {
+        threadId: "thread-created",
+        cwd: "/home/tadhiel/discord-surface-runtime-test",
+      },
+    ]);
     expect(events).toEqual([]);
   });
 });

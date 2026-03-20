@@ -46,13 +46,10 @@ export function validateCreateThreadRequest(value: unknown): CreateThreadRequest
   }
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
-  if (!cwd) {
-    throw new Error("Invalid cwd.");
-  }
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy) ?? "on-request",
     ...overrides,
-    cwd,
+    ...(cwd ? { cwd } : {}),
     personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
     ephemeral: parseOptionalBoolean(value.ephemeral, "ephemeral"),
     serviceName: parseOptionalString(value.serviceName, "serviceName"),
@@ -183,13 +180,10 @@ export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest
   if (!isRecord(value)) throw new Error("Invalid resume payload.");
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
-  if (!cwd) {
-    throw new Error("Invalid cwd.");
-  }
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
-    cwd,
+    ...(cwd ? { cwd } : {}),
     personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
   };
 }
@@ -198,13 +192,10 @@ export function validateForkThreadRequest(value: unknown): ForkThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid fork payload.");
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
-  if (!cwd) {
-    throw new Error("Invalid cwd.");
-  }
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
-    cwd,
+    ...(cwd ? { cwd } : {}),
   };
 }
 

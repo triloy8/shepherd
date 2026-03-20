@@ -299,7 +299,12 @@ export class CodexSession {
     }) as Promise<SkillsConfigWriteResponse>;
   }
 
-  async startTurn(input: string, approvalPolicy?: ApprovalPolicy, model?: string): Promise<string | null> {
+  async startTurn(
+    input: string,
+    approvalPolicy?: ApprovalPolicy,
+    model?: string,
+    cwd?: string,
+  ): Promise<string | null> {
     const threadId = await this.ensureThread();
     if (approvalPolicy) {
       this.approvalPolicy = approvalPolicy;
@@ -311,6 +316,7 @@ export class CodexSession {
       approvalPolicy: this.approvalPolicy,
       input: [{ type: "text", text: input }],
       ...(model ? { model } : {}),
+      ...(cwd ? { cwd } : {}),
     });
 
     const turnId = extractTurnId(result);

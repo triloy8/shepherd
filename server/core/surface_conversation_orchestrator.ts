@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
 import { ConversationService } from "./conversation_service.js";
@@ -69,12 +67,12 @@ export class SurfaceConversationOrchestrator {
     surfaceId: string,
     listener: (event: BridgeEvent) => void,
   ): Promise<string> {
-    const workspace = await this.createWorkspaceForSurface(surfaceId);
+    this.getSurfaceProjectTarget(surfaceId);
     const created = await this.conversation.createSurfaceThread(this.adapter, surfaceId, {
       approvalPolicy: this.approvalPolicy,
-      cwd: workspace.cwd,
       ...(this.sandbox ? { sandbox: this.sandbox } : {}),
     });
+    await this.provisionAndBindThreadWorkspace(surfaceId, created.threadId);
     this.conversation.subscribeSurfaceEvents(this.adapter, surfaceId, listener, { replay: false });
     return created.threadId;
   }
@@ -84,11 +82,12 @@ export class SurfaceConversationOrchestrator {
     threadId: string,
     listener: (event: BridgeEvent) => void,
   ): Promise<string> {
-    const workspace = await this.createWorkspaceForSurface(surfaceId);
+    const workspace = await this.createWorkspaceForThread(surfaceId, threadId);
     const resumed = await this.conversation.resumeThread(threadId, {
       cwd: workspace.cwd,
       ...(this.sandbox ? { sandbox: this.sandbox } : {}),
     });
+    this.conversation.setThreadCwd(resumed.threadId, workspace.cwd);
     await this.bindSurfaceToThread(surfaceId, resumed.threadId, listener);
     return resumed.threadId;
   }
@@ -98,11 +97,10 @@ export class SurfaceConversationOrchestrator {
     sourceThreadId: string,
     listener: (event: BridgeEvent) => void,
   ): Promise<string> {
-    const workspace = await this.createWorkspaceForSurface(surfaceId);
     const forked = await this.conversation.forkThread(sourceThreadId, {
-      cwd: workspace.cwd,
       ...(this.sandbox ? { sandbox: this.sandbox } : {}),
     });
+    await this.provisionAndBindThreadWorkspace(surfaceId, forked.threadId);
     await this.bindSurfaceToThread(surfaceId, forked.threadId, listener);
     return forked.threadId;
   }
@@ -131,13 +129,24 @@ export class SurfaceConversationOrchestrator {
     return this.createAndBindSurfaceThread(surfaceId, listener);
   }
 
-  private async createWorkspaceForSurface(
+  private async createWorkspaceForThread(
     surfaceId: string,
+    threadId: string,
   ): Promise<{ workspaceId: string; cwd: string }> {
+    const target = this.getSurfaceProjectTarget(surfaceId);
+    return this.workspaceProvisioner.provisionWorkspace(target, threadId);
+  }
+
+  private async provisionAndBindThreadWorkspace(surfaceId: string, threadId: string): Promise<void> {
+    const workspace = await this.createWorkspaceForThread(surfaceId, threadId);
+    this.conversation.setThreadCwd(threadId, workspace.cwd);
+  }
+
+  private getSurfaceProjectTarget(surfaceId: string) {
     const target = this.surfaceState.getProjectTarget(this.adapter, surfaceId);
     if (!target) {
       throw new Error("No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.");
     }
-    return this.workspaceProvisioner.provisionWorkspace(target, randomUUID());
+    return target;
   }
 }

@@ -10,6 +10,8 @@ function makeHarness() {
     createSurfaceThread: [] as Array<{ adapter: string; surfaceId: string; request: Record<string, unknown> }>,
     resumeThread: [] as Array<{ threadId: string; request: Record<string, unknown> }>,
     forkThread: [] as Array<{ threadId: string; request: Record<string, unknown> }>,
+    setThreadCwd: [] as Array<{ threadId: string; cwd: string }>,
+    provisionWorkspace: [] as Array<{ threadId: string }>,
     bindSurfaceToThread: [] as Array<{ adapter: string; surfaceId: string; threadId: string }>,
     subscribeSurfaceEvents: [] as Array<{ adapter: string; surfaceId: string }>,
     clearSurfaceBinding: [] as Array<{ adapter: string; surfaceId: string }>,
@@ -39,6 +41,9 @@ function makeHarness() {
       surfaceThreads.set(`${adapter}:${surfaceId}`, threadId);
       return threadId;
     },
+    setThreadCwd(threadId: string, cwd: string) {
+      calls.setThreadCwd.push({ threadId, cwd });
+    },
     getThreadState(threadId: string) {
       if (threadId === "thread-missing") {
         throw new Error("missing");
@@ -59,8 +64,9 @@ function makeHarness() {
 
   const surfaceState = new SurfaceStateService();
   const workspaceProvisioner = {
-    async provisionWorkspace() {
-      return { workspaceId: "ws-1", cwd: "/tmp/ws-1" };
+    async provisionWorkspace(_target: unknown, threadId: string) {
+      calls.provisionWorkspace.push({ threadId });
+      return { workspaceId: threadId, cwd: `/tmp/${threadId}` };
     },
   } as unknown as WorkspaceProvisioner;
 
@@ -83,7 +89,7 @@ describe("SurfaceConversationOrchestrator", () => {
     expect(orchestrator.getSurfaceProjectDisplay("chan-1")).toBe("~");
   });
 
-  test("creates and binds a surface thread using provisioned workspace", async () => {
+  test("creates a surface thread before provisioning its thread-id workspace", async () => {
     const { orchestrator, calls } = makeHarness();
     await orchestrator.setSurfaceProject("chan-1", "~");
 
@@ -93,9 +99,10 @@ describe("SurfaceConversationOrchestrator", () => {
     expect(calls.createSurfaceThread).toHaveLength(1);
     expect(calls.createSurfaceThread[0]?.request).toEqual({
       approvalPolicy: "on-request",
-      cwd: "/tmp/ws-1",
       sandbox: "workspace-write",
     });
+    expect(calls.provisionWorkspace).toEqual([{ threadId: "thread-created" }]);
+    expect(calls.setThreadCwd).toEqual([{ threadId: "thread-created", cwd: "/tmp/thread-created" }]);
     expect(calls.subscribeSurfaceEvents).toHaveLength(1);
   });
 
@@ -110,6 +117,11 @@ describe("SurfaceConversationOrchestrator", () => {
     expect(forked).toBe("thread-forked");
     expect(calls.resumeThread).toHaveLength(1);
     expect(calls.forkThread).toHaveLength(1);
+    expect(calls.provisionWorkspace).toEqual([{ threadId: "thread-a" }, { threadId: "thread-forked" }]);
+    expect(calls.setThreadCwd).toEqual([
+      { threadId: "thread-a", cwd: "/tmp/thread-a" },
+      { threadId: "thread-forked", cwd: "/tmp/thread-forked" },
+    ]);
     expect(calls.bindSurfaceToThread).toHaveLength(2);
   });
 
@@ -129,7 +141,7 @@ describe("SurfaceConversationOrchestrator", () => {
     });
     expect(calls.resumeThread).toContainEqual({
       threadId: "thread-missing",
-      request: { cwd: "/tmp/ws-1", sandbox: "workspace-write" },
+      request: { cwd: "/tmp/thread-missing", sandbox: "workspace-write" },
     });
   });
 

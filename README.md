@@ -35,8 +35,6 @@ Bot commands:
 - `!limits` show account rate-limit windows and credits
 - `!context` show context usage for the active thread in this channel
 - `!skills [reload]` list discovered local skills (optionally force reload)
-- `!skills remote [enabled=true|false] [scope=example|workspace-shared|all-shared|personal] [surface=chatgpt|codex|api|atlas]` list remote skills
-- `!skill export <hazelnutId>` export a remote skill by id
 - `!skill enable <path>` enable a skill by path
 - `!skill disable <path>` disable a skill by path
 - `!threads` list active stored threads

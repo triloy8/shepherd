@@ -27,8 +27,6 @@ function makeContext(overrides?: {
   setSurfaceProject?: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
-  listRemoteSkills?: () => Promise<{ data: Array<{ id: string; name: string; description: string }> }>;
-  exportRemoteSkill?: () => Promise<{ id: string; path: string }>;
   readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
@@ -89,14 +87,6 @@ function makeContext(overrides?: {
       async readAccountRateLimits() {
         if (overrides?.readAccountRateLimits) return overrides.readAccountRateLimits();
         return { rateLimits: { planType: "pro" } };
-      },
-      async listRemoteSkills() {
-        if (overrides?.listRemoteSkills) return overrides.listRemoteSkills();
-        return { data: [{ id: "hz-1", name: "Remote", description: "desc" }] };
-      },
-      async exportRemoteSkill() {
-        if (overrides?.exportRemoteSkill) return overrides.exportRemoteSkill();
-        return { id: "hz-1", path: "/tmp/remote-skill" };
       },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
@@ -348,15 +338,6 @@ describe("Discord !skill commands", () => {
     expect(replies).toHaveLength(1);
     expect(replies[0]).toContain("**Rate Limits**");
     expect(replies[0]).toContain("Plan: pro");
-  });
-
-  test("formats remote skill export replies from the control action result", async () => {
-    const { message, replies } = makeMessage("!skill export hz-1");
-    const { context } = makeContext();
-
-    await handleMessage(message as never, context);
-
-    expect(replies).toEqual(["Exported remote skill hz-1 -> /tmp/remote-skill"]);
   });
 
   test("rejects unknown bang commands instead of treating them as conversation input", async () => {

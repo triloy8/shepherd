@@ -252,8 +252,6 @@ export interface ThreadModelState {
   pendingModel: string | null;
 }
 
-export type HazelnutScope = "example" | "workspace-shared" | "all-shared" | "personal";
-export type ProductSurface = "chatgpt" | "codex" | "api" | "atlas";
 export type SkillScope = "user" | "repo" | "system" | "admin";
 
 export interface SkillsListExtraRootsForCwd {
@@ -313,31 +311,6 @@ export interface SkillsListEntry {
 
 export interface SkillsListResponse {
   data: SkillsListEntry[];
-}
-
-export interface SkillsRemoteListRequest {
-  enabled?: boolean;
-  hazelnutScope?: HazelnutScope;
-  productSurface?: ProductSurface;
-}
-
-export interface RemoteSkillSummary {
-  id: string;
-  name: string;
-  description: string;
-}
-
-export interface SkillsRemoteListResponse {
-  data: RemoteSkillSummary[];
-}
-
-export interface SkillsRemoteExportRequest {
-  hazelnutId: string;
-}
-
-export interface SkillsRemoteExportResponse {
-  id: string;
-  path: string;
 }
 
 export interface SkillsConfigWriteRequest {

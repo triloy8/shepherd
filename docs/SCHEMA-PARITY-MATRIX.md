@@ -32,8 +32,6 @@ Legacy note:
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
 | `model/list` | Implemented | Core | Exposed via Discord `!models` |
 | `skills/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills` |
-| `skills/remote/list` | Implemented | Legacy | Legacy wrapper still exposed via Discord `!skills remote`; not present in current generated schema and should be deprecated |
-| `skills/remote/export` | Implemented | Legacy | Legacy wrapper still exposed via Discord `!skill export`; not present in current generated schema and should be deprecated |
 | `skills/config/write` | Implemented | Core | Wrapped in core and exposed via Discord `!skill enable|disable` |
 | `plugin/list` | Missing | Out of Scope (for now) | Plugin management is outside Shepherd's current Discord/admin surface |
 | `plugin/read` | Missing | Out of Scope (for now) | |

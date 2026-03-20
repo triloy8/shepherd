@@ -17,10 +17,6 @@ import type {
   SkillsConfigWriteResponse,
   SkillsListRequest,
   SkillsListResponse,
-  SkillsRemoteExportRequest,
-  SkillsRemoteExportResponse,
-  SkillsRemoteListRequest,
-  SkillsRemoteListResponse,
   ThreadTokenUsage,
 } from "../../shared/protocol/requests.js";
 import { EventBus } from "./event_bus.js";
@@ -293,22 +289,6 @@ export class CodexSession {
       ...(request.forceReload !== undefined ? { forceReload: request.forceReload } : {}),
       ...(request.perCwdExtraUserRoots !== undefined ? { perCwdExtraUserRoots: request.perCwdExtraUserRoots } : {}),
     }) as Promise<SkillsListResponse>;
-  }
-
-  async listRemoteSkills(request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
-    await this.initialize();
-    return this.sendRequest("skills/remote/list", {
-      ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
-      ...(request.hazelnutScope ? { hazelnutScope: request.hazelnutScope } : {}),
-      ...(request.productSurface ? { productSurface: request.productSurface } : {}),
-    }) as Promise<SkillsRemoteListResponse>;
-  }
-
-  async exportRemoteSkill(request: SkillsRemoteExportRequest): Promise<SkillsRemoteExportResponse> {
-    await this.initialize();
-    return this.sendRequest("skills/remote/export", {
-      hazelnutId: request.hazelnutId,
-    }) as Promise<SkillsRemoteExportResponse>;
   }
 
   async writeSkillConfig(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {

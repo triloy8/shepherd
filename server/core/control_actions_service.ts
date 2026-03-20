@@ -5,8 +5,6 @@ import type {
   ModelSummary,
   ReadThreadResponse,
   RollbackThreadResponse,
-  SkillsRemoteExportResponse,
-  SkillsRemoteListResponse,
   SkillsConfigWriteResponse,
   SkillsListResponse,
   ThreadModelState,
@@ -23,18 +21,6 @@ type ControlConversation = {
   getThreadModel: (threadId: string) => ThreadModelState;
   setThreadModel: (threadId: string, model: string) => ThreadModelState;
   readAccountRateLimits: () => Promise<AccountRateLimitsResponse>;
-  listRemoteSkills: (
-    threadId: string,
-    request: {
-      enabled?: boolean;
-      hazelnutScope?: "example" | "workspace-shared" | "all-shared" | "personal";
-      productSurface?: "chatgpt" | "codex" | "api" | "atlas";
-    },
-  ) => Promise<SkillsRemoteListResponse>;
-  exportRemoteSkill: (
-    threadId: string,
-    request: { hazelnutId: string },
-  ) => Promise<SkillsRemoteExportResponse>;
   readThreadTokenUsage: (threadId: string) => Promise<ReadThreadTokenUsageResponse>;
   setThreadName: (threadId: string, request: { name: string }) => Promise<{ ok: true }>;
   readThread: (threadId: string, request: { includeTurns: boolean }) => Promise<ReadThreadResponse>;
@@ -63,14 +49,6 @@ export type ControlActionRequest =
   | { type: "models.list"; channelId: string }
   | { type: "model.set"; channelId: string; requestedModel: string }
   | { type: "context.read"; channelId: string }
-  | {
-      type: "skills.list-remote";
-      channelId: string;
-      enabled?: boolean;
-      hazelnutScope?: "example" | "workspace-shared" | "all-shared" | "personal";
-      productSurface?: "chatgpt" | "codex" | "api" | "atlas";
-    }
-  | { type: "skill.export-remote"; channelId: string; hazelnutId: string }
   | { type: "skill.set-enabled"; channelId: string; requestedSkill: string; enabled: boolean }
   | { type: "thread.get-current"; channelId: string }
   | { type: "thread.create"; channelId: string }
@@ -93,10 +71,6 @@ export type ControlActionResult =
   | { type: "model.set"; ok: false; message: string }
   | { type: "context.read"; ok: true; threadId: string; tokenUsage: ReadThreadTokenUsageResponse["tokenUsage"] }
   | { type: "context.read"; ok: false; message: string }
-  | { type: "skills.list-remote"; ok: true; remote: SkillsRemoteListResponse }
-  | { type: "skills.list-remote"; ok: false; message: string }
-  | { type: "skill.export-remote"; ok: true; exported: SkillsRemoteExportResponse }
-  | { type: "skill.export-remote"; ok: false; message: string }
   | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; effectiveEnabled: boolean }
   | { type: "skill.set-enabled"; ok: false; message: string }
   | { type: "thread.get-current"; threadId: string | null }
@@ -211,62 +185,6 @@ export async function executeControlAction(
       threadId,
       tokenUsage: result.tokenUsage,
     };
-  }
-
-  if (request.type === "skills.list-remote") {
-    const threadId = context.getSurfaceThreadId(request.channelId);
-    if (!threadId) {
-      return {
-        type: "skills.list-remote",
-        ok: false,
-        message: "No active thread in this channel. Use !newthread or !thread <id> first.",
-      };
-    }
-    try {
-      const remote = await context.conversation.listRemoteSkills(threadId, {
-        enabled: request.enabled,
-        hazelnutScope: request.hazelnutScope,
-        productSurface: request.productSurface,
-      });
-      return {
-        type: "skills.list-remote",
-        ok: true,
-        remote,
-      };
-    } catch (error) {
-      return {
-        type: "skills.list-remote",
-        ok: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  if (request.type === "skill.export-remote") {
-    const threadId = context.getSurfaceThreadId(request.channelId);
-    if (!threadId) {
-      return {
-        type: "skill.export-remote",
-        ok: false,
-        message: "No active thread in this channel. Use !newthread or !thread <id> first.",
-      };
-    }
-    try {
-      const exported = await context.conversation.exportRemoteSkill(threadId, {
-        hazelnutId: request.hazelnutId,
-      });
-      return {
-        type: "skill.export-remote",
-        ok: true,
-        exported,
-      };
-    } catch (error) {
-      return {
-        type: "skill.export-remote",
-        ok: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    }
   }
 
   if (request.type === "thread.get-current") {

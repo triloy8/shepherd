@@ -34,10 +34,6 @@ import type {
   SkillsConfigWriteResponse,
   SkillsListRequest,
   SkillsListResponse,
-  SkillsRemoteExportRequest,
-  SkillsRemoteExportResponse,
-  SkillsRemoteListRequest,
-  SkillsRemoteListResponse,
   SteerTurnRequest,
   SteerTurnResponse,
   SubmitTurnRequest,
@@ -316,24 +312,6 @@ export class SessionManager {
 
   async getThreadCwd(threadId: string): Promise<string> {
     return this.resolveThreadCwd(threadId);
-  }
-
-  async listRemoteSkills(
-    threadId: string,
-    request: SkillsRemoteListRequest,
-  ): Promise<SkillsRemoteListResponse> {
-    const managed = this.mustGet(threadId);
-    await this.resolveThreadCwd(threadId);
-    return managed.session.listRemoteSkills(request);
-  }
-
-  async exportRemoteSkill(
-    threadId: string,
-    request: SkillsRemoteExportRequest,
-  ): Promise<SkillsRemoteExportResponse> {
-    const managed = this.mustGet(threadId);
-    await this.resolveThreadCwd(threadId);
-    return managed.session.exportRemoteSkill(request);
   }
 
   async writeSkillConfig(

@@ -212,8 +212,6 @@ Outbound requests include:
 - `account/rateLimits/read`
 - `model/list`
 - `skills/list`
-- `skills/remote/list`
-- `skills/remote/export`
 - `skills/config/write`
 - `turn/start`
 - `turn/interrupt`

@@ -30,26 +30,6 @@ function parseThreadArgs(content: string): { command: string; args: string[] } {
   return { command: command.toLowerCase(), args: rest };
 }
 
-function parseKeyValueArgs(args: string[]): Record<string, string> {
-  const entries = args
-    .map((arg) => arg.split("=", 2))
-    .filter((parts) => parts.length === 2 && parts[0] && parts[1])
-    .map(([key, value]) => [key.toLowerCase(), value] as const);
-  return Object.fromEntries(entries);
-}
-
-function mapRemoteSkillsError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const lower = message.toLowerCase();
-  if (lower.includes("hazelnuts") && lower.includes("403")) {
-    return "Remote skills are not enabled for this account (Hazelnut access denied).";
-  }
-  if (lower.includes("notallowed")) {
-    return "Remote skills are not enabled for this account.";
-  }
-  return message;
-}
-
 function safeJson(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
@@ -324,24 +304,6 @@ function formatSkillsForDiscord(value: unknown): string {
   return lines.join("\n");
 }
 
-function formatRemoteSkillsForDiscord(value: unknown): string {
-  const payload = asRecord(value);
-  const entries = Array.isArray(payload.data) ? payload.data : [];
-  if (entries.length === 0) {
-    return "No remote skills found.";
-  }
-  return [
-    `**Remote Skills (${entries.length})**`,
-    ...entries.map((entry, index) => {
-      const record = asRecord(entry);
-      const id = asString(record.id) ?? "unknown";
-      const name = asString(record.name) ?? "unknown";
-      const description = asString(record.description) ?? "";
-      return `${index + 1}. ${name} (${id})${description ? ` :: ${description}` : ""}`;
-    }),
-  ].join("\n");
-}
-
 export async function handleMessage(
   message: Message,
   context: CommandContext,
@@ -369,8 +331,6 @@ export async function handleMessage(
       "- !model set <id>",
       "- !context",
       "- !skills [reload]",
-      "- !skills remote [enabled=true|false] [scope=example|workspace-shared|all-shared|personal] [surface=chatgpt|codex|api|atlas]",
-      "- !skill export <hazelnutId>",
       "- !skill enable <name-or-path>",
       "- !skill disable <name-or-path>",
       "- !threads",
@@ -534,26 +494,6 @@ export async function handleMessage(
     }
 
     const mode = (args[0] ?? "").toLowerCase();
-    if (mode === "remote") {
-      const kv = parseKeyValueArgs(args.slice(1));
-      const result = await executeControlAction(context, {
-        type: "skills.list-remote",
-        channelId,
-        enabled: kv.enabled === "true" ? true : kv.enabled === "false" ? false : undefined,
-        hazelnutScope: kv.scope as "example" | "workspace-shared" | "all-shared" | "personal" | undefined,
-        productSurface: kv.surface as "chatgpt" | "codex" | "api" | "atlas" | undefined,
-      });
-      if (result.type !== "skills.list-remote") {
-        throw new Error("Unexpected control action result for skills.list-remote.");
-      }
-      if (!result.ok) {
-        await message.reply(mapRemoteSkillsError(result.message));
-        return { handled: true, threadId: null, input: null };
-      }
-      await replyChunked(message, formatRemoteSkillsForDiscord(result.remote));
-      return { handled: true, threadId: null, input: null };
-    }
-
     const forceReload = mode === "reload";
     const listed = await context.conversation.listSkills(activeThreadId, { forceReload });
     await replyChunked(message, formatSkillsForDiscord(listed));
@@ -568,28 +508,6 @@ export async function handleMessage(
     }
 
     const sub = (args[0] ?? "").toLowerCase();
-    if (sub === "export") {
-      const hazelnutId = args[1]?.trim();
-      if (!hazelnutId) {
-        await message.reply("Usage: !skill export <hazelnutId>");
-        return { handled: true, threadId: null, input: null };
-      }
-      const result = await executeControlAction(context, {
-        type: "skill.export-remote",
-        channelId,
-        hazelnutId,
-      });
-      if (result.type !== "skill.export-remote") {
-        throw new Error("Unexpected control action result for skill.export-remote.");
-      }
-      if (!result.ok) {
-        await message.reply(mapRemoteSkillsError(result.message));
-        return { handled: true, threadId: null, input: null };
-      }
-      await message.reply(`Exported remote skill ${result.exported.id} -> ${result.exported.path}`);
-      return { handled: true, threadId: null, input: null };
-    }
-
     if (sub === "enable" || sub === "disable") {
       const requestedSkill = args.slice(1).join(" ").trim();
       if (!requestedSkill) {

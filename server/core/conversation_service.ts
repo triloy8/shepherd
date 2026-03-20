@@ -26,10 +26,6 @@ import type {
   SkillsConfigWriteResponse,
   SkillsListRequest,
   SkillsListResponse,
-  SkillsRemoteExportRequest,
-  SkillsRemoteExportResponse,
-  SkillsRemoteListRequest,
-  SkillsRemoteListResponse,
   SteerTurnRequest,
   SteerTurnResponse,
   SubmitTurnRequest,
@@ -230,17 +226,6 @@ export class ConversationService {
 
   listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
     return this.manager.listSkills(threadId, request);
-  }
-
-  listRemoteSkills(threadId: string, request: SkillsRemoteListRequest): Promise<SkillsRemoteListResponse> {
-    return this.manager.listRemoteSkills(threadId, request);
-  }
-
-  exportRemoteSkill(
-    threadId: string,
-    request: SkillsRemoteExportRequest,
-  ): Promise<SkillsRemoteExportResponse> {
-    return this.manager.exportRemoteSkill(threadId, request);
   }
 
   writeSkillConfig(threadId: string, request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {

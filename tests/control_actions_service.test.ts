@@ -7,8 +7,6 @@ function makeContext(overrides?: {
   activeThreadId?: string | null;
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
-  listRemoteSkills?: () => Promise<{ data: Array<{ id: string; name: string; description: string }> }>;
-  exportRemoteSkill?: () => Promise<{ id: string; path: string }>;
   readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
   listModels?: () => Promise<{
     data: Array<{
@@ -96,14 +94,6 @@ function makeContext(overrides?: {
       async readAccountRateLimits() {
         if (overrides?.readAccountRateLimits) return overrides.readAccountRateLimits();
         return { rateLimits: { planType: "pro" } };
-      },
-      async listRemoteSkills() {
-        if (overrides?.listRemoteSkills) return overrides.listRemoteSkills();
-        return { data: [{ id: "hz-1", name: "Remote", description: "desc" }] };
-      },
-      async exportRemoteSkill() {
-        if (overrides?.exportRemoteSkill) return overrides.exportRemoteSkill();
-        return { id: "hz-1", path: "/tmp/remote-skill" };
       },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
@@ -487,32 +477,6 @@ describe("ControlActionsService", () => {
       ok: true,
       threadId: "thread-1",
       tokenUsage: { total: { totalTokens: 42 } },
-    });
-  });
-
-  test("lists remote skills", async () => {
-    const { context } = makeContext();
-    await expect(
-      executeControlAction(context, { type: "skills.list-remote", channelId: "chan-1" }),
-    ).resolves.toEqual({
-      type: "skills.list-remote",
-      ok: true,
-      remote: { data: [{ id: "hz-1", name: "Remote", description: "desc" }] },
-    });
-  });
-
-  test("exports a remote skill", async () => {
-    const { context } = makeContext();
-    await expect(
-      executeControlAction(context, {
-        type: "skill.export-remote",
-        channelId: "chan-1",
-        hazelnutId: "hz-1",
-      }),
-    ).resolves.toEqual({
-      type: "skill.export-remote",
-      ok: true,
-      exported: { id: "hz-1", path: "/tmp/remote-skill" },
     });
   });
 });

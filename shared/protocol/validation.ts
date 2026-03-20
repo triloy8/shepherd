@@ -5,7 +5,6 @@ import type {
   ForkThreadRequest,
   ListLoadedThreadsRequest,
   ListStoredThreadsRequest,
-  ProductSurface,
   Personality,
   ReadThreadRequest,
   ResumeThreadRequest,
@@ -15,10 +14,7 @@ import type {
   SetThreadNameRequest,
   SkillsConfigWriteRequest,
   SkillsListRequest,
-  SkillsRemoteExportRequest,
-  SkillsRemoteListRequest,
   InterruptTurnRequest,
-  HazelnutScope,
   ThreadSortKey,
   ThreadSourceKind,
   SubmitTurnRequest,
@@ -40,9 +36,6 @@ const THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
   "subAgentOther",
   "unknown",
 ];
-const HAZELNUT_SCOPES: HazelnutScope[] = ["example", "workspace-shared", "all-shared", "personal"];
-const PRODUCT_SURFACES: ProductSurface[] = ["chatgpt", "codex", "api", "atlas"];
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
 }
@@ -300,22 +293,6 @@ export function validateSkillsListRequest(value: unknown): SkillsListRequest {
     forceReload: parseOptionalBoolean(value.forceReload, "forceReload"),
     perCwdExtraUserRoots: perCwd as SkillsListRequest["perCwdExtraUserRoots"],
   };
-}
-
-export function validateSkillsRemoteListRequest(value: unknown): SkillsRemoteListRequest {
-  if (!isRecord(value)) throw new Error("Invalid remote skills list payload.");
-  return {
-    enabled: parseOptionalBoolean(value.enabled, "enabled"),
-    hazelnutScope: parseOptionalEnum(value.hazelnutScope, "hazelnutScope", HAZELNUT_SCOPES),
-    productSurface: parseOptionalEnum(value.productSurface, "productSurface", PRODUCT_SURFACES),
-  };
-}
-
-export function validateSkillsRemoteExportRequest(value: unknown): SkillsRemoteExportRequest {
-  if (!isRecord(value) || typeof value.hazelnutId !== "string" || !value.hazelnutId.trim()) {
-    throw new Error("Invalid remote skill export payload.");
-  }
-  return { hazelnutId: value.hazelnutId.trim() };
 }
 
 export function validateSkillsConfigWriteRequest(value: unknown): SkillsConfigWriteRequest {

@@ -141,7 +141,7 @@ vite.config.ts.timestamp-*
 .vite/
 
 # personal
-todo/
+.todo/
 node_modules
 schemas/
 release/

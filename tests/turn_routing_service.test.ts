@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { executeTurnRouting } from "../server/core/turn_routing_service.js";
+import { toTextUserInput } from "../shared/protocol/user_input.js";
 
 function makeInput(overrides?: Partial<Parameters<typeof executeTurnRouting>[1]>) {
   return {
@@ -8,12 +9,13 @@ function makeInput(overrides?: Partial<Parameters<typeof executeTurnRouting>[1]>
       adapter: "discord",
       surfaceId: "chan-1",
       content: "hello",
+      input: [toTextUserInput("hello")],
       isCommand: false,
       isDirectAddressed: true,
     },
     handled: false,
     threadId: "thread-1",
-    input: "hello",
+    input: [toTextUserInput("hello")],
     approvalPolicy: "on-request" as const,
     ...overrides,
   };
@@ -47,7 +49,7 @@ describe("TurnRoutingService", () => {
   });
 
   test("submits turns when there is no active turn", async () => {
-    const submits: Array<{ threadId: string; input: string; approvalPolicy?: string }> = [];
+    const submits: Array<{ threadId: string; input: unknown; approvalPolicy?: string }> = [];
     const result = await executeTurnRouting(
       {
         conversation: {
@@ -67,11 +69,13 @@ describe("TurnRoutingService", () => {
     );
 
     expect(result).toEqual({ type: "submit", threadId: "thread-1", turnId: "turn-submit" });
-    expect(submits).toEqual([{ threadId: "thread-1", input: "hello", approvalPolicy: "on-request" }]);
+    expect(submits).toEqual([
+      { threadId: "thread-1", input: [toTextUserInput("hello")], approvalPolicy: "on-request" },
+    ]);
   });
 
   test("steers direct-addressed input into the active turn", async () => {
-    const steers: Array<{ threadId: string; input: string; turnId?: string }> = [];
+    const steers: Array<{ threadId: string; input: unknown; turnId?: string }> = [];
     const result = await executeTurnRouting(
       {
         conversation: {
@@ -91,11 +95,11 @@ describe("TurnRoutingService", () => {
     );
 
     expect(result).toEqual({ type: "steer", threadId: "thread-1", turnId: "turn-active" });
-    expect(steers).toEqual([{ threadId: "thread-1", input: "hello", turnId: "turn-active" }]);
+    expect(steers).toEqual([{ threadId: "thread-1", input: [toTextUserInput("hello")], turnId: "turn-active" }]);
   });
 
   test("submits command input even when a turn is active", async () => {
-    const submits: Array<{ threadId: string; input: string }> = [];
+    const submits: Array<{ threadId: string; input: unknown }> = [];
     const result = await executeTurnRouting(
       {
         conversation: {
@@ -116,14 +120,15 @@ describe("TurnRoutingService", () => {
           adapter: "discord",
           surfaceId: "chan-1",
           content: "!models",
+          input: [toTextUserInput("!models")],
           isCommand: true,
           isDirectAddressed: false,
         },
-        input: "!models",
+        input: [toTextUserInput("!models")],
       }),
     );
 
     expect(result).toEqual({ type: "submit", threadId: "thread-1", turnId: "turn-submit" });
-    expect(submits).toEqual([{ threadId: "thread-1", input: "!models" }]);
+    expect(submits).toEqual([{ threadId: "thread-1", input: [toTextUserInput("!models")] }]);
   });
 });

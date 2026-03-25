@@ -32,6 +32,7 @@ import type {
   SubmitTurnResponse,
   ThreadModelState,
 } from "../../shared/protocol/requests.js";
+import type { UserInput } from "../../shared/protocol/user_input.js";
 import {
   ConversationRoutingService,
   type ConversationRoutingServiceOptions,
@@ -150,11 +151,11 @@ export class ConversationService {
   }
 
   async submitSurfaceInput(
-    input: ResolveRouteInput & { text: string; approvalPolicy?: ApprovalPolicy },
+    input: ResolveRouteInput & { input: UserInput[]; approvalPolicy?: ApprovalPolicy },
   ): Promise<{ threadId: string; turn: SubmitTurnResponse; route: ResolveRouteResult }> {
     const route = await this.resolveSurfaceThread(input);
     const turn = await this.manager.submitTurn(route.threadId, {
-      input: input.text,
+      input: input.input,
       approvalPolicy: input.approvalPolicy,
     });
     return { threadId: route.threadId, turn, route };

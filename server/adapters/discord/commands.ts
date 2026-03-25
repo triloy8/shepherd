@@ -3,8 +3,10 @@ import type { Message } from "discord.js";
 import { executeControlAction } from "../../core/control_actions_service.js";
 import type { ConversationService } from "../../core/conversation_service.js";
 import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
+import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 
-type HandleResult = { handled: boolean; threadId: string | null; input: string | null };
+type HandleResult = { handled: boolean; threadId: string | null; input: UserInput[] | null };
 const DISCORD_MESSAGE_LIMIT = 1900;
 const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
 
@@ -311,7 +313,7 @@ export async function handleMessage(
 ): Promise<HandleResult> {
   const inputContent = contentOverride ?? message.content;
   if (!inputContent.trim()) {
-    return { handled: true, threadId: null, input: null };
+    return { handled: false, threadId: context.getSurfaceThreadId(message.channelId), input: null };
   }
 
   const content = inputContent.trim();
@@ -724,5 +726,5 @@ export async function handleMessage(
   }
 
   const threadId = await context.ensureSurfaceThread(channelId);
-  return { handled: false, threadId, input: content };
+  return { handled: false, threadId, input: [toTextUserInput(content)] };
 }

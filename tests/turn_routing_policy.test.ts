@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { classifySurfaceInput, decideTurnRouting } from "../server/core/turn_routing_policy.js";
+import { toTextUserInput } from "../shared/protocol/user_input.js";
 
 describe("TurnRoutingPolicy", () => {
   test("ignores empty surface input", () => {
@@ -9,6 +10,7 @@ describe("TurnRoutingPolicy", () => {
         adapter: "discord",
         surfaceId: "chan-1",
         content: "   ",
+        input: [],
         isCommand: false,
         isDirectAddressed: true,
       }),
@@ -21,6 +23,7 @@ describe("TurnRoutingPolicy", () => {
         adapter: "discord",
         surfaceId: "chan-1",
         content: "hello",
+        input: [toTextUserInput("hello")],
         isCommand: false,
         isDirectAddressed: false,
       }),
@@ -33,6 +36,7 @@ describe("TurnRoutingPolicy", () => {
         adapter: "discord",
         surfaceId: "chan-1",
         content: " !models ",
+        input: [toTextUserInput("!models")],
         isCommand: true,
         isDirectAddressed: false,
       }),
@@ -42,6 +46,7 @@ describe("TurnRoutingPolicy", () => {
         adapter: "discord",
         surfaceId: "chan-1",
         content: "!models",
+        input: [toTextUserInput("!models")],
         isCommand: true,
         isDirectAddressed: false,
       },
@@ -52,6 +57,7 @@ describe("TurnRoutingPolicy", () => {
         adapter: "discord",
         surfaceId: "chan-1",
         content: "hello",
+        input: [toTextUserInput("hello")],
         isCommand: false,
         isDirectAddressed: true,
       }),
@@ -61,6 +67,7 @@ describe("TurnRoutingPolicy", () => {
         adapter: "discord",
         surfaceId: "chan-1",
         content: "hello",
+        input: [toTextUserInput("hello")],
         isCommand: false,
         isDirectAddressed: true,
       },
@@ -75,11 +82,12 @@ describe("TurnRoutingPolicy", () => {
           adapter: "discord",
           surfaceId: "chan-1",
           content: "hello",
+          input: [toTextUserInput("hello")],
           isCommand: true,
           isDirectAddressed: false,
         },
         threadId: "thread-1",
-        input: "hello",
+        input: [toTextUserInput("hello")],
         activeTurnId: null,
         approvalPolicy: "on-request",
       }),
@@ -94,11 +102,12 @@ describe("TurnRoutingPolicy", () => {
           adapter: "discord",
           surfaceId: "chan-1",
           content: "hello",
+          input: [toTextUserInput("hello")],
           isCommand: false,
           isDirectAddressed: true,
         },
         threadId: null,
-        input: "hello",
+        input: [toTextUserInput("hello")],
         activeTurnId: null,
         approvalPolicy: "on-request",
       }),
@@ -111,6 +120,7 @@ describe("TurnRoutingPolicy", () => {
           adapter: "discord",
           surfaceId: "chan-1",
           content: "hello",
+          input: [toTextUserInput("hello")],
           isCommand: false,
           isDirectAddressed: true,
         },
@@ -130,18 +140,19 @@ describe("TurnRoutingPolicy", () => {
           adapter: "discord",
           surfaceId: "chan-1",
           content: "continue",
+          input: [toTextUserInput("continue")],
           isCommand: false,
           isDirectAddressed: true,
         },
         threadId: "thread-1",
-        input: "continue",
+        input: [toTextUserInput("continue")],
         activeTurnId: "turn-1",
         approvalPolicy: "on-request",
       }),
     ).toEqual({
       type: "steer",
       threadId: "thread-1",
-      input: "continue",
+      input: [toTextUserInput("continue")],
       turnId: "turn-1",
     });
   });
@@ -154,18 +165,19 @@ describe("TurnRoutingPolicy", () => {
           adapter: "discord",
           surfaceId: "chan-1",
           content: "continue",
+          input: [toTextUserInput("continue")],
           isCommand: false,
           isDirectAddressed: true,
         },
         threadId: "thread-1",
-        input: "continue",
+        input: [toTextUserInput("continue")],
         activeTurnId: null,
         approvalPolicy: "never",
       }),
     ).toEqual({
       type: "submit",
       threadId: "thread-1",
-      input: "continue",
+      input: [toTextUserInput("continue")],
       approvalPolicy: "never",
     });
   });
@@ -178,19 +190,43 @@ describe("TurnRoutingPolicy", () => {
           adapter: "discord",
           surfaceId: "chan-1",
           content: "continue",
+          input: [toTextUserInput("continue")],
           isCommand: false,
           isDirectAddressed: false,
         },
         threadId: "thread-1",
-        input: "continue",
+        input: [toTextUserInput("continue")],
         activeTurnId: "turn-1",
         approvalPolicy: "on-request",
       }),
     ).toEqual({
       type: "submit",
       threadId: "thread-1",
-      input: "continue",
+      input: [toTextUserInput("continue")],
       approvalPolicy: "on-request",
+    });
+  });
+
+  test("processes image-only input when directly addressed", () => {
+    expect(
+      classifySurfaceInput({
+        adapter: "discord",
+        surfaceId: "chan-1",
+        content: "",
+        input: [{ type: "image", url: "https://example.com/image.png" }],
+        isCommand: false,
+        isDirectAddressed: true,
+      }),
+    ).toEqual({
+      type: "process",
+      surface: {
+        adapter: "discord",
+        surfaceId: "chan-1",
+        content: "",
+        input: [{ type: "image", url: "https://example.com/image.png" }],
+        isCommand: false,
+        isDirectAddressed: true,
+      },
     });
   });
 });

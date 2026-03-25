@@ -1,9 +1,11 @@
 import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
+import type { UserInput } from "../../shared/protocol/user_input.js";
 
 export type NormalizedSurfaceInput = {
   adapter: string;
   surfaceId: string;
   content: string;
+  input: UserInput[];
   isCommand: boolean;
   isDirectAddressed: boolean;
 };
@@ -18,21 +20,21 @@ export type TurnRoutingInput = {
   surface: NormalizedSurfaceInput;
   handled: boolean;
   threadId: string | null;
-  input: string | null;
+  input: UserInput[] | null;
   activeTurnId: string | null;
   approvalPolicy: ApprovalPolicy;
 };
 
 export type TurnRoutingDecision =
   | { type: "ignore" }
-  | { type: "submit"; threadId: string; input: string; approvalPolicy: ApprovalPolicy }
-  | { type: "steer"; threadId: string; input: string; turnId: string };
+  | { type: "submit"; threadId: string; input: UserInput[]; approvalPolicy: ApprovalPolicy }
+  | { type: "steer"; threadId: string; input: UserInput[]; turnId: string };
 
 export function classifySurfaceInput(
   input: SurfaceInputClassificationInput,
 ): SurfaceInputClassification {
   const content = input.content.trim();
-  if (!content) {
+  if (!content && input.input.length === 0) {
     return { type: "ignore" };
   }
 
@@ -50,7 +52,7 @@ export function classifySurfaceInput(
 }
 
 export function decideTurnRouting(input: TurnRoutingInput): TurnRoutingDecision {
-  if (input.handled || !input.threadId || !input.input) {
+  if (input.handled || !input.threadId || !input.input || input.input.length === 0) {
     return { type: "ignore" };
   }
 

@@ -19,6 +19,7 @@ import type {
   ThreadSourceKind,
   SubmitTurnRequest,
 } from "./requests.js";
+import { toTextUserInput, type UserInput } from "./user_input.js";
 
 const APPROVAL_POLICIES: ApprovalPolicy[] = ["untrusted", "on-failure", "on-request", "never"];
 const SANDBOX_MODES: SandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
@@ -128,6 +129,65 @@ function parseOptionalStringList(value: unknown, name: string): string[] | undef
   throw new Error(`Invalid ${name}.`);
 }
 
+function parseUserInputArray(value: unknown, name: string): UserInput[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) throw new Error(`Invalid ${name}.`);
+    return [toTextUserInput(trimmed)];
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`Invalid ${name}.`);
+  }
+
+  return value.map((entry) => parseUserInput(entry, name));
+}
+
+function parseUserInput(value: unknown, name: string): UserInput {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    throw new Error(`Invalid ${name}.`);
+  }
+
+  switch (value.type) {
+    case "text": {
+      if (typeof value.text !== "string" || !value.text.trim()) {
+        throw new Error(`Invalid ${name}.`);
+      }
+      if (!Array.isArray(value.text_elements)) {
+        throw new Error(`Invalid ${name}.`);
+      }
+      return {
+        type: "text",
+        text: value.text.trim(),
+        text_elements: value.text_elements.map((element) => {
+          if (!isRecord(element)) throw new Error(`Invalid ${name}.`);
+          return element;
+        }),
+      };
+    }
+    case "image":
+      if (typeof value.url !== "string" || !value.url.trim()) {
+        throw new Error(`Invalid ${name}.`);
+      }
+      return { type: "image", url: value.url.trim() };
+    case "localImage":
+      if (typeof value.path !== "string" || !value.path.trim()) {
+        throw new Error(`Invalid ${name}.`);
+      }
+      return { type: "localImage", path: value.path.trim() };
+    case "skill":
+    case "mention":
+      if (typeof value.name !== "string" || !value.name.trim()) {
+        throw new Error(`Invalid ${name}.`);
+      }
+      if (typeof value.path !== "string" || !value.path.trim()) {
+        throw new Error(`Invalid ${name}.`);
+      }
+      return { type: value.type, name: value.name.trim(), path: value.path.trim() };
+    default:
+      throw new Error(`Invalid ${name}.`);
+  }
+}
+
 export function validateListStoredThreadsRequest(value: unknown): ListStoredThreadsRequest {
   if (!isRecord(value)) throw new Error("Invalid list threads payload.");
 
@@ -216,14 +276,14 @@ export function validateRollbackThreadRequest(value: unknown): RollbackThreadReq
 }
 
 export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
-  if (!isRecord(value) || typeof value.input !== "string" || !value.input.trim()) {
+  if (!isRecord(value)) {
     throw new Error("Invalid turn payload.");
   }
   if (value.approvalPolicy && !APPROVAL_POLICIES.includes(value.approvalPolicy as ApprovalPolicy)) {
     throw new Error("Invalid approval policy.");
   }
   return {
-    input: value.input.trim(),
+    input: parseUserInputArray(value.input, "input"),
     approvalPolicy: value.approvalPolicy as ApprovalPolicy | undefined,
     model: parseOptionalString(value.model, "model"),
   };
@@ -240,14 +300,14 @@ export function validateInterruptTurnRequest(value: unknown): InterruptTurnReque
 }
 
 export function validateSteerTurnRequest(value: unknown): SteerTurnRequest {
-  if (!isRecord(value) || typeof value.input !== "string" || !value.input.trim()) {
+  if (!isRecord(value)) {
     throw new Error("Invalid steer payload.");
   }
   if (value.turnId !== undefined && typeof value.turnId !== "string") {
     throw new Error("Invalid turn id.");
   }
   return {
-    input: value.input.trim(),
+    input: parseUserInputArray(value.input, "input"),
     turnId: value.turnId as string | undefined,
   };
 }

@@ -4,13 +4,14 @@ import type {
   SteerTurnResponse,
   SubmitTurnResponse,
 } from "../../shared/protocol/requests.js";
+import type { UserInput } from "../../shared/protocol/user_input.js";
 import { decideTurnRouting, type NormalizedSurfaceInput, type TurnRoutingDecision } from "./turn_routing_policy.js";
 
 export type TurnRoutingExecutionInput = {
   surface: NormalizedSurfaceInput;
   handled: boolean;
   threadId: string | null;
-  input: string | null;
+  input: UserInput[] | null;
   approvalPolicy: ApprovalPolicy;
 };
 
@@ -18,11 +19,11 @@ type TurnRoutingConversation = {
   getThreadState: (threadId: string) => GetThreadStateResponse;
   submitTurn: (
     threadId: string,
-    request: { input: string; approvalPolicy?: ApprovalPolicy },
+    request: { input: UserInput[]; approvalPolicy?: ApprovalPolicy },
   ) => Promise<SubmitTurnResponse>;
   steerTurn: (
     threadId: string,
-    request: { input: string; turnId?: string },
+    request: { input: UserInput[]; turnId?: string },
   ) => Promise<SteerTurnResponse>;
 };
 

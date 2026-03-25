@@ -1,4 +1,5 @@
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
+import type { UserInput } from "./user_input.js";
 
 export type ApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
@@ -36,7 +37,7 @@ export interface CreateThreadResponse {
 }
 
 export interface SubmitTurnRequest {
-  input: string;
+  input: UserInput[];
   approvalPolicy?: ApprovalPolicy;
   model?: string;
 }
@@ -55,7 +56,7 @@ export interface InterruptTurnResponse {
 }
 
 export interface SteerTurnRequest {
-  input: string;
+  input: UserInput[];
   turnId?: string;
 }
 

@@ -19,6 +19,7 @@ import type {
   SkillsListResponse,
   ThreadTokenUsage,
 } from "../../shared/protocol/requests.js";
+import type { UserInput } from "../../shared/protocol/user_input.js";
 import { EventBus } from "./event_bus.js";
 import {
   extractItemId,
@@ -300,7 +301,7 @@ export class CodexSession {
   }
 
   async startTurn(
-    input: string,
+    input: UserInput[],
     approvalPolicy?: ApprovalPolicy,
     model?: string,
     cwd?: string,
@@ -314,7 +315,7 @@ export class CodexSession {
     const result = await this.sendRequest("turn/start", {
       threadId,
       approvalPolicy: this.approvalPolicy,
-      input: [{ type: "text", text: input }],
+      input,
       ...(model ? { model } : {}),
       ...(cwd ? { cwd } : {}),
     });
@@ -334,7 +335,7 @@ export class CodexSession {
     await this.sendRequest("turn/interrupt", { threadId, turnId: targetTurnId });
   }
 
-  async steerTurn(input: string, turnId?: string): Promise<string | null> {
+  async steerTurn(input: UserInput[], turnId?: string): Promise<string | null> {
     const threadId = await this.ensureThread();
     const targetTurnId = turnId ?? this.activeTurnId;
     if (!targetTurnId) {
@@ -344,7 +345,7 @@ export class CodexSession {
     const result = await this.sendRequest("turn/steer", {
       threadId,
       expectedTurnId: targetTurnId,
-      input: [{ type: "text", text: input }],
+      input,
     });
     const returnedTurnId = extractTurnId(result) ?? targetTurnId;
     this.activeTurnId = returnedTurnId;

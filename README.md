@@ -40,27 +40,39 @@ The architectural split is intentional:
 
 ## ⚙️ Setup
 
-1. Install dependencies:
+1. Clone with submodules, or initialize them after cloning:
+
+```bash
+git clone --recurse-submodules <repo-url>
+```
+
+Or, if you already cloned the repo:
+
+```bash
+git submodule update --init --recursive
+```
+
+2. Install dependencies:
 
 ```bash
 bun install
 ```
 
-2. Create local env files from the examples:
+3. Create local env files from the examples:
 
 ```bash
 cp envs/common.env.example envs/common.env
 cp envs/discord.env.example envs/discord.env
 ```
 
-3. Fill in at least:
+4. Fill in at least:
 
 - `DISCORD_BOT_TOKEN` in `envs/discord.env`
 - optionally `CODEX_MODEL` in `envs/common.env`
 - optionally `CODEX_APPROVAL_POLICY` in `envs/common.env`
 - optionally `CODEX_SANDBOX` in `envs/common.env`
 
-4. Start the Discord adapter:
+5. Start the Discord adapter:
 
 ```bash
 bun run dev:discord

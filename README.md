@@ -1,4 +1,8 @@
-# Shepherd
+<div align="center">
+
+# 🐕 Shepherd 🐑
+
+</div>
 
 Shepherd is an opinionated application layer around `codex app-server`.
 
@@ -8,7 +12,7 @@ The goal is a reusable core that can back multiple surfaces. Discord is the curr
 
 Today, the shipped adapter is Discord.
 
-## What It Does
+## 🎯 What It Does
 
 Shepherd treats an external surface as a long-lived Codex surface. It binds a surface to an active thread and workspace target, coordinates thread lifecycle operations like create, resume, fork, switch, archive, rollback, and compaction, provisions workspaces from GitHub or local paths, and exposes shared control actions such as model selection, context reads, limits, and skill management.
 
@@ -17,7 +21,7 @@ In the current Discord adapter, that shows up as channel-scoped threads, per-cha
 > [!NOTE]
 > Non-command messages are ignored unless the bot is mentioned.
 
-## Architecture
+## 🧱 Architecture
 
 - `shared/protocol`: request, event, approval, and user-input contracts
 - `server/core`: the application and runtime core around `codex app-server`
@@ -34,7 +38,7 @@ The architectural split is intentional:
 > [!NOTE]
 > If you want the detailed rationale, start with [.docs/END-STATE-ARCHITECTURE.md](/home/tadhiel/shepherd/.docs/END-STATE-ARCHITECTURE.md).
 
-## Setup
+## ⚙️ Setup
 
 1. Install dependencies:
 
@@ -64,7 +68,7 @@ bun run dev:discord
 
 Other package scripts exist, but they are still in flux. `bun run dev:discord` is the main tested path.
 
-## Runtime Configuration
+## 🔧 Runtime Configuration
 
 Shepherd loads env files from `envs/` in this order:
 
@@ -80,7 +84,7 @@ Supported keys:
 
 The committed `.example` files are the templates intended for public use.
 
-## Current Adapter: Discord
+## 💬 Current Adapter: Discord
 
 The normal flow is:
 
@@ -97,7 +101,7 @@ Repo targets supported by `!repo`:
 
 If a channel has no repo selected, thread creation fails until `!repo` is set.
 
-## Commands
+## ⌨️ Commands
 
 - `!help`
 - `!newthread`

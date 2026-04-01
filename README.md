@@ -1,40 +1,18 @@
 # Shepherd
 
-Shepherd is an opinionated application shell around `codex app-server`.
+Shepherd is an opinionated application layer around `codex app-server`.
 
-Its goal is not to be a Discord product. The goal is to provide a reusable application core for long-lived Codex surfaces: policy, action semantics, state, orchestration, and runtime wiring around the app-server bridge.
+It packages the parts that sit above the raw app-server bridge: surface lifecycle, workspace targeting, command semantics, routing policy, approvals, and event delivery.
 
-Discord is the current canary in the coal mine: the first serious adapter proving the architecture under real surface constraints. Other adapters may be added later, but the core application flow is intended to remain the same.
+The goal is a reusable core that can back multiple surfaces. Discord is the current canary in the coal mine: the first serious adapter proving that architecture under real constraints. Other adapters may be added later, but the core application flow is intended to stay the same.
 
-Today, the shipped adapter is Discord. Through that adapter, Shepherd currently provides:
-
-- channel-scoped conversation threads
-- per-channel repo selection
-- automatic workspace provisioning for new and forked threads
-- approval and sandbox policy forwarding
-- model inspection and per-thread model switching
-- local skill discovery and enable/disable controls
+Today, the shipped adapter is Discord.
 
 ## What It Does
 
-At a system level, Shepherd can:
+Shepherd treats an external surface as a long-lived Codex surface. It binds a surface to an active thread and workspace target, coordinates thread lifecycle operations like create, resume, fork, switch, archive, rollback, and compaction, provisions workspaces from GitHub or local paths, and exposes shared control actions such as model selection, context reads, limits, and skill management.
 
-- treat an external surface as a long-lived Codex conversation surface
-- bind a surface to an active thread and workspace target
-- coordinate thread lifecycle across create, resume, fork, switch, archive, rollback, and compaction flows
-- provision a workspace for a thread from either GitHub or a local path
-- expose shared control actions like model selection, context reads, limits, and skill management
-- stream events and approvals back to the active surface
-
-In the current Discord adapter, that means Shepherd can:
-
-- bind each channel or thread to an active Codex conversation thread
-- route commands and mentioned messages into Codex
-- clone a GitHub repo into an isolated workspace for a thread
-- point a channel at a local workspace root instead of GitHub
-- show context usage and Codex account rate-limit windows
-- list available models and queue a model change for the next turn
-- inspect, enable, and disable local skills for the active thread
+In the current Discord adapter, that shows up as channel-scoped threads, per-channel repo selection, workspace provisioning, mention-driven turns, approval handling, and thread-level operational controls.
 
 > [!NOTE]
 > Non-command messages are ignored unless the bot is mentioned.

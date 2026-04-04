@@ -36,7 +36,7 @@ The architectural split is intentional:
 - `server/adapters/discord/*` owns Discord-specific transport and presentation concerns
 
 > [!NOTE]
-> If you want the detailed rationale, start with [.docs/END-STATE-ARCHITECTURE.md](/home/tadhiel/shepherd/.docs/END-STATE-ARCHITECTURE.md).
+> If you want the detailed rationale, start with [.docs/END-STATE-ARCHITECTURE.md](.docs/END-STATE-ARCHITECTURE.md).
 
 ## ⚙️ Setup
 

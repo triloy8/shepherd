@@ -2,12 +2,13 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.server.json",
-    "serve": "bun run server/adapters/discord/bot.ts",
-    "dev": "bun --watch run server/adapters/discord/bot.ts",
-    "build:bin": "bun build --compile server/adapters/discord/bot.ts --outfile release/shepherd-discord",
+    "check": "bun run build",
+    "test": "bun test",
+    "start": "bun run start:discord",
     "start:discord": "bun run server/adapters/discord/bot.ts",
-    "dev:discord:watch": "bun --watch run server/adapters/discord/bot.ts",
-    "dev:discord": "bun run build && bun run start:discord"
+    "dev": "bun run dev:discord",
+    "dev:discord": "bun run build && bun run start:discord",
+    "build:bin": "bun build --compile server/adapters/discord/bot.ts --outfile release/shepherd-discord"
   },
   "dependencies": {
     "discord.js": "^14.22.1"

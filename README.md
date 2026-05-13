@@ -75,10 +75,12 @@ cp envs/discord.env.example envs/discord.env
 5. Start the Discord adapter:
 
 ```bash
-bun run dev:discord
+bun run dev
 ```
 
-Other package scripts exist, but they are still in flux. `bun run dev:discord` is the main tested path.
+`bun run dev` typechecks the server and then launches the Discord adapter. Use `bun run start`
+to launch without the typecheck step, `bun run check` for typechecking only, and `bun test`
+for the test suite.
 
 ## 🔧 Runtime Configuration
 

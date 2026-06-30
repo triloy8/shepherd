@@ -6,7 +6,7 @@ Status legend:
 - `Missing`: no wrapper/exposed API yet.
 
 Generated baseline:
-- Codex version: `codex-cli 0.130.0`
+- Codex version: `codex-cli 0.142.3`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -23,8 +23,12 @@ Legacy note:
 | `thread/resume` | Partial | Core | Supports key overrides (`approvalPolicy`, instructions, config, cwd, sandbox, model/provider, personality); still not full schema parity |
 | `thread/fork` | Partial | Core | Supports key overrides (`approvalPolicy`, instructions, config, cwd, sandbox, model/provider); still not full schema parity |
 | `thread/archive` | Implemented | Core | |
+| `thread/delete` | Missing | Maybe Later | Destructive thread lifecycle path; useful if Shepherd adds stronger thread management UX |
 | `thread/unarchive` | Implemented | Core | |
 | `thread/name/set` | Implemented | Core | |
+| `thread/goal/set` | Missing | Maybe Later | Goal management path not exposed by current Discord flow |
+| `thread/goal/get` | Missing | Maybe Later | Useful for richer thread diagnostics if goal state is surfaced |
+| `thread/goal/clear` | Missing | Maybe Later | Goal management path not exposed by current Discord flow |
 | `thread/metadata/update` | Missing | Maybe Later | Useful for richer repo/thread metadata, but not required for current Discord flow |
 | `thread/compact/start` | Implemented | Core | |
 | `thread/shellCommand` | Missing | Out of Scope (for now) | Terminal-oriented thread helper; Shepherd should route requests, not become a shell command surface |
@@ -39,15 +43,17 @@ Legacy note:
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Uses text input path; no richer turn controls |
+| `turn/start` | Partial | Core | Supports text input plus `approvalPolicy`, `model`, and resolved `cwd`; no richer turn environment controls |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Implemented | Core | Exposed through Discord mention steering of active turns |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
-| `model/list` | Implemented | Core | Exposed via Discord `!models` |
+| `model/list` | Implemented | Core | Wrapped in core and exposed via Discord `!models`/`!model` |
 | `modelProvider/capabilities/read` | Missing | Maybe Later | Useful for model diagnostics and richer model selection UX |
 | `skills/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills` |
+| `skills/extraRoots/set` | Missing | Maybe Later | Could support richer skill root configuration; current flow only passes per-request extra roots |
 | `skills/config/write` | Implemented | Core | Wrapped in core and exposed via Discord `!skill enable|disable` |
 | `plugin/list` | Missing | Out of Scope (for now) | Plugin management is outside Shepherd's current Discord/admin surface |
+| `plugin/installed` | Missing | Out of Scope (for now) | Plugin inventory surface is outside Shepherd's current Discord/admin surface |
 | `plugin/read` | Missing | Out of Scope (for now) | |
 | `plugin/skill/read` | Missing | Out of Scope (for now) | Plugin skill inspection is outside Shepherd's current Discord/admin surface |
 | `plugin/install` | Missing | Out of Scope (for now) | High-risk mutation path |
@@ -55,6 +61,7 @@ Legacy note:
 | `plugin/share/save` | Missing | Out of Scope (for now) | Plugin sharing mutation path |
 | `plugin/share/updateTargets` | Missing | Out of Scope (for now) | Plugin sharing mutation path |
 | `plugin/share/list` | Missing | Out of Scope (for now) | Plugin sharing is outside Shepherd's current Discord/admin surface |
+| `plugin/share/checkout` | Missing | Out of Scope (for now) | Plugin sharing retrieval path is outside Shepherd's current Discord/admin surface |
 | `plugin/share/delete` | Missing | Out of Scope (for now) | Plugin sharing mutation path |
 | `fs/readFile` | Missing | Out of Scope (for now) | Shepherd should not become a general remote file API |
 | `fs/writeFile` | Missing | Out of Scope (for now) | High-risk mutation path |
@@ -82,11 +89,16 @@ Legacy note:
 | `fuzzyFileSearch` | Missing | Out of Scope (for now) | |
 | `app/list` | Missing | Out of Scope (for now) | |
 | `experimentalFeature/list` | Missing | Out of Scope (for now) | |
+| `permissionProfile/list` | Missing | Maybe Later | Useful for admin diagnostics and richer sandbox/permission UX |
 | `experimentalFeature/enablement/set` | Missing | Out of Scope (for now) | Feature flag mutation path |
 | `externalAgentConfig/detect` | Missing | Out of Scope (for now) | |
 | `externalAgentConfig/import` | Missing | Out of Scope (for now) | |
+| `externalAgentConfig/import/readHistories` | Missing | Out of Scope (for now) | External-agent migration history is outside Shepherd's current Discord/admin surface |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
 | `account/rateLimits/read` | Implemented | Core | Exposed via Discord `!limits` |
+| `account/rateLimitResetCredit/consume` | Missing | Out of Scope (for now) | Account quota mutation path |
+| `account/usage/read` | Missing | Maybe Later | Useful for account diagnostics if Shepherd adds admin reporting |
+| `account/workspaceMessages/read` | Missing | Maybe Later | Useful for account/workspace diagnostics |
 | `account/login/start` | Missing | Out of Scope (for now) | |
 | `account/login/cancel` | Missing | Out of Scope (for now) | |
 | `account/logout` | Missing | Out of Scope (for now) | |
@@ -104,9 +116,11 @@ Legacy note:
 | `error` | Generic | Core |
 | `thread/status/changed` | Typed event (`thread.status.changed`) | Core |
 | `thread/started` | Generic | Maybe Later |
+| `thread/deleted` | Generic | Maybe Later |
 | `thread/name/updated` | Typed event (`thread.name.updated`) | Core |
 | `thread/goal/updated` / `thread/goal/cleared` | Generic | Maybe Later |
-| `thread/tokenUsage/updated` | Partial | Core |
+| `thread/settings/updated` | Generic | Maybe Later |
+| `thread/tokenUsage/updated` | Partial; mapped to typed bridge event (`thread.tokenUsage.updated`) and cached for Discord `!context` | Core |
 | `thread/archived` / `thread/unarchived` | Typed events (`thread.archived`, `thread.unarchived`) | Core |
 | `thread/closed` | Generic | Maybe Later |
 | `thread/compacted` | Generic | Maybe Later |
@@ -131,9 +145,10 @@ Legacy note:
 | `item/mcpToolCall/progress` | Generic | Out of Scope (for now) |
 | `mcpServer/oauthLogin/completed` | Generic | Out of Scope (for now) |
 | `mcpServer/startupStatus/updated` | Generic | Out of Scope (for now) |
-| `account/updated` / `account/rateLimits/updated` | Generic | Maybe Later |
+| `account/updated` / `account/rateLimits/updated` | Generic; `account/rateLimits/read` is wrapped separately | Maybe Later |
 | `app/list/updated` | Generic | Out of Scope (for now) |
 | `remoteControl/status/changed` | Generic | Out of Scope (for now) |
+| `externalAgentConfig/import/progress` | Generic | Out of Scope (for now) |
 | `externalAgentConfig/import/completed` | Generic | Out of Scope (for now) |
 | `fs/changed` | Generic | Out of Scope (for now) |
 | `item/reasoning/summaryTextDelta` | Partially interpreted via text delta | Maybe Later |
@@ -141,6 +156,8 @@ Legacy note:
 | `item/reasoning/textDelta` | Partially interpreted via text delta | Maybe Later |
 | `model/rerouted` | Generic | Maybe Later |
 | `model/verification` | Generic | Maybe Later |
+| `turn/moderationMetadata` | Generic | Maybe Later |
+| `model/safetyBuffering/updated` | Generic | Maybe Later |
 | `warning` / `guardianWarning` | Generic | Maybe Later |
 | `deprecationNotice` / `configWarning` | Generic | Maybe Later |
 | `fuzzyFileSearch/sessionUpdated` / `fuzzyFileSearch/sessionCompleted` | Generic | Out of Scope (for now) |
@@ -159,5 +176,5 @@ Legacy note:
 | Rich thread object typing | Partial | `ReadThreadResponse`/`RollbackThreadResponse` now use `ThreadRecord`; deeper nested typing still open |
 | Rich resume/fork/start options | Partial | Major override fields supported; still not full schema parity |
 | Notification DTO parity | Partial | Key thread lifecycle notifications now typed; broader item/model/realtime notifications still reduced |
-| Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; richer typed notification payload mapping still open |
-| Generated schema baseline coverage | Partial | Refreshed generated schemas now include plugin/share, marketplace, hooks, fs/watch, MCP resource/tool, model capability, guardian, process, remote-control, external-agent import, warnings, Windows readiness, account nudge, terminal control, and review surfaces that Shepherd still intentionally does not wrap |
+| Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
+| Generated schema baseline coverage | Partial | Refreshed generated schemas now include thread delete/goal/settings, plugin/share, marketplace, hooks, fs/watch, MCP resource/tool, model capability/safety, guardian, process, remote-control, external-agent import/history, permission profile, account usage/workspace/quota, warnings, Windows readiness, account nudge, terminal control, and review surfaces that Shepherd still intentionally does not wrap |

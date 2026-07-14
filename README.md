@@ -29,6 +29,7 @@ In the current Discord adapter, that shows up as channel-scoped threads, per-cha
 - `server/config`: env loading
 - `envs`: local runtime config and example env files
 - `schemas`: generated protocol schemas
+- `.codex/skills`: vendored Codex skills used by Shepherd
 
 The architectural split is intentional:
 
@@ -40,16 +41,10 @@ The architectural split is intentional:
 
 ## ⚙️ Setup
 
-1. Clone with submodules, or initialize them after cloning:
+1. Clone the repository:
 
 ```bash
-git clone --recurse-submodules <repo-url>
-```
-
-Or, if you already cloned the repo:
-
-```bash
-git submodule update --init --recursive
+git clone <repo-url>
 ```
 
 2. Install dependencies:

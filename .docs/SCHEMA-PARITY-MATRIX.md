@@ -6,7 +6,7 @@ Status legend:
 - `Missing`: no wrapper/exposed API yet.
 
 Generated baseline:
-- Codex version: `codex-cli 0.142.3`
+- Codex version: `codex-cli 0.144.4`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -19,9 +19,9 @@ Legacy note:
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
 | `initialize` | Implemented | Core | Internal handshake |
-| `thread/start` | Partial | Core | Supports major overrides (`approvalPolicy`, instructions, config, cwd, sandbox, model/provider, personality, ephemeral, serviceName); still not full schema parity |
-| `thread/resume` | Partial | Core | Supports key overrides (`approvalPolicy`, instructions, config, cwd, sandbox, model/provider, personality); still not full schema parity |
-| `thread/fork` | Partial | Core | Supports key overrides (`approvalPolicy`, instructions, config, cwd, sandbox, model/provider); still not full schema parity |
+| `thread/start` | Partial | Core | Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource`; other generated fields are exposed |
+| `thread/resume` | Partial | Core | Missing `serviceTier` and `approvalsReviewer`; other generated fields are exposed |
+| `thread/fork` | Partial | Core | Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, and `threadSource`; other generated fields are exposed |
 | `thread/archive` | Implemented | Core | |
 | `thread/delete` | Missing | Maybe Later | Destructive thread lifecycle path; useful if Shepherd adds stronger thread management UX |
 | `thread/unarchive` | Implemented | Core | |
@@ -43,7 +43,7 @@ Legacy note:
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports text input plus `approvalPolicy`, `model`, and resolved `cwd`; no richer turn environment controls |
+| `turn/start` | Partial | Core | Supports the generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, approval reviewer, sandbox policy, service tier, effort, summary, personality, output schema, and image detail |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Implemented | Core | Exposed through Discord mention steering of active turns |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
@@ -103,9 +103,9 @@ Legacy note:
 | `account/login/cancel` | Missing | Out of Scope (for now) | |
 | `account/logout` | Missing | Out of Scope (for now) | |
 | `account/sendAddCreditsNudgeEmail` | Missing | Out of Scope (for now) | Billing/account email action |
-| `getConversationSummary` | Missing | Maybe Later | Useful as a lightweight diagnostics/read path |
-| `gitDiffToRemote` | Missing | Maybe Later | Useful for repo diagnostics and review workflows |
-| `getAuthStatus` | Missing | Maybe Later | Useful for support and account diagnostics |
+| `getConversationSummary` | Missing | Maybe Later | Legacy compatibility method absent from the generated JSON-schema request union; useful as a lightweight diagnostics/read path |
+| `gitDiffToRemote` | Missing | Maybe Later | Legacy compatibility method absent from the generated JSON-schema request union; useful for repo diagnostics and review workflows |
+| `getAuthStatus` | Missing | Maybe Later | Legacy compatibility method absent from the generated JSON-schema request union; useful for support and account diagnostics |
 | `windowsSandbox/setupStart` | Missing | Out of Scope (for now) | Platform-specific |
 | `windowsSandbox/readiness` | Missing | Out of Scope (for now) | Platform-specific |
 
@@ -113,7 +113,7 @@ Legacy note:
 
 | Notification | Current Handling | Scope Recommendation |
 |---|---|---|
-| `error` | Generic | Core |
+| `error` | Typed events (`session.error`; context limits use `session.limit.context`) | Core |
 | `thread/status/changed` | Typed event (`thread.status.changed`) | Core |
 | `thread/started` | Generic | Maybe Later |
 | `thread/deleted` | Generic | Maybe Later |
@@ -126,20 +126,20 @@ Legacy note:
 | `thread/compacted` | Generic | Maybe Later |
 | `skills/changed` | Generic | Maybe Later |
 | `turn/started` | Generic | Maybe Later |
-| `turn/completed` | Typed local lifecycle event (`turn.completed`) plus generic raw notification handling | Core |
+| `turn/completed` | Typed event (`turn.completed`) | Core |
 | `turn/diff/updated` | Generic | Maybe Later |
 | `turn/plan/updated` | Generic | Maybe Later |
 | `hook/started` / `hook/completed` | Generic | Out of Scope (for now) |
 | `item/started` / `item/completed` | Internal phase tracking only; otherwise generic | Core |
 | `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Generic | Maybe Later |
-| `rawResponseItem/completed` | Generic | Maybe Later |
+| `rawResponseItem/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
 | `item/agentMessage/delta` | Partially interpreted via text delta | Core |
-| `item/plan/delta` | Generic | Maybe Later |
+| `item/plan/delta` | Partially interpreted via text delta | Maybe Later |
 | `command/exec/outputDelta` | Partially interpreted via text delta | Out of Scope (for now) |
 | `process/outputDelta` / `process/exited` | Generic | Out of Scope (for now) |
-| `item/commandExecution/outputDelta` | Generic | Maybe Later |
+| `item/commandExecution/outputDelta` | Partially interpreted via text delta | Maybe Later |
 | `item/commandExecution/terminalInteraction` | Generic | Maybe Later |
-| `item/fileChange/outputDelta` | Generic | Maybe Later |
+| `item/fileChange/outputDelta` | Partially interpreted via text delta | Maybe Later |
 | `item/fileChange/patchUpdated` | Generic | Maybe Later |
 | `serverRequest/resolved` | Generic | Maybe Later |
 | `item/mcpToolCall/progress` | Generic | Out of Scope (for now) |
@@ -162,7 +162,7 @@ Legacy note:
 | `deprecationNotice` / `configWarning` | Generic | Maybe Later |
 | `fuzzyFileSearch/sessionUpdated` / `fuzzyFileSearch/sessionCompleted` | Generic | Out of Scope (for now) |
 | `thread/realtime/started` / `thread/realtime/itemAdded` | Generic | Out of Scope (for now) |
-| `thread/realtime/transcript/delta` / `thread/realtime/transcript/done` | Generic | Out of Scope (for now) |
+| `thread/realtime/transcript/delta` / `thread/realtime/transcript/done` | Delta partially interpreted via generic text-delta handling; done notification is generic | Out of Scope (for now) |
 | `thread/realtime/outputAudio/delta` / `thread/realtime/sdp` | Generic | Out of Scope (for now) |
 | `thread/realtime/error` / `thread/realtime/closed` | Generic | Out of Scope (for now) |
 | `windows/worldWritableWarning` / `windowsSandbox/setupCompleted` | Generic | Out of Scope (for now) |
@@ -177,4 +177,4 @@ Legacy note:
 | Rich resume/fork/start options | Partial | Major override fields supported; still not full schema parity |
 | Notification DTO parity | Partial | Key thread lifecycle notifications now typed; broader item/model/realtime notifications still reduced |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | Refreshed generated schemas now include thread delete/goal/settings, plugin/share, marketplace, hooks, fs/watch, MCP resource/tool, model capability/safety, guardian, process, remote-control, external-agent import/history, permission profile, account usage/workspace/quota, warnings, Windows readiness, account nudge, terminal control, and review surfaces that Shepherd still intentionally does not wrap |
+| Generated schema baseline coverage | Partial | Refreshed against `codex-cli 0.144.4`: 90 TypeScript request methods (87 in the JSON-schema union plus 3 legacy compatibility methods) and 69 TypeScript notifications (68 in the JSON-schema union plus 1 legacy compatibility notification); Shepherd intentionally leaves most platform-admin surfaces unwrapped |

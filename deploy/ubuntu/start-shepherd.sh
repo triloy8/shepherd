@@ -1,93 +1,97 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname -- "${SCRIPT_PATH}")"
 PROJECT_DIR="${SHEPHERD_PROJECT_DIR:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
-DOCKER_WAIT_SECONDS="${DOCKER_WAIT_SECONDS:-60}"
-SERVICE_USER="${SHEPHERD_SERVICE_USER:-}"
+SESSION_NAME="${SHEPHERD_TMUX_SESSION:-shepherd}"
+RESTART_DELAY_SECONDS="${SHEPHERD_RESTART_DELAY_SECONDS:-5}"
+LOG_DIR="${SHEPHERD_LOG_DIR:-${PROJECT_DIR}/logs}"
+LOG_FILE="${LOG_DIR}/shepherd.log"
+ACTION="${1:-start}"
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "docker is not installed in the Ubuntu chroot" >&2
-  exit 1
-fi
-
-run_as_root() {
-  if [[ "${EUID}" -eq 0 ]]; then
-    "$@"
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
-  else
-    echo "root access is required to start dockerd" >&2
-    return 1
-  fi
+session_exists() {
+  tmux has-session -t "=${SESSION_NAME}" 2>/dev/null
 }
 
-DOCKER=(docker)
-if ! docker info >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
-  DOCKER=(sudo docker)
-fi
+run_shepherd() {
+  cd "${PROJECT_DIR}"
+  mkdir -p "${LOG_DIR}"
 
-docker_ready() {
-  "${DOCKER[@]}" info >/dev/null 2>&1
-}
-
-if ! docker_ready; then
-  echo "docker daemon is not ready; starting it"
-
-  if command -v service >/dev/null 2>&1; then
-    run_as_root service docker start >/dev/null 2>&1 || true
-    for ((attempt = 1; attempt <= 5; attempt++)); do
-      docker_ready && break
-      sleep 1
-    done
-  fi
-
-  if ! docker_ready; then
-    run_as_root sh -c \
-      'nohup dockerd >>/var/log/shepherd-dockerd.log 2>&1 </dev/null &'
-  fi
-
-  for ((attempt = 1; attempt <= DOCKER_WAIT_SECONDS; attempt++)); do
-    if docker_ready; then
-      break
-    fi
-    sleep 1
+  while true; do
+    printf '\n[%s] starting Shepherd\n' "$(date --iso-8601=seconds)" >>"${LOG_FILE}"
+    set +e
+    bun run start >>"${LOG_FILE}" 2>&1
+    status=$?
+    set -e
+    printf '[%s] Shepherd exited with status %s; restarting in %ss\n' \
+      "$(date --iso-8601=seconds)" "${status}" "${RESTART_DELAY_SECONDS}" \
+      >>"${LOG_FILE}"
+    sleep "${RESTART_DELAY_SECONDS}"
   done
-fi
+}
 
-if ! docker_ready; then
-  echo "docker did not become ready within ${DOCKER_WAIT_SECONDS} seconds" >&2
-  echo "inspect /var/log/shepherd-dockerd.log inside the Ubuntu chroot" >&2
-  exit 1
-fi
+case "${ACTION}" in
+  run)
+    run_shepherd
+    ;;
+  start)
+    for command_name in tmux bun codex gh; do
+      if ! command -v "${command_name}" >/dev/null 2>&1; then
+        echo "missing required command: ${command_name}" >&2
+        exit 1
+      fi
+    done
 
-# A non-root caller may have needed sudo only to start the daemon. Prefer that
-# caller's Docker group access for Compose once the socket is ready.
-if [[ "${EUID}" -ne 0 ]] && docker info >/dev/null 2>&1; then
-  DOCKER=(docker)
-fi
+    if [[ ! -f "${PROJECT_DIR}/envs/common.env" ]]; then
+      echo "missing ${PROJECT_DIR}/envs/common.env" >&2
+      exit 1
+    fi
+    if [[ ! -f "${PROJECT_DIR}/envs/discord.env" ]]; then
+      echo "missing ${PROJECT_DIR}/envs/discord.env" >&2
+      exit 1
+    fi
+    if [[ ! -d "${PROJECT_DIR}/node_modules" ]]; then
+      echo "dependencies are missing; run 'bun install' in ${PROJECT_DIR}" >&2
+      exit 1
+    fi
 
-COMPOSE=("${DOCKER[@]}" compose)
-if [[ -n "${SERVICE_USER}" && "${EUID}" -eq 0 && "${SERVICE_USER}" != "root" ]]; then
-  if ! id "${SERVICE_USER}" >/dev/null 2>&1; then
-    echo "Shepherd service user does not exist: ${SERVICE_USER}" >&2
-    exit 1
-  fi
-  if ! command -v runuser >/dev/null 2>&1; then
-    echo "runuser is required to run Shepherd as ${SERVICE_USER}" >&2
-    exit 1
-  fi
-  COMPOSE=(runuser -u "${SERVICE_USER}" -- docker compose)
-fi
+    if session_exists; then
+      echo "Shepherd is already running in tmux session: ${SESSION_NAME}"
+      exit 0
+    fi
 
-if ! "${COMPOSE[@]}" version >/dev/null 2>&1; then
-  echo "the Docker Compose plugin is not installed" >&2
-  if [[ -n "${SERVICE_USER}" ]]; then
-    echo "also confirm ${SERVICE_USER} belongs to the docker group" >&2
-  fi
-  exit 1
-fi
+    mkdir -p "${LOG_DIR}"
+    printf -v run_command \
+      'exec env SHEPHERD_PROJECT_DIR=%q SHEPHERD_TMUX_SESSION=%q SHEPHERD_RESTART_DELAY_SECONDS=%q SHEPHERD_LOG_DIR=%q %q run' \
+      "${PROJECT_DIR}" "${SESSION_NAME}" "${RESTART_DELAY_SECONDS}" "${LOG_DIR}" \
+      "${SCRIPT_PATH}"
+    tmux new-session -d -s "${SESSION_NAME}" -c "${PROJECT_DIR}" "${run_command}"
 
-cd "${PROJECT_DIR}"
-"${COMPOSE[@]}" up -d --remove-orphans
-"${COMPOSE[@]}" ps
+    echo "started Shepherd in tmux session: ${SESSION_NAME}"
+    echo "log: ${LOG_FILE}"
+    ;;
+  stop)
+    if session_exists; then
+      tmux kill-session -t "=${SESSION_NAME}"
+      echo "stopped Shepherd tmux session: ${SESSION_NAME}"
+    else
+      echo "Shepherd is not running"
+    fi
+    ;;
+  status)
+    if session_exists; then
+      echo "Shepherd is running in tmux session: ${SESSION_NAME}"
+    else
+      echo "Shepherd is not running"
+      exit 1
+    fi
+    ;;
+  logs)
+    tail -n "${SHEPHERD_LOG_LINES:-100}" "${LOG_FILE}"
+    ;;
+  *)
+    echo "usage: $0 {start|stop|status|logs}" >&2
+    exit 2
+    ;;
+esac

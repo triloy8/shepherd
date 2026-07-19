@@ -77,12 +77,13 @@ bun run dev
 to launch without the typecheck step, `bun run check` for typechecking only, and `bun test`
 for the test suite.
 
-## Docker Deployment
+## Rooted Android Deployment
 
-The Docker deployment is designed for an Ubuntu chroot hosted by Termux. It
-persists Codex, GitHub CLI, and agent workspace state without publishing an
-inbound port. See [deploy/README.md](deploy/README.md) for build, authentication,
-startup, and Termux:Boot instructions.
+The Android deployment runs Shepherd directly in an Ubuntu chroot hosted by
+Termux and supervises it with tmux. See [deploy/README.md](deploy/README.md) for
+installation, authentication, startup, and Termux:Boot instructions. The
+Docker files remain available as an optional deployment for compatible Linux
+kernels.
 
 ## 🔧 Runtime Configuration
 

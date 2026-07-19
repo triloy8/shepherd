@@ -7,7 +7,8 @@ and assumes the layout created by that tutorial:
 
 - Ubuntu rootfs: `/data/local/chroot/ubuntu`
 - Interactive/desktop launcher: `/data/local/chroot/start_ubuntu.sh`
-- Shepherd checkout inside Ubuntu: `/root/shepherd`
+- Ubuntu user: `nio`
+- Shepherd checkout inside Ubuntu: `/home/nio/shepherd`
 - Termux home: `/data/data/com.termux/files/home`
 
 This is a real, root-backed `chroot`, not `proot-distro`. Shepherd runs as a
@@ -44,15 +45,32 @@ the Ubuntu ARM64 rootfs used by the tutorial.
 
 ## Check out and configure Shepherd
 
-Run these commands inside Ubuntu after the deployment changes have been pushed:
+Enter Ubuntu as `nio`, then run these commands after the deployment changes
+have been pushed:
 
 ```bash
-cd /root
+cd /home/nio
 git clone https://github.com/triloy8/shepherd.git
-cd /root/shepherd
+cd /home/nio/shepherd
 ```
 
 If the checkout already exists, update it instead of cloning it again.
+
+Give `nio` access to the Docker socket, then exit and re-enter Ubuntu so the new
+group membership takes effect:
+
+```bash
+sudo usermod -aG docker nio
+```
+
+After re-entering Ubuntu as `nio`, verify the account and Docker access:
+
+```bash
+id -un
+docker info
+```
+
+The first command must print `nio`, and `docker info` must work without `sudo`.
 
 Create the runtime environment files if they do not exist:
 
@@ -157,8 +175,14 @@ fi
 mount_once /sdcard "$UBUNTUPATH/sdcard"
 
 exec busybox chroot "$UBUNTUPATH" /bin/bash -lc \
-  'cd /root/shepherd && ./deploy/ubuntu/start-shepherd.sh'
+  'SHEPHERD_PROJECT_DIR=/home/nio/shepherd SHEPHERD_SERVICE_USER=nio \
+    /home/nio/shepherd/deploy/ubuntu/start-shepherd.sh'
 ```
+
+Android root is still required here to create the mounts, enter the chroot, and
+start `dockerd`. After the daemon is ready, `start-shepherd.sh` drops to `nio`
+for all Docker Compose commands. The Shepherd container itself continues to use
+its unprivileged internal `bun` user.
 
 Make it executable from the rooted Android shell:
 
@@ -186,7 +210,7 @@ inside the chroot rootfs, so its Android-side path starts with
 
 ```bash
 mkdir -p ~/.termux/boot
-sudo cp /data/local/chroot/ubuntu/root/shepherd/deploy/termux/boot.example.sh \
+sudo cp /data/local/chroot/ubuntu/home/nio/shepherd/deploy/termux/boot.example.sh \
   ~/.termux/boot/shepherd
 sudo chown "$(id -u):$(id -g)" ~/.termux/boot/shepherd
 chmod 700 ~/.termux/boot/shepherd
@@ -203,7 +227,7 @@ tail -n 100 ~/.cache/shepherd-boot.log 2>/dev/null || true
 Then enter Ubuntu normally and verify the service:
 
 ```bash
-cd /root/shepherd
+cd /home/nio/shepherd
 docker compose ps
 docker compose logs --tail=100 shepherd
 ```

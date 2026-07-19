@@ -4,6 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SHEPHERD_PROJECT_DIR:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
 DOCKER_WAIT_SECONDS="${DOCKER_WAIT_SECONDS:-60}"
+SERVICE_USER="${SHEPHERD_SERVICE_USER:-}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is not installed in the Ubuntu chroot" >&2
@@ -60,11 +61,33 @@ if ! docker_ready; then
   exit 1
 fi
 
-if ! "${DOCKER[@]}" compose version >/dev/null 2>&1; then
+# A non-root caller may have needed sudo only to start the daemon. Prefer that
+# caller's Docker group access for Compose once the socket is ready.
+if [[ "${EUID}" -ne 0 ]] && docker info >/dev/null 2>&1; then
+  DOCKER=(docker)
+fi
+
+COMPOSE=("${DOCKER[@]}" compose)
+if [[ -n "${SERVICE_USER}" && "${EUID}" -eq 0 && "${SERVICE_USER}" != "root" ]]; then
+  if ! id "${SERVICE_USER}" >/dev/null 2>&1; then
+    echo "Shepherd service user does not exist: ${SERVICE_USER}" >&2
+    exit 1
+  fi
+  if ! command -v runuser >/dev/null 2>&1; then
+    echo "runuser is required to run Shepherd as ${SERVICE_USER}" >&2
+    exit 1
+  fi
+  COMPOSE=(runuser -u "${SERVICE_USER}" -- docker compose)
+fi
+
+if ! "${COMPOSE[@]}" version >/dev/null 2>&1; then
   echo "the Docker Compose plugin is not installed" >&2
+  if [[ -n "${SERVICE_USER}" ]]; then
+    echo "also confirm ${SERVICE_USER} belongs to the docker group" >&2
+  fi
   exit 1
 fi
 
 cd "${PROJECT_DIR}"
-"${DOCKER[@]}" compose up -d --remove-orphans
-"${DOCKER[@]}" compose ps
+"${COMPOSE[@]}" up -d --remove-orphans
+"${COMPOSE[@]}" ps

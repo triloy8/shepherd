@@ -1,0 +1,29 @@
+services:
+  shepherd:
+    image: shepherd-discord:local
+    build:
+      context: .
+      args:
+        BUN_VERSION: "1.3.9"
+        CODEX_VERSION: "0.144.4"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - envs/common.env
+      - envs/discord.env
+    environment:
+      HOME: /home/bun
+    volumes:
+      - codex-home:/home/bun/.codex
+      - github-config:/home/bun/.config/gh
+      - agent-workspaces:/home/bun/.agent-workspaces
+      - type: bind
+        source: ./.codex/skills
+        target: /home/bun/.codex/skills
+        read_only: true
+
+volumes:
+  codex-home:
+  github-config:
+  agent-workspaces:

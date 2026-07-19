@@ -1,0 +1,15 @@
+.git
+.agents
+.playwright-cli
+.todo
+dist
+logs
+node_modules
+release
+schemas
+
+envs/*.env
+!envs/*.env.example
+
+.codex/skills/**/*.env
+!.codex/skills/**/*.env.example

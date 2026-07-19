@@ -77,6 +77,13 @@ bun run dev
 to launch without the typecheck step, `bun run check` for typechecking only, and `bun test`
 for the test suite.
 
+## Docker Deployment
+
+The Docker deployment is designed for an Ubuntu chroot hosted by Termux. It
+persists Codex, GitHub CLI, and agent workspace state without publishing an
+inbound port. See [deploy/README.md](deploy/README.md) for build, authentication,
+startup, and Termux:Boot instructions.
+
 ## 🔧 Runtime Configuration
 
 Shepherd loads env files from `envs/` in this order:

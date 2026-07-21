@@ -6,7 +6,8 @@ Status legend:
 - `Missing`: no wrapper/exposed API yet.
 
 Generated baseline:
-- Codex version: `codex-cli 0.144.4`
+- Codex version: `codex-cli 0.145.0`
+- Last refreshed: `2026-07-21`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -33,8 +34,8 @@ Legacy note:
 | `thread/compact/start` | Implemented | Core | |
 | `thread/shellCommand` | Missing | Out of Scope (for now) | Terminal-oriented thread helper; Shepherd should route requests, not become a shell command surface |
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
-| `thread/rollback` | Implemented | Core | |
-| `thread/list` | Implemented | Core | Filter surface intentionally narrowed |
+| `thread/rollback` | Implemented | Core | Generated schema marks this method as deprecated |
+| `thread/list` | Partial | Core | Missing `sortDirection` and `useStateDbOnly`; `cwd` is narrowed to a single string |
 | `thread/loaded/list` | Implemented | Core | |
 | `thread/read` | Implemented | Core | `includeTurns` supported |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
@@ -43,15 +44,15 @@ Legacy note:
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports the generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, approval reviewer, sandbox policy, service tier, effort, summary, personality, output schema, and image detail |
+| `turn/start` | Partial | Core | Supports the generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, approval reviewer, sandbox policy, service tier, effort, summary, personality, and output schema |
 | `turn/interrupt` | Implemented | Core | |
-| `turn/steer` | Implemented | Core | Exposed through Discord mention steering of active turns |
+| `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
 | `model/list` | Implemented | Core | Wrapped in core and exposed via Discord `!models`/`!model` |
 | `modelProvider/capabilities/read` | Missing | Maybe Later | Useful for model diagnostics and richer model selection UX |
 | `skills/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills` |
 | `skills/extraRoots/set` | Missing | Maybe Later | Could support richer skill root configuration; current flow only passes per-request extra roots |
-| `skills/config/write` | Implemented | Core | Wrapped in core and exposed via Discord `!skill enable|disable` |
+| `skills/config/write` | Partial | Core | Wrapped in core and exposed via Discord `!skill enable|disable`; supports path selection but not the generated name selector |
 | `plugin/list` | Missing | Out of Scope (for now) | Plugin management is outside Shepherd's current Discord/admin surface |
 | `plugin/installed` | Missing | Out of Scope (for now) | Plugin inventory surface is outside Shepherd's current Discord/admin surface |
 | `plugin/read` | Missing | Out of Scope (for now) | |
@@ -63,6 +64,9 @@ Legacy note:
 | `plugin/share/list` | Missing | Out of Scope (for now) | Plugin sharing is outside Shepherd's current Discord/admin surface |
 | `plugin/share/checkout` | Missing | Out of Scope (for now) | Plugin sharing retrieval path is outside Shepherd's current Discord/admin surface |
 | `plugin/share/delete` | Missing | Out of Scope (for now) | Plugin sharing mutation path |
+| `app/read` | Missing | Out of Scope (for now) | App detail inspection is outside Shepherd's current Discord/admin surface |
+| `app/list` | Missing | Out of Scope (for now) | |
+| `app/installed` | Missing | Out of Scope (for now) | Installed app inventory is outside Shepherd's current Discord/admin surface |
 | `fs/readFile` | Missing | Out of Scope (for now) | Shepherd should not become a general remote file API |
 | `fs/writeFile` | Missing | Out of Scope (for now) | High-risk mutation path |
 | `fs/createDirectory` | Missing | Out of Scope (for now) | High-risk mutation path |
@@ -87,7 +91,6 @@ Legacy note:
 | `command/exec/resize` | Missing | Out of Scope (for now) | Interactive terminal control sub-surface of `command/exec` |
 | `feedback/upload` | Missing | Out of Scope (for now) | |
 | `fuzzyFileSearch` | Missing | Out of Scope (for now) | |
-| `app/list` | Missing | Out of Scope (for now) | |
 | `experimentalFeature/list` | Missing | Out of Scope (for now) | |
 | `permissionProfile/list` | Missing | Maybe Later | Useful for admin diagnostics and richer sandbox/permission UX |
 | `experimentalFeature/enablement/set` | Missing | Out of Scope (for now) | Feature flag mutation path |
@@ -119,6 +122,7 @@ Legacy note:
 | `thread/deleted` | Generic | Maybe Later |
 | `thread/name/updated` | Typed event (`thread.name.updated`) | Core |
 | `thread/goal/updated` / `thread/goal/cleared` | Generic | Maybe Later |
+| `thread/environment/connected` / `thread/environment/disconnected` | Generic | Maybe Later |
 | `thread/settings/updated` | Generic | Maybe Later |
 | `thread/tokenUsage/updated` | Partial; mapped to typed bridge event (`thread.tokenUsage.updated`) and cached for Discord `!context` | Core |
 | `thread/archived` / `thread/unarchived` | Typed events (`thread.archived`, `thread.unarchived`) | Core |
@@ -133,6 +137,7 @@ Legacy note:
 | `item/started` / `item/completed` | Internal phase tracking only; otherwise generic | Core |
 | `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Generic | Maybe Later |
 | `rawResponseItem/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
+| `rawResponse/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
 | `item/agentMessage/delta` | Partially interpreted via text delta | Core |
 | `item/plan/delta` | Partially interpreted via text delta | Maybe Later |
 | `command/exec/outputDelta` | Partially interpreted via text delta | Out of Scope (for now) |
@@ -177,4 +182,4 @@ Legacy note:
 | Rich resume/fork/start options | Partial | Major override fields supported; still not full schema parity |
 | Notification DTO parity | Partial | Key thread lifecycle notifications now typed; broader item/model/realtime notifications still reduced |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | Refreshed against `codex-cli 0.144.4`: 90 TypeScript request methods (87 in the JSON-schema union plus 3 legacy compatibility methods) and 69 TypeScript notifications (68 in the JSON-schema union plus 1 legacy compatibility notification); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+| Generated schema baseline coverage | Partial | Refreshed against `codex-cli 0.145.0`: 92 TypeScript request methods (89 in the JSON-schema union plus 3 legacy compatibility methods) and 72 TypeScript notifications (70 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |

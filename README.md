@@ -67,6 +67,13 @@ cp envs/discord.env.example envs/discord.env
 - optionally `CODEX_APPROVAL_POLICY` in `envs/common.env`
 - optionally `CODEX_SANDBOX` in `envs/common.env`
 
+> [!WARNING]
+> The checked-in `envs/common.env.example` defaults to `CODEX_APPROVAL_POLICY=never`
+> and `CODEX_SANDBOX=danger-full-access`. That is intentional for unattended
+> operation, but it also means Shepherd can run commands and modify files without
+> approval prompts. Review those values before running Shepherd against any repo
+> or machine you care about.
+
 5. Start the Discord adapter:
 
 ```bash
@@ -96,8 +103,13 @@ Supported keys:
 
 - `DISCORD_BOT_TOKEN`: required
 - `CODEX_MODEL`: optional. If unset, the runtime falls back to `gpt-5.3-codex`
-- `CODEX_APPROVAL_POLICY`: optional. Common value: `on-request`
+- `CODEX_APPROVAL_POLICY`: optional. Default in the example file: `never`
 - `CODEX_SANDBOX`: optional. One of `read-only`, `workspace-write`, or `danger-full-access`
+
+> [!WARNING]
+> `CODEX_APPROVAL_POLICY=never` disables approval prompts. Combined with
+> `CODEX_SANDBOX=danger-full-access`, this is effectively a yolo mode.
+> Use it only when that trust boundary is acceptable.
 
 The committed `.example` files are the templates intended for public use.
 

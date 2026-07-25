@@ -22,7 +22,6 @@ export type CommandContext = {
   forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
   clearSurfaceThread: (surfaceId: string) => void;
   operations?: {
-    isOperator: (userId: string) => boolean;
     isDeploymentInProgress: () => boolean;
     deployLatestMain: () => Promise<DeploymentResult>;
     prepareRestart: () => boolean;
@@ -67,14 +66,6 @@ function formatRuntimeActivity(context: CommandContext): string | null {
       : []),
   ];
   return lines.length > 0 ? lines.join("\n") : null;
-}
-
-async function authorizeOperationalCommand(message: Message, context: CommandContext): Promise<boolean> {
-  if (!context.operations?.isOperator(message.author.id)) {
-    await message.reply("This command is restricted to configured Shepherd operators.");
-    return false;
-  }
-  return true;
 }
 
 function safeJson(value: unknown): string {
@@ -405,9 +396,6 @@ export async function handleMessage(
       await message.reply("Usage: !restart");
       return { handled: true, threadId: null, input: null };
     }
-    if (!(await authorizeOperationalCommand(message, context))) {
-      return { handled: true, threadId: null, input: null };
-    }
     if (context.operations?.isDeploymentInProgress()) {
       await message.reply("A deployment is in progress. Restart is unavailable until it finishes.");
       return { handled: true, threadId: null, input: null };
@@ -442,9 +430,6 @@ export async function handleMessage(
   if (command === "!deploy") {
     if (args.length > 0) {
       await message.reply("Usage: !deploy");
-      return { handled: true, threadId: null, input: null };
-    }
-    if (!(await authorizeOperationalCommand(message, context))) {
       return { handled: true, threadId: null, input: null };
     }
     const activity = formatRuntimeActivity(context);

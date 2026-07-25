@@ -63,12 +63,6 @@ export async function startDiscordBot(): Promise<void> {
 
   const approvalPolicy = (process.env.CODEX_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
   const defaultSandbox = readSandboxMode(process.env.CODEX_SANDBOX);
-  const operatorUserIds = new Set(
-    (process.env.SHEPHERD_OPERATOR_USER_IDS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
-  );
   const deployment = new DeploymentService();
 
   const conversation = new ConversationService({
@@ -132,7 +126,6 @@ export async function startDiscordBot(): Promise<void> {
     resolveGithubRepo: async (slug) =>
       runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
     operations: {
-      isOperator: (userId) => operatorUserIds.has(userId),
       isDeploymentInProgress: () => deployment.isDeploymentInProgress(),
       deployLatestMain: () => deployment.deployLatestMain(),
       prepareRestart,

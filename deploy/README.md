@@ -67,9 +67,7 @@ identifies `@openai/codex` as the official package.
 
 ## 2. Configure Shepherd inside Ubuntu
 
-Set `DISCORD_BOT_TOKEN` and `SHEPHERD_OPERATOR_USER_IDS` in
-`envs/discord.env`. The operator value is a comma-separated allowlist of Discord
-user IDs permitted to run `!restart` and `!deploy`. For the initial deployment,
+Set `DISCORD_BOT_TOKEN` in `envs/discord.env`. For the initial deployment,
 keep these settings in `envs/common.env`:
 
 ```env

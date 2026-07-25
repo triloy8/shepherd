@@ -63,7 +63,6 @@ cp envs/discord.env.example envs/discord.env
 4. Fill in at least:
 
 - `DISCORD_BOT_TOKEN` in `envs/discord.env`
-- `SHEPHERD_OPERATOR_USER_IDS` in `envs/discord.env` to enable `!restart` and `!deploy`
 - optionally `CODEX_MODEL` in `envs/common.env`
 - optionally `CODEX_APPROVAL_POLICY` in `envs/common.env`
 - optionally `CODEX_SANDBOX` in `envs/common.env`
@@ -103,8 +102,6 @@ Shepherd loads env files from `envs/` in this order:
 Supported keys:
 
 - `DISCORD_BOT_TOKEN`: required
-- `SHEPHERD_OPERATOR_USER_IDS`: optional comma-separated Discord user IDs authorized
-  to run `!restart` and `!deploy`. If unset, both commands are disabled.
 - `CODEX_MODEL`: optional. If unset, the runtime falls back to `gpt-5.3-codex`
 - `CODEX_APPROVAL_POLICY`: optional. Default in the example file: `never`
 - `CODEX_SANDBOX`: optional. One of `read-only`, `workspace-write`, or `danger-full-access`

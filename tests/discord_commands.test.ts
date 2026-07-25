@@ -2,13 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import { handleMessage, type CommandContext } from "../server/adapters/discord/commands.js";
 
-function makeMessage(content: string, userId = "operator-1") {
+function makeMessage(content: string) {
   const replies: string[] = [];
   return {
     message: {
       content,
       channelId: "chan-1",
-      author: { id: userId },
       async reply(text: string) {
         replies.push(text);
         return {} as never;
@@ -30,7 +29,6 @@ function makeContext(overrides?: {
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
   readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
   runtimeActivity?: () => { activeTurnThreadIds: string[]; pendingApprovalIds: string[] };
-  isOperator?: (userId: string) => boolean;
   deployLatestMain?: () => Promise<{ previousCommit: string; deployedCommit: string; changed: boolean }>;
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
@@ -170,9 +168,6 @@ function makeContext(overrides?: {
     },
     clearSurfaceThread() {},
     operations: {
-      isOperator(userId: string) {
-        return overrides?.isOperator?.(userId) ?? true;
-      },
       isDeploymentInProgress() {
         return false;
       },
@@ -403,20 +398,6 @@ describe("Discord operational commands", () => {
       "Restarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo owner/repo\n!thread thread-1\n```",
     ]);
     expect(getRestartRequests()).toBe(1);
-  });
-
-  test("restricts restart to configured operators", async () => {
-    const { message, replies } = makeMessage("!restart", "user-2");
-    const { context, getRestartRequests } = makeContext({
-      isOperator(userId) {
-        return userId === "operator-1";
-      },
-    });
-
-    await handleMessage(message as never, context);
-
-    expect(replies).toEqual(["This command is restricted to configured Shepherd operators."]);
-    expect(getRestartRequests()).toBe(0);
   });
 
   test("refuses restart while a turn is active", async () => {

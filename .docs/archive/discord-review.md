@@ -1,5 +1,8 @@
 # Discord Adapter Review
 
+> Status: Historical architecture review retained for design context. See
+> [Architecture](../architecture.md) for the maintained ownership map.
+
 ## Scope
 
 This document reviews the current Discord path in Shepherd, from Discord message ingress down to `codex app-server`, and back up through streaming events and approvals.

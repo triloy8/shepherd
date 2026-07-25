@@ -1,6 +1,7 @@
-# End-State Architecture
+# Architecture
 
-Current refactor state as of commit `da8f3af` on `feat/discord-refactor`.
+This document describes the current ownership boundaries between Shepherd's
+Discord adapter, application core, and runtime core.
 
 ## Boundary
 
@@ -210,4 +211,5 @@ The adapter still owns:
 - Discord delivery mechanics
 - Discord runtime composition
 
-That is the intended end state from `ADAPTER-TO-CORE-REFACTOR-MAP.md`.
+That is the intended end state from the historical
+[adapter-to-core refactor map](archive/adapter-to-core-refactor-map.md).

@@ -1,5 +1,8 @@
 # Discord Formatting Plan
 
+> Status: Historical planning document. Plan A was implemented. Plans B and C
+> remain uncommitted options rather than active work.
+
 This document turns the current Discord formatting discussion into an implementation plan for Shepherd.
 
 It is intentionally opinionated.

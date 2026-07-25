@@ -1,11 +1,13 @@
 # Codex App-Server Schema Parity Matrix
 
 Status legend:
+
 - `Implemented`: wrapped and exposed in Shepherd API flow.
 - `Partial`: method exists, but Shepherd exposes only a subset of schema fields/behavior.
 - `Missing`: no wrapper/exposed API yet.
 
 Generated baseline:
+
 - Codex version: `codex-cli 0.145.0`
 - Last refreshed: `2026-07-21`
 - Refresh commands:
@@ -13,6 +15,7 @@ Generated baseline:
   - `codex app-server generate-json-schema --out ./schemas`
 
 Legacy note:
+
 - Rows marked as legacy reflect Shepherd wrappers that still exist in code but are no longer present in the current generated app-server schema and should be deprecated.
 
 ## Client Request Methods

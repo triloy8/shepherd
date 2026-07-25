@@ -147,8 +147,11 @@ So the simplest mental model is:
 
 ### Delivery and rendering
 
+- `server/adapters/discord/chunking.ts`
+  Owns Discord-aware chunk planning, including character and soft-line limits,
+  long-line splitting, and fenced-code-block balancing.
 - `server/adapters/discord/stream_delivery.ts`
-  Owns Discord chunking and message edit/send reconciliation.
+  Applies the chunk plan and owns Discord message edit/send reconciliation.
 - `server/adapters/discord/message_renderer.ts`
   Owns Discord-specific text formatting and approval button id encoding.
 - `server/adapters/discord/interactions.ts`
@@ -176,10 +179,13 @@ So the simplest mental model is:
 
 1. `commands.ts` parses `!restart` or `!deploy` and supplies Discord announcement callbacks
 2. `runtime_lifecycle_orchestrator.ts` checks Codex activity and coordinates the workflow
-3. The deploy branch delegates Git/Bun validation and rollback to `deployment_service.ts`
-4. The orchestrator asks the lifecycle port in `bot.ts` to quiesce Discord ingress
-5. After a final activity check, the orchestrator awaits the Discord recovery announcement
-6. `bot.ts` gracefully stops Codex sessions and Discord, then exits for the external supervisor to restart
+3. Before its first asynchronous progress callback, the deploy branch claims an
+   in-process lifecycle lock that rejects concurrent deploy and restart requests
+4. The deploy branch delegates Git/Bun validation, command timeouts, and
+   rollback to `deployment_service.ts`
+5. The orchestrator asks the lifecycle port in `bot.ts` to quiesce Discord ingress
+6. After a final activity check, the orchestrator awaits the Discord recovery announcement
+7. `bot.ts` gracefully stops Codex sessions and Discord, then exits for the external supervisor to restart
 
 ## What Still Lives In `bot.ts`
 

@@ -216,7 +216,9 @@ develop in an isolated workspace
 `!deploy` fetches and validates the latest `origin/main` while the current bot
 remains online. On success it exits and the tmux supervisor starts the updated
 checkout. On validation failure it restores the previous commit and stays
-online.
+online. Each deployment subprocess has a 30-minute timeout by default. Set
+`SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS` in `envs/common.env` to a positive number
+of milliseconds if this deployment needs a different limit.
 
 For manual recovery when Discord is unavailable, enter Ubuntu as `nio` and run:
 

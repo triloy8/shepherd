@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  DEFAULT_DEPLOYMENT_COMMAND_TIMEOUT_MS,
   DeploymentService,
   type DeploymentCommandRunner,
 } from "../server/core/deployment_service.js";
@@ -12,13 +13,15 @@ function makeRunner(options?: {
   failCommand?: string;
 }) {
   const calls: string[] = [];
+  const timeoutValues: number[] = [];
   const previousCommit = options?.previousCommit ?? "1111111111111111111111111111111111111111";
   const deployedCommit = options?.deployedCommit ?? "2222222222222222222222222222222222222222";
   let checkout = previousCommit;
 
-  const runCommand: DeploymentCommandRunner = async (executable, args) => {
+  const runCommand: DeploymentCommandRunner = async (executable, args, commandOptions) => {
     const command = [executable, ...args].join(" ");
     calls.push(command);
+    timeoutValues.push(commandOptions.timeoutMs);
 
     if (command === "git status --porcelain --untracked-files=all") {
       return { stdout: options?.status ?? "", stderr: "" };
@@ -43,6 +46,7 @@ function makeRunner(options?: {
 
   return {
     calls,
+    timeoutValues,
     runCommand,
     getCheckout: () => checkout,
   };
@@ -71,6 +75,9 @@ describe("DeploymentService", () => {
       "bun run check",
       "bun test",
     ]);
+    expect(new Set(runner.timeoutValues)).toEqual(
+      new Set([DEFAULT_DEPLOYMENT_COMMAND_TIMEOUT_MS]),
+    );
   });
 
   test("refuses to deploy over a dirty checkout", async () => {
@@ -111,5 +118,23 @@ describe("DeploymentService", () => {
       "git checkout --quiet --detach 1111111111111111111111111111111111111111",
       "bun install --frozen-lockfile",
     ]);
+  });
+
+  test("passes a configured timeout to every deployment command", async () => {
+    const runner = makeRunner();
+    const service = new DeploymentService({
+      runCommand: runner.runCommand,
+      commandTimeoutMs: 45 * 60 * 1000,
+    });
+
+    await service.deployLatestMain();
+
+    expect(new Set(runner.timeoutValues)).toEqual(new Set([45 * 60 * 1000]));
+  });
+
+  test("rejects invalid deployment command timeouts", () => {
+    expect(() => new DeploymentService({ commandTimeoutMs: 0 })).toThrow(
+      "Deployment command timeout must be a positive number.",
+    );
   });
 });

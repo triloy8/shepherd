@@ -176,6 +176,10 @@ bun run check
 bun test
 ```
 
+Each Git, install, build, and test command has a 30-minute timeout by default.
+Set `SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS` to a positive number of milliseconds
+to override that limit.
+
 If validation fails, Shepherd restores the prior commit and dependencies and
 stays online. If validation succeeds, it posts the same recovery commands and
 gracefully restarts. Both commands refuse to proceed while a turn or approval is

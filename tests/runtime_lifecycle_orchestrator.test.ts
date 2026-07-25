@@ -223,4 +223,71 @@ describe("RuntimeLifecycleOrchestrator", () => {
       "cancel",
     ]);
   });
+
+  test("blocks concurrent restart and deploy while deployment startup is awaiting Discord", async () => {
+    const { orchestrator, events } = makeHarness();
+    let releaseDeploymentStart!: () => void;
+    let markDeploymentStartReached!: () => void;
+    const deploymentStartReached = new Promise<void>((resolve) => {
+      markDeploymentStartReached = resolve;
+    });
+    const holdDeploymentStart = new Promise<void>((resolve) => {
+      releaseDeploymentStart = resolve;
+    });
+
+    const firstDeployment = orchestrator.deploy({
+      async onDeploymentStarted() {
+        events.push("deployment-started");
+        markDeploymentStartReached();
+        await holdDeploymentStart;
+      },
+      async announce() {
+        events.push("announce");
+      },
+    });
+
+    await deploymentStartReached;
+
+    await expect(
+      orchestrator.restart({ async announce() {} }),
+    ).resolves.toEqual({
+      type: "deployment-in-progress",
+      action: "restart",
+    });
+    await expect(
+      orchestrator.deploy({ async announce() {} }),
+    ).resolves.toEqual({
+      type: "deployment-in-progress",
+      action: "deploy",
+    });
+
+    releaseDeploymentStart();
+    await expect(firstDeployment).resolves.toEqual({
+      type: "restart-requested",
+      action: "deploy",
+      deployment: DEPLOYMENT,
+    });
+    expect(events.filter((event) => event === "deploy")).toHaveLength(1);
+    expect(events.filter((event) => event === "request")).toHaveLength(1);
+  });
+
+  test("releases the deployment lock when the startup announcement fails", async () => {
+    const { orchestrator } = makeHarness();
+
+    await expect(
+      orchestrator.deploy({
+        async onDeploymentStarted() {
+          throw new Error("Discord progress reply failed");
+        },
+        async announce() {},
+      }),
+    ).rejects.toThrow("Discord progress reply failed");
+
+    await expect(
+      orchestrator.restart({ async announce() {} }),
+    ).resolves.toEqual({
+      type: "restart-requested",
+      action: "restart",
+    });
+  });
 });

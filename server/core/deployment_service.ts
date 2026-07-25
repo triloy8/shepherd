@@ -3,15 +3,22 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+export const DEFAULT_DEPLOYMENT_COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
+
 export type DeploymentCommandResult = {
   stdout: string;
   stderr: string;
 };
 
+export type DeploymentCommandOptions = {
+  cwd: string;
+  timeoutMs: number;
+};
+
 export type DeploymentCommandRunner = (
   executable: string,
   args: string[],
-  options: { cwd: string },
+  options: DeploymentCommandOptions,
 ) => Promise<DeploymentCommandResult>;
 
 export type DeploymentResult = {
@@ -23,6 +30,7 @@ export type DeploymentResult = {
 export type DeploymentServiceOptions = {
   projectDir?: string;
   runCommand?: DeploymentCommandRunner;
+  commandTimeoutMs?: number;
 };
 
 function formatCommandError(error: unknown): string {
@@ -35,11 +43,13 @@ function formatCommandError(error: unknown): string {
 async function defaultCommandRunner(
   executable: string,
   args: string[],
-  options: { cwd: string },
+  options: DeploymentCommandOptions,
 ): Promise<DeploymentCommandResult> {
   const result = await execFileAsync(executable, args, {
     cwd: options.cwd,
     env: process.env,
+    timeout: options.timeoutMs,
+    killSignal: "SIGTERM",
     maxBuffer: 1024 * 1024 * 20,
   });
   return {
@@ -51,11 +61,16 @@ async function defaultCommandRunner(
 export class DeploymentService {
   private readonly projectDir: string;
   private readonly runCommand: DeploymentCommandRunner;
+  private readonly commandTimeoutMs: number;
   private deploymentInProgress = false;
 
   constructor(options: DeploymentServiceOptions = {}) {
     this.projectDir = options.projectDir ?? process.cwd();
     this.runCommand = options.runCommand ?? defaultCommandRunner;
+    this.commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_DEPLOYMENT_COMMAND_TIMEOUT_MS;
+    if (!Number.isFinite(this.commandTimeoutMs) || this.commandTimeoutMs <= 0) {
+      throw new Error("Deployment command timeout must be a positive number.");
+    }
   }
 
   isDeploymentInProgress(): boolean {
@@ -138,6 +153,9 @@ export class DeploymentService {
   }
 
   private async run(executable: string, args: string[]): Promise<DeploymentCommandResult> {
-    return this.runCommand(executable, args, { cwd: this.projectDir });
+    return this.runCommand(executable, args, {
+      cwd: this.projectDir,
+      timeoutMs: this.commandTimeoutMs,
+    });
   }
 }

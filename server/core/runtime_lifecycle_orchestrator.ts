@@ -68,10 +68,12 @@ function formatError(error: unknown): string {
 }
 
 export class RuntimeLifecycleOrchestrator {
+  private deploymentOperationInProgress = false;
+
   constructor(private readonly options: RuntimeLifecycleOrchestratorOptions) {}
 
   async restart(options: RestartOptions): Promise<RuntimeLifecycleResult> {
-    if (this.options.deployment.isDeploymentInProgress()) {
+    if (this.isDeploymentInProgress()) {
       return { type: "deployment-in-progress", action: "restart" };
     }
 
@@ -99,23 +101,32 @@ export class RuntimeLifecycleOrchestrator {
       };
     }
 
-    if (this.options.deployment.isDeploymentInProgress()) {
+    if (this.isDeploymentInProgress()) {
       return { type: "deployment-in-progress", action: "deploy" };
     }
 
-    await options.onDeploymentStarted?.();
-
-    let deployment: DeploymentResult;
+    this.deploymentOperationInProgress = true;
     try {
-      deployment = await this.options.deployment.deployLatestMain();
-    } catch (error) {
-      return {
-        type: "deployment-failed",
-        message: formatError(error),
-      };
-    }
+      await options.onDeploymentStarted?.();
 
-    return this.prepareAndRestart({ action: "deploy", deployment }, options.announce);
+      let deployment: DeploymentResult;
+      try {
+        deployment = await this.options.deployment.deployLatestMain();
+      } catch (error) {
+        return {
+          type: "deployment-failed",
+          message: formatError(error),
+        };
+      }
+
+      return await this.prepareAndRestart({ action: "deploy", deployment }, options.announce);
+    } finally {
+      this.deploymentOperationInProgress = false;
+    }
+  }
+
+  private isDeploymentInProgress(): boolean {
+    return this.deploymentOperationInProgress || this.options.deployment.isDeploymentInProgress();
   }
 
   private async prepareAndRestart(

@@ -33,6 +33,15 @@ function readSandboxMode(value: string | undefined): SandboxMode | undefined {
   return undefined;
 }
 
+function readPositiveNumber(value: string | undefined, name: string): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive number.`);
+  }
+  return parsed;
+}
+
 function isSupportedChannel(channel: Message["channel"]): channel is TextBasedChannel {
   return (
     channel.type === ChannelType.GuildText ||
@@ -64,7 +73,13 @@ export async function startDiscordBot(): Promise<void> {
 
   const approvalPolicy = (process.env.CODEX_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
   const defaultSandbox = readSandboxMode(process.env.CODEX_SANDBOX);
-  const deployment = new DeploymentService();
+  const deploymentCommandTimeoutMs = readPositiveNumber(
+    process.env.SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS,
+    "SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS",
+  );
+  const deployment = new DeploymentService({
+    ...(deploymentCommandTimeoutMs ? { commandTimeoutMs: deploymentCommandTimeoutMs } : {}),
+  });
 
   const conversation = new ConversationService({
     routing: {

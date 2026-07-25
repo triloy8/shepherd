@@ -82,6 +82,9 @@ These modules coordinate multi-step workflows across policy, state, and lower-le
   Owns create/bind/resume/fork/switch/ensure thread orchestration for a surface.
 - `server/core/turn_routing_service.ts`
   Owns active-turn lookup plus `submitTurn`/`steerTurn` dispatch.
+- `server/core/runtime_lifecycle_orchestrator.ts`
+  Owns restart/deploy eligibility, deployment sequencing, runtime quiescing,
+  recovery announcement ordering, and shutdown requests.
 
 These are the workflow modules. They do not just expose interfaces; they execute coordinated behavior that spans multiple underlying operations.
 
@@ -101,6 +104,9 @@ These files are also in `server/core/*`, but they are better understood as runti
   In-process pub/sub for thread/session events.
 - `server/core/approvals.ts`
   Approval record storage and approval lifecycle support.
+- `server/core/deployment_service.ts`
+  Git checkout update, dependency validation, and rollback infrastructure used
+  by runtime deployment orchestration.
 - `server/core/codex_rpc_mapper.ts`
   Mapping layer for Codex/app-server RPC shapes.
 - `server/core/types.ts`
@@ -164,6 +170,15 @@ So the simplest mental model is:
 3. `thread_event_handler.ts` feeds events into `response_stream_reducer.ts`
 4. `stream_delivery.ts` updates Discord messages
 5. `message_renderer.ts` handles event/approval text formatting
+
+### Runtime restart and deployment
+
+1. `commands.ts` parses `!restart` or `!deploy` and supplies Discord announcement callbacks
+2. `runtime_lifecycle_orchestrator.ts` checks Codex activity and coordinates the workflow
+3. The deploy branch delegates Git/Bun validation and rollback to `deployment_service.ts`
+4. The orchestrator asks the lifecycle port in `bot.ts` to quiesce Discord ingress
+5. After a final activity check, the orchestrator awaits the Discord recovery announcement
+6. `bot.ts` gracefully stops Codex sessions and Discord, then exits for the external supervisor to restart
 
 ## What Still Lives In `bot.ts`
 

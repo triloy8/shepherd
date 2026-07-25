@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { handleMessage, type CommandContext } from "../server/adapters/discord/commands.js";
 
+type RuntimeLifecycle = NonNullable<CommandContext["runtimeLifecycle"]>;
+
 function makeMessage(content: string) {
   const replies: string[] = [];
   return {
@@ -28,9 +30,12 @@ function makeContext(overrides?: {
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
   readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
+  restart?: RuntimeLifecycle["restart"];
+  deploy?: RuntimeLifecycle["deploy"];
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
   const modelWrites: Array<{ threadId: string; model: string }> = [];
+  let restartRequests = 0;
   const context: CommandContext = {
     conversation: {
       async listSkills() {
@@ -158,9 +163,29 @@ function makeContext(overrides?: {
       return threadId;
     },
     clearSurfaceThread() {},
+    runtimeLifecycle: {
+      async restart(options) {
+        if (overrides?.restart) return overrides.restart(options);
+        await options.announce({ action: "restart" });
+        restartRequests += 1;
+        return { type: "restart-requested", action: "restart" };
+      },
+      async deploy(options) {
+        if (overrides?.deploy) return overrides.deploy(options);
+        const deployment = {
+          previousCommit: "1111111111111111111111111111111111111111",
+          deployedCommit: "2222222222222222222222222222222222222222",
+          changed: true,
+        };
+        await options.onDeploymentStarted?.();
+        await options.announce({ action: "deploy", deployment });
+        restartRequests += 1;
+        return { type: "restart-requested", action: "deploy", deployment };
+      },
+    },
   };
 
-  return { context, writes, modelWrites };
+  return { context, writes, modelWrites, getRestartRequests: () => restartRequests };
 }
 
 describe("Discord !skill commands", () => {
@@ -350,5 +375,82 @@ describe("Discord !skill commands", () => {
     expect(replies).toEqual([
       "Unknown command: `!doesnotexist`. Use `!help` to inspect available commands.",
     ]);
+  });
+});
+
+describe("Discord operational commands", () => {
+  test("posts recovery commands before requesting a restart", async () => {
+    const { message, replies } = makeMessage("!restart");
+    const { context, getRestartRequests } = makeContext({
+      getSurfaceProject() {
+        return "owner/repo";
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Restarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo owner/repo\n!thread thread-1\n```",
+    ]);
+    expect(getRestartRequests()).toBe(1);
+  });
+
+  test("refuses restart while a turn is active", async () => {
+    const { message, replies } = makeMessage("!restart");
+    const { context, getRestartRequests } = makeContext({
+      async restart() {
+        return {
+          type: "busy",
+          action: "restart",
+          stage: "before-operation",
+          activity: { activeTurnThreadIds: ["thread-busy"], pendingApprovalIds: [] },
+        };
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Restart refused while Codex work is active.\nActive turns: thread-busy",
+    ]);
+    expect(getRestartRequests()).toBe(0);
+  });
+
+  test("validates a deployment before posting recovery commands and restarting", async () => {
+    const { message, replies } = makeMessage("!deploy");
+    const { context, getRestartRequests } = makeContext({
+      getSurfaceProject() {
+        return "~/shepherd";
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Checking the latest merged `origin/main` and validating the deployed checkout…",
+      "Deploy validated: 1111111 → 2222222\nRestarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo ~/shepherd\n!thread thread-1\n```",
+    ]);
+    expect(getRestartRequests()).toBe(1);
+  });
+
+  test("keeps Shepherd online when deployment validation fails", async () => {
+    const { message, replies } = makeMessage("!deploy");
+    const { context, getRestartRequests } = makeContext({
+      async deploy(options) {
+        await options.onDeploymentStarted?.();
+        return {
+          type: "deployment-failed",
+          message: "tests failed; restored previous commit",
+        };
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Checking the latest merged `origin/main` and validating the deployed checkout…",
+      "Deployment failed; Shepherd remains online.\ntests failed; restored previous commit",
+    ]);
+    expect(getRestartRequests()).toBe(0);
   });
 });

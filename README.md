@@ -159,3 +159,29 @@ If a channel has no repo selected, thread creation fails until `!repo` is set.
 - `!rollback <numTurns> [id]`
 - `!compact [id]`
 - `!interrupt`
+- `!restart`
+- `!deploy`
+
+## Remote restart and deployment
+
+`!restart` posts the current channel's `!repo` and `!thread` recovery commands,
+then gracefully exits. The deployment supervisor starts the same checkout again.
+
+`!deploy` requires a clean deployment checkout. It fetches the latest
+`origin/main`, checks out that exact commit, and runs:
+
+```bash
+bun install --frozen-lockfile
+bun run check
+bun test
+```
+
+Each Git, install, build, and test command has a 30-minute timeout by default.
+Set `SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS` to a positive number of milliseconds
+to override that limit.
+
+If validation fails, Shepherd restores the prior commit and dependencies and
+stays online. If validation succeeds, it posts the same recovery commands and
+gracefully restarts. Both commands refuse to proceed while a turn or approval is
+active. After Shepherd reconnects, copy the posted commands to resume the Codex
+thread; Shepherd does not persist channel bindings itself.

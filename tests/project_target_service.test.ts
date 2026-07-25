@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import path from "node:path";
+import { homedir } from "node:os";
 
 import {
   describeProjectTarget,
@@ -11,7 +13,7 @@ describe("ProjectTargetService", () => {
 
     expect(target).toEqual({
       kind: "local",
-      rootPath: "/home/tadhiel/.agent-workspaces/local",
+      rootPath: path.join(homedir(), ".agent-workspaces", "local"),
       display: "~",
       appendWorkspaceId: true,
     });
@@ -23,7 +25,7 @@ describe("ProjectTargetService", () => {
 
     expect(target).toEqual({
       kind: "local",
-      rootPath: "/home/tadhiel/repo",
+      rootPath: path.join(homedir(), "repo"),
       display: "~/repo",
       appendWorkspaceId: false,
     });

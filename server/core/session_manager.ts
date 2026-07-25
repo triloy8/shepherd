@@ -50,6 +50,11 @@ interface ManagedSession {
   createdAt: string;
 }
 
+export type RuntimeActivity = {
+  activeTurnThreadIds: string[];
+  pendingApprovalIds: string[];
+};
+
 type ManagedModelState = {
   currentModel: string | null;
   modelProvider: string | null;
@@ -175,6 +180,15 @@ export class SessionManager {
         sessionId: managed.session.sessionId,
         createdAt: managed.createdAt,
       })),
+    };
+  }
+
+  getRuntimeActivity(): RuntimeActivity {
+    return {
+      activeTurnThreadIds: [...this.sessionsByThread.entries()]
+        .filter(([, managed]) => managed.session.activeTurnId !== null)
+        .map(([threadId]) => threadId),
+      pendingApprovalIds: this.approvals.listPending().map((approval) => approval.approvalId),
     };
   }
 

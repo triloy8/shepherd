@@ -14,6 +14,8 @@ import {
 import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
+import { DeploymentService } from "../../core/deployment_service.js";
+import { RuntimeLifecycleOrchestrator } from "../../core/runtime_lifecycle_orchestrator.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
@@ -29,6 +31,15 @@ function readSandboxMode(value: string | undefined): SandboxMode | undefined {
     return value as SandboxMode;
   }
   return undefined;
+}
+
+function readPositiveNumber(value: string | undefined, name: string): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive number.`);
+  }
+  return parsed;
 }
 
 function isSupportedChannel(channel: Message["channel"]): channel is TextBasedChannel {
@@ -62,6 +73,13 @@ export async function startDiscordBot(): Promise<void> {
 
   const approvalPolicy = (process.env.CODEX_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
   const defaultSandbox = readSandboxMode(process.env.CODEX_SANDBOX);
+  const deploymentCommandTimeoutMs = readPositiveNumber(
+    process.env.SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS,
+    "SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS",
+  );
+  const deployment = new DeploymentService({
+    ...(deploymentCommandTimeoutMs ? { commandTimeoutMs: deploymentCommandTimeoutMs } : {}),
+  });
 
   const conversation = new ConversationService({
     routing: {
@@ -79,6 +97,49 @@ export async function startDiscordBot(): Promise<void> {
       GatewayIntentBits.MessageContent,
     ],
   });
+  let shutdownPromise: Promise<void> | null = null;
+  let restartPrepared = false;
+  let restartExitScheduled = false;
+
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      conversation.stopAll();
+      await client.destroy();
+    })();
+    return shutdownPromise;
+  };
+
+  const prepareRestart = (): boolean => {
+    if (restartPrepared) return false;
+    restartPrepared = true;
+    return true;
+  };
+
+  const cancelRestart = (): void => {
+    if (restartExitScheduled) return;
+    restartPrepared = false;
+  };
+
+  const requestRestart = (): void => {
+    if (restartExitScheduled) return;
+    restartPrepared = true;
+    restartExitScheduled = true;
+    setTimeout(() => {
+      void shutdown().finally(() => process.exit(0));
+    }, 250);
+  };
+
+  const runtimeLifecycle = new RuntimeLifecycleOrchestrator({
+    readActivity: () => conversation.getRuntimeActivity(),
+    deployment,
+    lifecycle: {
+      prepareRestart,
+      cancelRestart,
+      requestRestart,
+    },
+  });
+
   const { handleThreadEvent } = createDiscordThreadEventHandler(client);
   const runtime = createDiscordSurfaceRuntime({
     conversation,
@@ -90,6 +151,7 @@ export async function startDiscordBot(): Promise<void> {
     },
     resolveGithubRepo: async (slug) =>
       runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
+    runtimeLifecycle,
   });
 
   client.once("clientReady", () => {
@@ -97,6 +159,7 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("messageCreate", async (message) => {
+    if (restartPrepared) return;
     if (message.author.bot) return;
     if (!isSupportedChannel(message.channel)) return;
     if (!client.user) return;
@@ -114,16 +177,12 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("interactionCreate", async (interaction) => {
+    if (restartPrepared) return;
     if (!interaction.isButton()) return;
     await handleInteraction(interaction, conversation);
   });
 
   await client.login(token);
-
-  const shutdown = async (): Promise<void> => {
-    conversation.stopAll();
-    await client.destroy();
-  };
 
   process.on("SIGINT", () => {
     void shutdown().finally(() => process.exit(0));

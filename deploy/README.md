@@ -67,8 +67,10 @@ identifies `@openai/codex` as the official package.
 
 ## 2. Configure Shepherd inside Ubuntu
 
-Set `DISCORD_BOT_TOKEN` in `envs/discord.env`. For the initial deployment, keep
-these settings in `envs/common.env`:
+Set `DISCORD_BOT_TOKEN` and `SHEPHERD_OPERATOR_USER_IDS` in
+`envs/discord.env`. The operator value is a comma-separated allowlist of Discord
+user IDs permitted to run `!restart` and `!deploy`. For the initial deployment,
+keep these settings in `envs/common.env`:
 
 ```env
 CODEX_APPROVAL_POLICY=on-request
@@ -203,11 +205,27 @@ Enter Ubuntu normally and verify:
 
 ## Updating
 
-Inside Ubuntu as `nio`:
+The normal update flow is:
+
+```text
+develop in an isolated workspace
+→ open and merge a PR into main
+→ run !deploy in Discord
+→ wait for Shepherd to reconnect
+→ copy the posted !repo and !thread recovery commands
+```
+
+`!deploy` fetches and validates the latest `origin/main` while the current bot
+remains online. On success it exits and the tmux supervisor starts the updated
+checkout. On validation failure it restores the previous commit and stays
+online.
+
+For manual recovery when Discord is unavailable, enter Ubuntu as `nio` and run:
 
 ```bash
 cd /home/nio/shepherd
 ./deploy/ubuntu/start-shepherd.sh stop
+git switch main
 git pull --ff-only
 ./deploy/ubuntu/setup.sh
 bun run check

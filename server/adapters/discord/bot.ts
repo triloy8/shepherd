@@ -14,6 +14,7 @@ import {
 import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
+import { DeploymentService } from "../../core/deployment_service.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
@@ -62,6 +63,13 @@ export async function startDiscordBot(): Promise<void> {
 
   const approvalPolicy = (process.env.CODEX_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
   const defaultSandbox = readSandboxMode(process.env.CODEX_SANDBOX);
+  const operatorUserIds = new Set(
+    (process.env.SHEPHERD_OPERATOR_USER_IDS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  const deployment = new DeploymentService();
 
   const conversation = new ConversationService({
     routing: {
@@ -79,6 +87,39 @@ export async function startDiscordBot(): Promise<void> {
       GatewayIntentBits.MessageContent,
     ],
   });
+  let shutdownPromise: Promise<void> | null = null;
+  let restartPrepared = false;
+  let restartExitScheduled = false;
+
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      conversation.stopAll();
+      await client.destroy();
+    })();
+    return shutdownPromise;
+  };
+
+  const prepareRestart = (): boolean => {
+    if (restartPrepared) return false;
+    restartPrepared = true;
+    return true;
+  };
+
+  const cancelRestart = (): void => {
+    if (restartExitScheduled) return;
+    restartPrepared = false;
+  };
+
+  const requestRestart = (): void => {
+    if (restartExitScheduled) return;
+    restartPrepared = true;
+    restartExitScheduled = true;
+    setTimeout(() => {
+      void shutdown().finally(() => process.exit(0));
+    }, 250);
+  };
+
   const { handleThreadEvent } = createDiscordThreadEventHandler(client);
   const runtime = createDiscordSurfaceRuntime({
     conversation,
@@ -90,6 +131,14 @@ export async function startDiscordBot(): Promise<void> {
     },
     resolveGithubRepo: async (slug) =>
       runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
+    operations: {
+      isOperator: (userId) => operatorUserIds.has(userId),
+      isDeploymentInProgress: () => deployment.isDeploymentInProgress(),
+      deployLatestMain: () => deployment.deployLatestMain(),
+      prepareRestart,
+      cancelRestart,
+      requestRestart,
+    },
   });
 
   client.once("clientReady", () => {
@@ -97,6 +146,7 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("messageCreate", async (message) => {
+    if (restartPrepared) return;
     if (message.author.bot) return;
     if (!isSupportedChannel(message.channel)) return;
     if (!client.user) return;
@@ -114,16 +164,12 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("interactionCreate", async (interaction) => {
+    if (restartPrepared) return;
     if (!interaction.isButton()) return;
     await handleInteraction(interaction, conversation);
   });
 
   await client.login(token);
-
-  const shutdown = async (): Promise<void> => {
-    conversation.stopAll();
-    await client.destroy();
-  };
 
   process.on("SIGINT", () => {
     void shutdown().finally(() => process.exit(0));

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import path from "node:path";
+import { homedir } from "node:os";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import { createDiscordSurfaceRuntime } from "../server/adapters/discord/surface_runtime.js";
@@ -110,7 +112,7 @@ describe("Discord surface runtime", () => {
     expect(threadCwds).toEqual([
       {
         threadId: "thread-created",
-        cwd: "/home/tadhiel/discord-surface-runtime-test",
+        cwd: path.join(homedir(), "discord-surface-runtime-test"),
       },
     ]);
     expect(events).toEqual([]);

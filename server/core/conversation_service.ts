@@ -40,6 +40,7 @@ import {
   type ResolveRouteResult,
 } from "./conversation_routing_service.js";
 import { SessionManager } from "./session_manager.js";
+import type { RuntimeActivity } from "./session_manager.js";
 
 type EventCursorOptions = string | { afterId?: string; replay?: boolean } | undefined;
 
@@ -70,6 +71,10 @@ export class ConversationService {
 
   getSurfaceThread(adapter: string, surfaceId: string): string | null {
     return this.routing.getDefaultThread(adapter, surfaceId);
+  }
+
+  getRuntimeActivity(): RuntimeActivity {
+    return this.manager.getRuntimeActivity();
   }
 
   async bindSurfaceToThread(adapter: string, surfaceId: string, threadId: string): Promise<string> {

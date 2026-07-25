@@ -37,6 +37,13 @@ export class ApprovalsStore {
       .map((approval) => this.toPublicRecord(approval));
   }
 
+  listPending(): ApprovalRecord[] {
+    return [...this.approvals.values()]
+      .filter((approval) => approval.status === "pending")
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((approval) => this.toPublicRecord(approval));
+  }
+
   markDecided(
     threadId: string,
     approvalId: string,

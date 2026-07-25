@@ -63,6 +63,7 @@ cp envs/discord.env.example envs/discord.env
 4. Fill in at least:
 
 - `DISCORD_BOT_TOKEN` in `envs/discord.env`
+- `SHEPHERD_OPERATOR_USER_IDS` in `envs/discord.env` to enable `!restart` and `!deploy`
 - optionally `CODEX_MODEL` in `envs/common.env`
 - optionally `CODEX_APPROVAL_POLICY` in `envs/common.env`
 - optionally `CODEX_SANDBOX` in `envs/common.env`
@@ -102,6 +103,8 @@ Shepherd loads env files from `envs/` in this order:
 Supported keys:
 
 - `DISCORD_BOT_TOKEN`: required
+- `SHEPHERD_OPERATOR_USER_IDS`: optional comma-separated Discord user IDs authorized
+  to run `!restart` and `!deploy`. If unset, both commands are disabled.
 - `CODEX_MODEL`: optional. If unset, the runtime falls back to `gpt-5.3-codex`
 - `CODEX_APPROVAL_POLICY`: optional. Default in the example file: `never`
 - `CODEX_SANDBOX`: optional. One of `read-only`, `workspace-write`, or `danger-full-access`
@@ -159,3 +162,25 @@ If a channel has no repo selected, thread creation fails until `!repo` is set.
 - `!rollback <numTurns> [id]`
 - `!compact [id]`
 - `!interrupt`
+- `!restart`
+- `!deploy`
+
+## Remote restart and deployment
+
+`!restart` posts the current channel's `!repo` and `!thread` recovery commands,
+then gracefully exits. The deployment supervisor starts the same checkout again.
+
+`!deploy` requires a clean deployment checkout. It fetches the latest
+`origin/main`, checks out that exact commit, and runs:
+
+```bash
+bun install --frozen-lockfile
+bun run check
+bun test
+```
+
+If validation fails, Shepherd restores the prior commit and dependencies and
+stays online. If validation succeeds, it posts the same recovery commands and
+gracefully restarts. Both commands refuse to proceed while a turn or approval is
+active. After Shepherd reconnects, copy the posted commands to resume the Codex
+thread; Shepherd does not persist channel bindings itself.

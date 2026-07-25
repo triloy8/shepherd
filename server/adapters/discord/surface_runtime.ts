@@ -17,6 +17,7 @@ export type DiscordSurfaceRuntimeOptions = {
   cloneGithubRepo: (slug: string, workspacePath: string) => Promise<void>;
   resolveGithubRepo: (slug: string) => Promise<string>;
   workspaceProvisionerOptions?: Omit<WorkspaceProvisionerOptions, "cloneGithubRepo">;
+  operations?: CommandContext["operations"];
 };
 
 export type DiscordSurfaceRuntime = {
@@ -71,6 +72,7 @@ export function createDiscordSurfaceRuntime(
       clearSurfaceThread: (surfaceId) => {
         orchestrator.clearSurfaceThread(surfaceId);
       },
+      operations: options.operations,
     },
   };
 }

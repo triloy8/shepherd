@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import { handleMessage, type CommandContext } from "../server/adapters/discord/commands.js";
 
-function makeMessage(content: string) {
+function makeMessage(content: string, userId = "operator-1") {
   const replies: string[] = [];
   return {
     message: {
       content,
       channelId: "chan-1",
+      author: { id: userId },
       async reply(text: string) {
         replies.push(text);
         return {} as never;
@@ -28,9 +29,13 @@ function makeContext(overrides?: {
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
   readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
+  runtimeActivity?: () => { activeTurnThreadIds: string[]; pendingApprovalIds: string[] };
+  isOperator?: (userId: string) => boolean;
+  deployLatestMain?: () => Promise<{ previousCommit: string; deployedCommit: string; changed: boolean }>;
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
   const modelWrites: Array<{ threadId: string; model: string }> = [];
+  let restartRequests = 0;
   const context: CommandContext = {
     conversation: {
       async listSkills() {
@@ -133,6 +138,12 @@ function makeContext(overrides?: {
         return { ok: true };
       },
       async interruptTurn() {},
+      getRuntimeActivity() {
+        return overrides?.runtimeActivity?.() ?? {
+          activeTurnThreadIds: [],
+          pendingApprovalIds: [],
+        };
+      },
     } as unknown as CommandContext["conversation"],
     getSurfaceThreadId() {
       return "thread-1";
@@ -158,9 +169,33 @@ function makeContext(overrides?: {
       return threadId;
     },
     clearSurfaceThread() {},
+    operations: {
+      isOperator(userId: string) {
+        return overrides?.isOperator?.(userId) ?? true;
+      },
+      isDeploymentInProgress() {
+        return false;
+      },
+      async deployLatestMain() {
+        return (
+          (await overrides?.deployLatestMain?.()) ?? {
+            previousCommit: "1111111111111111111111111111111111111111",
+            deployedCommit: "2222222222222222222222222222222222222222",
+            changed: true,
+          }
+        );
+      },
+      prepareRestart() {
+        return true;
+      },
+      cancelRestart() {},
+      requestRestart() {
+        restartRequests += 1;
+      },
+    },
   };
 
-  return { context, writes, modelWrites };
+  return { context, writes, modelWrites, getRestartRequests: () => restartRequests };
 }
 
 describe("Discord !skill commands", () => {
@@ -350,5 +385,87 @@ describe("Discord !skill commands", () => {
     expect(replies).toEqual([
       "Unknown command: `!doesnotexist`. Use `!help` to inspect available commands.",
     ]);
+  });
+});
+
+describe("Discord operational commands", () => {
+  test("posts recovery commands before requesting a restart", async () => {
+    const { message, replies } = makeMessage("!restart");
+    const { context, getRestartRequests } = makeContext({
+      getSurfaceProject() {
+        return "owner/repo";
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Restarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo owner/repo\n!thread thread-1\n```",
+    ]);
+    expect(getRestartRequests()).toBe(1);
+  });
+
+  test("restricts restart to configured operators", async () => {
+    const { message, replies } = makeMessage("!restart", "user-2");
+    const { context, getRestartRequests } = makeContext({
+      isOperator(userId) {
+        return userId === "operator-1";
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual(["This command is restricted to configured Shepherd operators."]);
+    expect(getRestartRequests()).toBe(0);
+  });
+
+  test("refuses restart while a turn is active", async () => {
+    const { message, replies } = makeMessage("!restart");
+    const { context, getRestartRequests } = makeContext({
+      runtimeActivity() {
+        return { activeTurnThreadIds: ["thread-busy"], pendingApprovalIds: [] };
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Restart refused while Codex work is active.\nActive turns: thread-busy",
+    ]);
+    expect(getRestartRequests()).toBe(0);
+  });
+
+  test("validates a deployment before posting recovery commands and restarting", async () => {
+    const { message, replies } = makeMessage("!deploy");
+    const { context, getRestartRequests } = makeContext({
+      getSurfaceProject() {
+        return "~/shepherd";
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Checking the latest merged `origin/main` and validating the deployed checkout…",
+      "Deploy validated: 1111111 → 2222222\nRestarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo ~/shepherd\n!thread thread-1\n```",
+    ]);
+    expect(getRestartRequests()).toBe(1);
+  });
+
+  test("keeps Shepherd online when deployment validation fails", async () => {
+    const { message, replies } = makeMessage("!deploy");
+    const { context, getRestartRequests } = makeContext({
+      async deployLatestMain() {
+        throw new Error("tests failed; restored previous commit");
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Checking the latest merged `origin/main` and validating the deployed checkout…",
+      "Deployment failed; Shepherd remains online.\ntests failed; restored previous commit",
+    ]);
+    expect(getRestartRequests()).toBe(0);
   });
 });

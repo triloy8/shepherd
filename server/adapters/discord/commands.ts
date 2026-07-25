@@ -2,6 +2,7 @@ import type { Message } from "discord.js";
 
 import { executeControlAction } from "../../core/control_actions_service.js";
 import type { ConversationService } from "../../core/conversation_service.js";
+import type { DeploymentResult } from "../../core/deployment_service.js";
 import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
@@ -20,6 +21,14 @@ export type CommandContext = {
   switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;
   forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
   clearSurfaceThread: (surfaceId: string) => void;
+  operations?: {
+    isOperator: (userId: string) => boolean;
+    isDeploymentInProgress: () => boolean;
+    deployLatestMain: () => Promise<DeploymentResult>;
+    prepareRestart: () => boolean;
+    cancelRestart: () => void;
+    requestRestart: () => void;
+  };
 };
 
 function formatTimestamp(seconds: number | null): string {
@@ -30,6 +39,42 @@ function formatTimestamp(seconds: number | null): string {
 function parseThreadArgs(content: string): { command: string; args: string[] } {
   const [command, ...rest] = content.split(/\s+/);
   return { command: command.toLowerCase(), args: rest };
+}
+
+function formatRecoveryInstructions(context: CommandContext, channelId: string): string {
+  const project = context.getSurfaceProject(channelId);
+  const threadId = context.getSurfaceThreadId(channelId);
+  const commands = [
+    ...(project ? [`!repo ${project}`] : []),
+    ...(threadId ? [`!thread ${threadId}`] : []),
+  ];
+
+  if (commands.length === 0) {
+    return "No channel binding needs to be restored after reconnect.";
+  }
+
+  return `To continue after reconnect:\n\`\`\`\n${commands.join("\n")}\n\`\`\``;
+}
+
+function formatRuntimeActivity(context: CommandContext): string | null {
+  const activity = context.conversation.getRuntimeActivity();
+  const lines = [
+    ...(activity.activeTurnThreadIds.length > 0
+      ? [`Active turns: ${activity.activeTurnThreadIds.join(", ")}`]
+      : []),
+    ...(activity.pendingApprovalIds.length > 0
+      ? [`Pending approvals: ${activity.pendingApprovalIds.join(", ")}`]
+      : []),
+  ];
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+async function authorizeOperationalCommand(message: Message, context: CommandContext): Promise<boolean> {
+  if (!context.operations?.isOperator(message.author.id)) {
+    await message.reply("This command is restricted to configured Shepherd operators.");
+    return false;
+  }
+  return true;
 }
 
 function safeJson(value: unknown): string {
@@ -348,8 +393,105 @@ export async function handleMessage(
       "- !rollback <numTurns> [id]",
       "- !compact [id]",
       "- !interrupt",
+      "- !restart",
+      "- !deploy",
       "Any other message is sent as a Shepherd turn.",
     ].join("\n"));
+    return { handled: true, threadId: null, input: null };
+  }
+
+  if (command === "!restart") {
+    if (args.length > 0) {
+      await message.reply("Usage: !restart");
+      return { handled: true, threadId: null, input: null };
+    }
+    if (!(await authorizeOperationalCommand(message, context))) {
+      return { handled: true, threadId: null, input: null };
+    }
+    if (context.operations?.isDeploymentInProgress()) {
+      await message.reply("A deployment is in progress. Restart is unavailable until it finishes.");
+      return { handled: true, threadId: null, input: null };
+    }
+    const activity = formatRuntimeActivity(context);
+    if (activity) {
+      await message.reply(`Restart refused while Codex work is active.\n${activity}`);
+      return { handled: true, threadId: null, input: null };
+    }
+    if (!context.operations!.prepareRestart()) {
+      await message.reply("A restart is already scheduled.");
+      return { handled: true, threadId: null, input: null };
+    }
+
+    const activityAfterQuiescing = formatRuntimeActivity(context);
+    if (activityAfterQuiescing) {
+      context.operations!.cancelRestart();
+      await message.reply(`Restart refused while Codex work is active.\n${activityAfterQuiescing}`);
+      return { handled: true, threadId: null, input: null };
+    }
+
+    try {
+      await message.reply(`Restarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`);
+    } catch (error) {
+      context.operations!.cancelRestart();
+      throw error;
+    }
+    context.operations!.requestRestart();
+    return { handled: true, threadId: null, input: null };
+  }
+
+  if (command === "!deploy") {
+    if (args.length > 0) {
+      await message.reply("Usage: !deploy");
+      return { handled: true, threadId: null, input: null };
+    }
+    if (!(await authorizeOperationalCommand(message, context))) {
+      return { handled: true, threadId: null, input: null };
+    }
+    const activity = formatRuntimeActivity(context);
+    if (activity) {
+      await message.reply(`Deployment refused while Codex work is active.\n${activity}`);
+      return { handled: true, threadId: null, input: null };
+    }
+
+    await message.reply("Checking the latest merged `origin/main` and validating the deployed checkout…");
+    let deployment: DeploymentResult;
+    try {
+      deployment = await context.operations!.deployLatestMain();
+    } catch (error) {
+      await replyChunked(
+        message,
+        `Deployment failed; Shepherd remains online.\n${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { handled: true, threadId: null, input: null };
+    }
+
+    if (!context.operations!.prepareRestart()) {
+      await message.reply("A restart is already scheduled.");
+      return { handled: true, threadId: null, input: null };
+    }
+    const activityAfterValidation = formatRuntimeActivity(context);
+    if (activityAfterValidation) {
+      context.operations!.cancelRestart();
+      await message.reply(
+        [
+          `Validated commit ${deployment.deployedCommit.slice(0, 7)}, but restart was deferred because Codex work started during deployment.`,
+          activityAfterValidation,
+          "Run `!restart` when the work is complete.",
+        ].join("\n"),
+      );
+      return { handled: true, threadId: null, input: null };
+    }
+
+    const summary = deployment.changed
+      ? `Deploy validated: ${deployment.previousCommit.slice(0, 7)} → ${deployment.deployedCommit.slice(0, 7)}`
+      : `Deploy validated: already at ${deployment.deployedCommit.slice(0, 7)}`;
+    try {
+      await message.reply(`${summary}\nRestarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`);
+    } catch (error) {
+      context.operations!.cancelRestart();
+      throw error;
+    }
+    context.operations!.requestRestart();
     return { handled: true, threadId: null, input: null };
   }
 

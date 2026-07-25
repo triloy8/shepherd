@@ -2,7 +2,11 @@ import type { Message } from "discord.js";
 
 import { executeControlAction } from "../../core/control_actions_service.js";
 import type { ConversationService } from "../../core/conversation_service.js";
-import type { DeploymentResult } from "../../core/deployment_service.js";
+import type {
+  RuntimeLifecycleOrchestrator,
+  RuntimeLifecycleResult,
+} from "../../core/runtime_lifecycle_orchestrator.js";
+import type { RuntimeActivity } from "../../core/session_manager.js";
 import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
@@ -21,13 +25,7 @@ export type CommandContext = {
   switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;
   forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
   clearSurfaceThread: (surfaceId: string) => void;
-  operations?: {
-    isDeploymentInProgress: () => boolean;
-    deployLatestMain: () => Promise<DeploymentResult>;
-    prepareRestart: () => boolean;
-    cancelRestart: () => void;
-    requestRestart: () => void;
-  };
+  runtimeLifecycle?: Pick<RuntimeLifecycleOrchestrator, "restart" | "deploy">;
 };
 
 function formatTimestamp(seconds: number | null): string {
@@ -55,8 +53,7 @@ function formatRecoveryInstructions(context: CommandContext, channelId: string):
   return `To continue after reconnect:\n\`\`\`\n${commands.join("\n")}\n\`\`\``;
 }
 
-function formatRuntimeActivity(context: CommandContext): string | null {
-  const activity = context.conversation.getRuntimeActivity();
+function formatRuntimeActivity(activity: RuntimeActivity): string {
   const lines = [
     ...(activity.activeTurnThreadIds.length > 0
       ? [`Active turns: ${activity.activeTurnThreadIds.join(", ")}`]
@@ -65,7 +62,7 @@ function formatRuntimeActivity(context: CommandContext): string | null {
       ? [`Pending approvals: ${activity.pendingApprovalIds.join(", ")}`]
       : []),
   ];
-  return lines.length > 0 ? lines.join("\n") : null;
+  return lines.join("\n");
 }
 
 function safeJson(value: unknown): string {
@@ -296,6 +293,50 @@ async function replyChunked(message: Message, text: string): Promise<void> {
   }
 }
 
+async function replyRuntimeLifecycleResult(
+  message: Message,
+  result: RuntimeLifecycleResult,
+): Promise<void> {
+  if (result.type === "restart-requested") {
+    return;
+  }
+
+  if (result.type === "deployment-in-progress") {
+    await message.reply(
+      result.action === "restart"
+        ? "A deployment is in progress. Restart is unavailable until it finishes."
+        : "A deployment is already in progress.",
+    );
+    return;
+  }
+
+  if (result.type === "deployment-failed") {
+    await replyChunked(message, `Deployment failed; Shepherd remains online.\n${result.message}`);
+    return;
+  }
+
+  if (result.type === "restart-already-scheduled") {
+    await message.reply("A restart is already scheduled.");
+    return;
+  }
+
+  const activity = formatRuntimeActivity(result.activity);
+  if (result.action === "deploy" && result.stage === "after-quiescing" && result.deployment) {
+    await message.reply(
+      [
+        `Validated commit ${result.deployment.deployedCommit.slice(0, 7)}, but restart was deferred because Codex work started during deployment.`,
+        activity,
+        "Run `!restart` when the work is complete.",
+      ].join("\n"),
+    );
+    return;
+  }
+
+  await message.reply(
+    `${result.action === "restart" ? "Restart" : "Deployment"} refused while Codex work is active.\n${activity}`,
+  );
+}
+
 async function listStoredThreads(message: Message, context: CommandContext, archived: boolean): Promise<void> {
   const result = await context.conversation.listStoredThreads({ archived, limit: 25 });
   if (result.threads.length === 0) {
@@ -396,34 +437,17 @@ export async function handleMessage(
       await message.reply("Usage: !restart");
       return { handled: true, threadId: null, input: null };
     }
-    if (context.operations?.isDeploymentInProgress()) {
-      await message.reply("A deployment is in progress. Restart is unavailable until it finishes.");
-      return { handled: true, threadId: null, input: null };
-    }
-    const activity = formatRuntimeActivity(context);
-    if (activity) {
-      await message.reply(`Restart refused while Codex work is active.\n${activity}`);
-      return { handled: true, threadId: null, input: null };
-    }
-    if (!context.operations!.prepareRestart()) {
-      await message.reply("A restart is already scheduled.");
+    if (!context.runtimeLifecycle) {
+      await message.reply("Runtime lifecycle controls are unavailable.");
       return { handled: true, threadId: null, input: null };
     }
 
-    const activityAfterQuiescing = formatRuntimeActivity(context);
-    if (activityAfterQuiescing) {
-      context.operations!.cancelRestart();
-      await message.reply(`Restart refused while Codex work is active.\n${activityAfterQuiescing}`);
-      return { handled: true, threadId: null, input: null };
-    }
-
-    try {
-      await message.reply(`Restarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`);
-    } catch (error) {
-      context.operations!.cancelRestart();
-      throw error;
-    }
-    context.operations!.requestRestart();
+    const result = await context.runtimeLifecycle.restart({
+      announce: async () => {
+        await message.reply(`Restarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`);
+      },
+    });
+    await replyRuntimeLifecycleResult(message, result);
     return { handled: true, threadId: null, input: null };
   }
 
@@ -432,51 +456,27 @@ export async function handleMessage(
       await message.reply("Usage: !deploy");
       return { handled: true, threadId: null, input: null };
     }
-    const activity = formatRuntimeActivity(context);
-    if (activity) {
-      await message.reply(`Deployment refused while Codex work is active.\n${activity}`);
+    if (!context.runtimeLifecycle) {
+      await message.reply("Runtime lifecycle controls are unavailable.");
       return { handled: true, threadId: null, input: null };
     }
 
-    await message.reply("Checking the latest merged `origin/main` and validating the deployed checkout…");
-    let deployment: DeploymentResult;
-    try {
-      deployment = await context.operations!.deployLatestMain();
-    } catch (error) {
-      await replyChunked(
-        message,
-        `Deployment failed; Shepherd remains online.\n${error instanceof Error ? error.message : String(error)}`,
-      );
-      return { handled: true, threadId: null, input: null };
-    }
-
-    if (!context.operations!.prepareRestart()) {
-      await message.reply("A restart is already scheduled.");
-      return { handled: true, threadId: null, input: null };
-    }
-    const activityAfterValidation = formatRuntimeActivity(context);
-    if (activityAfterValidation) {
-      context.operations!.cancelRestart();
-      await message.reply(
-        [
-          `Validated commit ${deployment.deployedCommit.slice(0, 7)}, but restart was deferred because Codex work started during deployment.`,
-          activityAfterValidation,
-          "Run `!restart` when the work is complete.",
-        ].join("\n"),
-      );
-      return { handled: true, threadId: null, input: null };
-    }
-
-    const summary = deployment.changed
-      ? `Deploy validated: ${deployment.previousCommit.slice(0, 7)} → ${deployment.deployedCommit.slice(0, 7)}`
-      : `Deploy validated: already at ${deployment.deployedCommit.slice(0, 7)}`;
-    try {
-      await message.reply(`${summary}\nRestarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`);
-    } catch (error) {
-      context.operations!.cancelRestart();
-      throw error;
-    }
-    context.operations!.requestRestart();
+    const result = await context.runtimeLifecycle.deploy({
+      onDeploymentStarted: async () => {
+        await message.reply("Checking the latest merged `origin/main` and validating the deployed checkout…");
+      },
+      announce: async (announcement) => {
+        if (announcement.action !== "deploy") {
+          throw new Error("Deployment completed with an invalid lifecycle announcement.");
+        }
+        const { deployment } = announcement;
+        const summary = deployment.changed
+          ? `Deploy validated: ${deployment.previousCommit.slice(0, 7)} → ${deployment.deployedCommit.slice(0, 7)}`
+          : `Deploy validated: already at ${deployment.deployedCommit.slice(0, 7)}`;
+        await message.reply(`${summary}\nRestarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`);
+      },
+    });
+    await replyRuntimeLifecycleResult(message, result);
     return { handled: true, threadId: null, input: null };
   }
 

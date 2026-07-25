@@ -15,6 +15,7 @@ import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/reque
 import { loadEnvironment } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
 import { DeploymentService } from "../../core/deployment_service.js";
+import { RuntimeLifecycleOrchestrator } from "../../core/runtime_lifecycle_orchestrator.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
@@ -114,6 +115,16 @@ export async function startDiscordBot(): Promise<void> {
     }, 250);
   };
 
+  const runtimeLifecycle = new RuntimeLifecycleOrchestrator({
+    readActivity: () => conversation.getRuntimeActivity(),
+    deployment,
+    lifecycle: {
+      prepareRestart,
+      cancelRestart,
+      requestRestart,
+    },
+  });
+
   const { handleThreadEvent } = createDiscordThreadEventHandler(client);
   const runtime = createDiscordSurfaceRuntime({
     conversation,
@@ -125,13 +136,7 @@ export async function startDiscordBot(): Promise<void> {
     },
     resolveGithubRepo: async (slug) =>
       runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
-    operations: {
-      isDeploymentInProgress: () => deployment.isDeploymentInProgress(),
-      deployLatestMain: () => deployment.deployLatestMain(),
-      prepareRestart,
-      cancelRestart,
-      requestRestart,
-    },
+    runtimeLifecycle,
   });
 
   client.once("clientReady", () => {

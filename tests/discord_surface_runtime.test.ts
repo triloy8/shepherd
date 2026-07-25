@@ -58,6 +58,17 @@ describe("Discord surface runtime", () => {
   test("builds command context that delegates project binding to the orchestrator", async () => {
     const { conversation } = makeConversation();
     const events: Array<{ surfaceId: string; event: BridgeEvent }> = [];
+    const runtimeLifecycle = {
+      async restart() {
+        return { type: "restart-requested", action: "restart" } as const;
+      },
+      async deploy() {
+        return {
+          type: "deployment-failed",
+          message: "not configured for this test",
+        } as const;
+      },
+    };
 
     const runtime = createDiscordSurfaceRuntime({
       conversation: conversation as never,
@@ -68,6 +79,7 @@ describe("Discord surface runtime", () => {
       async resolveGithubRepo(slug) {
         return slug;
       },
+      runtimeLifecycle,
       workspaceProvisionerOptions: {
         fsImpl: fsImpl as never,
         homedirPath: "/tmp",
@@ -79,6 +91,7 @@ describe("Discord surface runtime", () => {
     });
     expect(runtime.commandContext.getSurfaceProject("chan-1")).toBe("owner/repo");
     expect(runtime.commandContext.getSurfaceThreadId("chan-1")).toBe("thread-current");
+    expect(runtime.commandContext.runtimeLifecycle).toBe(runtimeLifecycle);
     expect(events).toEqual([]);
   });
 

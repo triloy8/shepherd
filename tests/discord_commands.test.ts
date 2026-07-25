@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { handleMessage, type CommandContext } from "../server/adapters/discord/commands.js";
 
+type RuntimeLifecycle = NonNullable<CommandContext["runtimeLifecycle"]>;
+
 function makeMessage(content: string) {
   const replies: string[] = [];
   return {
@@ -28,8 +30,8 @@ function makeContext(overrides?: {
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
   readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
-  runtimeActivity?: () => { activeTurnThreadIds: string[]; pendingApprovalIds: string[] };
-  deployLatestMain?: () => Promise<{ previousCommit: string; deployedCommit: string; changed: boolean }>;
+  restart?: RuntimeLifecycle["restart"];
+  deploy?: RuntimeLifecycle["deploy"];
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
   const modelWrites: Array<{ threadId: string; model: string }> = [];
@@ -136,12 +138,6 @@ function makeContext(overrides?: {
         return { ok: true };
       },
       async interruptTurn() {},
-      getRuntimeActivity() {
-        return overrides?.runtimeActivity?.() ?? {
-          activeTurnThreadIds: [],
-          pendingApprovalIds: [],
-        };
-      },
     } as unknown as CommandContext["conversation"],
     getSurfaceThreadId() {
       return "thread-1";
@@ -167,25 +163,24 @@ function makeContext(overrides?: {
       return threadId;
     },
     clearSurfaceThread() {},
-    operations: {
-      isDeploymentInProgress() {
-        return false;
-      },
-      async deployLatestMain() {
-        return (
-          (await overrides?.deployLatestMain?.()) ?? {
-            previousCommit: "1111111111111111111111111111111111111111",
-            deployedCommit: "2222222222222222222222222222222222222222",
-            changed: true,
-          }
-        );
-      },
-      prepareRestart() {
-        return true;
-      },
-      cancelRestart() {},
-      requestRestart() {
+    runtimeLifecycle: {
+      async restart(options) {
+        if (overrides?.restart) return overrides.restart(options);
+        await options.announce({ action: "restart" });
         restartRequests += 1;
+        return { type: "restart-requested", action: "restart" };
+      },
+      async deploy(options) {
+        if (overrides?.deploy) return overrides.deploy(options);
+        const deployment = {
+          previousCommit: "1111111111111111111111111111111111111111",
+          deployedCommit: "2222222222222222222222222222222222222222",
+          changed: true,
+        };
+        await options.onDeploymentStarted?.();
+        await options.announce({ action: "deploy", deployment });
+        restartRequests += 1;
+        return { type: "restart-requested", action: "deploy", deployment };
       },
     },
   };
@@ -403,8 +398,13 @@ describe("Discord operational commands", () => {
   test("refuses restart while a turn is active", async () => {
     const { message, replies } = makeMessage("!restart");
     const { context, getRestartRequests } = makeContext({
-      runtimeActivity() {
-        return { activeTurnThreadIds: ["thread-busy"], pendingApprovalIds: [] };
+      async restart() {
+        return {
+          type: "busy",
+          action: "restart",
+          stage: "before-operation",
+          activity: { activeTurnThreadIds: ["thread-busy"], pendingApprovalIds: [] },
+        };
       },
     });
 
@@ -436,8 +436,12 @@ describe("Discord operational commands", () => {
   test("keeps Shepherd online when deployment validation fails", async () => {
     const { message, replies } = makeMessage("!deploy");
     const { context, getRestartRequests } = makeContext({
-      async deployLatestMain() {
-        throw new Error("tests failed; restored previous commit");
+      async deploy(options) {
+        await options.onDeploymentStarted?.();
+        return {
+          type: "deployment-failed",
+          message: "tests failed; restored previous commit",
+        };
       },
     });
 

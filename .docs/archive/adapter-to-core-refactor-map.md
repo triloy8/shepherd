@@ -1,5 +1,8 @@
 # Adapter To Core Refactor Map
 
+> Status: Historical planning document. The refactor it proposes has been
+> implemented; see [Architecture](../architecture.md) for the current system.
+
 The right way to think about this is not "move code out of Discord" in the abstract, but "define the core domains that Discord is currently impersonating."
 
 Here is the refactor map.

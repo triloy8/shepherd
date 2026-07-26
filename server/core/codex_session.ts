@@ -45,6 +45,81 @@ type RawServerRequest = {
   params: unknown;
 };
 
+type AppServerRequestParams = {
+  initialize: {
+    capabilities: Record<string, unknown> | null;
+    clientInfo: { name: string; title: string | null; version: string };
+  };
+  "thread/start": {
+    model: string;
+    approvalPolicy: ApprovalPolicy;
+    baseInstructions?: string;
+    developerInstructions?: string;
+    config?: Record<string, unknown>;
+    cwd?: string;
+    personality?: string;
+    sandbox?: string;
+    modelProvider?: string;
+    ephemeral?: boolean;
+    serviceName?: string;
+  };
+  "thread/resume": {
+    threadId: string;
+    approvalPolicy?: ApprovalPolicy;
+    baseInstructions?: string;
+    developerInstructions?: string;
+    config?: Record<string, unknown>;
+    cwd?: string;
+    personality?: string;
+    sandbox?: string;
+    model?: string;
+    modelProvider?: string;
+  };
+  "thread/fork": {
+    threadId: string;
+    approvalPolicy?: ApprovalPolicy;
+    baseInstructions?: string;
+    developerInstructions?: string;
+    config?: Record<string, unknown>;
+    cwd?: string;
+    sandbox?: string;
+    model?: string;
+    modelProvider?: string;
+  };
+  "thread/archive": { threadId: string };
+  "thread/unarchive": { threadId: string };
+  "thread/name/set": { threadId: string; name: string };
+  "thread/compact/start": { threadId: string };
+  "thread/rollback": { threadId: string; numTurns: number };
+  "thread/list": {
+    archived: boolean | null;
+    cursor: string | null;
+    cwd: string | string[] | null;
+    limit: number | null;
+    modelProviders: string[] | null;
+    searchTerm: string | null;
+    sortDirection: "asc" | "desc" | null;
+    sortKey: "created_at" | "updated_at" | "recency_at" | null;
+    sourceKinds: string[] | null;
+    useStateDbOnly?: boolean;
+  };
+  "thread/loaded/list": { cursor: string | null; limit: number | null };
+  "thread/read": { threadId: string; includeTurns: boolean };
+  "account/rateLimits/read": undefined;
+  "model/list": { cursor: string | null; limit: number | null; includeHidden: boolean | null };
+  "skills/list": { cwds?: string[]; forceReload?: boolean };
+  "skills/config/write": { enabled: boolean; path: string };
+  "turn/start": {
+    threadId: string;
+    approvalPolicy: ApprovalPolicy;
+    input: UserInput[];
+    model?: string;
+    cwd?: string;
+  };
+  "turn/interrupt": { threadId: string; turnId: string };
+  "turn/steer": { threadId: string; expectedTurnId: string; input: UserInput[] };
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -57,19 +132,56 @@ type ThreadBootstrapInfo = {
   threadId: string;
   model: string | null;
   modelProvider: string | null;
+  approvalPolicy: ApprovalPolicy;
 };
 
 function isContextLimitError(params: unknown): boolean {
-  const record = asRecord(params);
-  const errorInfo = record.codexErrorInfo;
+  const error = asRecord(asRecord(params).error);
+  const errorInfo = error.codexErrorInfo;
   if (typeof errorInfo === "string") {
     return errorInfo.toLowerCase().includes("contextwindowexceeded");
   }
   if (errorInfo && typeof errorInfo === "object") {
     return "contextWindowExceeded" in (errorInfo as Record<string, unknown>);
   }
-  const message = asString(record.message) ?? "";
+  const message = asString(error.message) ?? "";
   return message.toLowerCase().includes("context") && message.toLowerCase().includes("window");
+}
+
+function asApprovalPolicy(value: unknown): ApprovalPolicy | null {
+  if (value === "untrusted" || value === "on-request" || value === "never") {
+    return value;
+  }
+  const record = asRecord(value);
+  const granular = asRecord(record.granular);
+  if (
+    typeof granular.sandbox_approval === "boolean" &&
+    typeof granular.rules === "boolean" &&
+    typeof granular.skill_approval === "boolean" &&
+    typeof granular.request_permissions === "boolean" &&
+    typeof granular.mcp_elicitations === "boolean"
+  ) {
+    return {
+      granular: {
+        sandbox_approval: granular.sandbox_approval,
+        rules: granular.rules,
+        skill_approval: granular.skill_approval,
+        request_permissions: granular.request_permissions,
+        mcp_elicitations: granular.mcp_elicitations,
+      },
+    };
+  }
+  return null;
+}
+
+function isApprovalServerRequest(method: string): boolean {
+  const normalized = method.toLowerCase();
+  return (
+    normalized === "item/commandexecution/requestapproval" ||
+    normalized === "item/filechange/requestapproval" ||
+    normalized === "execcommandapproval" ||
+    normalized === "applypatchapproval"
+  );
 }
 
 export class CodexSession {
@@ -88,7 +200,6 @@ export class CodexSession {
   private nextRequestId = 1;
   private pendingRequests = new Map<number, PendingRequest>();
   private serverRequestsByApprovalId = new Map<string, RawServerRequest>();
-  private approvalIdsByRawRequestId = new Map<string, string>();
   private messagePhaseByItemId = new Map<string, MessagePhase | null>();
   private eventCounter = 0;
 
@@ -133,11 +244,10 @@ export class CodexSession {
     this.initPromise = (async () => {
       await this.start();
       await this.sendRequest("initialize", {
-        protocolVersion: 1,
         capabilities: {},
-        clientInfo: { name: "agent-refactor", version: "1.0.0" },
+        clientInfo: { name: "shepherd", title: "Shepherd", version: "1.0.0" },
       });
-      this.sendNotification("initialized", {});
+      this.sendNotification("initialized");
       this.initialized = true;
       this.publish("session.started", this.threadId ?? "unbound", { model: getDefaultModel() });
     })();
@@ -172,6 +282,7 @@ export class CodexSession {
     });
 
     const bootstrap = this.extractThreadBootstrapInfo(result, "thread/start");
+    this.approvalPolicy = bootstrap.approvalPolicy;
     this.publish("thread.started", bootstrap.threadId, { approvalPolicy: this.approvalPolicy });
     return bootstrap;
   }
@@ -191,10 +302,9 @@ export class CodexSession {
       ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
-    if (request.approvalPolicy) {
-      this.approvalPolicy = request.approvalPolicy;
-    }
-    return this.extractThreadBootstrapInfo(result, "thread/resume");
+    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/resume");
+    this.approvalPolicy = bootstrap.approvalPolicy;
+    return bootstrap;
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ThreadBootstrapInfo> {
@@ -211,10 +321,9 @@ export class CodexSession {
       ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
-    if (request.approvalPolicy) {
-      this.approvalPolicy = request.approvalPolicy;
-    }
-    return this.extractThreadBootstrapInfo(result, "thread/fork");
+    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/fork");
+    this.approvalPolicy = bootstrap.approvalPolicy;
+    return bootstrap;
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -251,8 +360,10 @@ export class CodexSession {
       limit: request.limit ?? null,
       modelProviders: request.modelProviders ?? null,
       searchTerm: request.searchTerm ?? null,
+      sortDirection: request.sortDirection ?? null,
       sortKey: request.sortKey ?? null,
       sourceKinds: request.sourceKinds ?? null,
+      ...(request.useStateDbOnly !== undefined ? { useStateDbOnly: request.useStateDbOnly } : {}),
     });
   }
 
@@ -271,7 +382,7 @@ export class CodexSession {
 
   async readAccountRateLimits(): Promise<unknown> {
     await this.initialize();
-    return this.sendRequest("account/rateLimits/read", {});
+    return this.sendRequest("account/rateLimits/read", undefined);
   }
 
   async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
@@ -288,7 +399,6 @@ export class CodexSession {
     return this.sendRequest("skills/list", {
       ...(request.cwds ? { cwds: request.cwds } : {}),
       ...(request.forceReload !== undefined ? { forceReload: request.forceReload } : {}),
-      ...(request.perCwdExtraUserRoots !== undefined ? { perCwdExtraUserRoots: request.perCwdExtraUserRoots } : {}),
     }) as Promise<SkillsListResponse>;
   }
 
@@ -362,7 +472,7 @@ export class CodexSession {
     }
 
     const method = rawRequest.method;
-    const payload = this.mapDecisionPayload(method, decision.decision);
+    const payload = this.mapDecisionPayload(method, decision);
     const envelope = {
       id: rawRequest.id,
       result: payload,
@@ -370,7 +480,6 @@ export class CodexSession {
 
     this.writeLine(envelope);
     this.serverRequestsByApprovalId.delete(approvalId);
-    this.approvalIdsByRawRequestId.delete(String(rawRequest.id));
     return { method, approvalId };
   }
 
@@ -395,24 +504,38 @@ export class CodexSession {
       threadId,
       model: asString(record.model),
       modelProvider: asString(record.modelProvider) ?? asString(thread.modelProvider),
+      approvalPolicy: asApprovalPolicy(record.approvalPolicy) ?? this.approvalPolicy,
     };
   }
 
-  private mapDecisionPayload(method: string, decision: string): Record<string, unknown> {
-    if (method === "item/tool/call") {
-      return {
-        success: decision === "success",
-        contentItems: [],
-      };
+  private mapDecisionPayload(
+    method: string,
+    request: ApprovalDecisionRequest,
+  ): Record<string, unknown> {
+    const normalized = method.toLowerCase();
+    const decision = request.decision;
+
+    if (
+      normalized === "item/commandexecution/requestapproval" ||
+      normalized === "item/filechange/requestapproval"
+    ) {
+      if (!["accept", "acceptForSession", "decline", "cancel"].includes(decision)) {
+        throw new Error(`Invalid decision ${decision} for ${method}.`);
+      }
+      return { decision };
     }
 
-    if (method === "item/tool/requestUserInput") {
-      return {
-        answers: {},
-      };
+    if (normalized === "execcommandapproval" || normalized === "applypatchapproval") {
+      if (decision === "denied") {
+        return { decision: { denied: { rejection: request.reason ?? "Denied by user." } } };
+      }
+      if (!["approved", "approved_for_session", "timed_out", "abort"].includes(decision)) {
+        throw new Error(`Invalid decision ${decision} for ${method}.`);
+      }
+      return { decision };
     }
 
-    return { decision };
+    throw new Error(`Unsupported server request method: ${method}`);
   }
 
   private cleanup(): void {
@@ -429,12 +552,14 @@ export class CodexSession {
     }
     this.pendingRequests.clear();
     this.serverRequestsByApprovalId.clear();
-    this.approvalIdsByRawRequestId.clear();
     this.initialized = false;
     this.activeTurnId = null;
   }
 
-  private async sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async sendRequest<M extends keyof AppServerRequestParams>(
+    method: M,
+    params: AppServerRequestParams[M],
+  ): Promise<unknown> {
     const id = this.nextRequestId++;
     this.writeLine({ id, method, params });
 
@@ -443,8 +568,8 @@ export class CodexSession {
     });
   }
 
-  private sendNotification(method: string, params: Record<string, unknown>): void {
-    this.writeLine({ method, params });
+  private sendNotification(method: "initialized"): void {
+    this.writeLine({ method });
   }
 
   private writeLine(payload: unknown): void {
@@ -495,6 +620,20 @@ export class CodexSession {
   }
 
   private onServerRequest(request: RawServerRequest): void {
+    if (!isApprovalServerRequest(request.method)) {
+      this.writeLine({
+        id: request.id,
+        error: {
+          code: -32601,
+          message: `Shepherd does not support server request ${request.method}.`,
+        },
+      });
+      this.publish("session.error", this.threadId ?? "unbound", {
+        message: `Unsupported app-server request: ${request.method}`,
+      });
+      return;
+    }
+
     const approvalId = randomUUID();
     const threadId = this.threadId ?? "unbound";
     const approvalPayload: ApprovalRequestPayload = {
@@ -506,18 +645,26 @@ export class CodexSession {
     };
 
     this.serverRequestsByApprovalId.set(approvalId, request);
-    this.approvalIdsByRawRequestId.set(String(request.id), approvalId);
     this.publish("approval.requested", threadId, approvalPayload);
   }
 
   private onNotification(method: string, params: unknown): void {
-    const threadId = this.threadId ?? "unbound";
+    const payload = asRecord(params);
+    const threadId = asString(payload.threadId) ?? this.threadId ?? "unbound";
     const lower = method.toLowerCase();
 
     if (lower === "turn/completed") {
       const turnId = extractTurnId(params) ?? this.activeTurnId;
       this.activeTurnId = null;
       this.messagePhaseByItemId.clear();
+      const turn = asRecord(payload.turn);
+      if (turn.status === "failed") {
+        const error = asRecord(turn.error);
+        this.publish("turn.failed", threadId, {
+          message: asString(error.message) ?? "The turn failed before completion.",
+        });
+        return;
+      }
       this.publish("turn.completed", threadId, { turnId });
       return;
     }
@@ -528,7 +675,8 @@ export class CodexSession {
     }
 
     if (lower === "error") {
-      const message = asString(asRecord(params).message) ?? `${method} received`;
+      const error = asRecord(payload.error);
+      const message = asString(error.message) ?? `${method} received`;
       if (isContextLimitError(params)) {
         this.publish("session.limit.context", threadId, { message, method });
       } else {
@@ -565,7 +713,6 @@ export class CodexSession {
     }
 
     if (lower === "thread/tokenusage/updated") {
-      const payload = asRecord(params);
       const tokenUsage = payload.tokenUsage as ThreadTokenUsage | undefined;
       this.publish("thread.tokenUsage.updated", threadId, {
         turnId: asString(payload.turnId),

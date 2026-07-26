@@ -9,7 +9,7 @@ Status legend:
 Generated baseline:
 
 - Codex version: `codex-cli 0.145.0`
-- Last refreshed: `2026-07-21`
+- Last refreshed: `2026-07-26`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -22,7 +22,7 @@ Legacy note:
 
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
-| `initialize` | Implemented | Core | Internal handshake |
+| `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced by the transport type map |
 | `thread/start` | Partial | Core | Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource`; other generated fields are exposed |
 | `thread/resume` | Partial | Core | Missing `serviceTier` and `approvalsReviewer`; other generated fields are exposed |
 | `thread/fork` | Partial | Core | Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, and `threadSource`; other generated fields are exposed |
@@ -38,7 +38,7 @@ Legacy note:
 | `thread/shellCommand` | Missing | Out of Scope (for now) | Terminal-oriented thread helper; Shepherd should route requests, not become a shell command surface |
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
 | `thread/rollback` | Implemented | Core | Generated schema marks this method as deprecated |
-| `thread/list` | Partial | Core | Missing `sortDirection` and `useStateDbOnly`; `cwd` is narrowed to a single string |
+| `thread/list` | Implemented | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors |
 | `thread/loaded/list` | Implemented | Core | |
 | `thread/read` | Implemented | Core | `includeTurns` supported |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
@@ -47,14 +47,14 @@ Legacy note:
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports the generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, approval reviewer, sandbox policy, service tier, effort, summary, personality, and output schema |
+| `turn/start` | Partial | Core | Supports all generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, approval reviewer, sandbox policy, service tier, effort, summary, personality, and output schema |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
 | `model/list` | Implemented | Core | Wrapped in core and exposed via Discord `!models`/`!model` |
 | `modelProvider/capabilities/read` | Missing | Maybe Later | Useful for model diagnostics and richer model selection UX |
 | `skills/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills` |
-| `skills/extraRoots/set` | Missing | Maybe Later | Could support richer skill root configuration; current flow only passes per-request extra roots |
+| `skills/extraRoots/set` | Missing | Maybe Later | Required for extra skill roots; the removed `skills/list.perCwdExtraUserRoots` compatibility field is no longer exposed |
 | `skills/config/write` | Partial | Core | Wrapped in core and exposed via Discord `!skill enable|disable`; supports path selection but not the generated name selector |
 | `plugin/list` | Missing | Out of Scope (for now) | Plugin management is outside Shepherd's current Discord/admin surface |
 | `plugin/installed` | Missing | Out of Scope (for now) | Plugin inventory surface is outside Shepherd's current Discord/admin surface |
@@ -115,11 +115,26 @@ Legacy note:
 | `windowsSandbox/setupStart` | Missing | Out of Scope (for now) | Platform-specific |
 | `windowsSandbox/readiness` | Missing | Out of Scope (for now) | Platform-specific |
 
+## Server Request Handling
+
+| Method | Current Handling | Scope Recommendation |
+|---|---|---|
+| `item/commandExecution/requestApproval` | Typed approval choices and generated decision response | Core |
+| `item/fileChange/requestApproval` | Typed approval choices and generated decision response | Core |
+| `execCommandApproval` | Typed legacy approval response, including structured denial reasons | Core (Legacy) |
+| `applyPatchApproval` | Typed legacy approval response, including structured denial reasons | Core (Legacy) |
+| `item/tool/requestUserInput` | Explicit JSON-RPC unsupported response; Shepherd has no structured-answer surface | Maybe Later |
+| `mcpServer/elicitation/request` | Explicit JSON-RPC unsupported response; Shepherd has no form/URL elicitation surface | Maybe Later |
+| `item/permissions/requestApproval` | Explicit JSON-RPC unsupported response; Discord buttons cannot return permission profiles | Maybe Later |
+| `item/tool/call` | Explicit JSON-RPC unsupported response; no dynamic-tool registry is advertised | Out of Scope (for now) |
+| `account/chatgptAuthTokens/refresh` | Explicit JSON-RPC unsupported response; authentication is owned by the Codex installation | Out of Scope (for now) |
+| `attestation/generate` | Explicit JSON-RPC unsupported response; no client attestation provider is configured | Out of Scope (for now) |
+
 ## Notification Coverage
 
 | Notification | Current Handling | Scope Recommendation |
 |---|---|---|
-| `error` | Typed events (`session.error`; context limits use `session.limit.context`) | Core |
+| `error` | Typed nested error decoding (`session.error`; context limits use `session.limit.context`) | Core |
 | `thread/status/changed` | Typed event (`thread.status.changed`) | Core |
 | `thread/started` | Generic | Maybe Later |
 | `thread/deleted` | Generic | Maybe Later |
@@ -133,7 +148,7 @@ Legacy note:
 | `thread/compacted` | Generic | Maybe Later |
 | `skills/changed` | Generic | Maybe Later |
 | `turn/started` | Generic | Maybe Later |
-| `turn/completed` | Typed event (`turn.completed`) | Core |
+| `turn/completed` | Typed event; failed completion payloads emit `turn.failed` with the generated error message | Core |
 | `turn/diff/updated` | Generic | Maybe Later |
 | `turn/plan/updated` | Generic | Maybe Later |
 | `hook/started` / `hook/completed` | Generic | Out of Scope (for now) |
@@ -180,9 +195,9 @@ Legacy note:
 
 | Area | Status | Notes |
 |---|---|---|
-| Thread lifecycle DTOs | Good | Added and expanded in `shared/protocol/requests.ts` |
+| Thread lifecycle DTOs | Good | Includes current list filters, pagination cursors, and generated approval-policy values |
 | Rich thread object typing | Partial | `ReadThreadResponse`/`RollbackThreadResponse` now use `ThreadRecord`; deeper nested typing still open |
 | Rich resume/fork/start options | Partial | Major override fields supported; still not full schema parity |
-| Notification DTO parity | Partial | Key thread lifecycle notifications now typed; broader item/model/realtime notifications still reduced |
+| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; broader item/model/realtime notifications remain reduced |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | Refreshed against `codex-cli 0.145.0`: 92 TypeScript request methods (89 in the JSON-schema union plus 3 legacy compatibility methods) and 72 TypeScript notifications (70 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.145.0`: 92 TypeScript request methods (89 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 72 TypeScript notifications (70 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |

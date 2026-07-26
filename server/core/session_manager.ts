@@ -64,6 +64,7 @@ type ManagedModelState = {
 type ThreadListRawResponse = {
   data?: ThreadRecord[];
   nextCursor?: unknown;
+  backwardsCursor?: unknown;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -78,21 +79,13 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function toBoolean(value: unknown): boolean {
-  if (typeof value === "object" && value !== null) {
-    const record = value as Record<string, unknown>;
-    if (record.type === "notLoaded") return true;
-  }
-  return false;
-}
-
-function extractThreadSummary(value: unknown) {
+export function extractThreadSummary(value: unknown, archived: boolean) {
   const record = asRecord(value);
   return {
     threadId: asString(record.id) ?? "unknown",
     name: asString(record.name),
     preview: asString(record.preview) ?? "",
-    archived: toBoolean(record.status),
+    archived,
     createdAt: asNumber(record.createdAt),
     updatedAt: asNumber(record.updatedAt),
     source: asString(asRecord(record.source).kind) ?? asString(record.source),
@@ -196,9 +189,11 @@ export class SessionManager {
     const session = await this.getControlSession();
     const raw = (await session.listStoredThreads(request)) as ThreadListRawResponse;
     const data = Array.isArray(raw.data) ? raw.data : [];
+    const archived = request.archived === true;
     return {
-      threads: data.map(extractThreadSummary).filter((entry) => entry.threadId !== "unknown"),
+      threads: data.map((entry) => extractThreadSummary(entry, archived)).filter((entry) => entry.threadId !== "unknown"),
       nextCursor: asString(raw.nextCursor),
+      backwardsCursor: asString(raw.backwardsCursor),
     };
   }
 
@@ -269,6 +264,11 @@ export class SessionManager {
     const raw = asRecord(await session.readAccountRateLimits());
     return {
       rateLimits: raw.rateLimits ?? raw,
+      rateLimitsByLimitId:
+        raw.rateLimitsByLimitId && typeof raw.rateLimitsByLimitId === "object"
+          ? (raw.rateLimitsByLimitId as Record<string, unknown>)
+          : null,
+      rateLimitResetCredits: raw.rateLimitResetCredits ?? null,
     };
   }
 

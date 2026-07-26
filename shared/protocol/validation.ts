@@ -10,6 +10,7 @@ import type {
   ResumeThreadRequest,
   RollbackThreadRequest,
   SandboxMode,
+  SortDirection,
   SteerTurnRequest,
   SetThreadNameRequest,
   SkillsConfigWriteRequest,
@@ -19,12 +20,13 @@ import type {
   ThreadSourceKind,
   SubmitTurnRequest,
 } from "./requests.js";
-import { toTextUserInput, type UserInput } from "./user_input.js";
+import { toTextUserInput, type UserInput, type UserInputTextElement } from "./user_input.js";
 
-const APPROVAL_POLICIES: ApprovalPolicy[] = ["untrusted", "on-failure", "on-request", "never"];
+const APPROVAL_POLICIES = ["untrusted", "on-request", "never"] as const;
 const SANDBOX_MODES: SandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
 const PERSONALITIES: Personality[] = ["none", "friendly", "pragmatic"];
-const THREAD_SORT_KEYS: ThreadSortKey[] = ["created_at", "updated_at"];
+const THREAD_SORT_KEYS: ThreadSortKey[] = ["created_at", "updated_at", "recency_at"];
+const SORT_DIRECTIONS: SortDirection[] = ["asc", "desc"];
 const THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
   "cli",
   "vscode",
@@ -157,23 +159,34 @@ function parseUserInput(value: unknown, name: string): UserInput {
       }
       return {
         type: "text",
-        text: value.text.trim(),
-        text_elements: value.text_elements.map((element) => {
-          if (!isRecord(element)) throw new Error(`Invalid ${name}.`);
-          return element;
-        }),
+        text: value.text,
+        text_elements: value.text_elements.map((element) => parseTextElement(element, name)),
       };
     }
-    case "image":
+    case "image": {
       if (typeof value.url !== "string" || !value.url.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      return { type: "image", url: value.url.trim() };
-    case "localImage":
+      const detail = parseImageDetail(value.detail, name);
+      return { type: "image", url: value.url.trim(), ...(detail ? { detail } : {}) };
+    }
+    case "localImage": {
       if (typeof value.path !== "string" || !value.path.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      return { type: "localImage", path: value.path.trim() };
+      const detail = parseImageDetail(value.detail, name);
+      return { type: "localImage", path: value.path.trim(), ...(detail ? { detail } : {}) };
+    }
+    case "audio":
+      if (typeof value.url !== "string" || !value.url.trim()) {
+        throw new Error(`Invalid ${name}.`);
+      }
+      return { type: "audio", url: value.url.trim() };
+    case "localAudio":
+      if (typeof value.path !== "string" || !value.path.trim()) {
+        throw new Error(`Invalid ${name}.`);
+      }
+      return { type: "localAudio", path: value.path.trim() };
     case "skill":
     case "mention":
       if (typeof value.name !== "string" || !value.name.trim()) {
@@ -186,6 +199,37 @@ function parseUserInput(value: unknown, name: string): UserInput {
     default:
       throw new Error(`Invalid ${name}.`);
   }
+}
+
+function parseTextElement(value: unknown, name: string): UserInputTextElement {
+  if (!isRecord(value) || !isRecord(value.byteRange)) {
+    throw new Error(`Invalid ${name}.`);
+  }
+  const start = value.byteRange.start;
+  const end = value.byteRange.end;
+  if (
+    typeof start !== "number" ||
+    !Number.isInteger(start) ||
+    start < 0 ||
+    typeof end !== "number" ||
+    !Number.isInteger(end) ||
+    end < start ||
+    (value.placeholder !== null && typeof value.placeholder !== "string")
+  ) {
+    throw new Error(`Invalid ${name}.`);
+  }
+  return {
+    byteRange: { start, end },
+    placeholder: value.placeholder,
+  };
+}
+
+function parseImageDetail(value: unknown, name: string): "auto" | "low" | "high" | "original" | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (value === "auto" || value === "low" || value === "high" || value === "original") {
+    return value;
+  }
+  throw new Error(`Invalid ${name}.`);
 }
 
 export function validateListStoredThreadsRequest(value: unknown): ListStoredThreadsRequest {
@@ -201,15 +245,27 @@ export function validateListStoredThreadsRequest(value: unknown): ListStoredThre
     throw new Error("Invalid source kind.");
   }
 
+  const sortDirection = parseOptionalString(value.sortDirection, "sortDirection");
+  if (sortDirection && !SORT_DIRECTIONS.includes(sortDirection as SortDirection)) {
+    throw new Error("Invalid sort direction.");
+  }
+
+  const cwd =
+    Array.isArray(value.cwd)
+      ? parseOptionalStringList(value.cwd, "cwd")
+      : parseOptionalString(value.cwd, "cwd");
+
   return {
     archived: parseOptionalBoolean(value.archived, "archived"),
     cursor: parseOptionalString(value.cursor, "cursor"),
-    cwd: parseOptionalString(value.cwd, "cwd"),
+    cwd,
     limit: parseOptionalPositiveInteger(value.limit, "limit"),
     modelProviders: parseOptionalStringList(value.modelProviders, "modelProviders"),
     searchTerm: parseOptionalString(value.searchTerm, "searchTerm"),
+    sortDirection: sortDirection as SortDirection | undefined,
     sortKey: sortKey as ThreadSortKey | undefined,
     sourceKinds: sourceKinds as ThreadSourceKind[] | undefined,
+    useStateDbOnly: parseOptionalBoolean(value.useStateDbOnly, "useStateDbOnly"),
   };
 }
 
@@ -230,10 +286,31 @@ export function validateReadThreadRequest(value: unknown): ReadThreadRequest {
 
 function parseApprovalPolicy(value: unknown): ApprovalPolicy | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  if (typeof value !== "string" || !APPROVAL_POLICIES.includes(value as ApprovalPolicy)) {
-    throw new Error("Invalid approval policy.");
+  if (typeof value === "string" && APPROVAL_POLICIES.includes(value as (typeof APPROVAL_POLICIES)[number])) {
+    return value as ApprovalPolicy;
   }
-  return value as ApprovalPolicy;
+  if (isRecord(value) && isRecord(value.granular)) {
+    const granular = value.granular;
+    const keys = [
+      "sandbox_approval",
+      "rules",
+      "skill_approval",
+      "request_permissions",
+      "mcp_elicitations",
+    ] as const;
+    if (keys.every((key) => typeof granular[key] === "boolean")) {
+      return {
+        granular: {
+          sandbox_approval: granular.sandbox_approval as boolean,
+          rules: granular.rules as boolean,
+          skill_approval: granular.skill_approval as boolean,
+          request_permissions: granular.request_permissions as boolean,
+          mcp_elicitations: granular.mcp_elicitations as boolean,
+        },
+      };
+    }
+  }
+  throw new Error("Invalid approval policy.");
 }
 
 export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest {
@@ -279,12 +356,9 @@ export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
   if (!isRecord(value)) {
     throw new Error("Invalid turn payload.");
   }
-  if (value.approvalPolicy && !APPROVAL_POLICIES.includes(value.approvalPolicy as ApprovalPolicy)) {
-    throw new Error("Invalid approval policy.");
-  }
   return {
     input: parseUserInputArray(value.input, "input"),
-    approvalPolicy: value.approvalPolicy as ApprovalPolicy | undefined,
+    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     model: parseOptionalString(value.model, "model"),
   };
 }
@@ -327,22 +401,9 @@ export function validateApprovalDecisionRequest(value: unknown): ApprovalDecisio
 
 export function validateSkillsListRequest(value: unknown): SkillsListRequest {
   if (!isRecord(value)) throw new Error("Invalid skills list payload.");
-  const perCwd = value.perCwdExtraUserRoots;
-  if (perCwd !== undefined && perCwd !== null) {
-    if (!Array.isArray(perCwd)) throw new Error("Invalid perCwdExtraUserRoots.");
-    for (const entry of perCwd) {
-      if (!isRecord(entry)) throw new Error("Invalid perCwdExtraUserRoots entry.");
-      if (typeof entry.cwd !== "string") throw new Error("Invalid perCwdExtraUserRoots.cwd.");
-      if (!Array.isArray(entry.extraUserRoots) || entry.extraUserRoots.some((root) => typeof root !== "string")) {
-        throw new Error("Invalid perCwdExtraUserRoots.extraUserRoots.");
-      }
-    }
-  }
-
   return {
     cwds: parseOptionalStringList(value.cwds, "cwds"),
     forceReload: parseOptionalBoolean(value.forceReload, "forceReload"),
-    perCwdExtraUserRoots: perCwd as SkillsListRequest["perCwdExtraUserRoots"],
   };
 }
 

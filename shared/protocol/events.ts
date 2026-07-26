@@ -1,5 +1,5 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
-import type { ThreadTokenUsage } from "./requests.js";
+import type { ApprovalPolicy, ThreadTokenUsage } from "./requests.js";
 
 export type MessagePhase = "commentary" | "final_answer";
 
@@ -35,7 +35,7 @@ export interface BridgeEvent<TPayload = unknown> {
 export type SessionStartedEvent = BridgeEvent<{ model: string }>;
 export type SessionErrorEvent = BridgeEvent<{ message: string }>;
 export type SessionContextLimitEvent = BridgeEvent<{ message: string; method: string }>;
-export type ThreadStartedEvent = BridgeEvent<{ approvalPolicy: string }>;
+export type ThreadStartedEvent = BridgeEvent<{ approvalPolicy: ApprovalPolicy }>;
 export type ThreadStatusChangedEvent = BridgeEvent<{ status: unknown }>;
 export type ThreadNameUpdatedEvent = BridgeEvent<{ threadName: string | null }>;
 export type ThreadArchivedEvent = BridgeEvent<Record<string, never>>;

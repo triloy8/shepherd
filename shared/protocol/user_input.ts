@@ -1,9 +1,19 @@
-export type UserInputTextElement = Record<string, unknown>;
+export type ImageDetail = "auto" | "low" | "high" | "original";
+
+export interface UserInputTextElement {
+  byteRange: {
+    start: number;
+    end: number;
+  };
+  placeholder: string | null;
+}
 
 export type UserInput =
   | { type: "text"; text: string; text_elements: UserInputTextElement[] }
-  | { type: "image"; url: string }
-  | { type: "localImage"; path: string }
+  | { type: "image"; url: string; detail?: ImageDetail }
+  | { type: "localImage"; path: string; detail?: ImageDetail }
+  | { type: "audio"; url: string }
+  | { type: "localAudio"; path: string }
   | { type: "skill"; name: string; path: string }
   | { type: "mention"; name: string; path: string };
 

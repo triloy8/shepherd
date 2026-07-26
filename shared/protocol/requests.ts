@@ -1,10 +1,20 @@
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { UserInput } from "./user_input.js";
 
-export type ApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
+export type GranularApprovalPolicy = {
+  granular: {
+    sandbox_approval: boolean;
+    rules: boolean;
+    skill_approval: boolean;
+    request_permissions: boolean;
+    mcp_elicitations: boolean;
+  };
+};
+export type ApprovalPolicy = "untrusted" | "on-request" | "never" | GranularApprovalPolicy;
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type Personality = "none" | "friendly" | "pragmatic";
-export type ThreadSortKey = "created_at" | "updated_at";
+export type ThreadSortKey = "created_at" | "updated_at" | "recency_at";
+export type SortDirection = "asc" | "desc";
 export type ThreadSourceKind =
   | "cli"
   | "vscode"
@@ -83,17 +93,20 @@ export interface StoredThreadSummary {
 export interface ListStoredThreadsRequest {
   archived?: boolean;
   cursor?: string;
-  cwd?: string;
+  cwd?: string | string[];
   limit?: number;
   modelProviders?: string[];
   searchTerm?: string;
+  sortDirection?: SortDirection;
   sortKey?: ThreadSortKey;
   sourceKinds?: ThreadSourceKind[];
+  useStateDbOnly?: boolean;
 }
 
 export interface ListStoredThreadsResponse {
   threads: StoredThreadSummary[];
   nextCursor: string | null;
+  backwardsCursor: string | null;
 }
 
 export interface ListLoadedThreadsRequest {
@@ -204,6 +217,8 @@ export interface ApprovalDecisionApiResponse {
 
 export interface AccountRateLimitsResponse {
   rateLimits: unknown;
+  rateLimitsByLimitId: Record<string, unknown> | null;
+  rateLimitResetCredits: unknown | null;
 }
 
 export interface TokenUsageBreakdown {
@@ -255,15 +270,9 @@ export interface ThreadModelState {
 
 export type SkillScope = "user" | "repo" | "system" | "admin";
 
-export interface SkillsListExtraRootsForCwd {
-  cwd: string;
-  extraUserRoots: string[];
-}
-
 export interface SkillsListRequest {
   cwds?: string[];
   forceReload?: boolean;
-  perCwdExtraUserRoots?: SkillsListExtraRootsForCwd[] | null;
 }
 
 export interface SkillToolDependency {

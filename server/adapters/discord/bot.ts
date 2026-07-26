@@ -11,8 +11,8 @@ import {
   type TextBasedChannel,
 } from "discord.js";
 
-import type { ApprovalPolicy, SandboxMode } from "../../../shared/protocol/requests.js";
-import { loadEnvironment } from "../../config/environment.js";
+import type { SandboxMode } from "../../../shared/protocol/requests.js";
+import { loadEnvironment, readApprovalPolicy } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
 import { DeploymentService } from "../../core/deployment_service.js";
 import { RuntimeLifecycleOrchestrator } from "../../core/runtime_lifecycle_orchestrator.js";
@@ -71,7 +71,7 @@ export async function startDiscordBot(): Promise<void> {
     throw new Error("Missing DISCORD_BOT_TOKEN.");
   }
 
-  const approvalPolicy = (process.env.CODEX_APPROVAL_POLICY ?? "on-request") as ApprovalPolicy;
+  const approvalPolicy = readApprovalPolicy(process.env.CODEX_APPROVAL_POLICY);
   const defaultSandbox = readSandboxMode(process.env.CODEX_SANDBOX);
   const deploymentCommandTimeoutMs = readPositiveNumber(
     process.env.SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS,

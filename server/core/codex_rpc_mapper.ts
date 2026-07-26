@@ -91,17 +91,7 @@ export function mapApprovalChoices(method: string): ApprovalChoice[] {
     ];
   }
 
-  if (normalized === "item/tool/call") {
-    return [
-      { value: "success", label: "Success" },
-      { value: "failure", label: "Failure" },
-    ];
-  }
-
-  return [
-    { value: "approve", label: "Approve" },
-    { value: "reject", label: "Reject" },
-  ];
+  return [];
 }
 
 export function mapApprovalPrompt(method: string, params: unknown): string {

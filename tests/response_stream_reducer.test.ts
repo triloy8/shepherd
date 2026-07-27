@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { createResponseStreamState, reduceResponseStream } from "../server/core/response_stream_reducer.js";
+import {
+  createResponseStreamState,
+  getFinalResponseText,
+  reduceResponseStream,
+} from "../server/core/response_stream_reducer.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 
 function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): BridgeEvent<TPayload> {
@@ -14,94 +18,126 @@ function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): Brid
   };
 }
 
+function delta(
+  textDelta: string,
+  phase: "commentary" | "final_answer",
+  itemId: string,
+  turnId = "turn-1",
+): BridgeEvent {
+  return makeEvent("turn.stream.delta", {
+    method: "item/agentMessage/delta",
+    textDelta,
+    itemId,
+    phase,
+    turnId,
+  });
+}
+
 describe("ResponseStreamReducer", () => {
-  test("resets state on turn start", () => {
+  test("resets all output state for a new turn", () => {
     const reduction = reduceResponseStream(
       {
-        text: "existing",
-        lastPhase: "final_answer",
-        lastItemId: "item-1",
-        commentaryOpen: false,
-        commentaryLineStart: false,
+        turnId: "turn-old",
+        finalMessages: [{ itemId: "final-old", text: "existing" }],
+        activeCommentary: { itemId: "comment-old", text: "thinking" },
       },
       makeEvent("turn.started", { turnId: "turn-1" }),
     );
 
     expect(reduction).toEqual({
       type: "reset",
-      state: createResponseStreamState(),
+      state: createResponseStreamState("turn-1"),
     });
   });
 
-  test("builds commentary and final answer text from deltas", () => {
-    let reduction = reduceResponseStream(
-      null,
-      makeEvent("turn.stream.delta", {
-        method: "agentMessageDelta",
-        textDelta: "thinking\nmore",
-        itemId: "item-1",
-        phase: "commentary",
-      }),
-    );
+  test("keeps commentary independent from the final answer", () => {
+    let reduction = reduceResponseStream(null, delta("thinking\nmore", "commentary", "comment-1"));
+    expect(reduction.type).toBe("updated");
+    if (reduction.type !== "updated") throw new Error("expected update");
+    expect(reduction.state.activeCommentary?.text).toBe("thinking\nmore");
+    expect(getFinalResponseText(reduction.state)).toBe("");
 
-    expect(reduction.type).toBe("schedule-flush");
-    if (reduction.type !== "schedule-flush") throw new Error("expected schedule-flush");
-    expect(reduction.state.text).toBe("\n> thinking\n> more");
+    reduction = reduceResponseStream(reduction.state, delta("answer", "final_answer", "final-1"));
+    expect(reduction.type).toBe("updated");
+    if (reduction.type !== "updated") throw new Error("expected update");
+    expect(reduction.completedCommentary?.text).toBe("thinking\nmore");
+    expect(reduction.state.activeCommentary).toBeNull();
+    expect(getFinalResponseText(reduction.state)).toBe("answer");
+  });
 
-    reduction = reduceResponseStream(
-      reduction.state,
-      makeEvent("turn.stream.delta", {
-        method: "agentMessageDelta",
-        textDelta: "answer",
-        itemId: "item-2",
+  test("finalizes commentary when its item changes", () => {
+    const first = reduceResponseStream(null, delta("first", "commentary", "comment-1"));
+    if (first.type !== "updated") throw new Error("expected update");
+
+    const second = reduceResponseStream(first.state, delta("second", "commentary", "comment-2"));
+    expect(second.type).toBe("updated");
+    if (second.type !== "updated") throw new Error("expected update");
+    expect(second.completedCommentary).toEqual({ itemId: "comment-1", text: "first" });
+    expect(second.state.activeCommentary).toEqual({ itemId: "comment-2", text: "second" });
+  });
+
+  test("uses completed message text as the canonical fallback", () => {
+    const partial = reduceResponseStream(null, delta("partial", "final_answer", "final-1"));
+    if (partial.type !== "updated") throw new Error("expected update");
+
+    const completed = reduceResponseStream(
+      partial.state,
+      makeEvent("turn.message.completed", {
+        itemId: "final-1",
         phase: "final_answer",
+        text: "complete final text",
+        turnId: "turn-1",
       }),
     );
-
-    expect(reduction.type).toBe("schedule-flush");
-    if (reduction.type !== "schedule-flush") throw new Error("expected schedule-flush");
-    expect(reduction.state.text).toBe("\n> thinking\n> more\n\nanswer");
-    expect(reduction.state.lastPhase).toBe("final_answer");
+    expect(completed.type).toBe("message-completed");
+    expect(getFinalResponseText(completed.state)).toBe("complete final text");
   });
 
-  test("ignores non-agent deltas", () => {
-    const reduction = reduceResponseStream(
-      createResponseStreamState(),
-      makeEvent("turn.stream.delta", {
-        method: "toolCallDelta",
-        textDelta: "ignored",
-        itemId: "item-1",
-        phase: "commentary",
-      }),
-    );
+  test("preserves multiple final message items in order", () => {
+    const first = reduceResponseStream(null, delta("first answer", "final_answer", "final-1"));
+    if (first.type !== "updated") throw new Error("expected update");
+    const second = reduceResponseStream(first.state, delta("second answer", "final_answer", "final-2"));
+    if (second.type !== "updated") throw new Error("expected update");
 
-    expect(reduction).toEqual({
+    expect(getFinalResponseText(second.state)).toBe("first answer\n\nsecond answer");
+  });
+
+  test("ignores non-agent and late-turn deltas", () => {
+    const initial = createResponseStreamState("turn-1");
+    expect(
+      reduceResponseStream(
+        initial,
+        makeEvent("turn.stream.delta", {
+          method: "item/commandExecution/outputDelta",
+          textDelta: "ignored",
+          itemId: "item-1",
+          phase: "commentary",
+          turnId: "turn-1",
+        }),
+      ),
+    ).toEqual({ type: "none", state: initial });
+    expect(reduceResponseStream(initial, delta("late", "final_answer", "final-old", "turn-old"))).toEqual({
       type: "none",
-      state: createResponseStreamState(),
+      state: initial,
     });
   });
 
-  test("closes commentary and requests immediate flush on completion", () => {
+  test("flushes open commentary and identifies failure at turn end", () => {
+    const state = {
+      turnId: "turn-1",
+      finalMessages: [],
+      activeCommentary: { itemId: "comment-1", text: "still useful" },
+    };
     const reduction = reduceResponseStream(
-      {
-        text: "\n> thinking",
-        lastPhase: "commentary",
-        lastItemId: "item-1",
-        commentaryOpen: true,
-        commentaryLineStart: false,
-      },
-      makeEvent("turn.completed", { turnId: "turn-1" }),
+      state,
+      makeEvent("turn.failed", { turnId: "turn-1", message: "provider failed" }),
     );
 
     expect(reduction).toEqual({
-      type: "flush-now",
-      state: {
-        text: "\n> thinking",
-        lastPhase: "commentary",
-        lastItemId: "item-1",
-        commentaryOpen: false,
-        commentaryLineStart: true,
-      },
+      type: "finish",
+      failed: true,
+      state: { ...state, activeCommentary: null },
+      completedCommentary: { itemId: "comment-1", text: "still useful" },
     });
   });
 });

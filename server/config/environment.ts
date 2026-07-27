@@ -52,3 +52,11 @@ export function readApprovalPolicy(value: string | undefined): ApprovalPolicy {
   }
   throw new Error(`Invalid CODEX_APPROVAL_POLICY: ${policy}`);
 }
+
+export function readBoolean(value: string | undefined, name: string, defaultValue: boolean): boolean {
+  if (value === undefined || value.trim() === "") return defaultValue;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  throw new Error(`${name} must be true or false.`);
+}

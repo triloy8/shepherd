@@ -3,6 +3,19 @@ import type { ApprovalPolicy, ThreadTokenUsage } from "./requests.js";
 
 export type MessagePhase = "commentary" | "final_answer";
 
+export type TurnActivityKind =
+  | "command"
+  | "file_change"
+  | "mcp_tool"
+  | "dynamic_tool"
+  | "web_search"
+  | "collaboration"
+  | "image"
+  | "wait"
+  | "other";
+
+export type TurnActivityStatus = "started" | "completed" | "failed";
+
 export type BridgeEventType =
   | "session.started"
   | "session.error"
@@ -17,6 +30,8 @@ export type BridgeEventType =
   | "turn.completed"
   | "turn.failed"
   | "turn.stream.delta"
+  | "turn.message.completed"
+  | "turn.activity"
   | "turn.notification"
   | "approval.requested"
   | "approval.decided"
@@ -43,12 +58,27 @@ export type ThreadUnarchivedEvent = BridgeEvent<Record<string, never>>;
 export type ThreadTokenUsageUpdatedEvent = BridgeEvent<{ turnId: string | null; tokenUsage: ThreadTokenUsage | null }>;
 export type TurnStartedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnCompletedEvent = BridgeEvent<{ turnId: string | null }>;
-export type TurnFailedEvent = BridgeEvent<{ message: string }>;
+export type TurnFailedEvent = BridgeEvent<{ message: string; turnId: string | null }>;
 export type TurnStreamDeltaEvent = BridgeEvent<{
   method: string;
   textDelta: string;
   itemId: string | null;
   phase: MessagePhase | null;
+  turnId: string | null;
+}>;
+export type TurnMessageCompletedEvent = BridgeEvent<{
+  itemId: string;
+  phase: MessagePhase | null;
+  text: string;
+  turnId: string | null;
+}>;
+export type TurnActivityEvent = BridgeEvent<{
+  itemId: string | null;
+  turnId: string | null;
+  kind: TurnActivityKind;
+  label: string;
+  detail: string | null;
+  status: TurnActivityStatus;
 }>;
 export type TurnNotificationEvent = BridgeEvent<{ method: string; params: unknown }>;
 export type ApprovalRequestedEvent = BridgeEvent<ApprovalRequestPayload>;

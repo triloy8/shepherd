@@ -9,6 +9,11 @@ import {
 } from "../../core/turn_routing_policy.js";
 import { executeTurnRouting } from "../../core/turn_routing_service.js";
 import { handleMessage, type CommandContext } from "./commands.js";
+import {
+  discordImageAttachmentToDataUrl,
+  isDiscordImageAttachment,
+  type DiscordImageFetch,
+} from "./image_input.js";
 
 export type DiscordMessageIngressDeps = {
   botUserId: string;
@@ -16,6 +21,7 @@ export type DiscordMessageIngressDeps = {
   commandContext: CommandContext;
   approvalPolicy: ApprovalPolicy;
   classifyInput?: typeof classifySurfaceInput;
+  fetchImage?: DiscordImageFetch;
   handleCommandMessage?: typeof handleMessage;
   executeRouting?: typeof executeTurnRouting;
 };
@@ -27,10 +33,15 @@ export async function processDiscordMessage(
   const raw = message.content.trim();
   const isCommand = raw.startsWith("!");
   const isMentioned = message.mentions.users.has(deps.botUserId);
+  if (!isCommand && !isMentioned) return;
 
   const mentionPattern = new RegExp(`<@!?${deps.botUserId}>`, "g");
   const sanitizedContent = isCommand ? raw : raw.replace(mentionPattern, "").trim();
-  const structuredInput = buildDiscordUserInput(message, sanitizedContent);
+  const structuredInput = await buildDiscordUserInput(
+    message,
+    sanitizedContent,
+    deps.fetchImage,
+  );
   const classify = deps.classifyInput ?? classifySurfaceInput;
   const classified: SurfaceInputClassification = classify({
     adapter: "discord",
@@ -61,7 +72,11 @@ export async function processDiscordMessage(
   );
 }
 
-function buildDiscordUserInput(message: Message, sanitizedContent: string): UserInput[] {
+async function buildDiscordUserInput(
+  message: Message,
+  sanitizedContent: string,
+  fetchImage?: DiscordImageFetch,
+): Promise<UserInput[]> {
   const input: UserInput[] = [];
 
   if (sanitizedContent) {
@@ -69,25 +84,13 @@ function buildDiscordUserInput(message: Message, sanitizedContent: string): User
   }
 
   for (const attachment of message.attachments?.values?.() ?? []) {
-    if (isImageAttachment(attachment)) {
-      input.push({ type: "image", url: attachment.url });
+    if (isDiscordImageAttachment(attachment)) {
+      const url = await discordImageAttachmentToDataUrl(attachment, {
+        ...(fetchImage ? { fetchImpl: fetchImage } : {}),
+      });
+      input.push({ type: "image", url });
     }
   }
 
   return input;
-}
-
-function isImageAttachment(attachment: {
-  contentType?: string | null;
-  name?: string | null;
-  url: string;
-}): boolean {
-  if (attachment.contentType?.startsWith("image/")) {
-    return true;
-  }
-
-  const name = attachment.name?.toLowerCase() ?? "";
-  return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".heic", ".heif"].some((ext) =>
-    name.endsWith(ext),
-  );
 }

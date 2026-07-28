@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   extractCompletedAgentMessage,
+  extractGeneratedImageArtifact,
   mapTurnActivity,
 } from "../server/core/codex_rpc_mapper.js";
 
@@ -120,5 +121,46 @@ describe("Codex RPC activity mapping", () => {
       turnId: "turn-1",
     });
     expect(extractCompletedAgentMessage(params({ type: "reasoning", id: "reason-1" }))).toBeNull();
+  });
+
+  test("extracts successful generated image artifacts with saved paths", () => {
+    expect(
+      extractGeneratedImageArtifact(
+        params({
+          type: "imageGeneration",
+          id: "image-1",
+          status: "completed",
+          revisedPrompt: "A pastel unicorn",
+          result: "Image generated",
+          savedPath: "/tmp/generated-unicorn.png",
+        }),
+      ),
+    ).toEqual({
+      itemId: "image-1",
+      turnId: "turn-1",
+      path: "/tmp/generated-unicorn.png",
+      revisedPrompt: "A pastel unicorn",
+    });
+    expect(
+      extractGeneratedImageArtifact(
+        params({
+          type: "imageGeneration",
+          id: "image-2",
+          status: "failed",
+          result: "Generation failed",
+          savedPath: "/tmp/failed.png",
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      extractGeneratedImageArtifact(
+        params({
+          type: "imageGeneration",
+          id: "image-3",
+          status: "completed",
+          result: "Image generated without a saved file",
+        }),
+      ),
+    ).toBeNull();
   });
 });

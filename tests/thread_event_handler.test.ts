@@ -44,8 +44,13 @@ function commentaryDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
 
 function createHarness(options: { failSendAt?: number } = {}) {
   const sent: Array<{
-    content: string;
+    content?: string;
     components?: unknown[];
+    files?: Array<{
+      attachment: Buffer;
+      name: string;
+      description?: string;
+    }>;
     reply?: { messageReference: string; failIfNotExists?: boolean };
     allowedMentions?: { repliedUser?: boolean };
   }> = [];
@@ -59,8 +64,13 @@ function createHarness(options: { failSendAt?: number } = {}) {
       payload:
         | string
         | {
-            content: string;
+            content?: string;
             components?: unknown[];
+            files?: Array<{
+              attachment: Buffer;
+              name: string;
+              description?: string;
+            }>;
             reply?: { messageReference: string; failIfNotExists?: boolean };
             allowedMentions?: { repliedUser?: boolean };
           },
@@ -303,6 +313,132 @@ describe("Discord thread event handler", () => {
 
     handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
     await handler.waitForIdle("chan-1");
+    handler.dispose();
+  });
+
+  test("delivers generated images once and before the final answer", async () => {
+    const harness = createHarness();
+    const clock = createDeterministicTimers();
+    const loadedPaths: string[] = [];
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      timers: clock.timers,
+      async generatedImageLoader(imagePath) {
+        loadedPaths.push(imagePath);
+        return {
+          attachment: Buffer.from("png"),
+          name: imagePath.endsWith(".webp") ? "landscape.webp" : "unicorn.png",
+        };
+      },
+      onError: (error) => harness.errors.push(error),
+    });
+    const generated = makeEvent("turn.image.generated", {
+      itemId: "image-1",
+      turnId: "turn-1",
+      path: "/tmp/unicorn.png",
+      revisedPrompt: "A pastel unicorn",
+    });
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.activity", {
+        itemId: "image-1",
+        turnId: "turn-1",
+        kind: "image",
+        label: "Generating image",
+        detail: "A pastel unicorn",
+        status: "started",
+      }),
+    );
+    handler.handleThreadEvent("chan-1", generated);
+    handler.handleThreadEvent("chan-1", generated);
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.image.generated", {
+        itemId: "image-2",
+        turnId: "turn-1",
+        path: "/tmp/landscape.webp",
+        revisedPrompt: "A pastel landscape",
+      }),
+    );
+    handler.handleThreadEvent("chan-1", finalDelta("Here is the generated image."));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+
+    expect(loadedPaths).toEqual(["/tmp/unicorn.png", "/tmp/landscape.webp"]);
+    expect(harness.sent).toHaveLength(4);
+    expect(harness.sent[0]?.content).toBe("🖼️ Generating image: A pastel unicorn");
+    expect(harness.sent[1]?.files).toHaveLength(1);
+    expect(harness.sent[1]?.files?.[0]).toMatchObject({
+      name: "unicorn.png",
+      description: "A pastel unicorn",
+    });
+    expect(harness.sent[2]?.files?.[0]).toMatchObject({
+      name: "landscape.webp",
+      description: "A pastel landscape",
+    });
+    expect(harness.sent[3]?.content).toBe("Here is the generated image.");
+    expect(harness.errors).toHaveLength(0);
+    handler.dispose();
+  });
+
+  test("ignores generated images from a replaced turn", async () => {
+    const harness = createHarness();
+    let loadCount = 0;
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      async generatedImageLoader() {
+        loadCount += 1;
+        return {
+          attachment: Buffer.from("png"),
+          name: "stale.png",
+        };
+      },
+    });
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-old" }));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-new" }));
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.image.generated", {
+        itemId: "image-old",
+        turnId: "turn-old",
+        path: "/tmp/stale.png",
+        revisedPrompt: null,
+      }),
+    );
+    await handler.waitForIdle("chan-1");
+
+    expect(loadCount).toBe(0);
+    expect(harness.sent).toHaveLength(0);
+    handler.dispose();
+  });
+
+  test("surfaces generated image upload failures without exposing paths", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      async generatedImageLoader() {
+        throw new Error("ENOENT /private/generated.png");
+      },
+      onError: (error) => harness.errors.push(error),
+    });
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.image.generated", {
+        itemId: "image-1",
+        turnId: "turn-1",
+        path: "/private/generated.png",
+        revisedPrompt: null,
+      }),
+    );
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.sent.map((message) => message.content)).toEqual([
+      "Generated Image Delivery Failed\n\nThe generated image could not be uploaded to Discord. The error was logged.",
+    ]);
+    expect(harness.sent[0]?.content).not.toContain("/private/generated.png");
+    expect(harness.errors).toHaveLength(1);
     handler.dispose();
   });
 

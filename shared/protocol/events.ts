@@ -31,6 +31,7 @@ export type BridgeEventType =
   | "turn.failed"
   | "turn.stream.delta"
   | "turn.message.completed"
+  | "turn.image.generated"
   | "turn.activity"
   | "turn.notification"
   | "approval.requested"
@@ -71,6 +72,12 @@ export type TurnMessageCompletedEvent = BridgeEvent<{
   phase: MessagePhase | null;
   text: string;
   turnId: string | null;
+}>;
+export type TurnImageGeneratedEvent = BridgeEvent<{
+  itemId: string;
+  turnId: string | null;
+  path: string;
+  revisedPrompt: string | null;
 }>;
 export type TurnActivityEvent = BridgeEvent<{
   itemId: string | null;

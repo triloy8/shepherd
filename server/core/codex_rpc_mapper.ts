@@ -85,6 +85,13 @@ export type CompletedAgentMessage = {
   turnId: string | null;
 };
 
+export type GeneratedImageArtifact = {
+  itemId: string;
+  turnId: string | null;
+  path: string;
+  revisedPrompt: string | null;
+};
+
 export function extractCompletedAgentMessage(params: unknown): CompletedAgentMessage | null {
   const record = asRecord(params);
   const item = asRecord(record.item);
@@ -102,6 +109,34 @@ export function extractCompletedAgentMessage(params: unknown): CompletedAgentMes
     phase,
     text: typeof item.text === "string" ? item.text : "",
     turnId: extractTurnId(params),
+  };
+}
+
+export function extractGeneratedImageArtifact(params: unknown): GeneratedImageArtifact | null {
+  const record = asRecord(params);
+  const item = asRecord(record.item);
+  if (asString(item.type) !== "imageGeneration") {
+    return null;
+  }
+
+  const status = asString(item.status)?.toLowerCase() ?? "";
+  if (
+    status.includes("fail") ||
+    status.includes("error") ||
+    status.includes("cancel")
+  ) {
+    return null;
+  }
+
+  const itemId = asString(item.id);
+  const savedPath = asString(item.savedPath);
+  if (!itemId || !savedPath) return null;
+
+  return {
+    itemId,
+    turnId: extractTurnId(params),
+    path: savedPath,
+    revisedPrompt: asString(item.revisedPrompt),
   };
 }
 

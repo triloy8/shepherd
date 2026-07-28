@@ -5,7 +5,11 @@ import {
 } from "discord.js";
 
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
-import type { BridgeEvent, TurnActivityEvent } from "../../../shared/protocol/events.js";
+import type {
+  BridgeEvent,
+  TurnActivityEvent,
+  TurnImageGeneratedEvent,
+} from "../../../shared/protocol/events.js";
 import {
   createResponseStreamState,
   getFinalResponseText,
@@ -24,6 +28,10 @@ import {
   type DiscordPreviewState,
   type SendableChannel,
 } from "./stream_delivery.js";
+import {
+  sendDiscordGeneratedImage,
+  type GeneratedImageAttachmentLoader,
+} from "./generated_image_delivery.js";
 import {
   encodeApprovalButtonId,
   formatActivityLine,
@@ -44,6 +52,7 @@ export type DiscordThreadEventHandlerOptions = {
   previewUpdateIntervalMs?: number;
   onError?: (error: unknown) => void;
   timers?: DiscordDeliveryTimers;
+  generatedImageLoader?: GeneratedImageAttachmentLoader;
 };
 
 export type DiscordDeliveryTimers = {
@@ -63,6 +72,7 @@ type DiscordTurnDeliveryState = {
   stream: ResponseStreamState;
   progressLines: string[];
   progressLineSet: Set<string>;
+  generatedImageItemIds: Set<string>;
   progressDelivery: DiscordEditableChunksState;
   progressTimer: NodeJS.Timeout | null;
   preview: DiscordPreviewState;
@@ -139,6 +149,7 @@ export function createDiscordThreadEventHandler(
   const progressUpdateIntervalMs = options.progressUpdateIntervalMs ?? 1_500;
   const previewUpdateIntervalMs = options.previewUpdateIntervalMs ?? 400;
   const onError = options.onError ?? ((error: unknown) => console.error("Discord delivery failed:", error));
+  const generatedImageLoader = options.generatedImageLoader;
   const timers: DiscordDeliveryTimers = options.timers ?? {
     setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
     clearTimeout: (timer) => clearTimeout(timer),
@@ -194,6 +205,7 @@ export function createDiscordThreadEventHandler(
     stream: createResponseStreamState(turnId),
     progressLines: [],
     progressLineSet: new Set<string>(),
+    generatedImageItemIds: new Set<string>(),
     progressDelivery: createDiscordEditableChunksState(),
     progressTimer: null,
     preview: createDiscordPreviewState(),
@@ -391,6 +403,7 @@ export function createDiscordThreadEventHandler(
         [
           "turn.stream.delta",
           "turn.message.completed",
+          "turn.image.generated",
           "turn.activity",
           "turn.completed",
           "turn.failed",
@@ -410,6 +423,30 @@ export function createDiscordThreadEventHandler(
           scheduleProgress(channelId, state);
         }
       }
+      return;
+    }
+
+    if (event.type === "turn.image.generated") {
+      const image = event.payload as TurnImageGeneratedEvent["payload"];
+      if (state.generatedImageItemIds.has(image.itemId)) return;
+      state.generatedImageItemIds.add(image.itemId);
+      flushProgress(channelId, state);
+      enqueue(channelId, state, async (channel) => {
+        const result = await sendDiscordGeneratedImage(channel, image.path, {
+          description: image.revisedPrompt,
+          ...(generatedImageLoader ? { loadAttachment: generatedImageLoader } : {}),
+        });
+        if (result.success) return;
+
+        onError(new Error(`Generated image delivery failed: ${result.error ?? "unknown error"}`));
+        try {
+          await channel.send(
+            "Generated Image Delivery Failed\n\nThe generated image could not be uploaded to Discord. The error was logged.",
+          );
+        } catch (error) {
+          onError(error);
+        }
+      });
       return;
     }
 

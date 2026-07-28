@@ -23,6 +23,7 @@ import type { UserInput } from "../../shared/protocol/user_input.js";
 import { EventBus } from "./event_bus.js";
 import {
   extractCompletedAgentMessage,
+  extractGeneratedImageArtifact,
   extractItemId,
   extractTextDelta,
   extractThreadId,
@@ -735,6 +736,10 @@ export class CodexSession {
         if (message) {
           this.publish("turn.message.completed", threadId, message);
           return;
+        }
+        const generatedImage = extractGeneratedImageArtifact(params);
+        if (generatedImage) {
+          this.publish("turn.image.generated", threadId, generatedImage);
         }
       }
 

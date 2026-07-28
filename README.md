@@ -25,6 +25,10 @@ Mentioned messages may include PNG, JPEG, GIF, or WebP attachments up to 10 MiB.
 Shepherd downloads and validates those images before submitting them to Codex
 as inline image input.
 
+When Codex image generation produces a saved PNG, JPEG, GIF, or WebP artifact
+up to 10 MiB, Shepherd validates and uploads the generated image back to the
+Discord channel.
+
 ## 🧱 Architecture
 
 - `shared/protocol`: request, event, approval, and user-input contracts

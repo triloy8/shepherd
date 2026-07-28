@@ -6,7 +6,12 @@ import { toTextUserInput } from "../shared/protocol/user_input.js";
 function makeMessage(
   content: string,
   mentioned = false,
-  attachments: Array<{ url: string; contentType?: string | null; name?: string | null }> = [],
+  attachments: Array<{
+    url: string;
+    contentType?: string | null;
+    name?: string | null;
+    size?: number;
+  }> = [],
 ) {
   const replies: string[] = [];
   return {
@@ -82,11 +87,14 @@ describe("Discord message ingress", () => {
     });
   });
 
-  test("routes image-only mentioned messages with remote image input", async () => {
+  test("routes image-only mentioned messages with inline image input", async () => {
     const { message } = makeMessage("<@bot-1>", true, [
       { url: "https://cdn.discordapp.com/test.png", contentType: "image/png", name: "test.png" },
     ]);
     const seen: { routedInput?: unknown } = {};
+    const imageBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
 
     await processDiscordMessage(message as never, {
       botUserId: "bot-1",
@@ -97,6 +105,11 @@ describe("Discord message ingress", () => {
         },
       } as never,
       approvalPolicy: "on-request",
+      async fetchImage() {
+        return new Response(imageBytes, {
+          headers: { "content-type": "image/png" },
+        });
+      },
       async handleCommandMessage() {
         throw new Error("unexpected command handling");
       },
@@ -107,21 +120,27 @@ describe("Discord message ingress", () => {
     });
 
     expect(seen).toEqual({
-      routedInput: [{ type: "image", url: "https://cdn.discordapp.com/test.png" }],
+      routedInput: [{ type: "image", url: "data:image/png;base64,iVBORw0KGgo=" }],
     });
   });
 
   test("routes text plus image messages without dropping the image attachment", async () => {
     const { message } = makeMessage("<@bot-1> describe this", true, [
-      { url: "https://cdn.discordapp.com/test.png", contentType: "image/png", name: "test.png" },
+      { url: "https://cdn.discordapp.com/test.jpg", contentType: "image/jpeg", name: "test.jpg" },
     ]);
     const seen: { routedInput?: unknown } = {};
+    const imageBytes = new Uint8Array([0xff, 0xd8, 0xff]);
 
     await processDiscordMessage(message as never, {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
       approvalPolicy: "on-request",
+      async fetchImage() {
+        return new Response(imageBytes, {
+          headers: { "content-type": "image/jpeg" },
+        });
+      },
       async handleCommandMessage(_message, _context, contentOverride) {
         return {
           handled: false,
@@ -138,7 +157,7 @@ describe("Discord message ingress", () => {
     expect(seen).toEqual({
       routedInput: [
         toTextUserInput("describe this"),
-        { type: "image", url: "https://cdn.discordapp.com/test.png" },
+        { type: "image", url: "data:image/jpeg;base64,/9j/" },
       ],
     });
   });

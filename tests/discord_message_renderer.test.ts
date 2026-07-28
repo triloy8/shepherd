@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { ApprovalRequestPayload } from "../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import {
+  formatActivityLine,
   formatApprovalDecisionLabel,
   formatApprovalDecisionReply,
   formatApprovalText,
@@ -76,5 +77,51 @@ describe("Discord message renderer", () => {
       "Event Error\n\nEvent: tool.failed",
     );
     expect(formatEventLine(makeEvent("turn.notification", { method: "tool.started" }))).toBeNull();
+  });
+
+  test("renders concise activity lines and redacts command secrets", () => {
+    expect(
+      formatActivityLine({
+        itemId: "command-1",
+        turnId: "turn-1",
+        kind: "command",
+        label: "Running command",
+        detail: "API_TOKEN=super-secret bun test",
+        status: "started",
+      }),
+    ).toBe("🔧 Running command: API_TOKEN=[REDACTED] bun test");
+    expect(
+      formatActivityLine({
+        itemId: "command-2",
+        turnId: "turn-1",
+        kind: "command",
+        label: "Running command",
+        detail: "tool --api-key hidden-value --token=second-secret",
+        status: "started",
+      }),
+    ).toBe("🔧 Running command: tool --api-key [REDACTED] --token=[REDACTED]");
+    expect(
+      formatActivityLine({
+        itemId: "tool-1",
+        turnId: "turn-1",
+        kind: "mcp_tool",
+        label: "Calling MCP tool",
+        detail: "github.get_pull_request",
+        status: "failed",
+      }),
+    ).toBe("⚠️ Calling MCP tool failed: github.get_pull_request");
+  });
+
+  test("truncates oversized activity details", () => {
+    const line = formatActivityLine({
+      itemId: "command-1",
+      turnId: "turn-1",
+      kind: "command",
+      label: "Running command",
+      detail: "x".repeat(500),
+      status: "started",
+    });
+    expect(line.endsWith("…")).toBe(true);
+    expect(Array.from(line).length).toBeLessThan(190);
   });
 });

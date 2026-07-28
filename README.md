@@ -103,6 +103,9 @@ Shepherd loads env files from `envs/` in this order:
 Supported keys:
 
 - `DISCORD_BOT_TOKEN`: required
+- `SHEPHERD_DISCORD_STREAMING`: optional boolean, default `false`. Discord
+  provides live typing, tool activity, and completed commentary, then sends
+  the final answer once. Enabling this adds one editable final-answer preview.
 - `CODEX_MODEL`: optional. If unset, the runtime falls back to `gpt-5.3-codex`
 - `CODEX_APPROVAL_POLICY`: optional. Default in the example file: `never`
 - `CODEX_SANDBOX`: optional. One of `read-only`, `workspace-write`, or `danger-full-access`

@@ -1,5 +1,5 @@
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
-import type { BridgeEvent } from "../../../shared/protocol/events.js";
+import type { BridgeEvent, TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
 
 function formatStatusBlock(title: string, lines: string[]): string {
   const body = lines.map((line) => line.trim()).filter(Boolean);
@@ -45,6 +45,45 @@ export function formatEventLine(event: BridgeEvent): string | null {
   }
 
   return null;
+}
+
+const ACTIVITY_ICON: Record<TurnActivityKind, string> = {
+  command: "🔧",
+  file_change: "📝",
+  mcp_tool: "🔌",
+  dynamic_tool: "🛠️",
+  web_search: "🔎",
+  collaboration: "🤝",
+  image: "🖼️",
+  wait: "⏳",
+  other: "•",
+};
+
+function redactActivityDetail(value: string): string {
+  return value
+    .replace(/\b(Bearer)\s+\S+/gi, "$1 [REDACTED]")
+    .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "[REDACTED]")
+    .replace(/\b(?:gh[opusr]_|github_pat_)[A-Za-z0-9_]{10,}\b/gi, "[REDACTED]")
+    .replace(
+      /\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)[A-Z0-9_]*)=([^\s]+)/g,
+      "$1=[REDACTED]",
+    )
+    .replace(/(--?(?:api[-_]?key|token|password|secret)\b(?:=|\s+))([^\s]+)/gi, "$1[REDACTED]")
+    .replace(/(["'](?:api[-_]?key|token|password|secret)["']\s*:\s*["'])([^"']+)(["'])/gi, "$1[REDACTED]$3");
+}
+
+function truncateActivityDetail(value: string, maxLength = 160): string {
+  const collapsed = redactActivityDetail(value).replace(/\s+/g, " ").trim();
+  const points = Array.from(collapsed);
+  if (points.length <= maxLength) return collapsed;
+  return `${points.slice(0, maxLength - 1).join("")}…`;
+}
+
+export function formatActivityLine(activity: TurnActivityEvent["payload"]): string {
+  const icon = activity.status === "failed" ? "⚠️" : ACTIVITY_ICON[activity.kind];
+  const detail = activity.detail ? truncateActivityDetail(activity.detail) : "";
+  const statusSuffix = activity.status === "failed" ? " failed" : "";
+  return `${icon} ${activity.label}${statusSuffix}${detail ? `: ${detail}` : ""}`;
 }
 
 export function formatApprovalText(approval: ApprovalRequestPayload): string {

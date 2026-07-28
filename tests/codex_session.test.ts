@@ -183,10 +183,86 @@ describe("CodexSession app-server contract", () => {
       [
         "turn.failed",
         "thread-schema",
-        { message: "Provider rejected the request." },
+        { message: "Provider rejected the request.", turnId: "turn-active" },
       ],
     ]);
     expect(session.activeTurnId).toBeNull();
+  });
+
+  test("publishes normalized activity and canonical completed messages", () => {
+    const session = new CodexSession("on-request");
+    const events: BridgeEvent[] = [];
+    session.threadId = "thread-1";
+    session.activeTurnId = "turn-1";
+    session.eventBus.subscribe((event) => events.push(event), { replay: false });
+
+    internals(session).onNotification("item/started", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      item: {
+        type: "commandExecution",
+        id: "command-1",
+        command: "bun test",
+        status: "inProgress",
+      },
+    });
+    internals(session).onNotification("item/completed", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      item: {
+        type: "agentMessage",
+        id: "final-1",
+        phase: "final_answer",
+        text: "Complete answer",
+      },
+    });
+
+    expect(events.find((event) => event.type === "turn.activity")?.payload).toMatchObject({
+      itemId: "command-1",
+      turnId: "turn-1",
+      kind: "command",
+      detail: "bun test",
+      status: "started",
+    });
+    expect(events.find((event) => event.type === "turn.message.completed")?.payload).toEqual({
+      itemId: "final-1",
+      phase: "final_answer",
+      text: "Complete answer",
+      turnId: "turn-1",
+    });
+  });
+
+  test("attaches turn and captured phase metadata to agent deltas", () => {
+    const session = new CodexSession("on-request");
+    const events: BridgeEvent[] = [];
+    session.threadId = "thread-1";
+    session.activeTurnId = "turn-1";
+    session.eventBus.subscribe((event) => events.push(event), { replay: false });
+
+    internals(session).onNotification("item/started", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      item: {
+        type: "agentMessage",
+        id: "comment-1",
+        phase: "commentary",
+        text: "",
+      },
+    });
+    internals(session).onNotification("item/agentMessage/delta", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "comment-1",
+      delta: "Checking now.",
+    });
+
+    expect(events.find((event) => event.type === "turn.stream.delta")?.payload).toEqual({
+      method: "item/agentMessage/delta",
+      textDelta: "Checking now.",
+      itemId: "comment-1",
+      phase: "commentary",
+      turnId: "turn-1",
+    });
   });
 });
 

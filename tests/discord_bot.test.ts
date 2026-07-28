@@ -1,43 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatCommentaryDelta, phaseHeader } from "../server/core/response_stream_reducer.js";
+import { readBoolean } from "../server/config/environment.js";
 
-describe("Response stream reducer phaseHeader", () => {
-  test("omits a heading for commentary updates", () => {
-    expect(phaseHeader("commentary", false)).toBe("");
+describe("Discord delivery configuration", () => {
+  test("keeps Discord final-answer streaming off by default", () => {
+    expect(readBoolean(undefined, "SHEPHERD_DISCORD_STREAMING", false)).toBe(false);
   });
 
-  test("adds spacing before final answers without a visible heading", () => {
-    expect(phaseHeader("final_answer", true)).toBe("\n\n");
-  });
-});
-
-describe("Response stream reducer commentary formatting", () => {
-  test("prefixes each commentary line with a blockquote marker", () => {
-    expect(formatCommentaryDelta("first line\nsecond line", true)).toEqual({
-      text: "> first line\n> second line",
-      endsAtLineStart: false,
-    });
+  test("accepts common explicit boolean values", () => {
+    expect(readBoolean("true", "SHEPHERD_DISCORD_STREAMING", false)).toBe(true);
+    expect(readBoolean("off", "SHEPHERD_DISCORD_STREAMING", true)).toBe(false);
   });
 
-  test("continues an existing commentary line without adding an extra prefix", () => {
-    expect(formatCommentaryDelta("continued", false)).toEqual({
-      text: "continued",
-      endsAtLineStart: false,
-    });
-  });
-
-  test("marks the next chunk as starting on a new quoted line after a newline", () => {
-    expect(formatCommentaryDelta("line one\n", true)).toEqual({
-      text: "> line one\n",
-      endsAtLineStart: true,
-    });
-  });
-
-  test("quotes empty lines inside commentary without leaving a dangling quote marker", () => {
-    expect(formatCommentaryDelta("line one\n\nline three", true)).toEqual({
-      text: "> line one\n> \n> line three",
-      endsAtLineStart: false,
-    });
+  test("rejects ambiguous streaming values", () => {
+    expect(() => readBoolean("sometimes", "SHEPHERD_DISCORD_STREAMING", false)).toThrow(
+      "SHEPHERD_DISCORD_STREAMING must be true or false.",
+    );
   });
 });

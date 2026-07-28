@@ -12,7 +12,7 @@ import {
 } from "discord.js";
 
 import type { SandboxMode } from "../../../shared/protocol/requests.js";
-import { loadEnvironment, readApprovalPolicy } from "../../config/environment.js";
+import { loadEnvironment, readApprovalPolicy, readBoolean } from "../../config/environment.js";
 import { ConversationService } from "../../core/conversation_service.js";
 import { DeploymentService } from "../../core/deployment_service.js";
 import { RuntimeLifecycleOrchestrator } from "../../core/runtime_lifecycle_orchestrator.js";
@@ -73,6 +73,11 @@ export async function startDiscordBot(): Promise<void> {
 
   const approvalPolicy = readApprovalPolicy(process.env.CODEX_APPROVAL_POLICY);
   const defaultSandbox = readSandboxMode(process.env.CODEX_SANDBOX);
+  const discordStreaming = readBoolean(
+    process.env.SHEPHERD_DISCORD_STREAMING,
+    "SHEPHERD_DISCORD_STREAMING",
+    false,
+  );
   const deploymentCommandTimeoutMs = readPositiveNumber(
     process.env.SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS,
     "SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS",
@@ -100,10 +105,12 @@ export async function startDiscordBot(): Promise<void> {
   let shutdownPromise: Promise<void> | null = null;
   let restartPrepared = false;
   let restartExitScheduled = false;
+  let disposeThreadEvents = (): void => {};
 
   const shutdown = (): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
     shutdownPromise = (async () => {
+      disposeThreadEvents();
       conversation.stopAll();
       await client.destroy();
     })();
@@ -140,7 +147,11 @@ export async function startDiscordBot(): Promise<void> {
     },
   });
 
-  const { handleThreadEvent } = createDiscordThreadEventHandler(client);
+  const threadEvents = createDiscordThreadEventHandler(client, {
+    streaming: discordStreaming,
+  });
+  const { handleThreadEvent, recordUserMessage } = threadEvents;
+  disposeThreadEvents = threadEvents.dispose;
   const runtime = createDiscordSurfaceRuntime({
     conversation,
     approvalPolicy,
@@ -165,6 +176,7 @@ export async function startDiscordBot(): Promise<void> {
     if (!client.user) return;
 
     try {
+      recordUserMessage(message.channelId, message.id);
       await processDiscordMessage(message, {
         botUserId: client.user.id,
         conversation,

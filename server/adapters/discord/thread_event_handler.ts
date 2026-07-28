@@ -5,19 +5,28 @@ import {
 } from "discord.js";
 
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
-import type { BridgeEvent } from "../../../shared/protocol/events.js";
+import type { BridgeEvent, TurnActivityEvent } from "../../../shared/protocol/events.js";
 import {
   createResponseStreamState,
+  getFinalResponseText,
   reduceResponseStream,
+  type AccumulatedMessage,
+  type ResponseStreamState,
 } from "../../core/response_stream_reducer.js";
 import {
-  createDiscordStreamState,
-  flushDiscordStream,
+  createDiscordEditableChunksState,
+  createDiscordPreviewState,
   isSendableChannel,
-  type DiscordStreamState,
+  sendDiscordText,
+  updateDiscordEditableChunks,
+  updateDiscordPreview,
+  type DiscordEditableChunksState,
+  type DiscordPreviewState,
+  type SendableChannel,
 } from "./stream_delivery.js";
 import {
   encodeApprovalButtonId,
+  formatActivityLine,
   formatApprovalText,
   formatEventLine,
 } from "./message_renderer.js";
@@ -26,6 +35,40 @@ export type DiscordThreadEventHandlerClient = {
   channels: {
     fetch: (channelId: string) => Promise<unknown>;
   };
+};
+
+export type DiscordThreadEventHandlerOptions = {
+  streaming?: boolean;
+  typingIntervalMs?: number;
+  progressUpdateIntervalMs?: number;
+  previewUpdateIntervalMs?: number;
+  onError?: (error: unknown) => void;
+  timers?: DiscordDeliveryTimers;
+};
+
+export type DiscordDeliveryTimers = {
+  setTimeout: (callback: () => void, delayMs: number) => NodeJS.Timeout;
+  clearTimeout: (timer: NodeJS.Timeout) => void;
+  setInterval: (callback: () => void, delayMs: number) => NodeJS.Timeout;
+  clearInterval: (timer: NodeJS.Timeout) => void;
+};
+
+type TurnDeliveryStatus = "working" | "finalizing" | "completed" | "failed";
+
+type DiscordTurnDeliveryState = {
+  generation: number;
+  turnId: string | null;
+  replyToMessageId: string | null;
+  status: TurnDeliveryStatus;
+  stream: ResponseStreamState;
+  progressLines: string[];
+  progressLineSet: Set<string>;
+  progressDelivery: DiscordEditableChunksState;
+  progressTimer: NodeJS.Timeout | null;
+  preview: DiscordPreviewState;
+  previewTimer: NodeJS.Timeout | null;
+  typingTimer: NodeJS.Timeout | null;
+  queue: Promise<void>;
 };
 
 function pickButtonStyle(decision: string): ButtonStyle {
@@ -68,108 +111,354 @@ export function buildApprovalRows(
     count += 1;
   }
 
-  if (count > 0) {
-    rows.push(current);
-  }
-
+  if (count > 0) rows.push(current);
   return rows;
 }
 
-async function sendChannelMessage(
-  client: DiscordThreadEventHandlerClient,
-  channelId: string,
-  text: string,
-): Promise<void> {
-  const channel = await client.channels.fetch(channelId);
-  if (!isSendableChannel(channel)) return;
-  await channel.send(text);
+function eventTurnId(event: BridgeEvent): string | null {
+  const payload = event.payload as { turnId?: string | null };
+  return payload.turnId ?? null;
 }
 
-export function createDiscordThreadEventHandler(client: DiscordThreadEventHandlerClient): {
+function belongsToTurn(state: DiscordTurnDeliveryState, event: BridgeEvent): boolean {
+  const turnId = eventTurnId(event);
+  return !turnId || !state.turnId || turnId === state.turnId;
+}
+
+export function createDiscordThreadEventHandler(
+  client: DiscordThreadEventHandlerClient,
+  options: DiscordThreadEventHandlerOptions = {},
+): {
   handleThreadEvent: (channelId: string, event: BridgeEvent) => void;
+  recordUserMessage: (channelId: string, messageId: string) => void;
+  waitForIdle: (channelId: string) => Promise<void>;
+  dispose: () => void;
 } {
-  const streamByChannel = new Map<string, DiscordStreamState>();
+  const streaming = options.streaming ?? false;
+  const typingIntervalMs = options.typingIntervalMs ?? 8_000;
+  const progressUpdateIntervalMs = options.progressUpdateIntervalMs ?? 1_500;
+  const previewUpdateIntervalMs = options.previewUpdateIntervalMs ?? 400;
+  const onError = options.onError ?? ((error: unknown) => console.error("Discord delivery failed:", error));
+  const timers: DiscordDeliveryTimers = options.timers ?? {
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimeout: (timer) => clearTimeout(timer),
+    setInterval: (callback, delayMs) => setInterval(callback, delayMs),
+    clearInterval: (timer) => clearInterval(timer),
+  };
+  const stateByChannel = new Map<string, DiscordTurnDeliveryState>();
+  const pendingReplyByChannel = new Map<string, string>();
+  let generation = 0;
 
-  const flushStream = async (channelId: string): Promise<void> => {
-    const state = streamByChannel.get(channelId);
-    if (!state || !state.stream.text.trim()) return;
-    if (state.flushing) {
-      state.pendingFlush = true;
-      return;
-    }
-    state.flushing = true;
+  const fetchChannel = async (channelId: string): Promise<SendableChannel | null> => {
+    const channel = await client.channels.fetch(channelId);
+    return isSendableChannel(channel) ? channel : null;
+  };
 
-    try {
-      const channel = await client.channels.fetch(channelId);
-      if (!isSendableChannel(channel)) return;
-      await flushDiscordStream(channel, state);
-    } finally {
-      state.flushing = false;
-      if (state.pendingFlush) {
-        state.pendingFlush = false;
-        queueMicrotask(() => {
-          void flushStream(channelId);
-        });
+  const enqueue = (
+    channelId: string,
+    state: DiscordTurnDeliveryState,
+    operation: (channel: SendableChannel) => Promise<void>,
+    currentGenerationOnly = false,
+  ): void => {
+    const run = async () => {
+      if (
+        currentGenerationOnly &&
+        stateByChannel.get(channelId)?.generation !== state.generation
+      ) {
+        return;
       }
+      const channel = await fetchChannel(channelId);
+      if (!channel) return;
+      if (
+        currentGenerationOnly &&
+        stateByChannel.get(channelId)?.generation !== state.generation
+      ) {
+        return;
+      }
+      await operation(channel);
+    };
+    state.queue = state.queue.then(run, run).catch((error) => {
+      onError(error);
+    });
+  };
+
+  const createState = (
+    turnId: string | null,
+    priorQueue: Promise<void> = Promise.resolve(),
+    replyToMessageId: string | null = null,
+  ): DiscordTurnDeliveryState => ({
+    generation: ++generation,
+    turnId,
+    replyToMessageId,
+    status: "working",
+    stream: createResponseStreamState(turnId),
+    progressLines: [],
+    progressLineSet: new Set<string>(),
+    progressDelivery: createDiscordEditableChunksState(),
+    progressTimer: null,
+    preview: createDiscordPreviewState(),
+    previewTimer: null,
+    typingTimer: null,
+    queue: priorQueue,
+  });
+
+  const currentOrCreate = (channelId: string, turnId: string | null): DiscordTurnDeliveryState => {
+    const current = stateByChannel.get(channelId);
+    if (current) return current;
+    const created = createState(turnId, Promise.resolve(), pendingReplyByChannel.get(channelId) ?? null);
+    pendingReplyByChannel.delete(channelId);
+    stateByChannel.set(channelId, created);
+    return created;
+  };
+
+  const stopTyping = (state: DiscordTurnDeliveryState): void => {
+    if (state.typingTimer) timers.clearInterval(state.typingTimer);
+    state.typingTimer = null;
+  };
+
+  const startTyping = (channelId: string, state: DiscordTurnDeliveryState): void => {
+    const sendTyping = (channel: SendableChannel): Promise<void> =>
+      channel.sendTyping ? channel.sendTyping().then(() => undefined) : Promise.resolve();
+    enqueue(channelId, state, sendTyping, true);
+    state.typingTimer = timers.setInterval(() => {
+      if (stateByChannel.get(channelId) !== state || state.status !== "working") {
+        stopTyping(state);
+        return;
+      }
+      enqueue(channelId, state, sendTyping, true);
+    }, typingIntervalMs);
+    state.typingTimer.unref?.();
+  };
+
+  const sendCommentary = (
+    channelId: string,
+    state: DiscordTurnDeliveryState,
+    commentary: AccumulatedMessage | null,
+  ): void => {
+    const text = commentary?.text.trim();
+    if (!text) return;
+    enqueue(channelId, state, async (channel) => {
+      const result = await sendDiscordText(channel, text);
+      if (!result.success) {
+        onError(new Error(`Commentary delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
+      }
+    });
+  };
+
+  const flushProgress = (channelId: string, state: DiscordTurnDeliveryState): void => {
+    if (state.progressTimer) timers.clearTimeout(state.progressTimer);
+    state.progressTimer = null;
+    if (state.progressLines.length === 0) return;
+    const text = state.progressLines.join("\n");
+    enqueue(channelId, state, async (channel) => {
+      const result = await updateDiscordEditableChunks(channel, state.progressDelivery, text);
+      if (!result.success) {
+        onError(new Error(`Progress delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
+      }
+    }, true);
+  };
+
+  const scheduleProgress = (channelId: string, state: DiscordTurnDeliveryState): void => {
+    if (state.progressTimer) return;
+    state.progressTimer = timers.setTimeout(() => flushProgress(channelId, state), progressUpdateIntervalMs);
+    state.progressTimer.unref?.();
+  };
+
+  const flushPreview = (channelId: string, state: DiscordTurnDeliveryState): void => {
+    if (state.previewTimer) timers.clearTimeout(state.previewTimer);
+    state.previewTimer = null;
+    const text = getFinalResponseText(state.stream);
+    if (!text) return;
+    enqueue(channelId, state, async (channel) => {
+      const result = await updateDiscordPreview(channel, state.preview, text, {
+        replyToMessageId: state.replyToMessageId,
+      });
+      if (!result.success) {
+        onError(new Error(result.error ?? "Discord preview update failed."));
+      }
+    }, true);
+  };
+
+  const schedulePreview = (channelId: string, state: DiscordTurnDeliveryState): void => {
+    if (!streaming || state.previewTimer) return;
+    state.previewTimer = timers.setTimeout(() => flushPreview(channelId, state), previewUpdateIntervalMs);
+    state.previewTimer.unref?.();
+  };
+
+  const reportInterruptedDelivery = async (
+    channel: SendableChannel,
+    deliveredChunks: number,
+    totalChunks: number,
+  ): Promise<void> => {
+    try {
+      await channel.send(
+        `Response delivery was interrupted after ${deliveredChunks}/${totalChunks} parts. The error was logged.`,
+      );
+    } catch (error) {
+      onError(error);
     }
   };
 
-  const scheduleStreamFlush = (channelId: string): void => {
-    const state = streamByChannel.get(channelId);
-    if (!state || state.timer) return;
+  const finalizeTurn = (
+    channelId: string,
+    state: DiscordTurnDeliveryState,
+    failed: boolean,
+  ): void => {
+    if (state.status !== "working") return;
+    state.status = "finalizing";
+    stopTyping(state);
+    flushProgress(channelId, state);
+    if (state.previewTimer) timers.clearTimeout(state.previewTimer);
+    state.previewTimer = null;
 
-    state.timer = setTimeout(() => {
-      state.timer = null;
-      void flushStream(channelId);
-    }, 400);
+    const finalText = getFinalResponseText(state.stream);
+    enqueue(channelId, state, async (channel) => {
+      if (failed) {
+        if (finalText) {
+          const partial = await sendDiscordText(channel, `Partial response\n\n${finalText}`, {
+            replyToMessageId: state.replyToMessageId,
+          });
+          if (!partial.success) {
+            onError(new Error(partial.error ?? "Partial response delivery failed."));
+            await reportInterruptedDelivery(channel, partial.deliveredChunks, partial.totalChunks);
+          }
+        }
+        state.status = "failed";
+        return;
+      }
+
+      if (!finalText) {
+        state.status = "completed";
+        return;
+      }
+
+      const result = streaming
+        ? await updateDiscordPreview(channel, state.preview, finalText, {
+            finalize: true,
+            replyToMessageId: state.replyToMessageId,
+          })
+        : await sendDiscordText(channel, finalText, {
+            replyToMessageId: state.replyToMessageId,
+          });
+      if (!result.success) {
+        onError(new Error(result.error ?? "Final response delivery failed."));
+        await reportInterruptedDelivery(channel, result.deliveredChunks, result.totalChunks);
+      }
+      state.status = "completed";
+    });
+  };
+
+  const enqueuePlainMessage = (
+    channelId: string,
+    state: DiscordTurnDeliveryState,
+    text: string,
+  ): void => {
+    enqueue(channelId, state, async (channel) => {
+      const result = await sendDiscordText(channel, text);
+      if (!result.success) {
+        onError(new Error(result.error ?? "Discord message delivery failed."));
+      }
+    });
   };
 
   const handleThreadEvent = (channelId: string, event: BridgeEvent): void => {
-    const prior = streamByChannel.get(channelId) ?? null;
+    const prior = stateByChannel.get(channelId) ?? null;
     const reduction = reduceResponseStream(prior?.stream ?? null, event);
+
     if (reduction.type === "reset") {
-      if (prior?.timer) clearTimeout(prior.timer);
-      streamByChannel.set(channelId, createDiscordStreamState(reduction.state));
+      if (prior) {
+        stopTyping(prior);
+        if (prior.progressTimer) timers.clearTimeout(prior.progressTimer);
+        if (prior.previewTimer) timers.clearTimeout(prior.previewTimer);
+      }
+      const next = createState(
+        reduction.state.turnId,
+        prior?.queue,
+        pendingReplyByChannel.get(channelId) ?? null,
+      );
+      pendingReplyByChannel.delete(channelId);
+      next.stream = reduction.state;
+      stateByChannel.set(channelId, next);
+      startTyping(channelId, next);
       return;
     }
-    if (reduction.type === "schedule-flush") {
-      const nextState = prior ?? createDiscordStreamState(createResponseStreamState());
-      nextState.stream = reduction.state;
-      streamByChannel.set(channelId, nextState);
-      scheduleStreamFlush(channelId);
+
+    const state = currentOrCreate(channelId, eventTurnId(event));
+    if (!belongsToTurn(state, event)) return;
+    if (
+      state.status !== "working" &&
+      (
+        [
+          "turn.stream.delta",
+          "turn.message.completed",
+          "turn.activity",
+          "turn.completed",
+          "turn.failed",
+        ] as BridgeEvent["type"][]
+      ).includes(event.type)
+    ) {
       return;
+    }
+
+    if (event.type === "turn.activity") {
+      const activity = event.payload as TurnActivityEvent["payload"];
+      if (activity.status === "started" || activity.status === "failed") {
+        const line = formatActivityLine(activity);
+        if (!state.progressLineSet.has(line)) {
+          state.progressLineSet.add(line);
+          state.progressLines.push(line);
+          scheduleProgress(channelId, state);
+        }
+      }
+      return;
+    }
+
+    if (reduction.type === "updated" || reduction.type === "message-completed") {
+      state.stream = reduction.state;
+      sendCommentary(channelId, state, reduction.completedCommentary);
+      if (reduction.phase === "final_answer") {
+        schedulePreview(channelId, state);
+      }
+    } else if (reduction.type === "finish") {
+      if (reduction.state) state.stream = reduction.state;
+      sendCommentary(channelId, state, reduction.completedCommentary);
+      finalizeTurn(channelId, state, reduction.failed);
     }
 
     if (event.type === "approval.requested") {
       const approval = event.payload as ApprovalRequestPayload;
-      void (async () => {
-        const channel = await client.channels.fetch(channelId);
-        if (!isSendableChannel(channel)) return;
+      enqueue(channelId, state, async (channel) => {
         await channel.send({
           content: formatApprovalText(approval),
           components: buildApprovalRows(event.threadId, approval),
         });
-      })();
+      });
       return;
     }
 
-    if (reduction.type === "flush-now") {
-      const state = streamByChannel.get(channelId);
-      if (state && reduction.state) {
-        state.stream = reduction.state;
-      }
-      if (state?.timer) {
-        clearTimeout(state.timer);
-        state.timer = null;
-      }
-      void flushStream(channelId);
-    }
-
     const line = formatEventLine(event);
-    if (line) {
-      void sendChannelMessage(client, channelId, line);
-    }
+    if (line) enqueuePlainMessage(channelId, state, line);
   };
 
-  return { handleThreadEvent };
+  const waitForIdle = async (channelId: string): Promise<void> => {
+    const state = stateByChannel.get(channelId);
+    if (!state) return;
+    await state.queue;
+  };
+
+  const recordUserMessage = (channelId: string, messageId: string): void => {
+    pendingReplyByChannel.set(channelId, messageId);
+  };
+
+  const dispose = (): void => {
+    for (const state of stateByChannel.values()) {
+      stopTyping(state);
+      if (state.progressTimer) timers.clearTimeout(state.progressTimer);
+      if (state.previewTimer) timers.clearTimeout(state.previewTimer);
+    }
+    stateByChannel.clear();
+    pendingReplyByChannel.clear();
+  };
+
+  return { handleThreadEvent, recordUserMessage, waitForIdle, dispose };
 }

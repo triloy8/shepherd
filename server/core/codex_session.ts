@@ -22,10 +22,12 @@ import type {
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import { EventBus } from "./event_bus.js";
 import {
+  extractCompletedAgentMessage,
   extractItemId,
   extractTextDelta,
   extractThreadId,
   extractTurnId,
+  mapTurnActivity,
   mapApprovalChoices,
   mapApprovalPrompt,
 } from "./codex_rpc_mapper.js";
@@ -662,6 +664,7 @@ export class CodexSession {
         const error = asRecord(turn.error);
         this.publish("turn.failed", threadId, {
           message: asString(error.message) ?? "The turn failed before completion.",
+          turnId,
         });
         return;
       }
@@ -671,7 +674,11 @@ export class CodexSession {
 
     if (lower.includes("turn/error") || lower.endsWith("/failed") || lower === "item/failed") {
       this.messagePhaseByItemId.clear();
-      this.publish("turn.failed", threadId, { message: `${method} received` });
+      this.publish("turn.failed", threadId, {
+        message: `${method} received`,
+        turnId: extractTurnId(params) ?? this.activeTurnId,
+      });
+      return;
     }
 
     if (lower === "error") {
@@ -723,13 +730,33 @@ export class CodexSession {
 
     if (lower === "item/started" || lower === "item/completed") {
       this.captureAgentMessagePhase(params);
+      if (lower === "item/completed") {
+        const message = extractCompletedAgentMessage(params);
+        if (message) {
+          this.publish("turn.message.completed", threadId, message);
+          return;
+        }
+      }
+
+      const activity = mapTurnActivity(params, lower === "item/started" ? "started" : "completed");
+      if (activity) {
+        this.publish("turn.activity", threadId, activity);
+      }
+      this.publish("turn.notification", threadId, { method, params });
+      return;
     }
 
     const delta = extractTextDelta(method, params);
     if (delta) {
       const itemId = extractItemId(params);
       const phase = itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null;
-      this.publish("turn.stream.delta", threadId, { method, textDelta: delta, itemId, phase });
+      this.publish("turn.stream.delta", threadId, {
+        method,
+        textDelta: delta,
+        itemId,
+        phase,
+        turnId: extractTurnId(params) ?? this.activeTurnId,
+      });
       return;
     }
 

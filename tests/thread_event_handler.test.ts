@@ -5,17 +5,144 @@ import type { BridgeEvent } from "../shared/protocol/events.js";
 import {
   buildApprovalRows,
   createDiscordThreadEventHandler,
+  type DiscordDeliveryTimers,
 } from "../server/adapters/discord/thread_event_handler.js";
 import { formatApprovalText } from "../server/adapters/discord/message_renderer.js";
 
+let eventCounter = 0;
+
 function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): BridgeEvent<TPayload> {
   return {
-    id: "evt-1",
+    id: `evt-${++eventCounter}`,
     type,
     threadId: "thread-1",
     sessionId: "session-1",
     ts: new Date().toISOString(),
     payload,
+  };
+}
+
+function finalDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
+  return makeEvent("turn.stream.delta", {
+    method: "item/agentMessage/delta",
+    textDelta,
+    itemId: `final-${turnId}`,
+    phase: "final_answer",
+    turnId,
+  });
+}
+
+function commentaryDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
+  return makeEvent("turn.stream.delta", {
+    method: "item/agentMessage/delta",
+    textDelta,
+    itemId: `comment-${turnId}`,
+    phase: "commentary",
+    turnId,
+  });
+}
+
+function createHarness(options: { failSendAt?: number } = {}) {
+  const sent: Array<{
+    content: string;
+    components?: unknown[];
+    reply?: { messageReference: string; failIfNotExists?: boolean };
+    allowedMentions?: { repliedUser?: boolean };
+  }> = [];
+  const edits: Array<{ id: string; content: string }> = [];
+  const typing: number[] = [];
+  const messages = new Map<string, { id: string; edit: (content: string) => Promise<void> }>();
+  let sendAttempts = 0;
+
+  const channel = {
+    async send(
+      payload:
+        | string
+        | {
+            content: string;
+            components?: unknown[];
+            reply?: { messageReference: string; failIfNotExists?: boolean };
+            allowedMentions?: { repliedUser?: boolean };
+          },
+    ) {
+      sendAttempts += 1;
+      if (options.failSendAt === sendAttempts) throw new Error("send failed");
+      const normalized = typeof payload === "string" ? { content: payload } : payload;
+      sent.push(normalized);
+      const id = `msg-${sendAttempts}`;
+      const message = {
+        id,
+        async edit(content: string) {
+          edits.push({ id, content });
+        },
+      };
+      messages.set(id, message);
+      return message;
+    },
+    async sendTyping() {
+      typing.push(Date.now());
+    },
+    messages: {
+      async fetch(id: string) {
+        const message = messages.get(id);
+        if (!message) throw new Error(`unknown message ${id}`);
+        return message;
+      },
+    },
+  };
+
+  const errors: unknown[] = [];
+  const client = {
+    channels: {
+      async fetch() {
+        return channel;
+      },
+    },
+  };
+  return { channel, client, sent, edits, typing, errors };
+}
+
+function createDeterministicTimers() {
+  let nextId = 0;
+  const timeouts = new Map<NodeJS.Timeout, () => void>();
+  const intervals = new Map<NodeJS.Timeout, () => void>();
+  const handle = (): NodeJS.Timeout =>
+    ({
+      id: ++nextId,
+      unref() {
+        return this;
+      },
+    }) as unknown as NodeJS.Timeout;
+
+  const timers: DiscordDeliveryTimers = {
+    setTimeout(callback) {
+      const timer = handle();
+      timeouts.set(timer, callback);
+      return timer;
+    },
+    clearTimeout(timer) {
+      timeouts.delete(timer);
+    },
+    setInterval(callback) {
+      const timer = handle();
+      intervals.set(timer, callback);
+      return timer;
+    },
+    clearInterval(timer) {
+      intervals.delete(timer);
+    },
+  };
+
+  return {
+    timers,
+    runTimeouts() {
+      const pending = [...timeouts.entries()];
+      timeouts.clear();
+      for (const [, callback] of pending) callback();
+    },
+    tickIntervals() {
+      for (const callback of [...intervals.values()]) callback();
+    },
   };
 }
 
@@ -50,48 +177,267 @@ describe("Discord thread event handler", () => {
         { value: "reject", label: "Reject" },
       ],
     };
-
     expect(formatApprovalText(approval)).toContain("Approval Required");
     expect(formatApprovalText(approval)).toContain("Action: shell.exec");
-    expect(formatApprovalText(approval)).toContain("Options: Approve / Reject");
   });
 
-  test("flushes streamed text to the channel on turn completion", async () => {
-    const sent: string[] = [];
-    const channel = {
-      async send(content: string | { content: string }) {
-        sent.push(typeof content === "string" ? content : content.content);
-        return { id: `msg-${sent.length}` };
-      },
-      messages: {
-        async fetch() {
-          throw new Error("unexpected fetch");
-        },
-      },
-    };
-
-    const { handleThreadEvent } = createDiscordThreadEventHandler({
-      channels: {
-        async fetch() {
-          return channel;
-        },
-      },
+  test("buffers final deltas until completion while showing typing", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      onError: (error) => harness.errors.push(error),
     });
 
-    handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
-    handleThreadEvent(
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", finalDelta("hello"));
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.typing).toHaveLength(1);
+    expect(harness.sent).toHaveLength(0);
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+    expect(harness.sent.map((message) => message.content)).toEqual(["hello"]);
+    expect(harness.errors).toHaveLength(0);
+    handler.dispose();
+  });
+
+  test("replies from the first final chunk without chaining continuations", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client);
+    handler.recordUserMessage("chan-1", "user-message-1");
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", finalDelta("x".repeat(5_000)));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.sent.length).toBeGreaterThan(1);
+    expect(harness.sent[0]?.reply).toEqual({
+      messageReference: "user-message-1",
+      failIfNotExists: false,
+    });
+    expect(harness.sent[0]?.allowedMentions).toEqual({ repliedUser: false });
+    expect(harness.sent.slice(1).every((message) => message.reply === undefined)).toBe(true);
+    handler.dispose();
+  });
+
+  test("orders completed commentary, progress, and the final answer independently", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      progressUpdateIntervalMs: 60_000,
+      onError: (error) => harness.errors.push(error),
+    });
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", commentaryDelta("I found the issue."));
+    handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.stream.delta", {
-        method: "agentMessageDelta",
-        textDelta: "hello",
-        itemId: "item-1",
-        phase: "final_answer",
+      makeEvent("turn.message.completed", {
+        itemId: "comment-turn-1",
+        phase: "commentary",
+        text: "I found the issue.",
+        turnId: "turn-1",
       }),
     );
-    handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.activity", {
+        itemId: "command-1",
+        turnId: "turn-1",
+        kind: "command",
+        label: "Running command",
+        detail: "bun test",
+        status: "started",
+      }),
+    );
+    handler.handleThreadEvent("chan-1", finalDelta("The tests pass."));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(harness.sent.map((message) => message.content)).toEqual([
+      "I found the issue.",
+      "🔧 Running command: bun test",
+      "The tests pass.",
+    ]);
+    expect(harness.errors).toHaveLength(0);
+    handler.dispose();
+  });
 
-    expect(sent).toContain("hello");
+  test("deduplicates activity and edits one accumulated progress bubble", async () => {
+    const harness = createHarness();
+    const clock = createDeterministicTimers();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      timers: clock.timers,
+      onError: (error) => harness.errors.push(error),
+    });
+    const firstActivity = makeEvent("turn.activity", {
+      itemId: "command-1",
+      turnId: "turn-1",
+      kind: "command",
+      label: "Running command",
+      detail: "bun test",
+      status: "started",
+    });
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", firstActivity);
+    handler.handleThreadEvent("chan-1", firstActivity);
+    clock.runTimeouts();
+    await handler.waitForIdle("chan-1");
+    expect(harness.sent.map((message) => message.content)).toEqual(["🔧 Running command: bun test"]);
+
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.activity", {
+        itemId: "search-1",
+        turnId: "turn-1",
+        kind: "web_search",
+        label: "Searching the web",
+        detail: "Discord limits",
+        status: "started",
+      }),
+    );
+    clock.runTimeouts();
+    await handler.waitForIdle("chan-1");
+    expect(harness.edits.map((edit) => edit.content)).toEqual([
+      "🔧 Running command: bun test\n🔎 Searching the web: Discord limits",
+    ]);
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+    handler.dispose();
+  });
+
+  test("refreshes typing and stops refreshing when the turn completes", async () => {
+    const harness = createHarness();
+    const clock = createDeterministicTimers();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      timers: clock.timers,
+      onError: (error) => harness.errors.push(error),
+    });
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    clock.tickIntervals();
+    clock.tickIntervals();
+    await handler.waitForIdle("chan-1");
+    expect(harness.typing.length).toBeGreaterThan(1);
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+    const stoppedAt = harness.typing.length;
+    clock.tickIntervals();
+    expect(harness.typing).toHaveLength(stoppedAt);
+    handler.dispose();
+  });
+
+  test("labels partial content and posts the failure after a failed turn", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      onError: (error) => harness.errors.push(error),
+    });
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", finalDelta("unfinished"));
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.failed", { turnId: "turn-1", message: "Provider failed." }),
+    );
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.sent.map((message) => message.content)).toEqual([
+      "Partial response\n\nunfinished",
+      "Turn Failed\n\nProvider failed.",
+    ]);
+    handler.dispose();
+  });
+
+  test("does not send an empty final response", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client);
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+    expect(harness.sent).toHaveLength(0);
+    handler.dispose();
+  });
+
+  test("ignores late output from a replaced turn and finalizes only once", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      onError: (error) => harness.errors.push(error),
+    });
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-old" }));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-new" }));
+    handler.handleThreadEvent("chan-1", finalDelta("stale", "turn-old"));
+    handler.handleThreadEvent("chan-1", finalDelta("fresh", "turn-new"));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-new" }));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-new" }));
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.sent.map((message) => message.content)).toEqual(["fresh"]);
+    expect(harness.typing).toHaveLength(1);
+    handler.dispose();
+  });
+
+  test("optional streaming uses one oversized preview until finalization", async () => {
+    const harness = createHarness();
+    const clock = createDeterministicTimers();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      streaming: true,
+      timers: clock.timers,
+      onError: (error) => harness.errors.push(error),
+    });
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", finalDelta(`${"x".repeat(5_000)}END_MARKER`));
+    clock.runTimeouts();
+    await handler.waitForIdle("chan-1");
+    expect(harness.sent).toHaveLength(1);
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+    expect(harness.edits).toHaveLength(1);
+    expect(harness.sent.length).toBeGreaterThan(1);
+    expect([...harness.edits.map((edit) => edit.content), ...harness.sent.map((item) => item.content)].join("")).toContain(
+      "END_MARKER",
+    );
+
+    const editCount = harness.edits.length;
+    const sendCount = harness.sent.length;
+    handler.handleThreadEvent("chan-1", finalDelta("late output"));
+    clock.runTimeouts();
+    await handler.waitForIdle("chan-1");
+    expect(harness.edits).toHaveLength(editCount);
+    expect(harness.sent).toHaveLength(sendCount);
+    handler.dispose();
+  });
+
+  test("reports interrupted final continuation delivery in Discord", async () => {
+    const harness = createHarness({ failSendAt: 2 });
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      onError: (error) => harness.errors.push(error),
+    });
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", finalDelta("x".repeat(5_000)));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.sent.at(-1)?.content).toContain("Response delivery was interrupted");
+    expect(harness.errors).toHaveLength(1);
+    handler.dispose();
+  });
+
+  test("keeps approval prompts interactive during a turn", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client);
+    const approval: ApprovalRequestPayload = {
+      approvalId: "approval-1",
+      method: "item/commandExecution/requestApproval",
+      prompt: "Run tests?",
+      params: {},
+      choices: [{ value: "accept", label: "Allow Once" }],
+    };
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", makeEvent("approval.requested", approval));
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.sent[0]?.content).toContain("Approval Required");
+    expect(harness.sent[0]?.components).toHaveLength(1);
+    handler.dispose();
   });
 });

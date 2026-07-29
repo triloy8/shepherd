@@ -272,6 +272,81 @@ describe("Discord thread event handler", () => {
     handler.dispose();
   });
 
+  test("starts a new progress bubble after completed commentary", async () => {
+    const harness = createHarness();
+    const clock = createDeterministicTimers();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      timers: clock.timers,
+      onError: (error) => harness.errors.push(error),
+    });
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.activity", {
+        itemId: "command-1",
+        turnId: "turn-1",
+        kind: "command",
+        label: "Running command",
+        detail: "bun test",
+        status: "started",
+      }),
+    );
+    handler.handleThreadEvent("chan-1", commentaryDelta("The first check passed."));
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.message.completed", {
+        itemId: "comment-turn-1",
+        phase: "commentary",
+        text: "The first check passed.",
+        turnId: "turn-1",
+      }),
+    );
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.activity", {
+        itemId: "search-1",
+        turnId: "turn-1",
+        kind: "web_search",
+        label: "Searching the web",
+        detail: "Discord ordering",
+        status: "started",
+      }),
+    );
+    clock.runTimeouts();
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.sent.map((message) => message.content)).toEqual([
+      "🔧 Running command: bun test",
+      "The first check passed.",
+      "🔎 Searching the web: Discord ordering",
+    ]);
+    expect(harness.edits).toHaveLength(0);
+
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.activity", {
+        itemId: "command-2",
+        turnId: "turn-1",
+        kind: "command",
+        label: "Running command",
+        detail: "bun run check",
+        status: "started",
+      }),
+    );
+    clock.runTimeouts();
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.edits).toEqual([
+      {
+        id: "msg-3",
+        content: "🔎 Searching the web: Discord ordering\n🔧 Running command: bun run check",
+      },
+    ]);
+    expect(harness.errors).toHaveLength(0);
+    handler.dispose();
+  });
+
   test("deduplicates activity and edits one accumulated progress bubble", async () => {
     const harness = createHarness();
     const clock = createDeterministicTimers();

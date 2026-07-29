@@ -242,6 +242,26 @@ export function createDiscordThreadEventHandler(
     state.typingTimer.unref?.();
   };
 
+  const flushProgress = (channelId: string, state: DiscordTurnDeliveryState): void => {
+    if (state.progressTimer) timers.clearTimeout(state.progressTimer);
+    state.progressTimer = null;
+    if (state.progressLines.length === 0) return;
+    const text = state.progressLines.join("\n");
+    const delivery = state.progressDelivery;
+    enqueue(channelId, state, async (channel) => {
+      const result = await updateDiscordEditableChunks(channel, delivery, text);
+      if (!result.success) {
+        onError(new Error(`Progress delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
+      }
+    }, true);
+  };
+
+  const sealProgressSegment = (channelId: string, state: DiscordTurnDeliveryState): void => {
+    flushProgress(channelId, state);
+    state.progressLines = [];
+    state.progressDelivery = createDiscordEditableChunksState();
+  };
+
   const sendCommentary = (
     channelId: string,
     state: DiscordTurnDeliveryState,
@@ -249,25 +269,13 @@ export function createDiscordThreadEventHandler(
   ): void => {
     const text = commentary?.text.trim();
     if (!text) return;
+    sealProgressSegment(channelId, state);
     enqueue(channelId, state, async (channel) => {
       const result = await sendDiscordText(channel, text);
       if (!result.success) {
         onError(new Error(`Commentary delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
       }
     });
-  };
-
-  const flushProgress = (channelId: string, state: DiscordTurnDeliveryState): void => {
-    if (state.progressTimer) timers.clearTimeout(state.progressTimer);
-    state.progressTimer = null;
-    if (state.progressLines.length === 0) return;
-    const text = state.progressLines.join("\n");
-    enqueue(channelId, state, async (channel) => {
-      const result = await updateDiscordEditableChunks(channel, state.progressDelivery, text);
-      if (!result.success) {
-        onError(new Error(`Progress delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
-      }
-    }, true);
   };
 
   const scheduleProgress = (channelId: string, state: DiscordTurnDeliveryState): void => {

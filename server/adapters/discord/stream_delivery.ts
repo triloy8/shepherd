@@ -1,4 +1,5 @@
 import type { TextBasedChannel } from "discord.js";
+import type { Buffer } from "node:buffer";
 
 import {
   chunkForDiscord,
@@ -11,13 +12,20 @@ export type DiscordMessage = {
   edit: (content: string) => Promise<unknown>;
 };
 
+export type DiscordFileAttachment = {
+  attachment: Buffer;
+  name: string;
+  description?: string;
+};
+
 export type SendableChannel = TextBasedChannel & {
   send: (
     content:
       | string
       | {
-          content: string;
+          content?: string;
           components?: unknown[];
+          files?: DiscordFileAttachment[];
           reply?: { messageReference: string; failIfNotExists?: boolean };
           allowedMentions?: { repliedUser?: boolean };
         },

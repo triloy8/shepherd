@@ -210,6 +210,18 @@ describe("CodexSession app-server contract", () => {
       threadId: "thread-1",
       turnId: "turn-1",
       item: {
+        type: "imageGeneration",
+        id: "image-1",
+        status: "completed",
+        revisedPrompt: "A pastel unicorn",
+        result: "Image generated",
+        savedPath: "/tmp/generated-unicorn.png",
+      },
+    });
+    internals(session).onNotification("item/completed", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      item: {
         type: "agentMessage",
         id: "final-1",
         phase: "final_answer",
@@ -229,6 +241,12 @@ describe("CodexSession app-server contract", () => {
       phase: "final_answer",
       text: "Complete answer",
       turnId: "turn-1",
+    });
+    expect(events.find((event) => event.type === "turn.image.generated")?.payload).toEqual({
+      itemId: "image-1",
+      turnId: "turn-1",
+      path: "/tmp/generated-unicorn.png",
+      revisedPrompt: "A pastel unicorn",
     });
   });
 

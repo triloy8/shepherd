@@ -24,12 +24,12 @@ In the current Discord adapter, that shows up as channel-scoped threads, per-cha
 > Direct messages are open by default, and `!pause` stops conversation input
 > without disabling control commands.
 
-Accepted messages may include PNG, JPEG, GIF, WebP, MP3, MP4/M4A, Ogg/Opus,
-WAV, or WebM attachments up to 10 MiB. Shepherd decides whether the message is
-addressed before downloading anything, then validates accepted attachments and
-submits them to Codex as inline image or audio input. Accepted audio gets a 🎙️
-acknowledgement. Audio input support is experimental and depends on the selected
-Codex model.
+Accepted messages may include PNG, JPEG, GIF, or WebP attachments up to 10 MiB.
+Shepherd decides whether the message is addressed before downloading anything,
+then validates accepted attachments and submits them to Codex as inline image
+input. Audio attachments are rejected without downloading them because the
+available Codex models do not accept audio; use device dictation to send speech
+as text instead.
 
 When Codex image generation produces a saved PNG, JPEG, GIF, or WebP artifact
 up to 10 MiB, Shepherd validates and uploads the generated image back to the
@@ -138,13 +138,13 @@ The normal flow is:
 1. Set the repo or workspace target for the channel with `!repo`
 2. Start a new Codex thread with `!newthread`
 3. Keep the default mention-only mode, or run `!listen open` for a dedicated Shepherd channel
-4. Send text, images, uploaded audio, or native Discord voice messages
+4. Send text or images; use device dictation when composing by voice
 5. Use `!pause`, `!resume`, and the thread, model, skill, and context commands as needed
 
 Listening modes are scoped to the Discord channel:
 
 - **Mention-only** (guild default): commands and messages mentioning Shepherd are accepted.
-- **Open**: every human text, image, and audio message is accepted.
+- **Open**: every human text and image message is accepted.
 - **Paused**: conversation input is ignored, but control commands remain available.
 
 Direct messages behave as open surfaces unless paused. `!detach` removes the

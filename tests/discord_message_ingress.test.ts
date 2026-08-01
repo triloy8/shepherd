@@ -15,7 +15,6 @@ function makeMessage(
   guildId: string | null = "guild-1",
 ) {
   const replies: string[] = [];
-  const reactions: string[] = [];
   return {
     message: {
       content,
@@ -37,13 +36,8 @@ function makeMessage(
         replies.push(text);
         return {} as never;
       },
-      async react(emoji: string) {
-        reactions.push(emoji);
-        return {} as never;
-      },
     },
     replies,
-    reactions,
   };
 }
 
@@ -197,28 +191,29 @@ describe("Discord message ingress", () => {
     expect(handled).toBe(true);
   });
 
-  test("does not download unaddressed audio attachments", async () => {
-    const { message } = makeMessage("", false, [
+  test("ignores unaddressed audio attachments", async () => {
+    const { message, replies } = makeMessage("", false, [
       {
         url: "https://cdn.discordapp.com/voice-message.ogg",
         contentType: "audio/ogg",
         name: "voice-message.ogg",
       },
     ]);
-    let fetched = false;
+    let routed = false;
 
     await processDiscordMessage(message as never, {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
       approvalPolicy: "on-request",
-      async fetchAudio() {
-        fetched = true;
-        throw new Error("unexpected fetch");
+      async executeRouting() {
+        routed = true;
+        return { type: "ignore" } as const;
       },
     });
 
-    expect(fetched).toBe(false);
+    expect(replies).toEqual([]);
+    expect(routed).toBe(false);
   });
 
   test("routes image-only mentioned messages with inline image input", async () => {
@@ -296,61 +291,41 @@ describe("Discord message ingress", () => {
     });
   });
 
-  test("routes Discord voice messages as native inline audio input", async () => {
-    const { message, reactions } = makeMessage("<@bot-1>", true, [
+  test("rejects addressed audio without starting a Codex turn", async () => {
+    const { message, replies } = makeMessage("<@bot-1>", true, [
       {
         url: "https://cdn.discordapp.com/voice-message.ogg",
         contentType: "audio/ogg; codecs=opus",
         name: "voice-message.ogg",
       },
     ]);
-    const seen: { routedInput?: unknown } = {};
-    const audioBytes = new TextEncoder().encode("OggS\0OpusHead");
+    let routed = false;
 
     await processDiscordMessage(message as never, {
       botUserId: "bot-1",
       conversation: {} as never,
-      commandContext: {
-        getSurfaceThreadId() {
-          return "thread-1";
-        },
-      } as never,
+      commandContext: {} as never,
       approvalPolicy: "on-request",
-      async fetchAudio() {
-        return new Response(audioBytes, {
-          headers: { "content-type": "audio/ogg" },
-        });
-      },
-      async handleCommandMessage() {
-        throw new Error("unexpected command handling");
-      },
-      async executeRouting(_context, input) {
-        seen.routedInput = input.input;
-        return { type: "submit", threadId: "thread-1", turnId: "turn-1" } as const;
+      async executeRouting() {
+        routed = true;
+        return { type: "ignore" } as const;
       },
     });
 
-    expect(seen).toEqual({
-      routedInput: [
-        {
-          type: "audio",
-          url: `data:audio/ogg;base64,${Buffer.from(audioBytes).toString("base64")}`,
-        },
-      ],
-    });
-    expect(reactions).toEqual(["🎙️"]);
+    expect(replies).toEqual([
+      "Audio input is not supported. Use your phone's dictation to send the message as text.",
+    ]);
+    expect(routed).toBe(false);
   });
 
-  test("routes native voice messages without mentions in an open channel", async () => {
-    const { message, reactions } = makeMessage("", false, [
+  test("rejects unmentioned audio in an open channel", async () => {
+    const { message, replies } = makeMessage("", false, [
       {
         url: "https://cdn.discordapp.com/voice-message.ogg",
         contentType: "audio/ogg; codecs=opus",
         name: "voice-message.ogg",
       },
     ]);
-    const audioBytes = new TextEncoder().encode("OggS\0OpusHead");
-    const seen: { routedInput?: unknown } = {};
 
     await processDiscordMessage(message as never, {
       botUserId: "bot-1",
@@ -359,67 +334,42 @@ describe("Discord message ingress", () => {
         getSurfaceListeningMode() {
           return "open";
         },
-        getSurfaceThreadId() {
-          return "thread-1";
-        },
       } as never,
       approvalPolicy: "on-request",
-      async fetchAudio() {
-        return new Response(audioBytes, { headers: { "content-type": "audio/ogg" } });
-      },
-      async executeRouting(_context, input) {
-        seen.routedInput = input.input;
-        return { type: "submit", threadId: "thread-1", turnId: "turn-1" } as const;
-      },
     });
 
-    expect(seen.routedInput).toEqual([
-      { type: "audio", url: `data:audio/ogg;base64,${Buffer.from(audioBytes).toString("base64")}` },
+    expect(replies).toEqual([
+      "Audio input is not supported. Use your phone's dictation to send the message as text.",
     ]);
-    expect(reactions).toEqual(["🎙️"]);
   });
 
-  test("preserves text, audio, and image attachment order", async () => {
-    const { message } = makeMessage("<@bot-1> inspect these", true, [
+  test("rejects mixed audio messages before downloading supported attachments", async () => {
+    const { message, replies } = makeMessage("<@bot-1> inspect these", true, [
       { url: "https://cdn.discordapp.com/note.ogg", contentType: "audio/ogg", name: "note.ogg" },
       { url: "https://cdn.discordapp.com/image.png", contentType: "image/png", name: "image.png" },
     ]);
-    const seen: { routedInput?: unknown } = {};
-    const audioBytes = new TextEncoder().encode("OggS\0OpusHead");
-    const imageBytes = new Uint8Array([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-    ]);
+    let fetchedImage = false;
+    let routed = false;
 
     await processDiscordMessage(message as never, {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
       approvalPolicy: "on-request",
-      async fetchAudio() {
-        return new Response(audioBytes, { headers: { "content-type": "audio/ogg" } });
-      },
       async fetchImage() {
-        return new Response(imageBytes, { headers: { "content-type": "image/png" } });
+        fetchedImage = true;
+        throw new Error("unexpected fetch");
       },
-      async handleCommandMessage(_message, _context, contentOverride) {
-        return {
-          handled: false,
-          threadId: "thread-1",
-          input: contentOverride ? [toTextUserInput(contentOverride)] : null,
-        };
-      },
-      async executeRouting(_context, input) {
-        seen.routedInput = input.input;
-        return { type: "submit", threadId: "thread-1", turnId: "turn-1" } as const;
+      async executeRouting() {
+        routed = true;
+        return { type: "ignore" } as const;
       },
     });
 
-    expect(seen).toEqual({
-      routedInput: [
-        toTextUserInput("inspect these"),
-        { type: "audio", url: `data:audio/ogg;base64,${Buffer.from(audioBytes).toString("base64")}` },
-        { type: "image", url: `data:image/png;base64,${Buffer.from(imageBytes).toString("base64")}` },
-      ],
-    });
+    expect(replies).toEqual([
+      "Audio input is not supported. Use your phone's dictation to send the message as text.",
+    ]);
+    expect(fetchedImage).toBe(false);
+    expect(routed).toBe(false);
   });
 });

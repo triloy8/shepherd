@@ -236,7 +236,7 @@ describe("Discord listening commands", () => {
     await handleMessage(opened.message as never, context);
     expect(getListeningMode()).toBe("open");
     expect(opened.replies).toEqual([
-      "Listening is now **open**. Human text, images, and audio in this channel will be sent to the active thread.",
+      "Listening is now **open**. Human text and images in this channel will be sent to the active thread.",
     ]);
 
     const paused = makeMessage("!pause");

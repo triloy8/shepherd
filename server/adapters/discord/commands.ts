@@ -62,7 +62,7 @@ function formatListeningStatus(message: Message, context: CommandContext): strin
   const mode = effectiveListeningMode(message, context);
   const detail =
     mode === "open"
-      ? "All human text, image, and audio messages are accepted."
+      ? "All human text and image messages are accepted."
       : mode === "paused"
         ? "Conversation input is ignored; control commands remain available."
         : "Only commands and messages that mention Shepherd are accepted.";
@@ -526,7 +526,7 @@ export async function handleMessage(
     );
     await message.reply(
       mode === "open"
-        ? "Listening is now **open**. Human text, images, and audio in this channel will be sent to the active thread."
+        ? "Listening is now **open**. Human text and images in this channel will be sent to the active thread."
         : "This channel is now **mention-only**. Use `@Shepherd` or a control command.",
     );
     return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };

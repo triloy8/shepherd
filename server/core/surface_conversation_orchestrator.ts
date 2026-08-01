@@ -72,9 +72,14 @@ export class SurfaceConversationOrchestrator {
       approvalPolicy: this.approvalPolicy,
       ...(this.sandbox ? { sandbox: this.sandbox } : {}),
     });
-    await this.provisionAndBindThreadWorkspace(surfaceId, created.threadId);
-    this.conversation.subscribeSurfaceEvents(this.adapter, surfaceId, listener, { replay: false });
-    return created.threadId;
+    try {
+      await this.provisionAndBindThreadWorkspace(surfaceId, created.threadId);
+      this.conversation.subscribeSurfaceEvents(this.adapter, surfaceId, listener, { replay: false });
+      return created.threadId;
+    } catch (error) {
+      this.clearSurfaceThread(surfaceId);
+      throw error;
+    }
   }
 
   async resumeSurfaceThread(

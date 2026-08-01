@@ -232,12 +232,7 @@ export class CodexSession {
       this.cleanup();
     });
 
-    this.child.stderr.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8").trim();
-      if (text) {
-        this.publish("session.error", this.threadId ?? "unbound", { message: text });
-      }
-    });
+    this.child.stderr.on("data", (chunk: Buffer) => this.onServerStderr(chunk));
   }
 
   async initialize(): Promise<void> {
@@ -622,6 +617,11 @@ export class CodexSession {
     }
   }
 
+  private onServerStderr(chunk: Buffer): void {
+    const text = chunk.toString("utf8").trim();
+    if (text) console.error(`codex app-server stderr: ${text}`);
+  }
+
   private onServerRequest(request: RawServerRequest): void {
     if (!isApprovalServerRequest(request.method)) {
       this.writeLine({
@@ -685,6 +685,10 @@ export class CodexSession {
     if (lower === "error") {
       const error = asRecord(payload.error);
       const message = asString(error.message) ?? `${method} received`;
+      if (payload.willRetry === true) {
+        console.warn(`codex app-server retrying: ${message}`);
+        return;
+      }
       if (isContextLimitError(params)) {
         this.publish("session.limit.context", threadId, { message, method });
       } else {

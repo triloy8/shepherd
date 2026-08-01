@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import { CodexSession } from "../server/core/codex_session.js";
@@ -9,6 +9,7 @@ type SessionInternals = {
   sendRequest: (method: string, params?: unknown) => Promise<unknown>;
   sendNotification: (method: string) => void;
   writeLine: (payload: unknown) => void;
+  onServerStderr: (chunk: Buffer) => void;
   onNotification: (method: string, params: unknown) => void;
   onServerRequest: (request: { id: string | number; method: string; params: unknown }) => void;
 };
@@ -187,6 +188,46 @@ describe("CodexSession app-server contract", () => {
       ],
     ]);
     expect(session.activeTurnId).toBeNull();
+  });
+
+  test("keeps retry diagnostics out of the user-visible event stream", () => {
+    const session = new CodexSession("on-request");
+    const events: BridgeEvent[] = [];
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    session.threadId = "thread-1";
+    session.eventBus.subscribe((event) => events.push(event), { replay: false });
+
+    internals(session).onNotification("error", {
+      threadId: "thread-1",
+      error: { message: "Reconnecting... 2/5" },
+      willRetry: true,
+    });
+    internals(session).onServerStderr(Buffer.from("Reconnecting... 3/5"));
+
+    expect(events).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith("codex app-server retrying: Reconnecting... 2/5");
+    expect(error).toHaveBeenCalledWith("codex app-server stderr: Reconnecting... 3/5");
+
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
+  test("publishes an exhausted retry as one session error", () => {
+    const session = new CodexSession("on-request");
+    const events: BridgeEvent[] = [];
+    session.threadId = "thread-1";
+    session.eventBus.subscribe((event) => events.push(event), { replay: false });
+
+    internals(session).onNotification("error", {
+      threadId: "thread-1",
+      error: { message: "Connection failed after 5 attempts." },
+      willRetry: false,
+    });
+
+    expect(events.map((event) => [event.type, event.payload])).toEqual([
+      ["session.error", { message: "Connection failed after 5 attempts." }],
+    ]);
   });
 
   test("publishes normalized activity and canonical completed messages", () => {

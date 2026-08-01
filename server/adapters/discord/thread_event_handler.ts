@@ -482,7 +482,10 @@ export function createDiscordThreadEventHandler(
     }
 
     const line = formatEventLine(event);
-    if (line) enqueuePlainMessage(channelId, state, line);
+    if (line) {
+      sealProgressSegment(channelId, state);
+      enqueuePlainMessage(channelId, state, line);
+    }
   };
 
   const waitForIdle = async (channelId: string): Promise<void> => {

@@ -347,6 +347,54 @@ describe("Discord thread event handler", () => {
     handler.dispose();
   });
 
+  test("seals progress around a session error", async () => {
+    const harness = createHarness();
+    const clock = createDeterministicTimers();
+    const handler = createDiscordThreadEventHandler(harness.client, {
+      timers: clock.timers,
+      onError: (error) => harness.errors.push(error),
+    });
+
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.activity", {
+        itemId: "command-1",
+        turnId: "turn-1",
+        kind: "command",
+        label: "Running command",
+        detail: "bun test",
+        status: "started",
+      }),
+    );
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("session.error", { message: "Connection failed after 5 attempts." }),
+    );
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("turn.activity", {
+        itemId: "command-2",
+        turnId: "turn-1",
+        kind: "command",
+        label: "Running command",
+        detail: "bun run check",
+        status: "started",
+      }),
+    );
+    clock.runTimeouts();
+    await handler.waitForIdle("chan-1");
+
+    expect(harness.sent.map((message) => message.content)).toEqual([
+      "🔧 Running command: bun test",
+      "Session Error\n\nConnection failed after 5 attempts.",
+      "🔧 Running command: bun run check",
+    ]);
+    expect(harness.edits).toHaveLength(0);
+    expect(harness.errors).toHaveLength(0);
+    handler.dispose();
+  });
+
   test("deduplicates activity and edits one accumulated progress bubble", async () => {
     const harness = createHarness();
     const clock = createDeterministicTimers();

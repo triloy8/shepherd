@@ -1,4 +1,4 @@
-import type { Message } from "discord.js";
+import type { Attachment, Message } from "discord.js";
 
 import type { ApprovalPolicy } from "../../../shared/protocol/requests.js";
 import { toTextUserInput, type UserInput } from "../../../shared/protocol/user_input.js";
@@ -10,10 +10,8 @@ import {
 import { executeTurnRouting } from "../../core/turn_routing_service.js";
 import { handleMessage, type CommandContext } from "./commands.js";
 import {
-  discordAudioAttachmentToDataUrl,
   isDiscordAudioAttachment,
-  type DiscordAudioFetch,
-} from "./audio_input.js";
+} from "./audio_attachment.js";
 import {
   discordImageAttachmentToDataUrl,
   isDiscordImageAttachment,
@@ -26,7 +24,6 @@ export type DiscordMessageIngressDeps = {
   commandContext: CommandContext;
   approvalPolicy: ApprovalPolicy;
   classifyInput?: typeof classifySurfaceInput;
-  fetchAudio?: DiscordAudioFetch;
   fetchImage?: DiscordImageFetch;
   handleCommandMessage?: typeof handleMessage;
   executeRouting?: typeof executeTurnRouting;
@@ -46,12 +43,19 @@ export async function processDiscordMessage(
     listeningMode !== "paused" && (isMentioned || listeningMode === "open" || isDirectMessage);
   if (!isCommand && !isAddressed) return;
 
+  const attachments = [...(message.attachments?.values?.() ?? [])];
+  if (attachments.some(isDiscordAudioAttachment)) {
+    await message.reply(
+      "Audio input is not supported. Use your phone's dictation to send the message as text.",
+    );
+    return;
+  }
+
   const mentionPattern = new RegExp(`<@!?${deps.botUserId}>`, "g");
   const sanitizedContent = isCommand ? raw : raw.replace(mentionPattern, "").trim();
   const structuredInput = await buildDiscordUserInput(
-    message,
+    attachments,
     sanitizedContent,
-    deps.fetchAudio,
     deps.fetchImage,
   );
   const classify = deps.classifyInput ?? classifySurfaceInput;
@@ -77,14 +81,6 @@ export async function processDiscordMessage(
           input: null,
         };
 
-  if (structuredInput.some((entry) => entry.type === "audio")) {
-    try {
-      await message.react("🎙️");
-    } catch {
-      // Reactions are acknowledgement only; missing permissions must not fail the turn.
-    }
-  }
-
   const execute = deps.executeRouting ?? executeTurnRouting;
   await execute(
     { conversation: deps.conversation },
@@ -99,9 +95,8 @@ export async function processDiscordMessage(
 }
 
 async function buildDiscordUserInput(
-  message: Message,
+  attachments: Attachment[],
   sanitizedContent: string,
-  fetchAudio?: DiscordAudioFetch,
   fetchImage?: DiscordImageFetch,
 ): Promise<UserInput[]> {
   const input: UserInput[] = [];
@@ -110,13 +105,8 @@ async function buildDiscordUserInput(
     input.push(toTextUserInput(sanitizedContent));
   }
 
-  for (const attachment of message.attachments?.values?.() ?? []) {
-    if (isDiscordAudioAttachment(attachment)) {
-      const url = await discordAudioAttachmentToDataUrl(attachment, {
-        ...(fetchAudio ? { fetchImpl: fetchAudio } : {}),
-      });
-      input.push({ type: "audio", url });
-    } else if (isDiscordImageAttachment(attachment)) {
+  for (const attachment of attachments) {
+    if (isDiscordImageAttachment(attachment)) {
       const url = await discordImageAttachmentToDataUrl(attachment, {
         ...(fetchImage ? { fetchImpl: fetchImage } : {}),
       });

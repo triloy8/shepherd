@@ -5,7 +5,7 @@ import { SurfaceConversationOrchestrator } from "../server/core/surface_conversa
 import { SurfaceStateService } from "../server/core/surface_state_service.js";
 import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
 
-function makeHarness() {
+function makeHarness(options: { provisioningFailures?: number } = {}) {
   const calls = {
     createSurfaceThread: [] as Array<{ adapter: string; surfaceId: string; request: Record<string, unknown> }>,
     resumeThread: [] as Array<{ threadId: string; request: Record<string, unknown> }>,
@@ -19,6 +19,7 @@ function makeHarness() {
   };
 
   const surfaceThreads = new Map<string, string | null>();
+  let provisioningFailures = options.provisioningFailures ?? 0;
   const conversation = {
     getSurfaceThread(adapter: string, surfaceId: string) {
       return surfaceThreads.get(`${adapter}:${surfaceId}`) ?? null;
@@ -56,6 +57,7 @@ function makeHarness() {
     },
     clearSurfaceBinding(adapter: string, surfaceId: string) {
       calls.clearSurfaceBinding.push({ adapter, surfaceId });
+      surfaceThreads.set(`${adapter}:${surfaceId}`, null);
     },
     unsubscribeSurfaceEvents(adapter: string, surfaceId: string) {
       calls.unsubscribeSurfaceEvents.push({ adapter, surfaceId });
@@ -66,6 +68,10 @@ function makeHarness() {
   const workspaceProvisioner = {
     async provisionWorkspace(_target: unknown, threadId: string) {
       calls.provisionWorkspace.push({ threadId });
+      if (provisioningFailures > 0) {
+        provisioningFailures -= 1;
+        throw new Error("clone failed");
+      }
       return { workspaceId: threadId, cwd: `/tmp/${threadId}` };
     },
   } as unknown as WorkspaceProvisioner;
@@ -103,6 +109,27 @@ describe("SurfaceConversationOrchestrator", () => {
     });
     expect(calls.provisionWorkspace).toEqual([{ threadId: "thread-created" }]);
     expect(calls.setThreadCwd).toEqual([{ threadId: "thread-created", cwd: "/tmp/thread-created" }]);
+    expect(calls.subscribeSurfaceEvents).toHaveLength(1);
+  });
+
+  test("clears a failed provisioning binding so the next attempt can retry", async () => {
+    const { orchestrator, calls } = makeHarness({ provisioningFailures: 1 });
+    await orchestrator.setSurfaceProject("chan-1", "~");
+
+    await expect(orchestrator.createAndBindSurfaceThread("chan-1", () => undefined)).rejects.toThrow(
+      "clone failed",
+    );
+
+    expect(orchestrator.getSurfaceThread("chan-1")).toBeNull();
+    expect(calls.clearSurfaceBinding).toEqual([{ adapter: "discord", surfaceId: "chan-1" }]);
+    expect(calls.unsubscribeSurfaceEvents).toEqual([{ adapter: "discord", surfaceId: "chan-1" }]);
+    expect(calls.subscribeSurfaceEvents).toHaveLength(0);
+
+    await expect(orchestrator.ensureSurfaceThread("chan-1", () => undefined)).resolves.toBe(
+      "thread-created",
+    );
+    expect(calls.createSurfaceThread).toHaveLength(2);
+    expect(calls.provisionWorkspace).toHaveLength(2);
     expect(calls.subscribeSurfaceEvents).toHaveLength(1);
   });
 

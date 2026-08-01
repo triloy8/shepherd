@@ -91,6 +91,10 @@ describe("Discord surface runtime", () => {
     });
     expect(runtime.commandContext.getSurfaceProject("chan-1")).toBe("owner/repo");
     expect(runtime.commandContext.getSurfaceThreadId("chan-1")).toBe("thread-current");
+    expect(runtime.commandContext.getSurfaceListeningMode("chan-1")).toBe("mention");
+    expect(runtime.commandContext.setSurfaceListeningMode("chan-1", "open")).toBe("open");
+    expect(runtime.commandContext.pauseSurfaceListening("chan-1")).toBe("paused");
+    expect(runtime.commandContext.resumeSurfaceListening("chan-1")).toBe("open");
     expect(runtime.commandContext.runtimeLifecycle).toBe(runtimeLifecycle);
     expect(events).toEqual([]);
   });

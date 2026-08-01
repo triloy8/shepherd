@@ -67,7 +67,7 @@ This is the application command layer. Discord parses commands like `!repo` or `
 These modules own authoritative state or state transitions that other layers should not reimplement.
 
 - `server/core/surface_state_service.ts`
-  Owns surface-scoped project binding state.
+  Owns surface-scoped project binding and listening-mode state.
 - `server/core/response_stream_reducer.ts`
   Owns logical streamed-response state transitions from `BridgeEvent`s.
 
@@ -133,7 +133,7 @@ So the simplest mental model is:
 ### Message ingress
 
 - `server/adapters/discord/message_ingress.ts`
-  Handles mention sanitation, normalized-input delegation, command handling, and routing handoff.
+  Applies mention/open/paused attention policy before attachment downloads, then handles normalization, command delegation, and routing handoff.
 
 ### Surface runtime composition
 
@@ -162,7 +162,7 @@ So the simplest mental model is:
 ### Message ingress
 
 1. `bot.ts` receives `messageCreate`
-2. `message_ingress.ts` sanitizes/normalizes the message
+2. `message_ingress.ts` applies the surface listening mode before downloading attachments, then sanitizes/normalizes accepted input
 3. `commands.ts` handles Discord command syntax if applicable
 4. `turn_routing_service.ts` executes routing using core policy
 5. `ConversationService` and lower layers talk to Codex/app-server

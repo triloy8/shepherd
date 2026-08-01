@@ -18,4 +18,17 @@ describe("SurfaceStateService", () => {
     });
     expect(service.getProjectTarget("discord", "chan-2")).toBeNull();
   });
+
+  test("tracks listening modes and resumes the mode active before a pause", () => {
+    const service = new SurfaceStateService();
+
+    expect(service.getListeningMode("discord", "chan-1")).toBe("mention");
+    expect(service.setListeningMode("discord", "chan-1", "open")).toBe("open");
+    expect(service.pauseListening("discord", "chan-1")).toBe("paused");
+    expect(service.getListeningMode("discord", "chan-1")).toBe("paused");
+    expect(service.resumeListening("discord", "chan-1")).toBe("open");
+
+    service.resetListeningMode("discord", "chan-1");
+    expect(service.getListeningMode("discord", "chan-1")).toBe("mention");
+  });
 });

@@ -7,6 +7,7 @@ import type {
   RuntimeLifecycleResult,
 } from "../../core/runtime_lifecycle_orchestrator.js";
 import type { RuntimeActivity } from "../../core/session_manager.js";
+import type { SurfaceListeningMode } from "../../core/surface_state_service.js";
 import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
@@ -19,6 +20,13 @@ export type CommandContext = {
   conversation: ConversationService;
   getSurfaceThreadId: (surfaceId: string) => string | null;
   getSurfaceProject: (surfaceId: string) => string | null;
+  getSurfaceListeningMode: (surfaceId: string) => SurfaceListeningMode;
+  setSurfaceListeningMode: (
+    surfaceId: string,
+    mode: Exclude<SurfaceListeningMode, "paused">,
+  ) => SurfaceListeningMode;
+  pauseSurfaceListening: (surfaceId: string) => SurfaceListeningMode;
+  resumeSurfaceListening: (surfaceId: string) => SurfaceListeningMode;
   setSurfaceProject: (surfaceId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   ensureSurfaceThread: (surfaceId: string) => Promise<string>;
   createSurfaceThread: (surfaceId: string) => Promise<string>;
@@ -38,12 +46,58 @@ function parseThreadArgs(content: string): { command: string; args: string[] } {
   return { command: command.toLowerCase(), args: rest };
 }
 
+function displayListeningMode(mode: SurfaceListeningMode): string {
+  if (mode === "open") return "Open";
+  if (mode === "paused") return "Paused";
+  return "Mention-only";
+}
+
+function effectiveListeningMode(message: Message, context: CommandContext): SurfaceListeningMode {
+  const configured = context.getSurfaceListeningMode(message.channelId);
+  if (message.guildId === null && configured !== "paused") return "open";
+  return configured;
+}
+
+function formatListeningStatus(message: Message, context: CommandContext): string {
+  const mode = effectiveListeningMode(message, context);
+  const detail =
+    mode === "open"
+      ? "All human text, image, and audio messages are accepted."
+      : mode === "paused"
+        ? "Conversation input is ignored; control commands remain available."
+        : "Only commands and messages that mention Shepherd are accepted.";
+  return `Listening: **${displayListeningMode(mode)}**\n${detail}`;
+}
+
+function formatSurfaceStatus(message: Message, context: CommandContext): string {
+  const channelId = message.channelId;
+  const threadId = context.getSurfaceThreadId(channelId);
+  const project = context.getSurfaceProject(channelId);
+  const lines = [
+    "**Shepherd channel**",
+    `- Listening: ${displayListeningMode(effectiveListeningMode(message, context))}`,
+    `- Repository: ${project ?? "not selected"}`,
+    `- Thread: ${threadId ?? "not attached"}`,
+  ];
+
+  if (threadId) {
+    const thread = context.conversation.getThreadState(threadId);
+    const model = context.conversation.getThreadModel(threadId);
+    lines.push(`- Turn: ${thread.activeTurnId ? `running (${thread.activeTurnId})` : "idle"}`);
+    lines.push(`- Model: ${model.pendingModel ?? model.currentModel ?? "default"}`);
+  }
+
+  return lines.join("\n");
+}
+
 function formatRecoveryInstructions(context: CommandContext, channelId: string): string {
   const project = context.getSurfaceProject(channelId);
   const threadId = context.getSurfaceThreadId(channelId);
+  const listeningMode = context.getSurfaceListeningMode(channelId);
   const commands = [
     ...(project ? [`!repo ${project}`] : []),
     ...(threadId ? [`!thread ${threadId}`] : []),
+    ...(listeningMode === "open" ? ["!listen open"] : []),
   ];
 
   if (commands.length === 0) {
@@ -401,6 +455,11 @@ export async function handleMessage(
     await message.reply([
       "Discord Shepherd commands:",
       "- !help",
+      "- !status",
+      "- !listen [open|mentions]",
+      "- !pause",
+      "- !resume",
+      "- !detach",
       "- !newthread",
       "- !repo",
       "- !repo <owner>/<repo>",
@@ -427,8 +486,88 @@ export async function handleMessage(
       "- !interrupt",
       "- !restart",
       "- !deploy",
-      "Any other message is sent as a Shepherd turn.",
+      "Conversation messages follow the channel's listening mode.",
     ].join("\n"));
+    return { handled: true, threadId: null, input: null };
+  }
+
+  if (command === "!status") {
+    if (args.length > 0) {
+      await message.reply("Usage: !status");
+      return { handled: true, threadId: null, input: null };
+    }
+    await message.reply(formatSurfaceStatus(message, context));
+    return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
+  }
+
+  if (command === "!listen") {
+    const requestedMode = (args[0] ?? "").toLowerCase();
+    if (!requestedMode) {
+      await message.reply(formatListeningStatus(message, context));
+      return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
+    }
+    if (args.length !== 1 || !["open", "mention", "mentions"].includes(requestedMode)) {
+      await message.reply("Usage: !listen [open|mentions]");
+      return { handled: true, threadId: null, input: null };
+    }
+    if ((requestedMode === "mention" || requestedMode === "mentions") && message.guildId === null) {
+      await message.reply("Direct messages are always open. Use `!pause` to stop conversation input.");
+      return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
+    }
+    if (requestedMode === "open" && !context.getSurfaceThreadId(channelId)) {
+      await message.reply(
+        "Start or attach a thread before opening this channel. Use `!newthread` or `!thread <id>`.",
+      );
+      return { handled: true, threadId: null, input: null };
+    }
+    const mode = context.setSurfaceListeningMode(
+      channelId,
+      requestedMode === "open" ? "open" : "mention",
+    );
+    await message.reply(
+      mode === "open"
+        ? "Listening is now **open**. Human text, images, and audio in this channel will be sent to the active thread."
+        : "This channel is now **mention-only**. Use `@Shepherd` or a control command.",
+    );
+    return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
+  }
+
+  if (command === "!pause") {
+    if (args.length > 0) {
+      await message.reply("Usage: !pause");
+      return { handled: true, threadId: null, input: null };
+    }
+    context.pauseSurfaceListening(channelId);
+    await message.reply(
+      "Paused. New conversation messages and attachments will be ignored; control commands remain available. The current Codex turn is unaffected.",
+    );
+    return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
+  }
+
+  if (command === "!resume") {
+    if (args.length > 0) {
+      await message.reply("Usage: !resume");
+      return { handled: true, threadId: null, input: null };
+    }
+    const mode = context.resumeSurfaceListening(channelId);
+    await message.reply(`Resumed in **${displayListeningMode(mode)}** mode.`);
+    return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
+  }
+
+  if (command === "!detach") {
+    if (args.length > 0) {
+      await message.reply("Usage: !detach");
+      return { handled: true, threadId: null, input: null };
+    }
+    const threadId = context.getSurfaceThreadId(channelId);
+    if (!threadId) {
+      await message.reply("No thread is attached to this channel.");
+      return { handled: true, threadId: null, input: null };
+    }
+    context.clearSurfaceThread(channelId);
+    await message.reply(
+      `Channel detached from thread ${threadId}. The Codex thread was retained and can be reattached with \`!thread ${threadId}\`.`,
+    );
     return { handled: true, threadId: null, input: null };
   }
 

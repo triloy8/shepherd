@@ -16,15 +16,20 @@ Today, the shipped adapter is Discord.
 
 Shepherd treats an external surface as a long-lived Codex surface. It binds a surface to an active thread and workspace target, coordinates thread lifecycle operations like create, resume, fork, switch, archive, rollback, and compaction, provisions workspaces from GitHub or local paths, and exposes shared control actions such as model selection, context reads, limits, and skill management.
 
-In the current Discord adapter, that shows up as channel-scoped threads, per-channel repo selection, workspace provisioning, mention-driven turns, approval handling, and thread-level operational controls.
+In the current Discord adapter, that shows up as channel-scoped threads, per-channel repo selection, workspace provisioning, configurable listening modes, approval handling, and thread-level operational controls.
 
 > [!NOTE]
-> Non-command messages are ignored unless the bot is mentioned.
+> Guild channels start in mention-only mode. After a thread is attached, use
+> `!listen open` to treat every human message in that channel as Shepherd input.
+> Direct messages are open by default, and `!pause` stops conversation input
+> without disabling control commands.
 
-Mentioned messages may include PNG, JPEG, GIF, WebP, MP3, MP4/M4A, Ogg/Opus,
-WAV, or WebM attachments up to 10 MiB. Shepherd downloads and validates those
-attachments before submitting them to Codex as inline image or audio input.
-Audio input support is experimental and depends on the selected Codex model.
+Accepted messages may include PNG, JPEG, GIF, WebP, MP3, MP4/M4A, Ogg/Opus,
+WAV, or WebM attachments up to 10 MiB. Shepherd decides whether the message is
+addressed before downloading anything, then validates accepted attachments and
+submits them to Codex as inline image or audio input. Accepted audio gets a 🎙️
+acknowledgement. Audio input support is experimental and depends on the selected
+Codex model.
 
 When Codex image generation produces a saved PNG, JPEG, GIF, or WebP artifact
 up to 10 MiB, Shepherd validates and uploads the generated image back to the
@@ -132,8 +137,21 @@ The normal flow is:
 
 1. Set the repo or workspace target for the channel with `!repo`
 2. Start a new Codex thread with `!newthread`
-3. Mention the bot to send turns into that thread
-4. Use thread, model, skill, and context commands as needed
+3. Keep the default mention-only mode, or run `!listen open` for a dedicated Shepherd channel
+4. Send text, images, uploaded audio, or native Discord voice messages
+5. Use `!pause`, `!resume`, and the thread, model, skill, and context commands as needed
+
+Listening modes are scoped to the Discord channel:
+
+- **Mention-only** (guild default): commands and messages mentioning Shepherd are accepted.
+- **Open**: every human text, image, and audio message is accepted.
+- **Paused**: conversation input is ignored, but control commands remain available.
+
+Direct messages behave as open surfaces unless paused. `!detach` removes the
+channel-to-thread binding without archiving the Codex thread and resets the
+channel to mention-only. Listening state is runtime state; restart and deploy
+recovery instructions include `!listen open` when an open channel must be
+restored.
 
 Repo targets supported by `!repo`:
 
@@ -146,6 +164,11 @@ If a channel has no repo selected, thread creation fails until `!repo` is set.
 ## ⌨️ Commands
 
 - `!help`
+- `!status`
+- `!listen [open|mentions]`
+- `!pause`
+- `!resume`
+- `!detach`
 - `!newthread`
 - `!repo`
 - `!repo <owner>/<repo>`
@@ -177,7 +200,8 @@ If a channel has no repo selected, thread creation fails until `!repo` is set.
 
 ## Remote restart and deployment
 
-`!restart` posts the current channel's `!repo` and `!thread` recovery commands,
+`!restart` posts the current channel's `!repo`, `!thread`, and open-listening
+recovery commands,
 then gracefully exits. The deployment supervisor starts the same checkout again.
 
 `!deploy` requires a clean deployment checkout. It fetches the latest

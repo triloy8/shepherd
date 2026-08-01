@@ -7,7 +7,7 @@ description: GitHub task execution with a gh-first workflow. Use when handling a
 
 Use `gh` as the default interface for any GitHub-related task. Use `git` only for local working-tree actions (`status`, `diff`, `add`, `commit`, `rebase`, branch cleanup).
 
-Prefer `gh` commands/API for remote operations, but allow `git push` for branch updates in PR workflows. Keep `git pull`, `git fetch`, `git ls-remote`, `git remote` mutations, and `git submodule update --remote` blocked unless the user explicitly approves an exception in the current turn.
+Prefer `gh` commands/API for remote operations, but allow `git push` for branch updates in PR workflows and for the verified owner-repository exception below. Keep `git pull`, `git fetch`, `git ls-remote`, `git remote` mutations, and `git submodule update --remote` blocked unless the user explicitly approves an exception in the current turn.
 
 ## Workspace Policy
 
@@ -27,6 +27,7 @@ Set these policy values for this workspace and enforce them on every remote acti
 - `EXPECTED_GIT_USER_NAME`: from `$EXPECTED_GIT_USER_NAME`
 - `EXPECTED_GIT_USER_EMAIL`: from `$EXPECTED_GIT_USER_EMAIL`
 - `ALLOWED_REPOS`: from `$ALLOWED_REPOS`
+- `OWNER_REPO_DIRECT_PUSH`: `enabled`
 - `PROTECTED_BRANCHES`: `main`, `master`
 - `MERGE_STRATEGY`: `squash`
 - `ACTIVE_REPO_PATH`: `<user-active-repo-path>`
@@ -46,7 +47,7 @@ Always perform edits in an isolated clone/worktree under `AGENT_WORKSPACE_ROOT`.
 - If a task repo is missing in `AGENT_WORKSPACE_ROOT`, clone it first
 - If it exists, fetch/prune and create a fresh task branch from `origin/main`
 - For submodule targets (for example `triloy8/skills`), edit the target repo clone directly in `AGENT_WORKSPACE_ROOT`, not inside another repo's submodule directory
-- Use branch + PR flow only; no direct branch updates to protected/default branches
+- Use branch + PR flow unless the verified owner-repository exception permits a direct update to the protected/default branch
 
 ## Required Preflight
 
@@ -73,6 +74,7 @@ Apply these checks:
 - Active login must equal `EXPECTED_GITHUB_LOGIN`
 - `nameWithOwner` must be in `ALLOWED_REPOS`
 - `defaultBranchRef.name` must be treated as protected
+- The owner-repository exception applies only when the repository owner from `nameWithOwner` equals both the active login and `EXPECTED_GITHUB_LOGIN` (for this workspace, `shepherd888`)
 
 If any check fails, stop and ask for explicit confirmation before continuing.
 
@@ -80,9 +82,10 @@ If any check fails, stop and ask for explicit confirmation before continuing.
 
 Enforce these defaults:
 
-- Never push directly to protected branches (`main`, `master`, or repo default branch)
-- Use branch + PR flow for all changes
-- Allow `git push` only to non-protected branches associated with the active task/PR
+- Never push directly to protected branches (`main`, `master`, or repo default branch) unless the verified owner-repository exception applies
+- Use branch + PR flow for all changes when the exception does not apply
+- Allow `git push` to non-protected branches associated with the active task/PR
+- Allow a direct push to the repository's protected/default branch only when the repository owner equals both the active login and `EXPECTED_GITHUB_LOGIN`; a PR is optional in that case
 - Never run `gh pr merge` unless user gives explicit merge confirmation in the current turn
 - Never merge if checks are failing, unless user explicitly requests an override
 
@@ -180,7 +183,7 @@ Stop and request user confirmation when any of the following occurs:
 
 - Active GitHub account is unexpected
 - Repository owner/name is not in `ALLOWED_REPOS`
-- Action would push directly to a protected/default branch
+- Action would push directly to a protected/default branch and the verified owner-repository exception does not apply
 - Task requires blocked networked `git` commands (`pull`, `fetch`, `ls-remote`, remote mutation, `submodule update --remote`) and no approved exception was provided
 - Current directory is inside `ACTIVE_REPO_PATH` for a write/edit task
 - Merge was requested without explicit confirmation

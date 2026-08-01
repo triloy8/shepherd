@@ -10,6 +10,11 @@ import {
 import { executeTurnRouting } from "../../core/turn_routing_service.js";
 import { handleMessage, type CommandContext } from "./commands.js";
 import {
+  discordAudioAttachmentToDataUrl,
+  isDiscordAudioAttachment,
+  type DiscordAudioFetch,
+} from "./audio_input.js";
+import {
   discordImageAttachmentToDataUrl,
   isDiscordImageAttachment,
   type DiscordImageFetch,
@@ -21,6 +26,7 @@ export type DiscordMessageIngressDeps = {
   commandContext: CommandContext;
   approvalPolicy: ApprovalPolicy;
   classifyInput?: typeof classifySurfaceInput;
+  fetchAudio?: DiscordAudioFetch;
   fetchImage?: DiscordImageFetch;
   handleCommandMessage?: typeof handleMessage;
   executeRouting?: typeof executeTurnRouting;
@@ -40,6 +46,7 @@ export async function processDiscordMessage(
   const structuredInput = await buildDiscordUserInput(
     message,
     sanitizedContent,
+    deps.fetchAudio,
     deps.fetchImage,
   );
   const classify = deps.classifyInput ?? classifySurfaceInput;
@@ -75,6 +82,7 @@ export async function processDiscordMessage(
 async function buildDiscordUserInput(
   message: Message,
   sanitizedContent: string,
+  fetchAudio?: DiscordAudioFetch,
   fetchImage?: DiscordImageFetch,
 ): Promise<UserInput[]> {
   const input: UserInput[] = [];
@@ -84,7 +92,12 @@ async function buildDiscordUserInput(
   }
 
   for (const attachment of message.attachments?.values?.() ?? []) {
-    if (isDiscordImageAttachment(attachment)) {
+    if (isDiscordAudioAttachment(attachment)) {
+      const url = await discordAudioAttachmentToDataUrl(attachment, {
+        ...(fetchAudio ? { fetchImpl: fetchAudio } : {}),
+      });
+      input.push({ type: "audio", url });
+    } else if (isDiscordImageAttachment(attachment)) {
       const url = await discordImageAttachmentToDataUrl(attachment, {
         ...(fetchImage ? { fetchImpl: fetchImage } : {}),
       });

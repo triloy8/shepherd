@@ -21,9 +21,10 @@ In the current Discord adapter, that shows up as channel-scoped threads, per-cha
 > [!NOTE]
 > Non-command messages are ignored unless the bot is mentioned.
 
-Mentioned messages may include PNG, JPEG, GIF, or WebP attachments up to 10 MiB.
-Shepherd downloads and validates those images before submitting them to Codex
-as inline image input.
+Mentioned messages may include PNG, JPEG, GIF, WebP, MP3, MP4/M4A, Ogg/Opus,
+WAV, or WebM attachments up to 10 MiB. Shepherd downloads and validates those
+attachments before submitting them to Codex as inline image or audio input.
+Audio input support is experimental and depends on the selected Codex model.
 
 When Codex image generation produces a saved PNG, JPEG, GIF, or WebP artifact
 up to 10 MiB, Shepherd validates and uploads the generated image back to the

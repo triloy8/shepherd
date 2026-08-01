@@ -7,6 +7,7 @@ import {
   ChannelType,
   Client,
   GatewayIntentBits,
+  Partials,
   type Message,
   type TextBasedChannel,
 } from "discord.js";
@@ -46,7 +47,8 @@ function isSupportedChannel(channel: Message["channel"]): channel is TextBasedCh
   return (
     channel.type === ChannelType.GuildText ||
     channel.type === ChannelType.PublicThread ||
-    channel.type === ChannelType.PrivateThread
+    channel.type === ChannelType.PrivateThread ||
+    channel.type === ChannelType.DM
   );
 }
 
@@ -99,8 +101,10 @@ export async function startDiscordBot(): Promise<void> {
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
     ],
+    partials: [Partials.Channel],
   });
   let shutdownPromise: Promise<void> | null = null;
   let restartPrepared = false;

@@ -6,7 +6,10 @@ import {
   resolveProjectTarget,
   type ProjectTargetResolver,
 } from "./project_target_service.js";
-import { SurfaceStateService } from "./surface_state_service.js";
+import {
+  SurfaceStateService,
+  type SurfaceListeningMode,
+} from "./surface_state_service.js";
 import { WorkspaceProvisioner } from "./workspace_provisioner.js";
 
 export type SurfaceConversationOrchestratorOptions = {
@@ -43,6 +46,25 @@ export class SurfaceConversationOrchestrator {
     return target ? describeProjectTarget(target) : null;
   }
 
+  getSurfaceListeningMode(surfaceId: string): SurfaceListeningMode {
+    return this.surfaceState.getListeningMode(this.adapter, surfaceId);
+  }
+
+  setSurfaceListeningMode(
+    surfaceId: string,
+    mode: Exclude<SurfaceListeningMode, "paused">,
+  ): SurfaceListeningMode {
+    return this.surfaceState.setListeningMode(this.adapter, surfaceId, mode);
+  }
+
+  pauseSurfaceListening(surfaceId: string): SurfaceListeningMode {
+    return this.surfaceState.pauseListening(this.adapter, surfaceId);
+  }
+
+  resumeSurfaceListening(surfaceId: string): SurfaceListeningMode {
+    return this.surfaceState.resumeListening(this.adapter, surfaceId);
+  }
+
   async setSurfaceProject(surfaceId: string, rawValue: string): Promise<{ repoSlug: string }> {
     const target = await resolveProjectTarget(rawValue, this.projectTargetResolver);
     this.surfaceState.setProjectTarget(this.adapter, surfaceId, target);
@@ -61,6 +83,7 @@ export class SurfaceConversationOrchestrator {
   clearSurfaceThread(surfaceId: string): void {
     this.conversation.clearSurfaceBinding(this.adapter, surfaceId);
     this.conversation.unsubscribeSurfaceEvents(this.adapter, surfaceId);
+    this.surfaceState.resetListeningMode(this.adapter, surfaceId);
   }
 
   async createAndBindSurfaceThread(

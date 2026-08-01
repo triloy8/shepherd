@@ -64,6 +64,11 @@ export function createDiscordSurfaceRuntime(
       conversation: options.conversation,
       getSurfaceThreadId: (surfaceId) => options.conversation.getSurfaceThread("discord", surfaceId),
       getSurfaceProject: (surfaceId) => orchestrator.getSurfaceProjectDisplay(surfaceId),
+      getSurfaceListeningMode: (surfaceId) => orchestrator.getSurfaceListeningMode(surfaceId),
+      setSurfaceListeningMode: (surfaceId, mode) =>
+        orchestrator.setSurfaceListeningMode(surfaceId, mode),
+      pauseSurfaceListening: (surfaceId) => orchestrator.pauseSurfaceListening(surfaceId),
+      resumeSurfaceListening: (surfaceId) => orchestrator.resumeSurfaceListening(surfaceId),
       setSurfaceProject: (surfaceId, repoSlug) => orchestrator.setSurfaceProject(surfaceId, repoSlug),
       ensureSurfaceThread,
       createSurfaceThread,

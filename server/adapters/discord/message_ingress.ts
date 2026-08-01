@@ -39,7 +39,12 @@ export async function processDiscordMessage(
   const raw = message.content.trim();
   const isCommand = raw.startsWith("!");
   const isMentioned = message.mentions.users.has(deps.botUserId);
-  if (!isCommand && !isMentioned) return;
+  const listeningMode =
+    deps.commandContext.getSurfaceListeningMode?.(message.channelId) ?? "mention";
+  const isDirectMessage = message.guildId === null;
+  const isAddressed =
+    listeningMode !== "paused" && (isMentioned || listeningMode === "open" || isDirectMessage);
+  if (!isCommand && !isAddressed) return;
 
   const mentionPattern = new RegExp(`<@!?${deps.botUserId}>`, "g");
   const sanitizedContent = isCommand ? raw : raw.replace(mentionPattern, "").trim();
@@ -56,7 +61,7 @@ export async function processDiscordMessage(
     content: sanitizedContent,
     input: structuredInput,
     isCommand,
-    isDirectAddressed: isMentioned,
+    isDirectAddressed: isAddressed,
   });
   if (classified.type === "ignore") return;
 
@@ -64,7 +69,21 @@ export async function processDiscordMessage(
   const result =
     classified.surface.content.length > 0
       ? await handle(message, deps.commandContext, classified.surface.content)
-      : { handled: false, threadId: deps.commandContext.getSurfaceThreadId(message.channelId), input: null };
+      : {
+          handled: false,
+          threadId:
+            deps.commandContext.getSurfaceThreadId(message.channelId) ??
+            (await deps.commandContext.ensureSurfaceThread(message.channelId)),
+          input: null,
+        };
+
+  if (structuredInput.some((entry) => entry.type === "audio")) {
+    try {
+      await message.react("🎙️");
+    } catch {
+      // Reactions are acknowledgement only; missing permissions must not fail the turn.
+    }
+  }
 
   const execute = deps.executeRouting ?? executeTurnRouting;
   await execute(

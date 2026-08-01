@@ -10,6 +10,7 @@ function makeMessage(content: string) {
     message: {
       content,
       channelId: "chan-1",
+      guildId: "guild-1",
       async reply(text: string) {
         replies.push(text);
         return {} as never;
@@ -36,6 +37,9 @@ function makeContext(overrides?: {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
   const modelWrites: Array<{ threadId: string; model: string }> = [];
   let restartRequests = 0;
+  let listeningMode: "mention" | "open" | "paused" = "mention";
+  let resumeMode: "mention" | "open" = "mention";
+  let surfaceThreadId: string | null = "thread-1";
   const context: CommandContext = {
     conversation: {
       async listSkills() {
@@ -138,13 +142,38 @@ function makeContext(overrides?: {
         return { ok: true };
       },
       async interruptTurn() {},
+      getThreadState(threadId: string) {
+        return {
+          threadId,
+          sessionId: "session-1",
+          activeTurnId: null,
+          approvalPolicy: "on-request",
+        };
+      },
     } as unknown as CommandContext["conversation"],
     getSurfaceThreadId() {
-      return "thread-1";
+      return surfaceThreadId;
     },
     getSurfaceProject() {
       if (overrides?.getSurfaceProject) return overrides.getSurfaceProject();
       return null;
+    },
+    getSurfaceListeningMode() {
+      return listeningMode;
+    },
+    setSurfaceListeningMode(_channelId, mode) {
+      listeningMode = mode;
+      resumeMode = mode;
+      return mode;
+    },
+    pauseSurfaceListening() {
+      if (listeningMode !== "paused") resumeMode = listeningMode;
+      listeningMode = "paused";
+      return listeningMode;
+    },
+    resumeSurfaceListening() {
+      if (listeningMode === "paused") listeningMode = resumeMode;
+      return listeningMode;
     },
     async setSurfaceProject(channelId: string, repoSlug: string) {
       if (overrides?.setSurfaceProject) return overrides.setSurfaceProject(channelId, repoSlug);
@@ -162,7 +191,11 @@ function makeContext(overrides?: {
     async switchSurfaceThread(_channelId: string, threadId: string) {
       return threadId;
     },
-    clearSurfaceThread() {},
+    clearSurfaceThread() {
+      surfaceThreadId = null;
+      listeningMode = "mention";
+      resumeMode = "mention";
+    },
     runtimeLifecycle: {
       async restart(options) {
         if (overrides?.restart) return overrides.restart(options);
@@ -185,8 +218,80 @@ function makeContext(overrides?: {
     },
   };
 
-  return { context, writes, modelWrites, getRestartRequests: () => restartRequests };
+  return {
+    context,
+    writes,
+    modelWrites,
+    getRestartRequests: () => restartRequests,
+    getListeningMode: () => listeningMode,
+    getSurfaceThreadId: () => surfaceThreadId,
+  };
 }
+
+describe("Discord listening commands", () => {
+  test("opens, pauses, and resumes channel input without interrupting the thread", async () => {
+    const { context, getListeningMode } = makeContext();
+
+    const opened = makeMessage("!listen open");
+    await handleMessage(opened.message as never, context);
+    expect(getListeningMode()).toBe("open");
+    expect(opened.replies).toEqual([
+      "Listening is now **open**. Human text, images, and audio in this channel will be sent to the active thread.",
+    ]);
+
+    const paused = makeMessage("!pause");
+    await handleMessage(paused.message as never, context);
+    expect(getListeningMode()).toBe("paused");
+
+    const resumed = makeMessage("!resume");
+    await handleMessage(resumed.message as never, context);
+    expect(getListeningMode()).toBe("open");
+    expect(resumed.replies).toEqual(["Resumed in **Open** mode."]);
+  });
+
+  test("detaches without archiving and resets the channel to mention-only", async () => {
+    const { context, getListeningMode, getSurfaceThreadId } = makeContext();
+    context.setSurfaceListeningMode("chan-1", "open");
+    const { message, replies } = makeMessage("!detach");
+
+    await handleMessage(message as never, context);
+
+    expect(getSurfaceThreadId()).toBeNull();
+    expect(getListeningMode()).toBe("mention");
+    expect(replies).toEqual([
+      "Channel detached from thread thread-1. The Codex thread was retained and can be reattached with `!thread thread-1`.",
+    ]);
+  });
+
+  test("reports consolidated channel status", async () => {
+    const { context } = makeContext({
+      getSurfaceProject() {
+        return "owner/repo";
+      },
+    });
+    context.setSurfaceListeningMode("chan-1", "open");
+    const { message, replies } = makeMessage("!status");
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "**Shepherd channel**\n- Listening: Open\n- Repository: owner/repo\n- Thread: thread-1\n- Turn: idle\n- Model: o4-mini",
+    ]);
+  });
+
+  test("keeps direct messages open unless explicitly paused", async () => {
+    const { context, getListeningMode } = makeContext();
+    const direct = makeMessage("!listen mentions");
+    direct.message.guildId = null as never;
+
+    await handleMessage(direct.message as never, context);
+
+    expect(getListeningMode()).toBe("mention");
+    expect(direct.replies).toEqual([
+      "Direct messages are always open. Use `!pause` to stop conversation input.",
+    ]);
+  });
+});
 
 describe("Discord !skill commands", () => {
   test("resolves a displayed skill name to its underlying path", async () => {
@@ -393,6 +498,22 @@ describe("Discord operational commands", () => {
       "Restarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo owner/repo\n!thread thread-1\n```",
     ]);
     expect(getRestartRequests()).toBe(1);
+  });
+
+  test("includes open listening mode in restart recovery commands", async () => {
+    const { message, replies } = makeMessage("!restart");
+    const { context } = makeContext({
+      getSurfaceProject() {
+        return "owner/repo";
+      },
+    });
+    context.setSurfaceListeningMode("chan-1", "open");
+
+    await handleMessage(message as never, context);
+
+    expect(replies).toEqual([
+      "Restarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo owner/repo\n!thread thread-1\n!listen open\n```",
+    ]);
   });
 
   test("refuses restart while a turn is active", async () => {

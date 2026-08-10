@@ -8,8 +8,8 @@ Status legend:
 
 Generated baseline:
 
-- Codex version: `codex-cli 0.145.0`
-- Last refreshed: `2026-07-26`
+- Codex version: `codex-cli 0.147.0`
+- Last refreshed: `2026-08-10`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -34,11 +34,16 @@ Legacy note:
 | `thread/goal/get` | Missing | Maybe Later | Useful for richer thread diagnostics if goal state is surfaced |
 | `thread/goal/clear` | Missing | Maybe Later | Goal management path not exposed by current Discord flow |
 | `thread/metadata/update` | Missing | Maybe Later | Useful for richer repo/thread metadata, but not required for current Discord flow |
+| `thread/section/move` | Missing | Maybe Later | Moves a thread into, within, or out of a server-owned section ordering |
 | `thread/compact/start` | Implemented | Core | |
 | `thread/shellCommand` | Missing | Out of Scope (for now) | Terminal-oriented thread helper; Shepherd should route requests, not become a shell command surface |
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
 | `thread/rollback` | Implemented | Core | Generated schema marks this method as deprecated |
 | `thread/list` | Implemented | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors |
+| `threadSection/list` | Missing | Maybe Later | Useful if Shepherd adds section-based thread organization UX |
+| `threadSection/create` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
+| `threadSection/update` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
+| `threadSection/delete` | Missing | Maybe Later | Destructive section-management path; not exposed by the current Discord flow |
 | `thread/loaded/list` | Implemented | Core | |
 | `thread/read` | Implemented | Core | `includeTurns` supported |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
@@ -99,6 +104,7 @@ Legacy note:
 | `experimentalFeature/enablement/set` | Missing | Out of Scope (for now) | Feature flag mutation path |
 | `externalAgentConfig/detect` | Missing | Out of Scope (for now) | |
 | `externalAgentConfig/import` | Missing | Out of Scope (for now) | |
+| `externalAgentConfig/import/recordHistory` | Missing | Out of Scope (for now) | Records results for an externally completed agent-config import |
 | `externalAgentConfig/import/readHistories` | Missing | Out of Scope (for now) | External-agent migration history is outside Shepherd's current Discord/admin surface |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
 | `account/rateLimits/read` | Implemented | Core | Exposed via Discord `!limits` |
@@ -200,4 +206,4 @@ Legacy note:
 | Rich resume/fork/start options | Partial | Major override fields supported; still not full schema parity |
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; broader item/model/realtime notifications remain reduced |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.145.0`: 92 TypeScript request methods (89 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 72 TypeScript notifications (70 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.147.0`: 98 TypeScript request methods (95 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 72 TypeScript notifications (70 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |

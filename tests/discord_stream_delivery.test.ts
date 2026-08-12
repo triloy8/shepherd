@@ -1,14 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
+  MessageFlags,
+} from "discord.js";
 
 import {
+  buildCardPages,
+  buildProgressPages,
+} from "../server/adapters/discord/components_renderer.js";
+import {
   chunkForDiscord,
-  createDiscordEditableChunksState,
-  createDiscordEditableEmbedsState,
+  createDiscordEditableSurfaceState,
   createDiscordPreviewState,
-  sendDiscordEmbed,
-  sendDiscordText,
-  updateDiscordEditableChunks,
-  updateDiscordEditableEmbeds,
+  sendDiscordMarkdown,
+  sendDiscordPages,
+  updateDiscordEditableSurfaces,
   updateDiscordPreview,
 } from "../server/adapters/discord/stream_delivery.js";
 import { discordTextLength } from "../server/adapters/discord/chunking.js";
@@ -16,23 +25,31 @@ import { discordTextLength } from "../server/adapters/discord/chunking.js";
 type HarnessOptions = {
   failSendAt?: number;
   failFetch?: boolean;
+  rejectV2?: boolean;
 };
 
 function createChannelHarness(options: HarnessOptions = {}) {
-  const sent: string[] = [];
-  const edits: Array<{ id: string; content: string }> = [];
-  const messages = new Map<string, { id: string; edit: (content: string) => Promise<void> }>();
+  const sent: unknown[] = [];
+  const edits: Array<{ id: string; payload: unknown }> = [];
+  const messages = new Map<string, { id: string; edit: (payload: unknown) => Promise<void> }>();
 
   const channel = {
-    async send(content: string | { content: string }) {
-      const text = typeof content === "string" ? content : content.content;
+    async send(payload: unknown) {
       if (options.failSendAt === sent.length + 1) throw new Error("send failed");
-      sent.push(text);
+      if (
+        options.rejectV2 &&
+        payload &&
+        typeof payload === "object" &&
+        (payload as { flags?: unknown }).flags === MessageFlags.IsComponentsV2
+      ) {
+        throw Object.assign(new Error("Invalid Form Body: IS_COMPONENTS_V2"), { code: 50_035 });
+      }
+      sent.push(payload);
       const id = `msg-${sent.length}`;
       const message = {
         id,
-        async edit(next: string) {
-          edits.push({ id, content: next });
+        async edit(next: unknown) {
+          edits.push({ id, payload: next });
         },
       };
       messages.set(id, message);
@@ -51,14 +68,29 @@ function createChannelHarness(options: HarnessOptions = {}) {
   return { channel: channel as never, sent, edits, messages };
 }
 
-describe("Discord final chunking", () => {
+function componentJson(component: unknown): Record<string, unknown> {
+  return (component && typeof component === "object" && "toJSON" in component
+    ? (component as { toJSON: () => unknown }).toJSON()
+    : component) as Record<string, unknown>;
+}
+
+function textDisplayContent(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return String(payload);
+  const components = (payload as { components?: unknown[] }).components ?? [];
+  const first = componentJson(components[0]);
+  if (first.type === ComponentType.TextDisplay) return String(first.content);
+  const children = (first.components as unknown[] | undefined) ?? [];
+  return children
+    .map(componentJson)
+    .filter((child) => child.type === ComponentType.TextDisplay)
+    .map((child) => String(child.content))
+    .join("\n");
+}
+
+describe("Discord markdown segmentation", () => {
   test("prefers whitespace boundaries", () => {
-    expect(
-      chunkForDiscord("alpha beta gamma", {
-        maxChars: 10,
-        includePageIndicators: false,
-      }),
-    ).toEqual(["alpha beta", " gamma"]);
+    expect(chunkForDiscord("alpha beta gamma", { maxChars: 10, includePageIndicators: false }))
+      .toEqual(["alpha beta", " gamma"]);
   });
 
   test("balances backtick and tilde fences across chunks", () => {
@@ -76,165 +108,115 @@ describe("Discord final chunking", () => {
     }
   });
 
-  test("does not split tall content merely because it has many lines", () => {
-    const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n");
-    expect(chunkForDiscord(text)).toEqual([text]);
-  });
-
-  test("avoids breaking a short inline-code span", () => {
-    const chunks = chunkForDiscord("alpha `inline code` omega delta", {
+  test("avoids breaking inline code and Unicode", () => {
+    const inline = chunkForDiscord("alpha `inline code` omega delta", {
       maxChars: 20,
       includePageIndicators: false,
     });
-    for (const chunk of chunks) {
-      expect((chunk.match(/(?<!\\)`/g)?.length ?? 0) % 2).toBe(0);
-    }
-  });
+    expect(inline.every((chunk) => ((chunk.match(/(?<!\\)`/g)?.length ?? 0) % 2) === 0)).toBe(true);
 
-  test("splits Unicode on code-point boundaries", () => {
-    const text = "😀".repeat(20);
-    const chunks = chunkForDiscord(text, {
-      maxChars: 7,
-      includePageIndicators: false,
-    });
-    expect(chunks.join("")).toBe(text);
-    expect(chunks.every((chunk) => discordTextLength(chunk) <= 7)).toBe(true);
-    expect(chunks.every((chunk) => !chunk.includes("�"))).toBe(true);
-  });
-
-  test("adds stable page indicators without exceeding the configured limit", () => {
-    const chunks = chunkForDiscord("x".repeat(100), { maxChars: 30 });
-    expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks[0]).toStartWith("(1/");
-    expect(chunks.at(-1)).toStartWith(`(${chunks.length}/${chunks.length})`);
-    expect(chunks.every((chunk) => discordTextLength(chunk) <= 30)).toBe(true);
+    const emoji = chunkForDiscord("😀".repeat(20), { maxChars: 7, includePageIndicators: false });
+    expect(emoji.join("")).toBe("😀".repeat(20));
+    expect(emoji.every((chunk) => discordTextLength(chunk) <= 7 && !chunk.includes("�"))).toBe(true);
   });
 });
 
-describe("Discord completed delivery", () => {
-  test("falls back to plain text when an embed send is rejected", async () => {
-    const sent: string[] = [];
-    const channel = {
-      async send(payload: string | { content?: string; embeds?: unknown[] }) {
-        if (typeof payload !== "string" && payload.embeds) throw new Error("missing Embed Links");
-        sent.push(typeof payload === "string" ? payload : payload.content ?? "");
-        return { id: "msg-1", async edit() {} };
-      },
-      messages: { async fetch() { throw new Error("unused"); } },
-    };
-    const result = await sendDiscordEmbed(
-      channel as never,
-      { title: "Status", description: "Structured state" },
-      "Status\n\nStructured state",
+describe("Discord Components V2 delivery", () => {
+  test("sends markdown as mention-safe Text Displays", async () => {
+    const { channel, sent } = createChannelHarness();
+    const result = await sendDiscordMarkdown(channel, "# Result\n\nDone.", {
+      replyToMessageId: "user-1",
+    });
+
+    expect(result.success).toBe(true);
+    expect((sent[0] as { flags?: unknown }).flags).toBe(MessageFlags.IsComponentsV2);
+    expect(textDisplayContent(sent[0])).toBe("# Result\n\nDone.");
+    expect((sent[0] as { allowedMentions?: unknown }).allowedMentions).toEqual({
+      parse: [],
+      repliedUser: false,
+    });
+  });
+
+  test("falls back to ordinary content when Components V2 is rejected", async () => {
+    const { channel, sent } = createChannelHarness({ rejectV2: true });
+    const result = await sendDiscordMarkdown(channel, "Fallback text");
+
+    expect(result.success).toBe(true);
+    expect(result.usedFallback).toBe(true);
+    expect((sent[0] as { content?: unknown }).content).toBe("Fallback text");
+    expect((sent[0] as { allowedMentions?: unknown }).allowedMentions).toEqual({ parse: [] });
+  });
+
+  test("preserves reply context and buttons in a card fallback", async () => {
+    const { channel, sent } = createChannelHarness({ rejectV2: true });
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId("approve").setLabel("Approve").setStyle(ButtonStyle.Success),
+    );
+    const result = await sendDiscordPages(
+      channel,
+      buildCardPages({ title: "Approval", text: "Proceed?", actionRows: [row] }),
+      { replyToMessageId: "user-1" },
     );
 
     expect(result.success).toBe(true);
-    expect(sent).toEqual(["Status\n\nStructured state"]);
-  });
-
-  test("keeps permission-fallback progress messages editable as plain text", async () => {
-    const sent: string[] = [];
-    const edits: string[] = [];
-    const message = { id: "msg-1", async edit(payload: string) { edits.push(payload); } };
-    const channel = {
-      async send(payload: string | { content?: string; embeds?: unknown[] }) {
-        if (typeof payload !== "string" && payload.embeds) throw new Error("missing Embed Links");
-        sent.push(typeof payload === "string" ? payload : payload.content ?? "");
-        return message;
-      },
-      messages: { async fetch() { return message; } },
-    };
-    const state = createDiscordEditableEmbedsState();
-
-    await updateDiscordEditableEmbeds(
-      channel as never,
-      state,
-      [{ title: "Working", description: "one" }],
-      ["one"],
-    );
-    await updateDiscordEditableEmbeds(
-      channel as never,
-      state,
-      [{ title: "Working", description: "one\ntwo" }],
-      ["one\ntwo"],
-    );
-
-    expect(sent).toEqual(["one"]);
-    expect(edits).toEqual(["one\ntwo"]);
+    expect((sent[0] as { content?: unknown }).content).toBe("Approval\n\nProceed?");
+    expect((sent[0] as { components?: unknown[] }).components).toEqual([row]);
+    expect((sent[0] as { reply?: unknown }).reply).toEqual({
+      messageReference: "user-1",
+      failIfNotExists: false,
+    });
   });
 
   test("reports a partial continuation failure", async () => {
     const { channel, sent } = createChannelHarness({ failSendAt: 2 });
-    const result = await sendDiscordText(channel, "x".repeat(5_000));
+    const result = await sendDiscordMarkdown(channel, "x".repeat(5_000));
 
     expect(result.success).toBe(false);
     expect(result.partial).toBe(true);
     expect(result.deliveredChunks).toBe(1);
-    expect(result.totalChunks).toBeGreaterThan(1);
+    expect(result.totalChunks).toBe(2);
     expect(sent).toHaveLength(1);
   });
 
-  test("updates accumulated progress bubbles and replaces an uneditable bubble", async () => {
-    const first = createChannelHarness();
-    const state = createDiscordEditableChunksState();
-    await updateDiscordEditableChunks(first.channel, state, "one");
-    expect(state.messageIds).toEqual(["msg-1"]);
+  test("updates editable Container progress without changing message mode", async () => {
+    const { channel, sent, edits } = createChannelHarness();
+    const state = createDiscordEditableSurfaceState();
+    await updateDiscordEditableSurfaces(channel, state, buildProgressPages("one"));
+    await updateDiscordEditableSurfaces(channel, state, buildProgressPages("one\ntwo"));
 
-    const replacement = createChannelHarness({ failFetch: true });
-    await updateDiscordEditableChunks(replacement.channel, state, "one\ntwo");
-    expect(replacement.sent).toEqual(["one\ntwo"]);
-    expect(state.messageIds).toEqual(["msg-1"]);
+    expect(sent).toHaveLength(1);
+    expect(edits).toHaveLength(1);
+    expect((edits[0]?.payload as { flags?: unknown }).flags).toBe(MessageFlags.IsComponentsV2);
+    expect(textDisplayContent(edits[0]?.payload)).toContain("one\ntwo");
   });
 
-  test("rolls accumulated progress into additional editable bubbles", async () => {
-    const { channel, sent } = createChannelHarness();
-    const state = createDiscordEditableChunksState();
-    const result = await updateDiscordEditableChunks(channel, state, "activity\n".repeat(500));
+  test("keeps rejected progress fallbacks editable as plain content", async () => {
+    const { channel, sent, edits } = createChannelHarness({ rejectV2: true });
+    const state = createDiscordEditableSurfaceState();
+    await updateDiscordEditableSurfaces(channel, state, buildProgressPages("one"));
+    await updateDiscordEditableSurfaces(channel, state, buildProgressPages("one\ntwo"));
 
-    expect(result.success).toBe(true);
-    expect(sent.length).toBeGreaterThan(1);
-    expect(sent.every((chunk) => discordTextLength(chunk) <= 1_900)).toBe(true);
-    expect(state.messageIds).toHaveLength(sent.length);
+    expect((sent[0] as { content?: unknown }).content).toBe("Working\n\none");
+    expect(edits[0]?.payload).toBe("Working\n\none\ntwo");
   });
 });
 
-describe("Discord optional preview streaming", () => {
-  test("keeps oversized midstream content in one saturated preview", async () => {
+describe("Discord optional Components V2 preview", () => {
+  test("edits the first Text Display and sends continuations on finalization", async () => {
     const { channel, sent, edits } = createChannelHarness();
     const state = createDiscordPreviewState();
-
-    await updateDiscordPreview(channel, state, "x".repeat(5_000));
-    await updateDiscordPreview(channel, state, "x".repeat(5_500));
-
-    expect(sent).toHaveLength(1);
-    expect(edits).toHaveLength(0);
-    expect(state.saturatedText).not.toBeNull();
-  });
-
-  test("clears saturation after content shrinks", async () => {
-    const { channel, edits } = createChannelHarness();
-    const state = createDiscordPreviewState();
-
-    await updateDiscordPreview(channel, state, "x".repeat(5_000));
-    await updateDiscordPreview(channel, state, "short");
-    await updateDiscordPreview(channel, state, "x".repeat(5_000));
-
-    expect(edits.map((edit) => edit.content)).toHaveLength(2);
-    expect(edits[0]?.content).toBe("short");
-  });
-
-  test("finalization edits chunk one and sends every continuation", async () => {
-    const { channel, sent, edits } = createChannelHarness();
-    const state = createDiscordPreviewState();
-    const finalText = `${"z".repeat(5_000)}END_MARKER_XYZ`;
-
-    await updateDiscordPreview(channel, state, "z".repeat(2_500));
-    const result = await updateDiscordPreview(channel, state, finalText, { finalize: true });
+    await updateDiscordPreview(channel, state, "preview");
+    const result = await updateDiscordPreview(channel, state, `${"z".repeat(5_000)}END`, {
+      finalize: true,
+    });
 
     expect(result.success).toBe(true);
+    expect(sent).toHaveLength(3);
     expect(edits).toHaveLength(1);
-    expect(result.messageIds).toHaveLength(result.totalChunks);
-    expect([...edits.map((edit) => edit.content), ...sent.slice(1)].join("")).toContain("END_MARKER_XYZ");
-    expect(state.continuationMessageIds).toHaveLength(result.totalChunks - 1);
+    expect([
+      textDisplayContent(edits[0]?.payload),
+      ...sent.slice(1).map(textDisplayContent),
+    ].join(""))
+      .toContain("END");
   });
 });

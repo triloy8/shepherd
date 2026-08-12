@@ -1,22 +1,30 @@
 import { describe, expect, test } from "bun:test";
+import { ComponentType, type MessageCreateOptions, type MessageEditOptions } from "discord.js";
 
 import { handleMessage, type CommandContext } from "../server/adapters/discord/commands.js";
-import type { APIEmbed } from "discord.js";
 
 type RuntimeLifecycle = NonNullable<CommandContext["runtimeLifecycle"]>;
 
 function makeMessage(content: string) {
-  const replies: Array<string | { embeds: APIEmbed[]; allowedMentions?: unknown }> = [];
-  const edits: Array<{ content: null; embeds: APIEmbed[] }> = [];
+  const replies: Array<string | MessageCreateOptions> = [];
+  const edits: Array<string | MessageEditOptions> = [];
   return {
     message: {
       content,
       channelId: "chan-1",
       guildId: "guild-1",
-      async reply(payload: string | { embeds: APIEmbed[]; allowedMentions?: unknown }) {
+      channel: {
+        async send(payload: string | MessageCreateOptions) {
+          replies.push(payload);
+          return { id: `reply-${replies.length}`, async edit() {} };
+        },
+      },
+      id: "user-message-1",
+      async reply(payload: string | MessageCreateOptions) {
         replies.push(payload);
         return {
-          async edit(next: { content: null; embeds: APIEmbed[] }) {
+          id: `reply-${replies.length}`,
+          async edit(next: string | MessageEditOptions) {
             edits.push(next);
           },
         } as never;
@@ -27,15 +35,39 @@ function makeMessage(content: string) {
   };
 }
 
-function replyEmbedAt(
-  replies: Array<string | { embeds: APIEmbed[] }>,
-  index = 0,
-): APIEmbed {
+function componentJson(value: unknown): Record<string, unknown> {
+  return (value && typeof value === "object" && "toJSON" in value
+    ? (value as { toJSON: () => unknown }).toJSON()
+    : value) as Record<string, unknown>;
+}
+
+function componentText(value: unknown): string[] {
+  const component = componentJson(value);
+  if (component.type === ComponentType.TextDisplay) return [String(component.content)];
+  return ((component.components as unknown[] | undefined) ?? []).flatMap(componentText);
+}
+
+function replyTextAt(replies: Array<string | MessageCreateOptions>, index = 0): string {
   const reply = replies[index];
-  if (typeof reply === "string" || !reply?.embeds[0]) {
-    throw new Error(`Expected embed reply at index ${index}.`);
-  }
-  return reply.embeds[0];
+  if (typeof reply === "string") return reply;
+  return (reply?.components ?? []).flatMap(componentText).join("\n");
+}
+
+function replyTexts(replies: Array<string | MessageCreateOptions>): string[] {
+  return replies.map((_, index) => replyTextAt(replies, index));
+}
+
+function replyCardAt(replies: Array<string | MessageCreateOptions>, index = 0) {
+  const texts = replyTextAt(replies, index).split("\n");
+  const title = texts.shift()?.replace(/^##\s+/, "") ?? "";
+  return { title, description: texts.join("\n") };
+}
+
+function editedCardAt(edits: Array<string | MessageEditOptions>, index = 0) {
+  const edit = edits[index];
+  if (typeof edit === "string") return { title: "", description: edit };
+  const texts = (edit?.components ?? []).flatMap(componentText).join("\n").split("\n");
+  return { title: texts.shift()?.replace(/^##\s+/, "") ?? "", description: texts.join("\n") };
 }
 
 function makeContext(overrides?: {
@@ -269,7 +301,7 @@ describe("Discord listening commands", () => {
     const opened = makeMessage("!listen open");
     await handleMessage(opened.message as never, context);
     expect(getListeningMode()).toBe("open");
-    expect(opened.replies).toEqual([
+    expect(replyTexts(opened.replies)).toEqual([
       "Listening is now **open**. Human text and images in this channel will be sent to the active thread.",
     ]);
 
@@ -280,7 +312,7 @@ describe("Discord listening commands", () => {
     const resumed = makeMessage("!resume");
     await handleMessage(resumed.message as never, context);
     expect(getListeningMode()).toBe("open");
-    expect(resumed.replies).toEqual(["Resumed in **Open** mode."]);
+    expect(replyTexts(resumed.replies)).toEqual(["Resumed in **Open** mode."]);
   });
 
   test("detaches without archiving and resets the channel to mention-only", async () => {
@@ -292,7 +324,7 @@ describe("Discord listening commands", () => {
 
     expect(getSurfaceThreadId()).toBeNull();
     expect(getListeningMode()).toBe("mention");
-    expect(replies).toEqual([
+    expect(replyTexts(replies)).toEqual([
       "Channel detached from thread thread-1. The Codex thread was retained and can be reattached with `!thread thread-1`.",
     ]);
   });
@@ -308,10 +340,10 @@ describe("Discord listening commands", () => {
 
     await handleMessage(message as never, context);
 
-    const embed = replyEmbedAt(replies);
+    const embed = replyCardAt(replies);
     expect(embed.title).toBe("Shepherd channel");
-    expect(embed.fields).toContainEqual({ name: "Listening", value: "Open", inline: true });
-    expect(embed.fields).toContainEqual({ name: "Repository", value: "owner/repo", inline: true });
+    expect(embed.description).toContain("Listening: Open");
+    expect(embed.description).toContain("Repository: owner/repo");
   });
 
   test("keeps direct messages open unless explicitly paused", async () => {
@@ -322,37 +354,37 @@ describe("Discord listening commands", () => {
     await handleMessage(direct.message as never, context);
 
     expect(getListeningMode()).toBe("mention");
-    expect(direct.replies).toEqual([
+    expect(replyTexts(direct.replies)).toEqual([
       "Direct messages are always open. Use `!pause` to stop conversation input.",
     ]);
   });
 });
 
 describe("Discord !skill commands", () => {
-  test("renders help as grouped command fields", async () => {
+  test("renders help as a Markdown command card", async () => {
     const { message, replies } = makeMessage("!help");
     const { context } = makeContext();
 
     await handleMessage(message as never, context);
 
-    const embed = replyEmbedAt(replies);
+    const embed = replyCardAt(replies);
     expect(embed.title).toBe("Shepherd commands");
-    expect(embed.fields?.map((field) => field.name)).toContain("Thread lifecycle");
+    expect(embed.description).toContain("- !rollback <numTurns> [id]");
   });
 
-  test("renders context telemetry as a structured embed", async () => {
+  test("renders context telemetry as a structured Components V2 card", async () => {
     const { message, replies } = makeMessage("!context");
     const { context } = makeContext();
 
     await handleMessage(message as never, context);
 
-    const embed = replyEmbedAt(replies);
+    const embed = replyCardAt(replies);
     expect(embed.title).toBe("Context usage");
-    expect(embed.description).toContain("Remaining context");
-    expect(embed.fields?.map((field) => field.name)).toContain("Thread total");
+    expect(embed.description).toContain("Context left");
+    expect(embed.description).toContain("**Total Token Usage**");
   });
 
-  test("renders skill and thread listings as embeds", async () => {
+  test("renders skill and thread listings as Components V2 cards", async () => {
     const skills = makeMessage("!skills");
     const threads = makeMessage("!threads");
     const { context } = makeContext();
@@ -360,10 +392,10 @@ describe("Discord !skill commands", () => {
     await handleMessage(skills.message as never, context);
     await handleMessage(threads.message as never, context);
 
-    expect(replyEmbedAt(skills.replies).title).toBe("Skills");
-    expect(replyEmbedAt(skills.replies).description).toContain("`github`");
-    expect(replyEmbedAt(threads.replies).title).toBe("Active threads");
-    expect(replyEmbedAt(threads.replies).description).toContain("thread-1");
+    expect(replyCardAt(skills.replies).title).toBe("Skills");
+    expect(replyCardAt(skills.replies).description).toContain("github [workspace] enabled");
+    expect(replyCardAt(threads.replies).title).toBe("Active threads");
+    expect(replyCardAt(threads.replies).description).toContain("thread-1");
   });
 
   test("resolves a displayed skill name to its underlying path", async () => {
@@ -379,7 +411,7 @@ describe("Discord !skill commands", () => {
         enabled: false,
       },
     ]);
-    expect(replies).toEqual(["Disabled skill github (effectiveEnabled=false)"]);
+    expect(replyTexts(replies)).toEqual(["Disabled skill github (effectiveEnabled=false)"]);
   });
 
   test("returns a clear error when the displayed name is ambiguous", async () => {
@@ -416,7 +448,7 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(writes).toHaveLength(0);
-    expect(replies).toEqual([
+    expect(replyTexts(replies)).toEqual([
       "Multiple skills match `github`: github [workspace], github [personal]. Use the full path.",
     ]);
   });
@@ -437,11 +469,11 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(replies).toHaveLength(1);
-    const embed = replyEmbedAt(replies);
+    const embed = replyCardAt(replies);
     expect(embed.title).toBe("Models");
     expect(embed.description).toContain("`gpt-5.3-codex` [pending, default]");
     expect(embed.description).toContain("`o4-mini` [current]");
-    expect(embed.fields).toContainEqual({ name: "Current", value: "`o4-mini`", inline: true });
+    expect(embed.description).toContain("Current: o4-mini");
   });
 
   test("stores a thread-scoped pending model override", async () => {
@@ -451,7 +483,7 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(modelWrites).toEqual([{ threadId: "thread-1", model: "gpt-5.3-codex" }]);
-    expect(replies).toEqual([
+    expect(replyTexts(replies)).toEqual([
       "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
     ]);
   });
@@ -466,7 +498,7 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual(["Current repo for this channel: owner/repo"]);
+    expect(replyTexts(replies)).toEqual(["Current repo for this channel: owner/repo"]);
   });
 
   test("formats repo set replies using active thread context", async () => {
@@ -479,7 +511,7 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual([
+    expect(replyTexts(replies)).toEqual([
       "Repo set for this channel: owner/repo\nNote: active thread thread-1 keeps its current session/cwd; this repo applies to future !newthread/!fork.",
     ]);
   });
@@ -490,7 +522,7 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual(["Current thread: thread-1"]);
+    expect(replyTexts(replies)).toEqual(["Current thread: thread-1"]);
   });
 
   test("formats new thread replies through the orchestration action result", async () => {
@@ -499,7 +531,7 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual(["Started new thread: thread-1"]);
+    expect(replyTexts(replies)).toEqual(["Started new thread: thread-1"]);
   });
 
   test("switches thread ids through the orchestration context", async () => {
@@ -508,7 +540,7 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual(["Switched active thread to: thread-9"]);
+    expect(replyTexts(replies)).toEqual(["Switched active thread to: thread-9"]);
   });
 
   test("formats fork replies through the orchestration action result", async () => {
@@ -517,7 +549,7 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual(["Forked thread thread-1 -> thread-2"]);
+    expect(replyTexts(replies)).toEqual(["Forked thread thread-1 -> thread-2"]);
   });
 
   test("formats thread read replies from structured thread data", async () => {
@@ -526,9 +558,9 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    const embed = replyEmbedAt(replies);
+    const embed = replyCardAt(replies);
     expect(embed.title).toBe("Thread");
-    expect(embed.fields).toContainEqual({ name: "Preview", value: "preview" });
+    expect(embed.description).toContain("Preview: preview");
   });
 
   test("formats limits replies from the control action result", async () => {
@@ -538,9 +570,9 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(replies).toHaveLength(1);
-    const embed = replyEmbedAt(replies);
+    const embed = replyCardAt(replies);
     expect(embed.title).toBe("Rate limits");
-    expect(embed.fields).toContainEqual({ name: "Plan", value: "pro", inline: true });
+    expect(embed.description).toContain("Plan: pro");
   });
 
   test("rejects unknown bang commands instead of treating them as conversation input", async () => {
@@ -550,7 +582,7 @@ describe("Discord !skill commands", () => {
     const result = await handleMessage(message as never, context);
 
     expect(result).toEqual({ handled: true, threadId: null, input: null });
-    expect(replies).toEqual([
+    expect(replyTexts(replies)).toEqual([
       "Unknown command: `!doesnotexist`. Use `!help` to inspect available commands.",
     ]);
   });
@@ -567,8 +599,8 @@ describe("Discord operational commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyEmbedAt(replies).title).toBe("Restarting Shepherd");
-    expect(replyEmbedAt(replies).description).toContain("!repo owner/repo");
+    expect(replyCardAt(replies).title).toBe("Restarting Shepherd");
+    expect(replyCardAt(replies).description).toContain("!repo owner/repo");
     expect(getRestartRequests()).toBe(1);
   });
 
@@ -583,7 +615,7 @@ describe("Discord operational commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyEmbedAt(replies).description).toContain("!listen open");
+    expect(replyCardAt(replies).description).toContain("!listen open");
   });
 
   test("refuses restart while a turn is active", async () => {
@@ -601,8 +633,8 @@ describe("Discord operational commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyEmbedAt(replies).title).toBe("Restart refused");
-    expect(replyEmbedAt(replies).description).toContain("Active turns: thread-busy");
+    expect(replyCardAt(replies).title).toBe("Restart refused");
+    expect(replyCardAt(replies).description).toContain("Active turns: thread-busy");
     expect(getRestartRequests()).toBe(0);
   });
 
@@ -617,10 +649,10 @@ describe("Discord operational commands", () => {
     await handleMessage(message as never, context);
 
     expect(replies).toHaveLength(1);
-    expect(replyEmbedAt(replies).title).toBe("Checking deployment");
+    expect(replyCardAt(replies).title).toBe("Checking deployment");
     expect(edits).toHaveLength(1);
-    expect(edits[0]?.embeds[0]?.title).toBe("Deployment validated");
-    expect(edits[0]?.embeds[0]?.description).toContain("1111111 → 2222222");
+    expect(editedCardAt(edits).title).toBe("Deployment validated");
+    expect(editedCardAt(edits).description).toContain("1111111 → 2222222");
     expect(getRestartRequests()).toBe(1);
   });
 
@@ -639,10 +671,10 @@ describe("Discord operational commands", () => {
     await handleMessage(message as never, context);
 
     expect(replies).toHaveLength(1);
-    expect(replyEmbedAt(replies).title).toBe("Checking deployment");
+    expect(replyCardAt(replies).title).toBe("Checking deployment");
     expect(edits).toHaveLength(1);
-    expect(edits[0]?.embeds[0]?.title).toBe("Deployment failed");
-    expect(edits[0]?.embeds[0]?.description).toContain("tests failed; restored previous commit");
+    expect(editedCardAt(edits).title).toBe("Deployment failed");
+    expect(editedCardAt(edits).description).toContain("tests failed; restored previous commit");
     expect(getRestartRequests()).toBe(0);
   });
 });

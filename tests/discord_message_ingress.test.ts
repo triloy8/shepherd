@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ComponentType, type MessageCreateOptions } from "discord.js";
 
 import { processDiscordMessage } from "../server/adapters/discord/message_ingress.js";
 import { toTextUserInput } from "../shared/protocol/user_input.js";
@@ -14,7 +15,7 @@ function makeMessage(
   }> = [],
   guildId: string | null = "guild-1",
 ) {
-  const replies: string[] = [];
+  const replies: Array<string | MessageCreateOptions> = [];
   return {
     message: {
       content,
@@ -32,13 +33,26 @@ function makeMessage(
           },
         },
       },
-      async reply(text: string) {
-        replies.push(text);
-        return {} as never;
+      async reply(payload: string | MessageCreateOptions) {
+        replies.push(payload);
+        return { id: `reply-${replies.length}`, async edit() {} } as never;
       },
     },
     replies,
   };
+}
+
+function replyTexts(replies: Array<string | MessageCreateOptions>): string[] {
+  const read = (value: unknown): string[] => {
+    const component = (value && typeof value === "object" && "toJSON" in value
+      ? (value as { toJSON: () => unknown }).toJSON()
+      : value) as Record<string, unknown>;
+    if (component.type === ComponentType.TextDisplay) return [String(component.content)];
+    return ((component.components as unknown[] | undefined) ?? []).flatMap(read);
+  };
+  return replies.map((reply) =>
+    typeof reply === "string" ? reply : (reply.components ?? []).flatMap(read).join("\n"),
+  );
 }
 
 describe("Discord message ingress", () => {
@@ -212,7 +226,7 @@ describe("Discord message ingress", () => {
       },
     });
 
-    expect(replies).toEqual([]);
+    expect(replyTexts(replies)).toEqual([]);
     expect(routed).toBe(false);
   });
 
@@ -312,7 +326,7 @@ describe("Discord message ingress", () => {
       },
     });
 
-    expect(replies).toEqual([
+    expect(replyTexts(replies)).toEqual([
       "Audio input is not supported. Use your phone's dictation to send the message as text.",
     ]);
     expect(routed).toBe(false);
@@ -338,7 +352,7 @@ describe("Discord message ingress", () => {
       approvalPolicy: "on-request",
     });
 
-    expect(replies).toEqual([
+    expect(replyTexts(replies)).toEqual([
       "Audio input is not supported. Use your phone's dictation to send the message as text.",
     ]);
   });
@@ -366,7 +380,7 @@ describe("Discord message ingress", () => {
       },
     });
 
-    expect(replies).toEqual([
+    expect(replyTexts(replies)).toEqual([
       "Audio input is not supported. Use your phone's dictation to send the message as text.",
     ]);
     expect(fetchedImage).toBe(false);

@@ -18,23 +18,23 @@ import {
   type ResponseStreamState,
 } from "../../core/response_stream_reducer.js";
 import {
-  createDiscordEditableEmbedsState,
+  createDiscordEditableSurfaceState,
   createDiscordPreviewState,
   isSendableChannel,
-  sendDiscordEmbed,
-  sendDiscordText,
-  updateDiscordEditableEmbeds,
+  sendDiscordMarkdown,
+  sendDiscordPages,
+  updateDiscordEditableSurfaces,
   updateDiscordPreview,
-  type DiscordEditableEmbedsState,
+  type DiscordEditableSurfaceState,
   type DiscordPreviewState,
   type SendableChannel,
 } from "./stream_delivery.js";
 import {
-  buildApprovalEmbed,
-  buildEventEmbed,
-  buildFailureEmbed,
-  buildProgressEmbeds,
-} from "./embed_renderer.js";
+  buildApprovalPages,
+  buildCardPages,
+  buildEventPages,
+  buildProgressPages,
+} from "./components_renderer.js";
 import {
   sendDiscordGeneratedImage,
   type GeneratedImageAttachmentLoader,
@@ -42,7 +42,6 @@ import {
 import {
   encodeApprovalButtonId,
   formatActivityLine,
-  formatApprovalText,
   formatEventLine,
 } from "./message_renderer.js";
 
@@ -80,7 +79,7 @@ type DiscordTurnDeliveryState = {
   progressLines: string[];
   progressLineSet: Set<string>;
   generatedImageItemIds: Set<string>;
-  progressDelivery: DiscordEditableEmbedsState;
+  progressDelivery: DiscordEditableSurfaceState;
   progressTimer: NodeJS.Timeout | null;
   preview: DiscordPreviewState;
   previewTimer: NodeJS.Timeout | null;
@@ -213,7 +212,7 @@ export function createDiscordThreadEventHandler(
     progressLines: [],
     progressLineSet: new Set<string>(),
     generatedImageItemIds: new Set<string>(),
-    progressDelivery: createDiscordEditableEmbedsState(),
+    progressDelivery: createDiscordEditableSurfaceState(),
     progressTimer: null,
     preview: createDiscordPreviewState(),
     previewTimer: null,
@@ -254,11 +253,10 @@ export function createDiscordThreadEventHandler(
     state.progressTimer = null;
     if (state.progressLines.length === 0) return;
     const text = state.progressLines.join("\n");
-    const embeds = buildProgressEmbeds(text);
-    const fallbackTexts = embeds.map((embed) => embed.description ?? text);
+    const pages = buildProgressPages(text);
     const delivery = state.progressDelivery;
     enqueue(channelId, state, async (channel) => {
-      const result = await updateDiscordEditableEmbeds(channel, delivery, embeds, fallbackTexts);
+      const result = await updateDiscordEditableSurfaces(channel, delivery, pages);
       if (!result.success) {
         onError(new Error(`Progress delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
       }
@@ -268,7 +266,7 @@ export function createDiscordThreadEventHandler(
   const sealProgressSegment = (channelId: string, state: DiscordTurnDeliveryState): void => {
     flushProgress(channelId, state);
     state.progressLines = [];
-    state.progressDelivery = createDiscordEditableEmbedsState();
+    state.progressDelivery = createDiscordEditableSurfaceState();
   };
 
   const sendCommentary = (
@@ -280,7 +278,7 @@ export function createDiscordThreadEventHandler(
     if (!text) return;
     sealProgressSegment(channelId, state);
     enqueue(channelId, state, async (channel) => {
-      const result = await sendDiscordText(channel, text);
+      const result = await sendDiscordMarkdown(channel, text);
       if (!result.success) {
         onError(new Error(`Commentary delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
       }
@@ -320,7 +318,8 @@ export function createDiscordThreadEventHandler(
     totalChunks: number,
   ): Promise<void> => {
     try {
-      await channel.send(
+      await sendDiscordMarkdown(
+        channel,
         `Response delivery was interrupted after ${deliveredChunks}/${totalChunks} parts. The error was logged.`,
       );
     } catch (error) {
@@ -344,7 +343,7 @@ export function createDiscordThreadEventHandler(
     enqueue(channelId, state, async (channel) => {
       if (failed) {
         if (finalText) {
-          const partial = await sendDiscordText(channel, `Partial response\n\n${finalText}`, {
+          const partial = await sendDiscordMarkdown(channel, `## Partial response\n\n${finalText}`, {
             replyToMessageId: state.replyToMessageId,
           });
           if (!partial.success) {
@@ -366,7 +365,7 @@ export function createDiscordThreadEventHandler(
             finalize: true,
             replyToMessageId: state.replyToMessageId,
           })
-        : await sendDiscordText(channel, finalText, {
+        : await sendDiscordMarkdown(channel, finalText, {
             replyToMessageId: state.replyToMessageId,
           });
       if (!result.success) {
@@ -383,23 +382,22 @@ export function createDiscordThreadEventHandler(
     text: string,
   ): void => {
     enqueue(channelId, state, async (channel) => {
-      const result = await sendDiscordText(channel, text);
+      const result = await sendDiscordMarkdown(channel, text);
       if (!result.success) {
         onError(new Error(result.error ?? "Discord message delivery failed."));
       }
     });
   };
 
-  const enqueueEmbedMessage = (
+  const enqueueSurfacePages = (
     channelId: string,
     state: DiscordTurnDeliveryState,
-    embed: ReturnType<typeof buildFailureEmbed>,
-    fallbackText: string,
+    pages: ReturnType<typeof buildCardPages>,
   ): void => {
     enqueue(channelId, state, async (channel) => {
-      const result = await sendDiscordEmbed(channel, embed, fallbackText);
+      const result = await sendDiscordPages(channel, pages);
       if (!result.success) {
-        onError(new Error(result.error ?? "Discord embed delivery failed."));
+        onError(new Error(result.error ?? "Discord Components V2 delivery failed."));
       }
     });
   };
@@ -470,13 +468,13 @@ export function createDiscordThreadEventHandler(
         if (result.success) return;
 
         onError(new Error(`Generated image delivery failed: ${result.error ?? "unknown error"}`));
-        const notice = await sendDiscordEmbed(
+        const notice = await sendDiscordPages(
           channel,
-          buildFailureEmbed(
-            "Generated image delivery failed",
-            "The generated image could not be uploaded to Discord. The error was logged.",
-          ),
-          "Generated Image Delivery Failed\n\nThe generated image could not be uploaded to Discord. The error was logged.",
+          buildCardPages({
+            title: "Generated image delivery failed",
+            text: "The generated image could not be uploaded to Discord. The error was logged.",
+            tone: "danger",
+          }),
         );
         if (!notice.success) {
           onError(new Error(notice.error ?? "Generated image failure notice delivery failed."));
@@ -500,11 +498,13 @@ export function createDiscordThreadEventHandler(
     if (event.type === "approval.requested") {
       const approval = event.payload as ApprovalRequestPayload;
       enqueue(channelId, state, async (channel) => {
-        const result = await sendDiscordEmbed(
+        const result = await sendDiscordPages(
           channel,
-          buildApprovalEmbed(event.threadId, approval),
-          formatApprovalText(approval),
-          { components: buildApprovalRows(event.threadId, approval) },
+          buildApprovalPages(
+            event.threadId,
+            approval,
+            buildApprovalRows(event.threadId, approval),
+          ),
         );
         if (!result.success) {
           onError(new Error(result.error ?? "Approval prompt delivery failed."));
@@ -516,8 +516,8 @@ export function createDiscordThreadEventHandler(
     const line = formatEventLine(event);
     if (line) {
       sealProgressSegment(channelId, state);
-      const embed = buildEventEmbed(event);
-      if (embed) enqueueEmbedMessage(channelId, state, embed, line);
+      const pages = buildEventPages(event);
+      if (pages.length > 0) enqueueSurfacePages(channelId, state, pages);
       else enqueuePlainMessage(channelId, state, line);
     }
   };

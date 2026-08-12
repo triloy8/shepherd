@@ -1,4 +1,4 @@
-import type { TextBasedChannel } from "discord.js";
+import type { APIEmbed, TextBasedChannel } from "discord.js";
 import type { Buffer } from "node:buffer";
 
 import {
@@ -6,10 +6,15 @@ import {
   DISCORD_CHUNK_TARGET,
   DISCORD_MESSAGE_LIMIT,
 } from "./chunking.js";
+import { isEmbedRejection } from "./embed_renderer.js";
 
 export type DiscordMessage = {
   id: string;
-  edit: (content: string) => Promise<unknown>;
+  edit: (
+    content:
+      | string
+      | { content?: string | null; embeds?: APIEmbed[]; components?: unknown[] },
+  ) => Promise<unknown>;
 };
 
 export type DiscordFileAttachment = {
@@ -25,9 +30,10 @@ export type SendableChannel = TextBasedChannel & {
       | {
           content?: string;
           components?: unknown[];
+          embeds?: APIEmbed[];
           files?: DiscordFileAttachment[];
           reply?: { messageReference: string; failIfNotExists?: boolean };
-          allowedMentions?: { repliedUser?: boolean };
+          allowedMentions?: { repliedUser?: boolean; parse?: string[] };
         },
   ) => Promise<DiscordMessage>;
   sendTyping?: () => Promise<unknown>;
@@ -41,6 +47,7 @@ export type DiscordDeliveryResult = {
   totalChunks: number;
   partial: boolean;
   error: string | null;
+  usedFallback?: boolean;
 };
 
 export type DiscordPreviewState = {
@@ -53,6 +60,12 @@ export type DiscordPreviewState = {
 export type DiscordEditableChunksState = {
   messageIds: string[];
   renderedChunks: string[];
+};
+
+export type DiscordEditableEmbedsState = {
+  messageIds: string[];
+  renderedEmbeds: string[];
+  fallbackIndexes: Set<number>;
 };
 
 export function createDiscordPreviewState(): DiscordPreviewState {
@@ -69,6 +82,10 @@ export function createDiscordEditableChunksState(): DiscordEditableChunksState {
     messageIds: [],
     renderedChunks: [],
   };
+}
+
+export function createDiscordEditableEmbedsState(): DiscordEditableEmbedsState {
+  return { messageIds: [], renderedEmbeds: [], fallbackIndexes: new Set<number>() };
 }
 
 export { chunkForDiscord, DISCORD_CHUNK_TARGET, DISCORD_MESSAGE_LIMIT } from "./chunking.js";
@@ -136,6 +153,137 @@ export async function sendDiscordText(
   options: { replyToMessageId?: string | null } = {},
 ): Promise<DiscordDeliveryResult> {
   return sendChunks(channel, chunkForDiscord(text), options.replyToMessageId);
+}
+
+export async function sendDiscordEmbed(
+  channel: SendableChannel,
+  embed: APIEmbed,
+  fallbackText: string,
+  options: {
+    components?: unknown[];
+    replyToMessageId?: string | null;
+  } = {},
+): Promise<DiscordDeliveryResult> {
+  const reply = options.replyToMessageId
+    ? {
+        reply: {
+          messageReference: options.replyToMessageId,
+          failIfNotExists: false,
+        },
+      }
+    : {};
+  try {
+    const sent = await channel.send({
+      embeds: [embed],
+      ...(options.components ? { components: options.components } : {}),
+      allowedMentions: { parse: [], ...(options.replyToMessageId ? { repliedUser: false } : {}) },
+      ...reply,
+    });
+    return {
+      success: true,
+      messageIds: [sent.id],
+      deliveredChunks: 1,
+      totalChunks: 1,
+      partial: false,
+      error: null,
+    };
+  } catch (embedError) {
+    if (!isEmbedRejection(embedError)) {
+      return {
+        success: false,
+        messageIds: [],
+        deliveredChunks: 0,
+        totalChunks: 1,
+        partial: false,
+        error: errorMessage(embedError),
+      };
+    }
+    try {
+      const sent = await channel.send({
+        content: fallbackText,
+        ...(options.components ? { components: options.components } : {}),
+        allowedMentions: { parse: [], ...(options.replyToMessageId ? { repliedUser: false } : {}) },
+        ...reply,
+      });
+      return {
+        success: true,
+        messageIds: [sent.id],
+        deliveredChunks: 1,
+        totalChunks: 1,
+        partial: false,
+        error: null,
+        usedFallback: true,
+      };
+    } catch (fallbackError) {
+      return {
+        success: false,
+        messageIds: [],
+        deliveredChunks: 0,
+        totalChunks: 1,
+        partial: false,
+        error: `${errorMessage(embedError)}; fallback failed: ${errorMessage(fallbackError)}`,
+      };
+    }
+  }
+}
+
+export async function updateDiscordEditableEmbeds(
+  channel: SendableChannel,
+  state: DiscordEditableEmbedsState,
+  embeds: APIEmbed[],
+  fallbackTexts: string[],
+): Promise<DiscordDeliveryResult> {
+  const deliveredIds: string[] = [];
+  for (let index = 0; index < embeds.length; index += 1) {
+    const embed = embeds[index]!;
+    const serialized = JSON.stringify(embed);
+    const existingId = state.messageIds[index];
+    if (existingId && state.renderedEmbeds[index] === serialized) {
+      deliveredIds.push(existingId);
+      continue;
+    }
+    try {
+      if (existingId) {
+        const message = await channel.messages.fetch(existingId);
+        if (state.fallbackIndexes.has(index)) {
+          await message.edit(fallbackTexts[index] ?? fallbackTexts.at(-1) ?? "Working…");
+        } else {
+          await message.edit({ content: null, embeds: [embed] });
+        }
+        deliveredIds.push(existingId);
+      } else {
+        const result = await sendDiscordEmbed(
+          channel,
+          embed,
+          fallbackTexts[index] ?? fallbackTexts.at(-1) ?? "Working…",
+        );
+        if (!result.success || !result.messageIds[0]) {
+          throw new Error(result.error ?? "Discord embed delivery failed.");
+        }
+        state.messageIds[index] = result.messageIds[0];
+        if (result.usedFallback) state.fallbackIndexes.add(index);
+        deliveredIds.push(result.messageIds[0]);
+      }
+      state.renderedEmbeds[index] = serialized;
+    } catch (error) {
+      return {
+        success: false,
+        messageIds: deliveredIds,
+        deliveredChunks: deliveredIds.length,
+        totalChunks: embeds.length,
+        partial: deliveredIds.length > 0,
+        error: errorMessage(error),
+      };
+    }
+  }
+  return {
+    success: true,
+    messageIds: [...state.messageIds],
+    deliveredChunks: embeds.length,
+    totalChunks: embeds.length,
+    partial: false,
+    error: null,
+  };
 }
 
 export async function updateDiscordEditableChunks(

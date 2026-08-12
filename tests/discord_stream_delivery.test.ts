@@ -3,9 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
   chunkForDiscord,
   createDiscordEditableChunksState,
+  createDiscordEditableEmbedsState,
   createDiscordPreviewState,
+  sendDiscordEmbed,
   sendDiscordText,
   updateDiscordEditableChunks,
+  updateDiscordEditableEmbeds,
   updateDiscordPreview,
 } from "../server/adapters/discord/stream_delivery.js";
 import { discordTextLength } from "../server/adapters/discord/chunking.js";
@@ -109,6 +112,57 @@ describe("Discord final chunking", () => {
 });
 
 describe("Discord completed delivery", () => {
+  test("falls back to plain text when an embed send is rejected", async () => {
+    const sent: string[] = [];
+    const channel = {
+      async send(payload: string | { content?: string; embeds?: unknown[] }) {
+        if (typeof payload !== "string" && payload.embeds) throw new Error("missing Embed Links");
+        sent.push(typeof payload === "string" ? payload : payload.content ?? "");
+        return { id: "msg-1", async edit() {} };
+      },
+      messages: { async fetch() { throw new Error("unused"); } },
+    };
+    const result = await sendDiscordEmbed(
+      channel as never,
+      { title: "Status", description: "Structured state" },
+      "Status\n\nStructured state",
+    );
+
+    expect(result.success).toBe(true);
+    expect(sent).toEqual(["Status\n\nStructured state"]);
+  });
+
+  test("keeps permission-fallback progress messages editable as plain text", async () => {
+    const sent: string[] = [];
+    const edits: string[] = [];
+    const message = { id: "msg-1", async edit(payload: string) { edits.push(payload); } };
+    const channel = {
+      async send(payload: string | { content?: string; embeds?: unknown[] }) {
+        if (typeof payload !== "string" && payload.embeds) throw new Error("missing Embed Links");
+        sent.push(typeof payload === "string" ? payload : payload.content ?? "");
+        return message;
+      },
+      messages: { async fetch() { return message; } },
+    };
+    const state = createDiscordEditableEmbedsState();
+
+    await updateDiscordEditableEmbeds(
+      channel as never,
+      state,
+      [{ title: "Working", description: "one" }],
+      ["one"],
+    );
+    await updateDiscordEditableEmbeds(
+      channel as never,
+      state,
+      [{ title: "Working", description: "one\ntwo" }],
+      ["one\ntwo"],
+    );
+
+    expect(sent).toEqual(["one"]);
+    expect(edits).toEqual(["one\ntwo"]);
+  });
+
   test("reports a partial continuation failure", async () => {
     const { channel, sent } = createChannelHarness({ failSendAt: 2 });
     const result = await sendDiscordText(channel, "x".repeat(5_000));

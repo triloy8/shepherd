@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { APIEmbed } from "discord.js";
 
 import type { ApprovalRequestPayload } from "../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
@@ -46,6 +47,7 @@ function createHarness(options: { failSendAt?: number } = {}) {
   const sent: Array<{
     content?: string;
     components?: unknown[];
+    embeds?: APIEmbed[];
     files?: Array<{
       attachment: Buffer;
       name: string;
@@ -54,9 +56,10 @@ function createHarness(options: { failSendAt?: number } = {}) {
     reply?: { messageReference: string; failIfNotExists?: boolean };
     allowedMentions?: { repliedUser?: boolean };
   }> = [];
-  const edits: Array<{ id: string; content: string }> = [];
+  type EditPayload = string | { content?: string | null; embeds?: APIEmbed[] };
+  const edits: Array<{ id: string; content: EditPayload }> = [];
   const typing: number[] = [];
-  const messages = new Map<string, { id: string; edit: (content: string) => Promise<void> }>();
+  const messages = new Map<string, { id: string; edit: (content: EditPayload) => Promise<void> }>();
   let sendAttempts = 0;
 
   const channel = {
@@ -66,6 +69,7 @@ function createHarness(options: { failSendAt?: number } = {}) {
         | {
             content?: string;
             components?: unknown[];
+            embeds?: APIEmbed[];
             files?: Array<{
               attachment: Buffer;
               name: string;
@@ -82,7 +86,7 @@ function createHarness(options: { failSendAt?: number } = {}) {
       const id = `msg-${sendAttempts}`;
       const message = {
         id,
-        async edit(content: string) {
+        async edit(content: EditPayload) {
           edits.push({ id, content });
         },
       };
@@ -110,6 +114,25 @@ function createHarness(options: { failSendAt?: number } = {}) {
     },
   };
   return { channel, client, sent, edits, typing, errors };
+}
+
+function sentEmbed(
+  sent: Array<{ embeds?: APIEmbed[] }>,
+  index: number,
+): APIEmbed {
+  const embed = sent[index]?.embeds?.[0];
+  if (!embed) throw new Error(`Expected embed at sent index ${index}.`);
+  return embed;
+}
+
+function editedEmbed(
+  edits: Array<{ content: string | { embeds?: APIEmbed[] } }>,
+  index: number,
+): APIEmbed {
+  const payload = edits[index]?.content;
+  const embed = typeof payload === "string" ? undefined : payload?.embeds?.[0];
+  if (!embed) throw new Error(`Expected embed at edit index ${index}.`);
+  return embed;
 }
 
 function createDeterministicTimers() {
@@ -263,11 +286,10 @@ describe("Discord thread event handler", () => {
     handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
     await handler.waitForIdle("chan-1");
 
-    expect(harness.sent.map((message) => message.content)).toEqual([
-      "I found the issue.",
-      "🔧 Running command: bun test",
-      "The tests pass.",
-    ]);
+    expect(harness.sent[0]?.content).toBe("I found the issue.");
+    expect(sentEmbed(harness.sent, 1).title).toBe("Working");
+    expect(sentEmbed(harness.sent, 1).description).toContain("🔧 Running command: bun test");
+    expect(harness.sent[2]?.content).toBe("The tests pass.");
     expect(harness.errors).toHaveLength(0);
     handler.dispose();
   });
@@ -316,11 +338,9 @@ describe("Discord thread event handler", () => {
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
 
-    expect(harness.sent.map((message) => message.content)).toEqual([
-      "🔧 Running command: bun test",
-      "The first check passed.",
-      "🔎 Searching the web: Discord ordering",
-    ]);
+    expect(sentEmbed(harness.sent, 0).description).toContain("🔧 Running command: bun test");
+    expect(harness.sent[1]?.content).toBe("The first check passed.");
+    expect(sentEmbed(harness.sent, 2).description).toContain("🔎 Searching the web: Discord ordering");
     expect(harness.edits).toHaveLength(0);
 
     handler.handleThreadEvent(
@@ -337,12 +357,9 @@ describe("Discord thread event handler", () => {
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
 
-    expect(harness.edits).toEqual([
-      {
-        id: "msg-3",
-        content: "🔎 Searching the web: Discord ordering\n🔧 Running command: bun run check",
-      },
-    ]);
+    expect(harness.edits).toHaveLength(1);
+    expect(harness.edits[0]?.id).toBe("msg-3");
+    expect(editedEmbed(harness.edits, 0).description).toContain("🔧 Running command: bun run check");
     expect(harness.errors).toHaveLength(0);
     handler.dispose();
   });
@@ -385,11 +402,10 @@ describe("Discord thread event handler", () => {
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
 
-    expect(harness.sent.map((message) => message.content)).toEqual([
-      "🔧 Running command: bun test",
-      "Session Error\n\nConnection failed after 5 attempts.",
-      "🔧 Running command: bun run check",
-    ]);
+    expect(sentEmbed(harness.sent, 0).description).toContain("🔧 Running command: bun test");
+    expect(sentEmbed(harness.sent, 1).title).toBe("Session error");
+    expect(sentEmbed(harness.sent, 1).description).toBe("Connection failed after 5 attempts.");
+    expect(sentEmbed(harness.sent, 2).description).toContain("🔧 Running command: bun run check");
     expect(harness.edits).toHaveLength(0);
     expect(harness.errors).toHaveLength(0);
     handler.dispose();
@@ -415,7 +431,7 @@ describe("Discord thread event handler", () => {
     handler.handleThreadEvent("chan-1", firstActivity);
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
-    expect(harness.sent.map((message) => message.content)).toEqual(["🔧 Running command: bun test"]);
+    expect(sentEmbed(harness.sent, 0).description).toContain("🔧 Running command: bun test");
 
     handler.handleThreadEvent(
       "chan-1",
@@ -430,9 +446,7 @@ describe("Discord thread event handler", () => {
     );
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
-    expect(harness.edits.map((edit) => edit.content)).toEqual([
-      "🔧 Running command: bun test\n🔎 Searching the web: Discord limits",
-    ]);
+    expect(editedEmbed(harness.edits, 0).description).toContain("🔎 Searching the web: Discord limits");
 
     handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
     await handler.waitForIdle("chan-1");
@@ -490,7 +504,7 @@ describe("Discord thread event handler", () => {
 
     expect(loadedPaths).toEqual(["/tmp/unicorn.png", "/tmp/landscape.webp"]);
     expect(harness.sent).toHaveLength(4);
-    expect(harness.sent[0]?.content).toBe("🖼️ Generating image: A pastel unicorn");
+    expect(sentEmbed(harness.sent, 0).description).toContain("🖼️ Generating image: A pastel unicorn");
     expect(harness.sent[1]?.files).toHaveLength(1);
     expect(harness.sent[1]?.files?.[0]).toMatchObject({
       name: "unicorn.png",
@@ -557,10 +571,8 @@ describe("Discord thread event handler", () => {
     );
     await handler.waitForIdle("chan-1");
 
-    expect(harness.sent.map((message) => message.content)).toEqual([
-      "Generated Image Delivery Failed\n\nThe generated image could not be uploaded to Discord. The error was logged.",
-    ]);
-    expect(harness.sent[0]?.content).not.toContain("/private/generated.png");
+    expect(sentEmbed(harness.sent, 0).title).toBe("Generated image delivery failed");
+    expect(sentEmbed(harness.sent, 0).description).not.toContain("/private/generated.png");
     expect(harness.errors).toHaveLength(1);
     handler.dispose();
   });
@@ -599,10 +611,9 @@ describe("Discord thread event handler", () => {
     );
     await handler.waitForIdle("chan-1");
 
-    expect(harness.sent.map((message) => message.content)).toEqual([
-      "Partial response\n\nunfinished",
-      "Turn Failed\n\nProvider failed.",
-    ]);
+    expect(harness.sent[0]?.content).toBe("Partial response\n\nunfinished");
+    expect(sentEmbed(harness.sent, 1).title).toBe("Turn failed");
+    expect(sentEmbed(harness.sent, 1).description).toBe("Provider failed.");
     handler.dispose();
   });
 
@@ -652,7 +663,10 @@ describe("Discord thread event handler", () => {
     await handler.waitForIdle("chan-1");
     expect(harness.edits).toHaveLength(1);
     expect(harness.sent.length).toBeGreaterThan(1);
-    expect([...harness.edits.map((edit) => edit.content), ...harness.sent.map((item) => item.content)].join("")).toContain(
+    expect([
+      ...harness.edits.map((edit) => typeof edit.content === "string" ? edit.content : ""),
+      ...harness.sent.map((item) => item.content),
+    ].join("")).toContain(
       "END_MARKER",
     );
 
@@ -695,7 +709,8 @@ describe("Discord thread event handler", () => {
     handler.handleThreadEvent("chan-1", makeEvent("approval.requested", approval));
     await handler.waitForIdle("chan-1");
 
-    expect(harness.sent[0]?.content).toContain("Approval Required");
+    expect(sentEmbed(harness.sent, 0).title).toBe("Approval required");
+    expect(sentEmbed(harness.sent, 0).description).toBe("Run tests?");
     expect(harness.sent[0]?.components).toHaveLength(1);
     handler.dispose();
   });

@@ -1,4 +1,4 @@
-import type { Message } from "discord.js";
+import type { APIEmbed, APIEmbedField, Message } from "discord.js";
 
 import { executeControlAction } from "../../core/control_actions_service.js";
 import type { ConversationService } from "../../core/conversation_service.js";
@@ -11,6 +11,12 @@ import type { SurfaceListeningMode } from "../../core/surface_state_service.js";
 import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
+import {
+  buildDescriptionPages,
+  buildEmbed,
+  isEmbedRejection,
+  type EmbedTone,
+} from "./embed_renderer.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: UserInput[] | null };
 const DISCORD_MESSAGE_LIMIT = 1900;
@@ -69,6 +75,22 @@ function formatListeningStatus(message: Message, context: CommandContext): strin
   return `Listening: **${displayListeningMode(mode)}**\n${detail}`;
 }
 
+function listeningStatusEmbed(message: Message, context: CommandContext): APIEmbed {
+  const mode = effectiveListeningMode(message, context);
+  const detail =
+    mode === "open"
+      ? "All human text and image messages are accepted."
+      : mode === "paused"
+        ? "Conversation input is ignored; control commands remain available."
+        : "Only commands and messages that mention Shepherd are accepted.";
+  return buildEmbed({
+    title: "Listening",
+    tone: mode === "paused" ? "warning" : "info",
+    fields: [{ name: "Mode", value: displayListeningMode(mode), inline: true }],
+    description: detail,
+  });
+}
+
 function formatSurfaceStatus(message: Message, context: CommandContext): string {
   const channelId = message.channelId;
   const threadId = context.getSurfaceThreadId(channelId);
@@ -88,6 +110,33 @@ function formatSurfaceStatus(message: Message, context: CommandContext): string 
   }
 
   return lines.join("\n");
+}
+
+function surfaceStatusEmbed(message: Message, context: CommandContext): APIEmbed {
+  const channelId = message.channelId;
+  const threadId = context.getSurfaceThreadId(channelId);
+  const fields: APIEmbedField[] = [
+    {
+      name: "Listening",
+      value: displayListeningMode(effectiveListeningMode(message, context)),
+      inline: true,
+    },
+    { name: "Repository", value: context.getSurfaceProject(channelId) ?? "Not selected", inline: true },
+    { name: "Thread", value: threadId ? `\`${threadId}\`` : "Not attached" },
+  ];
+  if (threadId) {
+    const thread = context.conversation.getThreadState(threadId);
+    const model = context.conversation.getThreadModel(threadId);
+    fields.push(
+      {
+        name: "Turn",
+        value: thread.activeTurnId ? `Running (\`${thread.activeTurnId}\`)` : "Idle",
+        inline: true,
+      },
+      { name: "Model", value: `\`${model.pendingModel ?? model.currentModel ?? "default"}\``, inline: true },
+    );
+  }
+  return buildEmbed({ title: "Shepherd channel", fields, tone: "info" });
 }
 
 function formatRecoveryInstructions(context: CommandContext, channelId: string): string {
@@ -163,6 +212,21 @@ function formatWindow(label: string, value: unknown): string {
   ].join("\n");
 }
 
+function formatWindowField(label: string, value: unknown): APIEmbedField {
+  const data = asRecord(value);
+  const used = asNumber(data.usedPercent);
+  const duration = asNumber(data.windowDurationMins);
+  return {
+    name: label,
+    value: [
+      `Used: **${used === null ? "unknown" : `${used}%`}**`,
+      `Window: ${duration === null ? "unknown" : `${duration} min`}`,
+      `Resets: ${formatResetTimestamp(data.resetsAt)}`,
+    ].join("\n"),
+    inline: true,
+  };
+}
+
 function formatRateLimitsForDiscord(value: unknown): string {
   const limits = asRecord(value);
   const planType = asString(limits.planType) ?? "unknown";
@@ -193,6 +257,31 @@ function formatRateLimitsForDiscord(value: unknown): string {
   }
 
   return lines.join("\n");
+}
+
+function rateLimitsEmbed(value: unknown): APIEmbed {
+  const limits = asRecord(value);
+  const credits = asRecord(limits.credits);
+  const fields: APIEmbedField[] = [
+    { name: "Plan", value: asString(limits.planType) ?? "unknown", inline: true },
+    { name: "Limit ID", value: asString(limits.limitId) ?? "unknown", inline: true },
+  ];
+  if (limits.primary) fields.push(formatWindowField("Primary window", limits.primary));
+  if (limits.secondary) fields.push(formatWindowField("Secondary window", limits.secondary));
+  fields.push({
+    name: "Credits",
+    value: [
+      `Available: ${credits.hasCredits === true ? "yes" : "no"}`,
+      `Unlimited: ${credits.unlimited === true ? "yes" : "no"}`,
+      `Balance: ${asString(credits.balance) ?? "unknown"}`,
+    ].join("\n"),
+  });
+  if (!limits.primary && !limits.secondary) {
+    const raw = Array.from(safeJson(value));
+    const bounded = raw.length > 950 ? `${raw.slice(0, 949).join("")}…` : raw.join("");
+    fields.push({ name: "Raw payload", value: `\`\`\`json\n${bounded}\n\`\`\`` });
+  }
+  return buildEmbed({ title: "Rate limits", fields });
 }
 
 function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): string {
@@ -246,6 +335,55 @@ function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): s
   ].join("\n");
 }
 
+function threadContextEmbed(threadId: string, tokenUsage: unknown): APIEmbed {
+  const usage = asRecord(tokenUsage);
+  const last = asRecord(usage.last);
+  const total = asRecord(usage.total);
+  const contextWindow = asNumber(usage.modelContextWindow);
+  const lastTotalTokens = asNumber(last.totalTokens);
+  const effectiveWindow = contextWindow === null ? null : Math.max(contextWindow - CODEX_CONTEXT_BASELINE_TOKENS, 0);
+  const used = effectiveWindow === null || lastTotalTokens === null
+    ? null
+    : Math.max(lastTotalTokens - CODEX_CONTEXT_BASELINE_TOKENS, 0);
+  const remaining = effectiveWindow === null || used === null ? null : Math.max(effectiveWindow - used, 0);
+  const percent =
+    effectiveWindow !== null && effectiveWindow > 0 && remaining !== null
+      ? Math.round((remaining / effectiveWindow) * 100)
+      : null;
+  const usageField = (label: string, data: Record<string, unknown>): APIEmbedField => ({
+    name: label,
+    value: [
+      `Input: ${formatNumber(data.inputTokens)}`,
+      `Cached: ${formatNumber(data.cachedInputTokens)}`,
+      `Output: ${formatNumber(data.outputTokens)}`,
+      `Reasoning: ${formatNumber(data.reasoningOutputTokens)}`,
+      `Total: **${formatNumber(data.totalTokens)}**`,
+    ].join("\n"),
+    inline: true,
+  });
+  return buildEmbed({
+    title: "Context usage",
+    description: percent === null ? "Remaining context is unknown." : `**${percent}% context remaining**`,
+    fields: [
+      { name: "Thread", value: `\`${threadId}\`` },
+      {
+        name: "Effective remaining",
+        value: remaining === null
+          ? "unknown"
+          : `${remaining.toLocaleString()} tokens\nBaseline: ${CODEX_CONTEXT_BASELINE_TOKENS.toLocaleString()}`,
+        inline: true,
+      },
+      {
+        name: "Model window",
+        value: contextWindow === null ? "unknown" : `${contextWindow.toLocaleString()} tokens`,
+        inline: true,
+      },
+      usageField("Last turn", last),
+      usageField("Thread total", total),
+    ],
+  });
+}
+
 function formatThreadModelForDiscord(modelState: ThreadModelState): string {
   const lines = [
     "**Model**",
@@ -257,6 +395,20 @@ function formatThreadModelForDiscord(modelState: ThreadModelState): string {
     lines.push(`- Pending next turn: ${modelState.pendingModel}`);
   }
   return lines.join("\n");
+}
+
+function threadModelEmbed(modelState: ThreadModelState): APIEmbed {
+  return buildEmbed({
+    title: "Model",
+    fields: [
+      { name: "Current", value: `\`${modelState.currentModel ?? "unknown"}\``, inline: true },
+      { name: "Provider", value: modelState.modelProvider ?? "unknown", inline: true },
+      ...(modelState.pendingModel
+        ? [{ name: "Pending next turn", value: `\`${modelState.pendingModel}\`` }]
+        : []),
+      { name: "Thread", value: `\`${modelState.threadId}\`` },
+    ],
+  });
 }
 
 function formatModelEntry(
@@ -307,6 +459,33 @@ function formatModelsForDiscord(result: ListModelsResponse, modelState: ThreadMo
   return lines.join("\n");
 }
 
+function modelEmbeds(result: ListModelsResponse, modelState: ThreadModelState | null): APIEmbed[] {
+  if (result.data.length === 0) {
+    return [buildEmbed({ title: "Models", description: "No models returned by Codex app-server.", tone: "neutral" })];
+  }
+  const defaultEntry = result.data.find((entry) => entry.isDefault) ?? null;
+  const defaultModel = defaultEntry?.model ?? null;
+  const text = result.data
+    .slice(0, 20)
+    .map((entry, index) => formatModelEntry(entry, index, modelState, defaultModel))
+    .join("\n");
+  const fields: APIEmbedField[] = [];
+  if (modelState) {
+    fields.push(
+      { name: "Current", value: `\`${modelState.currentModel ?? "unknown"}\``, inline: true },
+      { name: "Pending", value: modelState.pendingModel ? `\`${modelState.pendingModel}\`` : "None", inline: true },
+      { name: "Thread", value: `\`${modelState.threadId}\`` },
+    );
+  }
+  if (defaultEntry) fields.push({ name: "App default", value: `\`${defaultEntry.model}\`` });
+  return buildDescriptionPages({
+    title: "Models",
+    text,
+    fields,
+    footer: result.nextCursor ? "More models are available but not shown" : undefined,
+  });
+}
+
 function chunkForDiscord(text: string, maxChunkSize = DISCORD_MESSAGE_LIMIT): string[] {
   if (!text) return [];
 
@@ -330,10 +509,89 @@ function chunkForDiscord(text: string, maxChunkSize = DISCORD_MESSAGE_LIMIT): st
 
 function isSendableChannel(
   channel: unknown,
-): channel is { send: (content: string) => Promise<unknown> } {
+): channel is { send: (content: string | { embeds: APIEmbed[] }) => Promise<unknown> } {
   if (!channel || typeof channel !== "object") return false;
   const record = channel as Record<string, unknown>;
   return typeof record.send === "function";
+}
+
+async function replyEmbed(
+  message: Message,
+  embed: APIEmbed,
+  fallbackText: string,
+): Promise<{ message: unknown; usedFallback: boolean }> {
+  try {
+    const sent = await message.reply({
+      embeds: [embed],
+      allowedMentions: { repliedUser: false, parse: [] },
+    });
+    return { message: sent, usedFallback: false };
+  } catch (error) {
+    if (!isEmbedRejection(error)) throw error;
+    return { message: await message.reply(fallbackText), usedFallback: true };
+  }
+}
+
+type EditableReply = {
+  edit: (payload: string | { content: null; embeds: APIEmbed[] }) => Promise<unknown>;
+};
+
+function isEditableReply(value: unknown): value is EditableReply {
+  return !!value && typeof value === "object" && typeof (value as { edit?: unknown }).edit === "function";
+}
+
+class RuntimeEmbedReporter {
+  private current: EditableReply | null = null;
+  private currentUsesFallback = false;
+
+  constructor(private readonly message: Message) {}
+
+  async show(options: {
+    title: string;
+    text: string;
+    tone: EmbedTone;
+    fields?: APIEmbedField[];
+  }): Promise<void> {
+    const embed = buildEmbed({
+      title: options.title,
+      description: options.text,
+      tone: options.tone,
+      fields: options.fields,
+    });
+    if (this.current) {
+      try {
+        await this.current.edit(
+          this.currentUsesFallback
+            ? `${options.title}\n\n${options.text}`
+            : { content: null, embeds: [embed] },
+        );
+        return;
+      } catch {
+        this.current = null;
+      }
+    }
+    const result = await replyEmbed(this.message, embed, `${options.title}\n\n${options.text}`);
+    if (isEditableReply(result.message)) this.current = result.message;
+    this.currentUsesFallback = result.usedFallback;
+  }
+}
+
+async function replyEmbedPages(
+  message: Message,
+  embeds: APIEmbed[],
+  fallbackText: string,
+): Promise<void> {
+  if (embeds.length === 0) return;
+  try {
+    await message.reply({ embeds: [embeds[0]!], allowedMentions: { repliedUser: false, parse: [] } });
+    if (!isSendableChannel(message.channel)) return;
+    for (const embed of embeds.slice(1)) {
+      await message.channel.send({ embeds: [embed] });
+    }
+  } catch (error) {
+    if (!isEmbedRejection(error)) throw error;
+    await replyChunked(message, fallbackText);
+  }
 }
 
 async function replyChunked(message: Message, text: string): Promise<void> {
@@ -348,7 +606,7 @@ async function replyChunked(message: Message, text: string): Promise<void> {
 }
 
 async function replyRuntimeLifecycleResult(
-  message: Message,
+  reporter: RuntimeEmbedReporter,
   result: RuntimeLifecycleResult,
 ): Promise<void> {
   if (result.type === "restart-requested") {
@@ -356,45 +614,64 @@ async function replyRuntimeLifecycleResult(
   }
 
   if (result.type === "deployment-in-progress") {
-    await message.reply(
-      result.action === "restart"
-        ? "A deployment is in progress. Restart is unavailable until it finishes."
+    await reporter.show({
+      title: "Deployment in progress",
+      tone: "warning",
+      text: result.action === "restart"
+        ? "Restart is unavailable until the deployment finishes."
         : "A deployment is already in progress.",
-    );
+    });
     return;
   }
 
   if (result.type === "deployment-failed") {
-    await replyChunked(message, `Deployment failed; Shepherd remains online.\n${result.message}`);
+    await reporter.show({
+      title: "Deployment failed",
+      tone: "danger",
+      text: `Shepherd remains online.\n\n${result.message}`,
+    });
     return;
   }
 
   if (result.type === "restart-already-scheduled") {
-    await message.reply("A restart is already scheduled.");
+    await reporter.show({ title: "Restart already scheduled", tone: "warning", text: "No additional restart was requested." });
     return;
   }
 
   const activity = formatRuntimeActivity(result.activity);
   if (result.action === "deploy" && result.stage === "after-quiescing" && result.deployment) {
-    await message.reply(
-      [
-        `Validated commit ${result.deployment.deployedCommit.slice(0, 7)}, but restart was deferred because Codex work started during deployment.`,
+    await reporter.show({
+      title: "Deployment validated; restart deferred",
+      tone: "warning",
+      text: [
+        `Validated commit \`${result.deployment.deployedCommit.slice(0, 7)}\`, but Codex work started during deployment.`,
         activity,
         "Run `!restart` when the work is complete.",
-      ].join("\n"),
-    );
+      ].filter(Boolean).join("\n"),
+    });
     return;
   }
 
-  await message.reply(
-    `${result.action === "restart" ? "Restart" : "Deployment"} refused while Codex work is active.\n${activity}`,
-  );
+  await reporter.show({
+    title: `${result.action === "restart" ? "Restart" : "Deployment"} refused`,
+    tone: "warning",
+    text: `Codex work is active.\n${activity}`,
+  });
 }
 
 async function listStoredThreads(message: Message, context: CommandContext, archived: boolean): Promise<void> {
   const result = await context.conversation.listStoredThreads({ archived, limit: 25 });
   if (result.threads.length === 0) {
-    await message.reply(archived ? "No archived threads." : "No active threads.");
+    const text = archived ? "No archived threads." : "No active threads.";
+    await replyEmbed(
+      message,
+      buildEmbed({
+        title: archived ? "Archived threads" : "Active threads",
+        description: text,
+        tone: "neutral",
+      }),
+      text,
+    );
     return;
   }
 
@@ -402,7 +679,17 @@ async function listStoredThreads(message: Message, context: CommandContext, arch
     const label = thread.name ?? (thread.preview.slice(0, 48) || "untitled");
     return `${index + 1}. ${thread.threadId} | ${label} | updated ${formatTimestamp(thread.updatedAt)}`;
   });
-  await replyChunked(message, lines.join("\n"));
+  const text = lines.join("\n");
+  await replyEmbedPages(
+    message,
+    buildDescriptionPages({
+      title: archived ? "Archived threads" : "Active threads",
+      text,
+      tone: archived ? "neutral" : "info",
+      footer: `${result.threads.length} thread${result.threads.length === 1 ? "" : "s"}`,
+    }),
+    text,
+  );
 }
 
 function formatSkillsForDiscord(value: unknown): string {
@@ -437,6 +724,71 @@ function formatSkillsForDiscord(value: unknown): string {
   return lines.join("\n");
 }
 
+function skillEmbeds(value: unknown): APIEmbed[] {
+  const payload = asRecord(value);
+  const entries = Array.isArray(payload.data) ? payload.data : [];
+  if (entries.length === 0) {
+    return [buildEmbed({ title: "Skills", description: "No skills found.", tone: "neutral" })];
+  }
+  const lines: string[] = [];
+  let skillCount = 0;
+  for (const entry of entries) {
+    const record = asRecord(entry);
+    const cwd = asString(record.cwd) ?? "unknown";
+    const skills = Array.isArray(record.skills) ? record.skills : [];
+    const errors = Array.isArray(record.errors) ? record.errors : [];
+    lines.push(`**${cwd}**`);
+    for (const skillValue of skills) {
+      skillCount += 1;
+      const skill = asRecord(skillValue);
+      const name = asString(skill.name) ?? "unknown";
+      const scope = asString(skill.scope) ?? "unknown";
+      const enabled = skill.enabled === true ? "enabled" : "disabled";
+      const description = asString(skill.description) ?? "";
+      lines.push(`• \`${name}\` — ${scope}, **${enabled}**${description ? `\n  ${description}` : ""}`);
+    }
+    for (const errorValue of errors) {
+      const error = asRecord(errorValue);
+      lines.push(`⚠️ ${asString(error.message) ?? "unknown error"} (${asString(error.path) ?? "unknown path"})`);
+    }
+    lines.push("");
+  }
+  return buildDescriptionPages({
+    title: "Skills",
+    text: lines.join("\n"),
+    footer: `${skillCount} skill${skillCount === 1 ? "" : "s"}`,
+  });
+}
+
+function helpEmbed(): APIEmbed {
+  return buildEmbed({
+    title: "Shepherd commands",
+    description: "Conversation messages follow the channel's listening mode.",
+    fields: [
+      {
+        name: "Conversation",
+        value: "`!status` · `!listen [open|mentions]` · `!pause` · `!resume` · `!detach` · `!interrupt`",
+      },
+      {
+        name: "Workspace and thread",
+        value: "`!repo [target]` · `!newthread` · `!threads [loaded|archived]` · `!thread [id]` · `!threadname <name>` · `!threadread [id]` · `!fork [id]`",
+      },
+      {
+        name: "Thread lifecycle",
+        value: "`!archive [id]` · `!unarchive <id>` · `!rollback <turns> [id]` · `!compact [id]`",
+      },
+      {
+        name: "Model and account",
+        value: "`!limits` · `!context` · `!models` · `!model` · `!model set <id>`",
+      },
+      {
+        name: "Skills and runtime",
+        value: "`!skills [reload]` · `!skill enable <name-or-path>` · `!skill disable <name-or-path>` · `!restart` · `!deploy`",
+      },
+    ],
+  });
+}
+
 export async function handleMessage(
   message: Message,
   context: CommandContext,
@@ -452,7 +804,7 @@ export async function handleMessage(
   const { command, args } = parseThreadArgs(content);
 
   if (command === "!help") {
-    await message.reply([
+    const helpText = [
       "Discord Shepherd commands:",
       "- !help",
       "- !status",
@@ -487,7 +839,8 @@ export async function handleMessage(
       "- !restart",
       "- !deploy",
       "Conversation messages follow the channel's listening mode.",
-    ].join("\n"));
+    ].join("\n");
+    await replyEmbed(message, helpEmbed(), helpText);
     return { handled: true, threadId: null, input: null };
   }
 
@@ -496,14 +849,16 @@ export async function handleMessage(
       await message.reply("Usage: !status");
       return { handled: true, threadId: null, input: null };
     }
-    await message.reply(formatSurfaceStatus(message, context));
+    const status = formatSurfaceStatus(message, context);
+    await replyEmbed(message, surfaceStatusEmbed(message, context), status);
     return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
   }
 
   if (command === "!listen") {
     const requestedMode = (args[0] ?? "").toLowerCase();
     if (!requestedMode) {
-      await message.reply(formatListeningStatus(message, context));
+      const status = formatListeningStatus(message, context);
+      await replyEmbed(message, listeningStatusEmbed(message, context), status);
       return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
     }
     if (args.length !== 1 || !["open", "mention", "mentions"].includes(requestedMode)) {
@@ -581,12 +936,17 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
 
+    const reporter = new RuntimeEmbedReporter(message);
     const result = await context.runtimeLifecycle.restart({
       announce: async () => {
-        await message.reply(`Restarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`);
+        await reporter.show({
+          title: "Restarting Shepherd",
+          tone: "success",
+          text: formatRecoveryInstructions(context, channelId),
+        });
       },
     });
-    await replyRuntimeLifecycleResult(message, result);
+    await replyRuntimeLifecycleResult(reporter, result);
     return { handled: true, threadId: null, input: null };
   }
 
@@ -600,9 +960,14 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
 
+    const reporter = new RuntimeEmbedReporter(message);
     const result = await context.runtimeLifecycle.deploy({
       onDeploymentStarted: async () => {
-        await message.reply("Checking the latest merged `origin/main` and validating the deployed checkout…");
+        await reporter.show({
+          title: "Checking deployment",
+          tone: "working",
+          text: "Fetching the latest merged `origin/main` and validating the deployed checkout…",
+        });
       },
       announce: async (announcement) => {
         if (announcement.action !== "deploy") {
@@ -612,10 +977,14 @@ export async function handleMessage(
         const summary = deployment.changed
           ? `Deploy validated: ${deployment.previousCommit.slice(0, 7)} → ${deployment.deployedCommit.slice(0, 7)}`
           : `Deploy validated: already at ${deployment.deployedCommit.slice(0, 7)}`;
-        await message.reply(`${summary}\nRestarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`);
+        await reporter.show({
+          title: "Deployment validated",
+          tone: "success",
+          text: `${summary}\nRestarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`,
+        });
       },
     });
-    await replyRuntimeLifecycleResult(message, result);
+    await replyRuntimeLifecycleResult(reporter, result);
     return { handled: true, threadId: null, input: null };
   }
 
@@ -623,11 +992,19 @@ export async function handleMessage(
     const mode = (args[0] ?? "").toLowerCase();
     if (mode === "loaded") {
       const loaded = await context.conversation.listLoadedThreads({ limit: 100 });
-      await replyChunked(
+      const text = loaded.threadIds.length > 0
+        ? `Loaded threads (${loaded.threadIds.length}):\n${loaded.threadIds.join("\n")}`
+        : "No loaded threads.";
+      await replyEmbedPages(
         message,
-        loaded.threadIds.length > 0
-          ? `Loaded threads (${loaded.threadIds.length}):\n${loaded.threadIds.join("\n")}`
-          : "No loaded threads.",
+        buildDescriptionPages({
+          title: "Loaded threads",
+          text: loaded.threadIds.length > 0
+            ? loaded.threadIds.map((threadId) => `• \`${threadId}\``).join("\n")
+            : "No loaded threads.",
+          footer: `${loaded.threadIds.length} loaded`,
+        }),
+        text,
       );
       return { handled: true, threadId: null, input: null };
     }
@@ -641,7 +1018,8 @@ export async function handleMessage(
     if (result.type !== "limits.read") {
       throw new Error("Unexpected control action result for limits.read.");
     }
-    await replyChunked(message, formatRateLimitsForDiscord(result.rateLimits));
+    const text = formatRateLimitsForDiscord(result.rateLimits);
+    await replyEmbed(message, rateLimitsEmbed(result.rateLimits), text);
     return { handled: true, threadId: null, input: null };
   }
 
@@ -650,7 +1028,8 @@ export async function handleMessage(
     if (result.type !== "models.list") {
       throw new Error("Unexpected control action result for models.list.");
     }
-    await replyChunked(message, formatModelsForDiscord(result.models, result.modelState));
+    const text = formatModelsForDiscord(result.models, result.modelState);
+    await replyEmbedPages(message, modelEmbeds(result.models, result.modelState), text);
     return { handled: true, threadId: result.modelState?.threadId ?? null, input: null };
   }
 
@@ -663,7 +1042,8 @@ export async function handleMessage(
     }
 
     if (!subcommand) {
-      await replyChunked(message, formatThreadModelForDiscord(context.conversation.getThreadModel(threadId)));
+      const model = context.conversation.getThreadModel(threadId);
+      await replyEmbed(message, threadModelEmbed(model), formatThreadModelForDiscord(model));
       return { handled: true, threadId, input: null };
     }
 
@@ -710,7 +1090,8 @@ export async function handleMessage(
       await message.reply("No context telemetry yet for this thread. Send a turn first.");
       return { handled: true, threadId: result.threadId, input: null };
     }
-    await replyChunked(message, formatThreadContextForDiscord(result.threadId, result.tokenUsage));
+    const text = formatThreadContextForDiscord(result.threadId, result.tokenUsage);
+    await replyEmbed(message, threadContextEmbed(result.threadId, result.tokenUsage), text);
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -764,7 +1145,8 @@ export async function handleMessage(
     const mode = (args[0] ?? "").toLowerCase();
     const forceReload = mode === "reload";
     const listed = await context.conversation.listSkills(activeThreadId, { forceReload });
-    await replyChunked(message, formatSkillsForDiscord(listed));
+    const text = formatSkillsForDiscord(listed);
+    await replyEmbedPages(message, skillEmbeds(listed), text);
     return { handled: true, threadId: null, input: null };
   }
 
@@ -871,12 +1253,29 @@ export async function handleMessage(
     }
     const threadId = result.threadId;
     const thread = result.thread as { id?: string; name?: string | null; preview?: string; updatedAt?: number | null };
-    await replyChunked(message, [
+    const threadText = [
       `Thread: ${thread.id ?? threadId}`,
       `Name: ${thread.name ?? "untitled"}`,
       `Updated: ${formatTimestamp(typeof thread.updatedAt === "number" ? thread.updatedAt : null)}`,
       `Preview: ${(thread.preview ?? "").slice(0, 300) || "(empty)"}`,
-    ].join("\n"));
+    ].join("\n");
+    await replyEmbed(
+      message,
+      buildEmbed({
+        title: "Thread",
+        fields: [
+          { name: "ID", value: `\`${thread.id ?? threadId}\`` },
+          { name: "Name", value: thread.name ?? "untitled", inline: true },
+          {
+            name: "Updated",
+            value: formatTimestamp(typeof thread.updatedAt === "number" ? thread.updatedAt : null),
+            inline: true,
+          },
+          { name: "Preview", value: (thread.preview ?? "").slice(0, 300) || "(empty)" },
+        ],
+      }),
+      threadText,
+    );
     return { handled: true, threadId, input: null };
   }
 

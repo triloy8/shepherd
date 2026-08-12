@@ -1,23 +1,41 @@
 import { describe, expect, test } from "bun:test";
 
 import { handleMessage, type CommandContext } from "../server/adapters/discord/commands.js";
+import type { APIEmbed } from "discord.js";
 
 type RuntimeLifecycle = NonNullable<CommandContext["runtimeLifecycle"]>;
 
 function makeMessage(content: string) {
-  const replies: string[] = [];
+  const replies: Array<string | { embeds: APIEmbed[]; allowedMentions?: unknown }> = [];
+  const edits: Array<{ content: null; embeds: APIEmbed[] }> = [];
   return {
     message: {
       content,
       channelId: "chan-1",
       guildId: "guild-1",
-      async reply(text: string) {
-        replies.push(text);
-        return {} as never;
+      async reply(payload: string | { embeds: APIEmbed[]; allowedMentions?: unknown }) {
+        replies.push(payload);
+        return {
+          async edit(next: { content: null; embeds: APIEmbed[] }) {
+            edits.push(next);
+          },
+        } as never;
       },
     },
     replies,
+    edits,
   };
+}
+
+function replyEmbedAt(
+  replies: Array<string | { embeds: APIEmbed[] }>,
+  index = 0,
+): APIEmbed {
+  const reply = replies[index];
+  if (typeof reply === "string" || !reply?.embeds[0]) {
+    throw new Error(`Expected embed reply at index ${index}.`);
+  }
+  return reply.embeds[0];
 }
 
 function makeContext(overrides?: {
@@ -128,6 +146,22 @@ function makeContext(overrides?: {
         return {
           thread: { id: threadId, name: "demo", preview: "preview", updatedAt: 123 },
         };
+      },
+      async listStoredThreads() {
+        return {
+          threads: [
+            {
+              threadId: "thread-1",
+              name: "Embed work",
+              preview: "Add structured Discord output",
+              updatedAt: 123,
+            },
+          ],
+          nextCursor: null,
+        };
+      },
+      async listLoadedThreads() {
+        return { threadIds: ["thread-1"] };
       },
       async archiveThread() {
         return { ok: true };
@@ -274,9 +308,10 @@ describe("Discord listening commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual([
-      "**Shepherd channel**\n- Listening: Open\n- Repository: owner/repo\n- Thread: thread-1\n- Turn: idle\n- Model: o4-mini",
-    ]);
+    const embed = replyEmbedAt(replies);
+    expect(embed.title).toBe("Shepherd channel");
+    expect(embed.fields).toContainEqual({ name: "Listening", value: "Open", inline: true });
+    expect(embed.fields).toContainEqual({ name: "Repository", value: "owner/repo", inline: true });
   });
 
   test("keeps direct messages open unless explicitly paused", async () => {
@@ -294,6 +329,43 @@ describe("Discord listening commands", () => {
 });
 
 describe("Discord !skill commands", () => {
+  test("renders help as grouped command fields", async () => {
+    const { message, replies } = makeMessage("!help");
+    const { context } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    const embed = replyEmbedAt(replies);
+    expect(embed.title).toBe("Shepherd commands");
+    expect(embed.fields?.map((field) => field.name)).toContain("Thread lifecycle");
+  });
+
+  test("renders context telemetry as a structured embed", async () => {
+    const { message, replies } = makeMessage("!context");
+    const { context } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    const embed = replyEmbedAt(replies);
+    expect(embed.title).toBe("Context usage");
+    expect(embed.description).toContain("Remaining context");
+    expect(embed.fields?.map((field) => field.name)).toContain("Thread total");
+  });
+
+  test("renders skill and thread listings as embeds", async () => {
+    const skills = makeMessage("!skills");
+    const threads = makeMessage("!threads");
+    const { context } = makeContext();
+
+    await handleMessage(skills.message as never, context);
+    await handleMessage(threads.message as never, context);
+
+    expect(replyEmbedAt(skills.replies).title).toBe("Skills");
+    expect(replyEmbedAt(skills.replies).description).toContain("`github`");
+    expect(replyEmbedAt(threads.replies).title).toBe("Active threads");
+    expect(replyEmbedAt(threads.replies).description).toContain("thread-1");
+  });
+
   test("resolves a displayed skill name to its underlying path", async () => {
     const { message, replies } = makeMessage("!skill disable github");
     const { context, writes } = makeContext();
@@ -365,11 +437,11 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("**Models**");
-    expect(replies[0]).toContain("Current: o4-mini");
-    expect(replies[0]).toContain("Pending next turn: gpt-5.3-codex");
-    expect(replies[0]).toContain("`gpt-5.3-codex` [pending, default]");
-    expect(replies[0]).toContain("`o4-mini` [current]");
+    const embed = replyEmbedAt(replies);
+    expect(embed.title).toBe("Models");
+    expect(embed.description).toContain("`gpt-5.3-codex` [pending, default]");
+    expect(embed.description).toContain("`o4-mini` [current]");
+    expect(embed.fields).toContainEqual({ name: "Current", value: "`o4-mini`", inline: true });
   });
 
   test("stores a thread-scoped pending model override", async () => {
@@ -454,9 +526,9 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual([
-      "Thread: thread-1\nName: demo\nUpdated: 1970-01-01T00:02:03.000Z\nPreview: preview",
-    ]);
+    const embed = replyEmbedAt(replies);
+    expect(embed.title).toBe("Thread");
+    expect(embed.fields).toContainEqual({ name: "Preview", value: "preview" });
   });
 
   test("formats limits replies from the control action result", async () => {
@@ -466,8 +538,9 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("**Rate Limits**");
-    expect(replies[0]).toContain("Plan: pro");
+    const embed = replyEmbedAt(replies);
+    expect(embed.title).toBe("Rate limits");
+    expect(embed.fields).toContainEqual({ name: "Plan", value: "pro", inline: true });
   });
 
   test("rejects unknown bang commands instead of treating them as conversation input", async () => {
@@ -494,9 +567,8 @@ describe("Discord operational commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual([
-      "Restarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo owner/repo\n!thread thread-1\n```",
-    ]);
+    expect(replyEmbedAt(replies).title).toBe("Restarting Shepherd");
+    expect(replyEmbedAt(replies).description).toContain("!repo owner/repo");
     expect(getRestartRequests()).toBe(1);
   });
 
@@ -511,9 +583,7 @@ describe("Discord operational commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual([
-      "Restarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo owner/repo\n!thread thread-1\n!listen open\n```",
-    ]);
+    expect(replyEmbedAt(replies).description).toContain("!listen open");
   });
 
   test("refuses restart while a turn is active", async () => {
@@ -531,14 +601,13 @@ describe("Discord operational commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual([
-      "Restart refused while Codex work is active.\nActive turns: thread-busy",
-    ]);
+    expect(replyEmbedAt(replies).title).toBe("Restart refused");
+    expect(replyEmbedAt(replies).description).toContain("Active turns: thread-busy");
     expect(getRestartRequests()).toBe(0);
   });
 
   test("validates a deployment before posting recovery commands and restarting", async () => {
-    const { message, replies } = makeMessage("!deploy");
+    const { message, replies, edits } = makeMessage("!deploy");
     const { context, getRestartRequests } = makeContext({
       getSurfaceProject() {
         return "~/shepherd";
@@ -547,15 +616,16 @@ describe("Discord operational commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual([
-      "Checking the latest merged `origin/main` and validating the deployed checkout…",
-      "Deploy validated: 1111111 → 2222222\nRestarting Shepherd.\n\nTo continue after reconnect:\n```\n!repo ~/shepherd\n!thread thread-1\n```",
-    ]);
+    expect(replies).toHaveLength(1);
+    expect(replyEmbedAt(replies).title).toBe("Checking deployment");
+    expect(edits).toHaveLength(1);
+    expect(edits[0]?.embeds[0]?.title).toBe("Deployment validated");
+    expect(edits[0]?.embeds[0]?.description).toContain("1111111 → 2222222");
     expect(getRestartRequests()).toBe(1);
   });
 
   test("keeps Shepherd online when deployment validation fails", async () => {
-    const { message, replies } = makeMessage("!deploy");
+    const { message, replies, edits } = makeMessage("!deploy");
     const { context, getRestartRequests } = makeContext({
       async deploy(options) {
         await options.onDeploymentStarted?.();
@@ -568,10 +638,11 @@ describe("Discord operational commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replies).toEqual([
-      "Checking the latest merged `origin/main` and validating the deployed checkout…",
-      "Deployment failed; Shepherd remains online.\ntests failed; restored previous commit",
-    ]);
+    expect(replies).toHaveLength(1);
+    expect(replyEmbedAt(replies).title).toBe("Checking deployment");
+    expect(edits).toHaveLength(1);
+    expect(edits[0]?.embeds[0]?.title).toBe("Deployment failed");
+    expect(edits[0]?.embeds[0]?.description).toContain("tests failed; restored previous commit");
     expect(getRestartRequests()).toBe(0);
   });
 });

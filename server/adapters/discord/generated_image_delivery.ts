@@ -1,7 +1,9 @@
 import { Buffer } from "node:buffer";
 import { open } from "node:fs/promises";
 import path from "node:path";
+import { MediaGalleryBuilder, MessageFlags } from "discord.js";
 
+import { isComponentsV2Rejection } from "./components_renderer.js";
 import type {
   DiscordFileAttachment,
   DiscordMessage,
@@ -126,14 +128,26 @@ export async function sendDiscordGeneratedImage(
     const loadAttachment = options.loadAttachment ?? loadGeneratedImageAttachment;
     const attachment = await loadAttachment(imagePath);
     const description = options.description?.trim().slice(0, 1_024);
-    const sent: DiscordMessage = await channel.send({
-      files: [
-        {
-          ...attachment,
-          ...(description ? { description } : {}),
-        },
-      ],
-    });
+    const file = {
+      ...attachment,
+      ...(description ? { description } : {}),
+    };
+    let sent: DiscordMessage;
+    try {
+      const gallery = new MediaGalleryBuilder().addItems((item) => {
+        item.setURL(`attachment://${attachment.name}`);
+        if (description) item.setDescription(description);
+        return item;
+      });
+      sent = await channel.send({
+        flags: MessageFlags.IsComponentsV2,
+        components: [gallery],
+        files: [file],
+      });
+    } catch (error) {
+      if (!isComponentsV2Rejection(error)) throw error;
+      sent = await channel.send({ files: [file] });
+    }
     return {
       success: true,
       messageId: sent.id,

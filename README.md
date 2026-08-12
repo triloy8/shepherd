@@ -83,9 +83,9 @@ cp envs/discord.env.example envs/discord.env
 - optionally `CODEX_SANDBOX` in `envs/common.env`
 
 The Discord bot needs `View Channel`, `Send Messages`, `Read Message History`,
-`Embed Links`, and `Attach Files` in every channel where Shepherd operates.
-Structured Shepherd status cards fall back to plain text if Discord rejects an
-embed, while generated-image delivery requires `Attach Files`.
+and `Attach Files` in every channel where Shepherd operates. Shepherd renders
+text with Discord Components V2 and falls back to ordinary message content if
+the API rejects a V2 payload. Generated-image delivery requires `Attach Files`.
 
 > [!WARNING]
 > The checked-in `envs/common.env.example` defaults to `CODEX_APPROVAL_POLICY=never`
@@ -138,11 +138,13 @@ The committed `.example` files are the templates intended for public use.
 
 ## 💬 Current Adapter: Discord
 
-Shepherd uses Discord embeds for structured surface UI such as channel status,
-context and rate-limit telemetry, model/skill/thread listings, approvals, turn
-activity, lifecycle progress, and asynchronous failures. Codex-authored final
-answers and commentary remain ordinary Discord messages so long Markdown and
-code responses retain reply-aware chunking and straightforward copy/paste.
+Shepherd uses Discord Components V2 throughout the surface. Completed Codex
+Markdown and commentary render as clean Text Displays, while channel status,
+telemetry, model/skill/thread listings, approvals, turn activity, lifecycle
+progress, and asynchronous failures use accented Containers. Generated images
+use Media Galleries. Markdown-aware segmentation preserves code fences and
+reply context across long answers, and ordinary message content remains the
+compatibility fallback when Discord rejects a V2 payload.
 
 The normal flow is:
 

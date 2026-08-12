@@ -1,20 +1,28 @@
-import type { APIEmbed, TextBasedChannel } from "discord.js";
+import {
+  MessageFlags,
+  type MessageCreateOptions,
+  type MessageEditOptions,
+  type TextBasedChannel,
+} from "discord.js";
 import type { Buffer } from "node:buffer";
 
+import {
+  buildCardPages,
+  buildMarkdownPages,
+  componentsV2Payload,
+  isComponentsV2Rejection,
+  type DiscordSurfacePage,
+  type SurfaceTone,
+} from "./components_renderer.js";
 import {
   chunkForDiscord,
   DISCORD_CHUNK_TARGET,
   DISCORD_MESSAGE_LIMIT,
 } from "./chunking.js";
-import { isEmbedRejection } from "./embed_renderer.js";
 
 export type DiscordMessage = {
   id: string;
-  edit: (
-    content:
-      | string
-      | { content?: string | null; embeds?: APIEmbed[]; components?: unknown[] },
-  ) => Promise<unknown>;
+  edit: (content: string | MessageEditOptions) => Promise<unknown>;
 };
 
 export type DiscordFileAttachment = {
@@ -24,20 +32,15 @@ export type DiscordFileAttachment = {
 };
 
 export type SendableChannel = TextBasedChannel & {
-  send: (
-    content:
-      | string
-      | {
-          content?: string;
-          components?: unknown[];
-          embeds?: APIEmbed[];
-          files?: DiscordFileAttachment[];
-          reply?: { messageReference: string; failIfNotExists?: boolean };
-          allowedMentions?: { repliedUser?: boolean; parse?: string[] };
-        },
-  ) => Promise<DiscordMessage>;
+  send: (content: string | MessageCreateOptions) => Promise<DiscordMessage>;
   sendTyping?: () => Promise<unknown>;
   messages: { fetch: (id: string) => Promise<DiscordMessage> };
+};
+
+export type DiscordReplyTarget = {
+  id: string;
+  channel: unknown;
+  reply: (content: string | MessageCreateOptions) => Promise<DiscordMessage>;
 };
 
 export type DiscordDeliveryResult = {
@@ -50,299 +53,271 @@ export type DiscordDeliveryResult = {
   usedFallback?: boolean;
 };
 
+export type DiscordEditableSurfaceState = {
+  messageIds: string[];
+  renderedPages: string[];
+  fallbackIndexes: Set<number>;
+};
+
 export type DiscordPreviewState = {
   messageId: string | null;
-  renderedText: string;
-  saturatedText: string | null;
+  renderedPage: string;
+  fallback: boolean;
   continuationMessageIds: string[];
 };
 
-export type DiscordEditableChunksState = {
-  messageIds: string[];
-  renderedChunks: string[];
-};
-
-export type DiscordEditableEmbedsState = {
-  messageIds: string[];
-  renderedEmbeds: string[];
-  fallbackIndexes: Set<number>;
-};
+export function createDiscordEditableSurfaceState(): DiscordEditableSurfaceState {
+  return { messageIds: [], renderedPages: [], fallbackIndexes: new Set<number>() };
+}
 
 export function createDiscordPreviewState(): DiscordPreviewState {
   return {
     messageId: null,
-    renderedText: "",
-    saturatedText: null,
+    renderedPage: "",
+    fallback: false,
     continuationMessageIds: [],
   };
-}
-
-export function createDiscordEditableChunksState(): DiscordEditableChunksState {
-  return {
-    messageIds: [],
-    renderedChunks: [],
-  };
-}
-
-export function createDiscordEditableEmbedsState(): DiscordEditableEmbedsState {
-  return { messageIds: [], renderedEmbeds: [], fallbackIndexes: new Set<number>() };
 }
 
 export { chunkForDiscord, DISCORD_CHUNK_TARGET, DISCORD_MESSAGE_LIMIT } from "./chunking.js";
 
 export function isSendableChannel(channel: unknown): channel is SendableChannel {
   if (!channel || typeof channel !== "object") return false;
-  const record = channel as Record<string, unknown>;
-  return typeof record.send === "function";
+  return typeof (channel as Record<string, unknown>).send === "function";
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function firstChunkPayload(content: string, replyToMessageId?: string | null) {
-  if (!replyToMessageId) return content;
-  return {
-    content,
-    reply: {
-      messageReference: replyToMessageId,
-      failIfNotExists: false,
-    },
-    allowedMentions: {
-      repliedUser: false,
-    },
-  };
+function serializePage(page: DiscordSurfacePage): string {
+  return JSON.stringify(
+    page.components.map((component) =>
+      component && typeof component === "object" && "toJSON" in component
+        ? (component as { toJSON: () => unknown }).toJSON()
+        : component,
+    ),
+  );
 }
 
-async function sendChunks(
-  channel: SendableChannel,
-  chunks: string[],
-  replyToMessageId?: string | null,
-): Promise<DiscordDeliveryResult> {
+async function sendPlainFallback(
+  send: (payload: MessageCreateOptions) => Promise<DiscordMessage>,
+  page: DiscordSurfacePage,
+  options: { replyToMessageId?: string | null } = {},
+): Promise<{ messageIds: string[]; error: string | null }> {
   const messageIds: string[] = [];
+  const chunks = chunkForDiscord(page.fallbackText);
   for (let index = 0; index < chunks.length; index += 1) {
     try {
-      const sent = await channel.send(
-        index === 0 ? firstChunkPayload(chunks[index]!, replyToMessageId) : chunks[index]!,
-      );
-      messageIds.push(sent.id);
+      const message = await send({
+        content: chunks[index]!,
+        ...(index === 0 && page.fallbackComponents
+          ? { components: page.fallbackComponents }
+          : {}),
+        allowedMentions: {
+          parse: [],
+          ...(index === 0 && options.replyToMessageId ? { repliedUser: false } : {}),
+        },
+        ...(index === 0 && options.replyToMessageId
+          ? {
+              reply: {
+                messageReference: options.replyToMessageId,
+                failIfNotExists: false,
+              },
+            }
+          : {}),
+      });
+      messageIds.push(message.id);
     } catch (error) {
-      return {
-        success: false,
-        messageIds,
-        deliveredChunks: messageIds.length,
-        totalChunks: chunks.length,
-        partial: messageIds.length > 0,
-        error: errorMessage(error),
-      };
+      return { messageIds, error: errorMessage(error) };
     }
   }
+  return { messageIds, error: null };
+}
+
+async function sendSurfacePages(
+  pages: DiscordSurfacePage[],
+  sendFirst: (payload: string | MessageCreateOptions) => Promise<DiscordMessage>,
+  sendContinuation: (payload: string | MessageCreateOptions) => Promise<DiscordMessage>,
+  options: { replyToMessageId?: string | null } = {},
+): Promise<DiscordDeliveryResult> {
+  const messageIds: string[] = [];
+  let usedFallback = false;
+
+  for (let index = 0; index < pages.length; index += 1) {
+    const page = pages[index]!;
+    const send = index === 0 ? sendFirst : sendContinuation;
+    try {
+      const sent = await send(
+        componentsV2Payload(page, {
+          replyToMessageId: index === 0 ? options.replyToMessageId : null,
+        }),
+      );
+      messageIds.push(sent.id);
+    } catch (v2Error) {
+      if (!isComponentsV2Rejection(v2Error)) {
+        return {
+          success: false,
+          messageIds,
+          deliveredChunks: messageIds.length,
+          totalChunks: pages.length,
+          partial: messageIds.length > 0,
+          error: errorMessage(v2Error),
+        };
+      }
+
+      usedFallback = true;
+      const fallback = await sendPlainFallback(
+        (payload) => send(payload),
+        page,
+        { replyToMessageId: index === 0 ? options.replyToMessageId : null },
+      );
+      messageIds.push(...fallback.messageIds);
+      if (fallback.error) {
+        return {
+          success: false,
+          messageIds,
+          deliveredChunks: messageIds.length,
+          totalChunks: pages.length,
+          partial: messageIds.length > 0,
+          error: `${errorMessage(v2Error)}; fallback failed: ${fallback.error}`,
+          usedFallback,
+        };
+      }
+    }
+  }
+
   return {
     success: true,
     messageIds,
-    deliveredChunks: chunks.length,
-    totalChunks: chunks.length,
+    deliveredChunks: pages.length,
+    totalChunks: pages.length,
     partial: false,
     error: null,
+    ...(usedFallback ? { usedFallback: true } : {}),
   };
 }
 
-export async function sendDiscordText(
+export async function sendDiscordPages(
+  channel: SendableChannel,
+  pages: DiscordSurfacePage[],
+  options: { replyToMessageId?: string | null } = {},
+): Promise<DiscordDeliveryResult> {
+  return sendSurfacePages(
+    pages,
+    (payload) => channel.send(payload),
+    (payload) => channel.send(payload),
+    options,
+  );
+}
+
+export async function sendDiscordMarkdown(
   channel: SendableChannel,
   text: string,
   options: { replyToMessageId?: string | null } = {},
 ): Promise<DiscordDeliveryResult> {
-  return sendChunks(channel, chunkForDiscord(text), options.replyToMessageId);
+  return sendDiscordPages(channel, buildMarkdownPages(text), options);
 }
 
-export async function sendDiscordEmbed(
-  channel: SendableChannel,
-  embed: APIEmbed,
-  fallbackText: string,
-  options: {
-    components?: unknown[];
-    replyToMessageId?: string | null;
-  } = {},
+export async function replyDiscordPages(
+  target: DiscordReplyTarget,
+  pages: DiscordSurfacePage[],
 ): Promise<DiscordDeliveryResult> {
-  const reply = options.replyToMessageId
-    ? {
-        reply: {
-          messageReference: options.replyToMessageId,
-          failIfNotExists: false,
-        },
-      }
-    : {};
-  try {
-    const sent = await channel.send({
-      embeds: [embed],
-      ...(options.components ? { components: options.components } : {}),
-      allowedMentions: { parse: [], ...(options.replyToMessageId ? { repliedUser: false } : {}) },
-      ...reply,
-    });
+  const channel = target.channel;
+  if (pages.length > 1 && !isSendableChannel(channel)) {
     return {
-      success: true,
-      messageIds: [sent.id],
-      deliveredChunks: 1,
-      totalChunks: 1,
+      success: false,
+      messageIds: [],
+      deliveredChunks: 0,
+      totalChunks: pages.length,
       partial: false,
-      error: null,
+      error: "Discord channel cannot send messages.",
     };
-  } catch (embedError) {
-    if (!isEmbedRejection(embedError)) {
-      return {
-        success: false,
-        messageIds: [],
-        deliveredChunks: 0,
-        totalChunks: 1,
-        partial: false,
-        error: errorMessage(embedError),
-      };
-    }
-    try {
-      const sent = await channel.send({
-        content: fallbackText,
-        ...(options.components ? { components: options.components } : {}),
-        allowedMentions: { parse: [], ...(options.replyToMessageId ? { repliedUser: false } : {}) },
-        ...reply,
-      });
-      return {
-        success: true,
-        messageIds: [sent.id],
-        deliveredChunks: 1,
-        totalChunks: 1,
-        partial: false,
-        error: null,
-        usedFallback: true,
-      };
-    } catch (fallbackError) {
-      return {
-        success: false,
-        messageIds: [],
-        deliveredChunks: 0,
-        totalChunks: 1,
-        partial: false,
-        error: `${errorMessage(embedError)}; fallback failed: ${errorMessage(fallbackError)}`,
-      };
-    }
   }
+  return sendSurfacePages(
+    pages,
+    (payload) => target.reply(payload),
+    (payload) => {
+      if (!isSendableChannel(channel)) throw new Error("Discord channel cannot send messages.");
+      return channel.send(payload);
+    },
+  );
 }
 
-export async function updateDiscordEditableEmbeds(
+export async function replyDiscordMarkdown(
+  target: DiscordReplyTarget,
+  text: string,
+): Promise<DiscordDeliveryResult> {
+  return replyDiscordPages(target, buildMarkdownPages(text));
+}
+
+export async function replyDiscordCard(
+  target: DiscordReplyTarget,
+  options: { title: string; text: string; tone?: SurfaceTone },
+): Promise<DiscordDeliveryResult> {
+  return replyDiscordPages(target, buildCardPages(options));
+}
+
+export async function updateDiscordEditableSurfaces(
   channel: SendableChannel,
-  state: DiscordEditableEmbedsState,
-  embeds: APIEmbed[],
-  fallbackTexts: string[],
+  state: DiscordEditableSurfaceState,
+  pages: DiscordSurfacePage[],
 ): Promise<DiscordDeliveryResult> {
   const deliveredIds: string[] = [];
-  for (let index = 0; index < embeds.length; index += 1) {
-    const embed = embeds[index]!;
-    const serialized = JSON.stringify(embed);
+
+  for (let index = 0; index < pages.length; index += 1) {
+    const page = pages[index]!;
+    const serialized = serializePage(page);
     const existingId = state.messageIds[index];
-    if (existingId && state.renderedEmbeds[index] === serialized) {
+    if (existingId && state.renderedPages[index] === serialized) {
       deliveredIds.push(existingId);
       continue;
     }
+
     try {
       if (existingId) {
         const message = await channel.messages.fetch(existingId);
         if (state.fallbackIndexes.has(index)) {
-          await message.edit(fallbackTexts[index] ?? fallbackTexts.at(-1) ?? "Working…");
+          const fallbackChunks = chunkForDiscord(page.fallbackText);
+          if (fallbackChunks.length !== 1) {
+            throw new Error("Editable Components V2 fallback exceeded one Discord message.");
+          }
+          await message.edit(fallbackChunks[0]!);
         } else {
-          await message.edit({ content: null, embeds: [embed] });
+          await message.edit({
+            flags: MessageFlags.IsComponentsV2,
+            components: page.components,
+            allowedMentions: { parse: [] },
+          });
         }
         deliveredIds.push(existingId);
       } else {
-        const result = await sendDiscordEmbed(
-          channel,
-          embed,
-          fallbackTexts[index] ?? fallbackTexts.at(-1) ?? "Working…",
-        );
+        const result = await sendDiscordPages(channel, [page]);
         if (!result.success || !result.messageIds[0]) {
-          throw new Error(result.error ?? "Discord embed delivery failed.");
+          throw new Error(result.error ?? "Discord Components V2 delivery failed.");
         }
         state.messageIds[index] = result.messageIds[0];
         if (result.usedFallback) state.fallbackIndexes.add(index);
         deliveredIds.push(result.messageIds[0]);
       }
-      state.renderedEmbeds[index] = serialized;
+      state.renderedPages[index] = serialized;
     } catch (error) {
       return {
         success: false,
         messageIds: deliveredIds,
         deliveredChunks: deliveredIds.length,
-        totalChunks: embeds.length,
-        partial: deliveredIds.length > 0,
-        error: errorMessage(error),
-      };
-    }
-  }
-  return {
-    success: true,
-    messageIds: [...state.messageIds],
-    deliveredChunks: embeds.length,
-    totalChunks: embeds.length,
-    partial: false,
-    error: null,
-  };
-}
-
-export async function updateDiscordEditableChunks(
-  channel: SendableChannel,
-  state: DiscordEditableChunksState,
-  text: string,
-): Promise<DiscordDeliveryResult> {
-  const chunks = chunkForDiscord(text, {
-    maxChars: DISCORD_CHUNK_TARGET,
-    includePageIndicators: false,
-  });
-  const deliveredIds: string[] = [];
-
-  for (let index = 0; index < chunks.length; index += 1) {
-    const content = chunks[index]!;
-    const existingId = state.messageIds[index];
-    if (state.renderedChunks[index] === content && existingId) {
-      deliveredIds.push(existingId);
-      continue;
-    }
-
-    try {
-      if (existingId) {
-        const message = await channel.messages.fetch(existingId);
-        await message.edit(content);
-        deliveredIds.push(existingId);
-      } else {
-        const sent = await channel.send(content);
-        state.messageIds[index] = sent.id;
-        deliveredIds.push(sent.id);
-      }
-    } catch (error) {
-      if (existingId) {
-        try {
-          const replacement = await channel.send(content);
-          state.messageIds[index] = replacement.id;
-          deliveredIds.push(replacement.id);
-          continue;
-        } catch (replacementError) {
-          error = replacementError;
-        }
-      }
-      return {
-        success: false,
-        messageIds: deliveredIds,
-        deliveredChunks: deliveredIds.length,
-        totalChunks: chunks.length,
+        totalChunks: pages.length,
         partial: deliveredIds.length > 0,
         error: errorMessage(error),
       };
     }
   }
 
-  state.renderedChunks = chunks;
   return {
     success: true,
     messageIds: [...state.messageIds],
-    deliveredChunks: chunks.length,
-    totalChunks: chunks.length,
+    deliveredChunks: pages.length,
+    totalChunks: pages.length,
     partial: false,
     error: null,
   };
@@ -354,9 +329,10 @@ export async function updateDiscordPreview(
   text: string,
   options: { finalize?: boolean; replyToMessageId?: string | null } = {},
 ): Promise<DiscordDeliveryResult> {
-  const chunks = chunkForDiscord(text);
-  const finalize = options.finalize ?? false;
-  if (chunks.length === 0) {
+  // Streaming previews retain a plain-content fallback that must remain editable
+  // as one Discord message per logical page.
+  const pages = buildMarkdownPages(text, { maxChars: DISCORD_CHUNK_TARGET });
+  if (pages.length === 0) {
     return {
       success: true,
       messageIds: state.messageId ? [state.messageId] : [],
@@ -368,102 +344,69 @@ export async function updateDiscordPreview(
   }
 
   if (!state.messageId) {
-    if (finalize) {
-      const result = await sendChunks(channel, chunks, options.replyToMessageId);
-      state.messageId = result.messageIds[0] ?? null;
-      state.continuationMessageIds = result.messageIds.slice(1);
-      state.renderedText = chunks[0] ?? "";
-      return result;
-    }
-
-    const preview = chunks[0]!;
-    try {
-      const sent = await channel.send(firstChunkPayload(preview, options.replyToMessageId));
-      state.messageId = sent.id;
-      state.renderedText = preview;
-      state.saturatedText = chunks.length > 1 ? preview : null;
-      return {
-        success: true,
-        messageIds: [sent.id],
-        deliveredChunks: 1,
-        totalChunks: chunks.length,
-        partial: chunks.length > 1,
-        error: null,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        messageIds: [],
-        deliveredChunks: 0,
-        totalChunks: chunks.length,
-        partial: false,
-        error: errorMessage(error),
-      };
-    }
+    const initialPages = options.finalize ? pages : pages.slice(0, 1);
+    const result = await sendDiscordPages(channel, initialPages, {
+      replyToMessageId: options.replyToMessageId,
+    });
+    state.messageId = result.messageIds[0] ?? null;
+    state.continuationMessageIds = result.messageIds.slice(1);
+    state.renderedPage = serializePage(pages[0]!);
+    state.fallback = result.usedFallback === true;
+    return {
+      ...result,
+      totalChunks: pages.length,
+      partial: !options.finalize && pages.length > 1,
+    };
   }
 
-  if (!finalize) {
-    const preview = chunks[0]!;
-    if (state.renderedText === preview || (chunks.length > 1 && state.saturatedText === preview)) {
-      return {
-        success: true,
-        messageIds: [state.messageId],
-        deliveredChunks: 1,
-        totalChunks: chunks.length,
-        partial: chunks.length > 1,
-        error: null,
-      };
-    }
-
-    try {
-      const message = await channel.messages.fetch(state.messageId);
-      await message.edit(preview);
-      state.renderedText = preview;
-      state.saturatedText = chunks.length > 1 ? preview : null;
-      return {
-        success: true,
-        messageIds: [state.messageId],
-        deliveredChunks: 1,
-        totalChunks: chunks.length,
-        partial: chunks.length > 1,
-        error: null,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        messageIds: [state.messageId],
-        deliveredChunks: 0,
-        totalChunks: chunks.length,
-        partial: false,
-        error: errorMessage(error),
-      };
-    }
-  }
-
-  let originalDelivered = false;
+  const first = pages[0]!;
+  const serialized = serializePage(first);
   try {
-    const original = await channel.messages.fetch(state.messageId);
-    await original.edit(chunks[0]!);
-    originalDelivered = true;
-    state.renderedText = chunks[0]!;
-    state.saturatedText = null;
-  } catch {
-    const replacement = await sendChunks(channel, chunks, options.replyToMessageId);
-    state.messageId = replacement.messageIds[0] ?? state.messageId;
-    state.continuationMessageIds = replacement.messageIds.slice(1);
-    state.renderedText = chunks[0]!;
-    state.saturatedText = null;
-    return replacement;
+    if (state.renderedPage !== serialized) {
+      const message = await channel.messages.fetch(state.messageId);
+      if (state.fallback) {
+        const chunks = chunkForDiscord(first.fallbackText);
+        await message.edit(chunks[0]!);
+      } else {
+        await message.edit({
+          flags: MessageFlags.IsComponentsV2,
+          components: first.components,
+          allowedMentions: { parse: [] },
+        });
+      }
+      state.renderedPage = serialized;
+    }
+  } catch (error) {
+    return {
+      success: false,
+      messageIds: [state.messageId],
+      deliveredChunks: 0,
+      totalChunks: pages.length,
+      partial: false,
+      error: errorMessage(error),
+    };
   }
 
-  const continuations = await sendChunks(channel, chunks.slice(1));
+  if (!options.finalize) {
+    return {
+      success: true,
+      messageIds: [state.messageId],
+      deliveredChunks: 1,
+      totalChunks: pages.length,
+      partial: pages.length > 1,
+      error: null,
+    };
+  }
+
+  const continuations = await sendDiscordPages(channel, pages.slice(1));
   state.continuationMessageIds = continuations.messageIds;
   return {
     success: continuations.success,
     messageIds: [state.messageId, ...continuations.messageIds],
-    deliveredChunks: (originalDelivered ? 1 : 0) + continuations.deliveredChunks,
-    totalChunks: chunks.length,
+    deliveredChunks: 1 + continuations.deliveredChunks,
+    totalChunks: pages.length,
     partial: continuations.partial,
     error: continuations.error,
+    ...(continuations.usedFallback ? { usedFallback: true } : {}),
   };
 }

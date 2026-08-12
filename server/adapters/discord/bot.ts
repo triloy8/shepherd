@@ -21,7 +21,7 @@ import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
 import { createDiscordThreadEventHandler } from "./thread_event_handler.js";
-import { buildFailureEmbed, isEmbedRejection } from "./embed_renderer.js";
+import { replyDiscordCard } from "./stream_delivery.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -191,10 +191,14 @@ export async function startDiscordBot(): Promise<void> {
     } catch (error) {
       const text = error instanceof Error ? error.message : "Failed to process message.";
       try {
-        await message.reply({ embeds: [buildFailureEmbed("Request failed", text)] });
-      } catch (embedError) {
-        if (isEmbedRejection(embedError)) await message.reply(text);
-        else console.error("Discord request failure notice could not be delivered:", embedError);
+        const delivered = await replyDiscordCard(message, {
+          title: "Request failed",
+          text,
+          tone: "danger",
+        });
+        if (!delivered.success) throw new Error(delivered.error ?? "Discord delivery failed.");
+      } catch (deliveryError) {
+        console.error("Discord request failure notice could not be delivered:", deliveryError);
       }
     }
   });

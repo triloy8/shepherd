@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { ComponentType, MessageFlags } from "discord.js";
 
 import {
   loadGeneratedImageAttachment,
@@ -93,11 +94,44 @@ describe("Discord generated image delivery", () => {
       error: null,
     });
     const payload = payloads[0] as {
+      flags: MessageFlags;
+      components: unknown[];
       files: Array<{ attachment: Buffer; name: string; description: string }>;
     };
+    const gallery = (payload.components[0] as { toJSON: () => unknown }).toJSON() as {
+      type: ComponentType;
+      items: Array<{ media: { url: string }; description?: string }>;
+    };
+    expect(payload.flags).toBe(MessageFlags.IsComponentsV2);
+    expect(gallery.type).toBe(ComponentType.MediaGallery);
+    expect(gallery.items[0]?.media.url).toBe("attachment://unicorn.png");
     expect(payload.files[0]?.name).toBe("unicorn.png");
     expect(payload.files[0]?.attachment).toEqual(Buffer.from("png"));
     expect(payload.files[0]?.description.length).toBe(1_024);
+  });
+
+  test("falls back to a visible ordinary attachment when Components V2 is rejected", async () => {
+    const payloads: unknown[] = [];
+    const channel = {
+      async send(payload: unknown) {
+        if ((payload as { components?: unknown[] }).components) {
+          throw Object.assign(new Error("Invalid Form Body: IS_COMPONENTS_V2"), { code: 50_035 });
+        }
+        payloads.push(payload);
+        return { id: "image-message-1", async edit() {} };
+      },
+    };
+
+    const result = await sendDiscordGeneratedImage(channel as never, "/tmp/unicorn.png", {
+      async loadAttachment() {
+        return { attachment: Buffer.from("png"), name: "unicorn.png" };
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(payloads).toHaveLength(1);
+    expect((payloads[0] as { components?: unknown[] }).components).toBeUndefined();
+    expect((payloads[0] as { files?: unknown[] }).files).toHaveLength(1);
   });
 
   test("returns upload failures without throwing", async () => {

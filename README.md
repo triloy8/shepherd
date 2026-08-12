@@ -82,6 +82,11 @@ cp envs/discord.env.example envs/discord.env
 - optionally `CODEX_APPROVAL_POLICY` in `envs/common.env`
 - optionally `CODEX_SANDBOX` in `envs/common.env`
 
+The Discord bot needs `View Channel`, `Send Messages`, `Read Message History`,
+`Embed Links`, and `Attach Files` in every channel where Shepherd operates.
+Structured Shepherd status cards fall back to plain text if Discord rejects an
+embed, while generated-image delivery requires `Attach Files`.
+
 > [!WARNING]
 > The checked-in `envs/common.env.example` defaults to `CODEX_APPROVAL_POLICY=never`
 > and `CODEX_SANDBOX=danger-full-access`. That is intentional for unattended
@@ -132,6 +137,12 @@ Supported keys:
 The committed `.example` files are the templates intended for public use.
 
 ## 💬 Current Adapter: Discord
+
+Shepherd uses Discord embeds for structured surface UI such as channel status,
+context and rate-limit telemetry, model/skill/thread listings, approvals, turn
+activity, lifecycle progress, and asynchronous failures. Codex-authored final
+answers and commentary remain ordinary Discord messages so long Markdown and
+code responses retain reply-aware chunking and straightforward copy/paste.
 
 The normal flow is:
 

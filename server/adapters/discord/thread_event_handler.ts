@@ -18,16 +18,23 @@ import {
   type ResponseStreamState,
 } from "../../core/response_stream_reducer.js";
 import {
-  createDiscordEditableChunksState,
+  createDiscordEditableEmbedsState,
   createDiscordPreviewState,
   isSendableChannel,
+  sendDiscordEmbed,
   sendDiscordText,
-  updateDiscordEditableChunks,
+  updateDiscordEditableEmbeds,
   updateDiscordPreview,
-  type DiscordEditableChunksState,
+  type DiscordEditableEmbedsState,
   type DiscordPreviewState,
   type SendableChannel,
 } from "./stream_delivery.js";
+import {
+  buildApprovalEmbed,
+  buildEventEmbed,
+  buildFailureEmbed,
+  buildProgressEmbeds,
+} from "./embed_renderer.js";
 import {
   sendDiscordGeneratedImage,
   type GeneratedImageAttachmentLoader,
@@ -73,7 +80,7 @@ type DiscordTurnDeliveryState = {
   progressLines: string[];
   progressLineSet: Set<string>;
   generatedImageItemIds: Set<string>;
-  progressDelivery: DiscordEditableChunksState;
+  progressDelivery: DiscordEditableEmbedsState;
   progressTimer: NodeJS.Timeout | null;
   preview: DiscordPreviewState;
   previewTimer: NodeJS.Timeout | null;
@@ -206,7 +213,7 @@ export function createDiscordThreadEventHandler(
     progressLines: [],
     progressLineSet: new Set<string>(),
     generatedImageItemIds: new Set<string>(),
-    progressDelivery: createDiscordEditableChunksState(),
+    progressDelivery: createDiscordEditableEmbedsState(),
     progressTimer: null,
     preview: createDiscordPreviewState(),
     previewTimer: null,
@@ -247,9 +254,11 @@ export function createDiscordThreadEventHandler(
     state.progressTimer = null;
     if (state.progressLines.length === 0) return;
     const text = state.progressLines.join("\n");
+    const embeds = buildProgressEmbeds(text);
+    const fallbackTexts = embeds.map((embed) => embed.description ?? text);
     const delivery = state.progressDelivery;
     enqueue(channelId, state, async (channel) => {
-      const result = await updateDiscordEditableChunks(channel, delivery, text);
+      const result = await updateDiscordEditableEmbeds(channel, delivery, embeds, fallbackTexts);
       if (!result.success) {
         onError(new Error(`Progress delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
       }
@@ -259,7 +268,7 @@ export function createDiscordThreadEventHandler(
   const sealProgressSegment = (channelId: string, state: DiscordTurnDeliveryState): void => {
     flushProgress(channelId, state);
     state.progressLines = [];
-    state.progressDelivery = createDiscordEditableChunksState();
+    state.progressDelivery = createDiscordEditableEmbedsState();
   };
 
   const sendCommentary = (
@@ -381,6 +390,20 @@ export function createDiscordThreadEventHandler(
     });
   };
 
+  const enqueueEmbedMessage = (
+    channelId: string,
+    state: DiscordTurnDeliveryState,
+    embed: ReturnType<typeof buildFailureEmbed>,
+    fallbackText: string,
+  ): void => {
+    enqueue(channelId, state, async (channel) => {
+      const result = await sendDiscordEmbed(channel, embed, fallbackText);
+      if (!result.success) {
+        onError(new Error(result.error ?? "Discord embed delivery failed."));
+      }
+    });
+  };
+
   const handleThreadEvent = (channelId: string, event: BridgeEvent): void => {
     const prior = stateByChannel.get(channelId) ?? null;
     const reduction = reduceResponseStream(prior?.stream ?? null, event);
@@ -447,12 +470,16 @@ export function createDiscordThreadEventHandler(
         if (result.success) return;
 
         onError(new Error(`Generated image delivery failed: ${result.error ?? "unknown error"}`));
-        try {
-          await channel.send(
-            "Generated Image Delivery Failed\n\nThe generated image could not be uploaded to Discord. The error was logged.",
-          );
-        } catch (error) {
-          onError(error);
+        const notice = await sendDiscordEmbed(
+          channel,
+          buildFailureEmbed(
+            "Generated image delivery failed",
+            "The generated image could not be uploaded to Discord. The error was logged.",
+          ),
+          "Generated Image Delivery Failed\n\nThe generated image could not be uploaded to Discord. The error was logged.",
+        );
+        if (!notice.success) {
+          onError(new Error(notice.error ?? "Generated image failure notice delivery failed."));
         }
       });
       return;
@@ -473,10 +500,15 @@ export function createDiscordThreadEventHandler(
     if (event.type === "approval.requested") {
       const approval = event.payload as ApprovalRequestPayload;
       enqueue(channelId, state, async (channel) => {
-        await channel.send({
-          content: formatApprovalText(approval),
-          components: buildApprovalRows(event.threadId, approval),
-        });
+        const result = await sendDiscordEmbed(
+          channel,
+          buildApprovalEmbed(event.threadId, approval),
+          formatApprovalText(approval),
+          { components: buildApprovalRows(event.threadId, approval) },
+        );
+        if (!result.success) {
+          onError(new Error(result.error ?? "Approval prompt delivery failed."));
+        }
       });
       return;
     }
@@ -484,7 +516,9 @@ export function createDiscordThreadEventHandler(
     const line = formatEventLine(event);
     if (line) {
       sealProgressSegment(channelId, state);
-      enqueuePlainMessage(channelId, state, line);
+      const embed = buildEventEmbed(event);
+      if (embed) enqueueEmbedMessage(channelId, state, embed, line);
+      else enqueuePlainMessage(channelId, state, line);
     }
   };
 

@@ -21,6 +21,7 @@ import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
 import { createDiscordThreadEventHandler } from "./thread_event_handler.js";
+import { buildFailureEmbed, isEmbedRejection } from "./embed_renderer.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -188,7 +189,13 @@ export async function startDiscordBot(): Promise<void> {
         approvalPolicy,
       });
     } catch (error) {
-      await message.reply(error instanceof Error ? error.message : "Failed to process message.");
+      const text = error instanceof Error ? error.message : "Failed to process message.";
+      try {
+        await message.reply({ embeds: [buildFailureEmbed("Request failed", text)] });
+      } catch (embedError) {
+        if (isEmbedRejection(embedError)) await message.reply(text);
+        else console.error("Discord request failure notice could not be delivered:", embedError);
+      }
     }
   });
 

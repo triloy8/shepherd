@@ -29,16 +29,7 @@ export type SurfaceTone = keyof typeof SURFACE_COLORS;
 
 export type DiscordSurfacePage = {
   components: NonNullable<MessageCreateOptions["components"]>;
-  fallbackText: string;
-  fallbackComponents?: NonNullable<MessageCreateOptions["components"]>;
 };
-
-export function isComponentsV2Rejection(error: unknown): boolean {
-  const record = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
-  if (record.code === 50_035) return true;
-  const message = error instanceof Error ? error.message : String(error);
-  return /components? v2|is_components_v2|invalid form body|component type/i.test(message);
-}
 
 function normalizedText(text: string): string {
   return text.trim() || "\u200b";
@@ -57,7 +48,6 @@ export function buildMarkdownPages(
 ): DiscordSurfacePage[] {
   return markdownChunks(text, options.maxChars ?? DISCORD_TEXT_DISPLAY_TARGET).map((content) => ({
     components: [new TextDisplayBuilder().setContent(content)],
-    fallbackText: content,
   }));
 }
 
@@ -86,10 +76,6 @@ export function buildCardPages(options: {
     }
     return {
       components: [container],
-      fallbackText: `${pageTitle}\n\n${content}`,
-      ...(index === 0 && options.actionRows?.length
-        ? { fallbackComponents: options.actionRows }
-        : {}),
     };
   });
 }
@@ -127,8 +113,8 @@ export function buildApprovalPages(
 }
 
 export function buildEventPages(event: BridgeEvent): DiscordSurfacePage[] {
-  const fallback = formatEventLine(event);
-  if (!fallback) return [];
+  const text = formatEventLine(event);
+  if (!text) return [];
 
   if (event.type === "session.error") {
     const payload = event.payload as { message?: string };
@@ -175,7 +161,7 @@ export function buildEventPages(event: BridgeEvent): DiscordSurfacePage[] {
   }
   return buildCardPages({
     title: event.type === "thread.archived" ? "Thread archived" : "Thread unarchived",
-    text: fallback,
+    text,
     tone: "neutral",
   });
 }

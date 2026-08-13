@@ -143,8 +143,9 @@ Markdown and commentary render as clean Text Displays, while channel status,
 telemetry, model/skill/thread listings, approvals, turn activity, lifecycle
 progress, and asynchronous failures use accented Containers. Generated images
 use Media Galleries. Markdown-aware segmentation preserves code fences and
-reply context across long answers, and ordinary message content remains the
-compatibility fallback when Discord rejects a V2 payload.
+reply context across long answers. Components V2 is the only outbound Discord
+message format; rejected payloads are reported as delivery failures rather
+than silently downgraded to legacy content or embeds.
 
 The normal flow is:
 

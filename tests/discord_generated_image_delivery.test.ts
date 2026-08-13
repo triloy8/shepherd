@@ -110,15 +110,12 @@ describe("Discord generated image delivery", () => {
     expect(payload.files[0]?.description.length).toBe(1_024);
   });
 
-  test("falls back to a visible ordinary attachment when Components V2 is rejected", async () => {
+  test("reports a rejected V2 gallery without sending an ordinary attachment", async () => {
     const payloads: unknown[] = [];
     const channel = {
       async send(payload: unknown) {
-        if ((payload as { components?: unknown[] }).components) {
-          throw Object.assign(new Error("Invalid Form Body: IS_COMPONENTS_V2"), { code: 50_035 });
-        }
         payloads.push(payload);
-        return { id: "image-message-1", async edit() {} };
+        throw Object.assign(new Error("Invalid Form Body: IS_COMPONENTS_V2"), { code: 50_035 });
       },
     };
 
@@ -128,9 +125,14 @@ describe("Discord generated image delivery", () => {
       },
     });
 
-    expect(result.success).toBe(true);
+    expect(result).toEqual({
+      success: false,
+      messageId: null,
+      error: "Invalid Form Body: IS_COMPONENTS_V2",
+    });
     expect(payloads).toHaveLength(1);
-    expect((payloads[0] as { components?: unknown[] }).components).toBeUndefined();
+    expect((payloads[0] as { flags?: unknown }).flags).toBe(MessageFlags.IsComponentsV2);
+    expect((payloads[0] as { components?: unknown[] }).components).toHaveLength(1);
     expect((payloads[0] as { files?: unknown[] }).files).toHaveLength(1);
   });
 

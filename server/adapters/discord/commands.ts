@@ -14,7 +14,6 @@ import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 import {
   buildCardPages,
   componentsV2Payload,
-  isComponentsV2Rejection,
   type SurfaceTone,
 } from "./components_renderer.js";
 import {
@@ -331,35 +330,21 @@ async function replyCard(
 }
 
 class RuntimeSurfaceReporter {
-  private current: { edit: (payload: string | MessageEditOptions) => Promise<unknown> } | null = null;
-  private fallback = false;
+  private current: { edit: (payload: MessageEditOptions) => Promise<unknown> } | null = null;
 
   constructor(private readonly message: Message) {}
 
   async show(options: { title: string; text: string; tone: SurfaceTone }): Promise<void> {
     const page = buildCardPages(options)[0]!;
     if (this.current) {
-      await this.current.edit(
-        this.fallback
-          ? page.fallbackText
-          : {
-              flags: MessageFlags.IsComponentsV2,
-              components: page.components,
-              allowedMentions: { parse: [] },
-            },
-      );
+      await this.current.edit({
+        flags: MessageFlags.IsComponentsV2,
+        components: page.components,
+        allowedMentions: { parse: [] },
+      });
       return;
     }
-    try {
-      this.current = await this.message.reply(componentsV2Payload(page));
-    } catch (error) {
-      if (!isComponentsV2Rejection(error)) throw error;
-      this.current = await this.message.reply({
-        content: page.fallbackText,
-        allowedMentions: { parse: [], repliedUser: false },
-      });
-      this.fallback = true;
-    }
+    this.current = await this.message.reply(componentsV2Payload(page));
   }
 }
 

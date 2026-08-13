@@ -63,16 +63,17 @@ describe("Discord Components V2 rendering", () => {
       expect(container.type).toBe(ComponentType.Container);
       expect(container.accent_color).toBe(SURFACE_COLORS.success);
       expect(jsonComponent(children[0]).content).toBe(`## Models (${index + 1}/${pages.length})`);
-      expect(page.fallbackText).toContain(`Models (${index + 1}/${pages.length})`);
     }
   });
 
-  test("retains action rows for a legacy fallback", () => {
+  test("nests action rows inside Components V2 Containers", () => {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId("approve").setLabel("Approve").setStyle(ButtonStyle.Success),
     );
     const page = buildCardPages({ title: "Approval", text: "Proceed?", actionRows: [row] })[0]!;
+    const container = jsonComponent(page.components[0]);
+    const children = container.components as unknown[];
 
-    expect(page.fallbackComponents).toEqual([row]);
+    expect(jsonComponent(children.at(-1)).type).toBe(ComponentType.ActionRow);
   });
 });

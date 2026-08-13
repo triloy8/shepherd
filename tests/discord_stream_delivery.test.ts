@@ -29,12 +29,14 @@ type HarnessOptions = {
 };
 
 function createChannelHarness(options: HarnessOptions = {}) {
+  const attempts: unknown[] = [];
   const sent: unknown[] = [];
   const edits: Array<{ id: string; payload: unknown }> = [];
   const messages = new Map<string, { id: string; edit: (payload: unknown) => Promise<void> }>();
 
   const channel = {
     async send(payload: unknown) {
+      attempts.push(payload);
       if (options.failSendAt === sent.length + 1) throw new Error("send failed");
       if (
         options.rejectV2 &&
@@ -65,7 +67,7 @@ function createChannelHarness(options: HarnessOptions = {}) {
     },
   };
 
-  return { channel: channel as never, sent, edits, messages };
+  return { channel: channel as never, attempts, sent, edits, messages };
 }
 
 function componentJson(component: unknown): Record<string, unknown> {
@@ -137,18 +139,20 @@ describe("Discord Components V2 delivery", () => {
     });
   });
 
-  test("falls back to ordinary content when Components V2 is rejected", async () => {
-    const { channel, sent } = createChannelHarness({ rejectV2: true });
-    const result = await sendDiscordMarkdown(channel, "Fallback text");
+  test("reports a Components V2 rejection without downgrading", async () => {
+    const { channel, attempts, sent } = createChannelHarness({ rejectV2: true });
+    const result = await sendDiscordMarkdown(channel, "V2 only");
 
-    expect(result.success).toBe(true);
-    expect(result.usedFallback).toBe(true);
-    expect((sent[0] as { content?: unknown }).content).toBe("Fallback text");
-    expect((sent[0] as { allowedMentions?: unknown }).allowedMentions).toEqual({ parse: [] });
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Invalid Form Body: IS_COMPONENTS_V2");
+    expect(attempts).toHaveLength(1);
+    expect((attempts[0] as { flags?: unknown }).flags).toBe(MessageFlags.IsComponentsV2);
+    expect((attempts[0] as { content?: unknown }).content).toBeUndefined();
+    expect(sent).toHaveLength(0);
   });
 
-  test("preserves reply context and buttons in a card fallback", async () => {
-    const { channel, sent } = createChannelHarness({ rejectV2: true });
+  test("does not retry a rejected V2 card as legacy content", async () => {
+    const { channel, attempts, sent } = createChannelHarness({ rejectV2: true });
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId("approve").setLabel("Approve").setStyle(ButtonStyle.Success),
     );
@@ -158,13 +162,14 @@ describe("Discord Components V2 delivery", () => {
       { replyToMessageId: "user-1" },
     );
 
-    expect(result.success).toBe(true);
-    expect((sent[0] as { content?: unknown }).content).toBe("Approval\n\nProceed?");
-    expect((sent[0] as { components?: unknown[] }).components).toEqual([row]);
-    expect((sent[0] as { reply?: unknown }).reply).toEqual({
+    expect(result.success).toBe(false);
+    expect(attempts).toHaveLength(1);
+    expect((attempts[0] as { content?: unknown }).content).toBeUndefined();
+    expect((attempts[0] as { reply?: unknown }).reply).toEqual({
       messageReference: "user-1",
       failIfNotExists: false,
     });
+    expect(sent).toHaveLength(0);
   });
 
   test("reports a partial continuation failure", async () => {
@@ -190,14 +195,17 @@ describe("Discord Components V2 delivery", () => {
     expect(textDisplayContent(edits[0]?.payload)).toContain("one\ntwo");
   });
 
-  test("keeps rejected progress fallbacks editable as plain content", async () => {
-    const { channel, sent, edits } = createChannelHarness({ rejectV2: true });
+  test("leaves rejected V2 progress surfaces undelivered", async () => {
+    const { channel, attempts, sent, edits } = createChannelHarness({ rejectV2: true });
     const state = createDiscordEditableSurfaceState();
-    await updateDiscordEditableSurfaces(channel, state, buildProgressPages("one"));
-    await updateDiscordEditableSurfaces(channel, state, buildProgressPages("one\ntwo"));
+    const first = await updateDiscordEditableSurfaces(channel, state, buildProgressPages("one"));
+    const second = await updateDiscordEditableSurfaces(channel, state, buildProgressPages("one\ntwo"));
 
-    expect((sent[0] as { content?: unknown }).content).toBe("Working\n\none");
-    expect(edits[0]?.payload).toBe("Working\n\none\ntwo");
+    expect(first.success).toBe(false);
+    expect(second.success).toBe(false);
+    expect(attempts).toHaveLength(2);
+    expect(sent).toHaveLength(0);
+    expect(edits).toHaveLength(0);
   });
 });
 

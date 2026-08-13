@@ -45,26 +45,24 @@ describe("Discord interactions", () => {
     expect((replies[0] as { allowedMentions?: unknown }).allowedMentions).toEqual({ parse: [] });
   });
 
-  test("falls back to ephemeral content when Components V2 is rejected", async () => {
-    const replies: unknown[] = [];
+  test("surfaces a rejected Components V2 acknowledgement", async () => {
+    let attempts = 0;
     const interaction = {
       customId: "approval|thread-1|approval-1|reject",
       async reply(payload: unknown) {
-        if ((payload as { components?: unknown[] }).components) {
-          throw Object.assign(new Error("Invalid Form Body: IS_COMPONENTS_V2"), { code: 50_035 });
-        }
-        replies.push(payload);
+        attempts += 1;
+        expect((payload as { flags?: unknown }).flags).toBe(
+          MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+        );
+        throw Object.assign(new Error("Invalid Form Body: IS_COMPONENTS_V2"), { code: 50_035 });
       },
     };
     const conversation = { async applyApprovalDecision() {} };
 
-    await handleInteraction(interaction as never, conversation as never);
+    await expect(handleInteraction(interaction as never, conversation as never)).rejects.toThrow(
+      "Invalid Form Body: IS_COMPONENTS_V2",
+    );
 
-    expect(replies).toEqual([
-      {
-        content: "Approval decision recorded: Declined",
-        flags: MessageFlags.Ephemeral,
-      },
-    ]);
+    expect(attempts).toBe(1);
   });
 });

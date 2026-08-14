@@ -84,8 +84,8 @@ cp envs/discord.env.example envs/discord.env
 
 The Discord bot needs `View Channel`, `Send Messages`, `Read Message History`,
 and `Attach Files` in every channel where Shepherd operates. Shepherd renders
-text with Discord Components V2 and falls back to ordinary message content if
-the API rejects a V2 payload. Generated-image delivery requires `Attach Files`.
+text with Discord Components V2 and reports a delivery failure if the API
+rejects a V2 payload. Generated-image delivery requires `Attach Files`.
 
 > [!WARNING]
 > The checked-in `envs/common.env.example` defaults to `CODEX_APPROVAL_POLICY=never`
@@ -140,12 +140,12 @@ The committed `.example` files are the templates intended for public use.
 
 Shepherd uses Discord Components V2 throughout the surface. Completed Codex
 Markdown and commentary render as clean Text Displays, while channel status,
-telemetry, model/skill/thread listings, approvals, turn activity, lifecycle
-progress, and asynchronous failures use accented Containers. Generated images
-use Media Galleries. Markdown-aware segmentation preserves code fences and
-reply context across long answers. Components V2 is the only outbound Discord
-message format; rejected payloads are reported as delivery failures rather
-than silently downgraded to legacy content or embeds.
+control confirmations, telemetry, model/skill/thread listings, approvals, turn
+activity, lifecycle progress, warnings, and asynchronous failures use accented
+Containers. Generated images use Media Galleries. Markdown-aware segmentation
+preserves code fences and reply context across long answers. Components V2 is
+the only outbound Discord message format; rejected payloads are reported as
+delivery failures rather than silently downgraded to legacy content or embeds.
 
 The normal flow is:
 

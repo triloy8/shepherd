@@ -603,7 +603,10 @@ describe("Discord thread event handler", () => {
     );
     await handler.waitForIdle("chan-1");
 
-    expect(payloadText(harness.sent[0])).toBe("## Partial response\n\nunfinished");
+    expect(sentCard(harness.sent, 0)).toEqual({
+      title: "Partial response",
+      description: "unfinished",
+    });
     expect(sentCard(harness.sent, 1).title).toBe("Turn failed");
     expect(sentCard(harness.sent, 1).description).toBe("Provider failed.");
     handler.dispose();
@@ -682,7 +685,9 @@ describe("Discord thread event handler", () => {
     handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
     await handler.waitForIdle("chan-1");
 
-    expect(payloadText(harness.sent.at(-1))).toContain("Response delivery was interrupted");
+    expect(sentCard(harness.sent, harness.sent.length - 1).title).toBe("Delivery interrupted");
+    expect(sentCard(harness.sent, harness.sent.length - 1).description)
+      .toContain("Response delivery was interrupted");
     expect(harness.errors).toHaveLength(1);
     handler.dispose();
   });

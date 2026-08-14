@@ -85,7 +85,7 @@ export function buildProgressPages(text: string): DiscordSurfacePage[] {
     title: "Working",
     text,
     tone: "working",
-    // Keep progress fallbacks editable as ordinary Discord messages.
+    // Keep frequently edited live-progress pages compact.
     maxChars: 1_750,
   });
 }

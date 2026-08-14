@@ -53,10 +53,6 @@ function replyTextAt(replies: Array<string | MessageCreateOptions>, index = 0): 
   return (reply?.components ?? []).flatMap(componentText).join("\n");
 }
 
-function replyTexts(replies: Array<string | MessageCreateOptions>): string[] {
-  return replies.map((_, index) => replyTextAt(replies, index));
-}
-
 function replyCardAt(replies: Array<string | MessageCreateOptions>, index = 0) {
   const texts = replyTextAt(replies, index).split("\n");
   const title = texts.shift()?.replace(/^##\s+/, "") ?? "";
@@ -81,6 +77,12 @@ function makeContext(overrides?: {
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
   readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
+  getThreadState?: (threadId: string) => {
+    threadId: string;
+    sessionId: string | null;
+    activeTurnId: string | null;
+    approvalPolicy: "on-request";
+  };
   restart?: RuntimeLifecycle["restart"];
   deploy?: RuntimeLifecycle["deploy"];
 }) {
@@ -209,6 +211,7 @@ function makeContext(overrides?: {
       },
       async interruptTurn() {},
       getThreadState(threadId: string) {
+        if (overrides?.getThreadState) return overrides.getThreadState(threadId);
         return {
           threadId,
           sessionId: "session-1",
@@ -301,18 +304,23 @@ describe("Discord listening commands", () => {
     const opened = makeMessage("!listen open");
     await handleMessage(opened.message as never, context);
     expect(getListeningMode()).toBe("open");
-    expect(replyTexts(opened.replies)).toEqual([
-      "Listening is now **open**. Human text and images in this channel will be sent to the active thread.",
-    ]);
+    expect(replyCardAt(opened.replies)).toEqual({
+      title: "Listening updated",
+      description: "Listening is now **open**. Human text and images in this channel will be sent to the active thread.",
+    });
 
     const paused = makeMessage("!pause");
     await handleMessage(paused.message as never, context);
     expect(getListeningMode()).toBe("paused");
+    expect(replyCardAt(paused.replies).title).toBe("Listening paused");
 
     const resumed = makeMessage("!resume");
     await handleMessage(resumed.message as never, context);
     expect(getListeningMode()).toBe("open");
-    expect(replyTexts(resumed.replies)).toEqual(["Resumed in **Open** mode."]);
+    expect(replyCardAt(resumed.replies)).toEqual({
+      title: "Listening resumed",
+      description: "Resumed in **Open** mode.",
+    });
   });
 
   test("detaches without archiving and resets the channel to mention-only", async () => {
@@ -324,9 +332,10 @@ describe("Discord listening commands", () => {
 
     expect(getSurfaceThreadId()).toBeNull();
     expect(getListeningMode()).toBe("mention");
-    expect(replyTexts(replies)).toEqual([
-      "Channel detached from thread thread-1. The Codex thread was retained and can be reattached with `!thread thread-1`.",
-    ]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Channel detached",
+      description: "Channel detached from thread thread-1. The Codex thread was retained and can be reattached with `!thread thread-1`.",
+    });
   });
 
   test("reports consolidated channel status", async () => {
@@ -354,9 +363,10 @@ describe("Discord listening commands", () => {
     await handleMessage(direct.message as never, context);
 
     expect(getListeningMode()).toBe("mention");
-    expect(replyTexts(direct.replies)).toEqual([
-      "Direct messages are always open. Use `!pause` to stop conversation input.",
-    ]);
+    expect(replyCardAt(direct.replies)).toEqual({
+      title: "Listening",
+      description: "Direct messages are always open. Use `!pause` to stop conversation input.",
+    });
   });
 });
 
@@ -411,7 +421,10 @@ describe("Discord !skill commands", () => {
         enabled: false,
       },
     ]);
-    expect(replyTexts(replies)).toEqual(["Disabled skill github (effectiveEnabled=false)"]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Skill disabled",
+      description: "Disabled skill github (effectiveEnabled=false)",
+    });
   });
 
   test("returns a clear error when the displayed name is ambiguous", async () => {
@@ -448,9 +461,10 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(writes).toHaveLength(0);
-    expect(replyTexts(replies)).toEqual([
-      "Multiple skills match `github`: github [workspace], github [personal]. Use the full path.",
-    ]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Skill update failed",
+      description: "Multiple skills match `github`: github [workspace], github [personal]. Use the full path.",
+    });
   });
 
   test("lists models and marks current/default state", async () => {
@@ -483,9 +497,10 @@ describe("Discord !skill commands", () => {
     await handleMessage(message as never, context);
 
     expect(modelWrites).toEqual([{ threadId: "thread-1", model: "gpt-5.3-codex" }]);
-    expect(replyTexts(replies)).toEqual([
-      "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
-    ]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Model updated",
+      description: "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
+    });
   });
 
   test("reports the current repo binding for the channel", async () => {
@@ -498,7 +513,10 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyTexts(replies)).toEqual(["Current repo for this channel: owner/repo"]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Repository",
+      description: "Current repo for this channel: owner/repo",
+    });
   });
 
   test("formats repo set replies using active thread context", async () => {
@@ -511,9 +529,10 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyTexts(replies)).toEqual([
-      "Repo set for this channel: owner/repo\nNote: active thread thread-1 keeps its current session/cwd; this repo applies to future !newthread/!fork.",
-    ]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Repository updated",
+      description: "Repo set for this channel: owner/repo\nNote: active thread thread-1 keeps its current session/cwd; this repo applies to future !newthread/!fork.",
+    });
   });
 
   test("formats current thread replies using the control action result", async () => {
@@ -522,7 +541,10 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyTexts(replies)).toEqual(["Current thread: thread-1"]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Thread",
+      description: "Current thread: thread-1",
+    });
   });
 
   test("formats new thread replies through the orchestration action result", async () => {
@@ -531,7 +553,10 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyTexts(replies)).toEqual(["Started new thread: thread-1"]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Thread created",
+      description: "Started new thread: thread-1",
+    });
   });
 
   test("switches thread ids through the orchestration context", async () => {
@@ -540,7 +565,10 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyTexts(replies)).toEqual(["Switched active thread to: thread-9"]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Thread switched",
+      description: "Switched active thread to: thread-9",
+    });
   });
 
   test("formats fork replies through the orchestration action result", async () => {
@@ -549,7 +577,10 @@ describe("Discord !skill commands", () => {
 
     await handleMessage(message as never, context);
 
-    expect(replyTexts(replies)).toEqual(["Forked thread thread-1 -> thread-2"]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Thread forked",
+      description: "Forked thread thread-1 -> thread-2",
+    });
   });
 
   test("formats thread read replies from structured thread data", async () => {
@@ -582,9 +613,37 @@ describe("Discord !skill commands", () => {
     const result = await handleMessage(message as never, context);
 
     expect(result).toEqual({ handled: true, threadId: null, input: null });
-    expect(replyTexts(replies)).toEqual([
-      "Unknown command: `!doesnotexist`. Use `!help` to inspect available commands.",
-    ]);
+    expect(replyCardAt(replies)).toEqual({
+      title: "Unknown command",
+      description: "Unknown command: `!doesnotexist`. Use `!help` to inspect available commands.",
+    });
+  });
+
+  test("renders thread state changes as Components V2 cards", async () => {
+    const { context } = makeContext({
+      getThreadState(threadId) {
+        return {
+          threadId,
+          sessionId: "session-1",
+          activeTurnId: "turn-1",
+          approvalPolicy: "on-request",
+        };
+      },
+    });
+    const cases = [
+      ["!threadname Release prep", "Thread renamed"],
+      ["!rollback 1 thread-1", "Thread rolled back"],
+      ["!compact thread-1", "Compaction started"],
+      ["!interrupt", "Interrupt requested"],
+      ["!archive thread-1", "Thread archived"],
+      ["!unarchive thread-1", "Thread unarchived"],
+    ] as const;
+
+    for (const [command, title] of cases) {
+      const { message, replies } = makeMessage(command);
+      await handleMessage(message as never, context);
+      expect(replyCardAt(replies).title).toBe(title);
+    }
   });
 });
 

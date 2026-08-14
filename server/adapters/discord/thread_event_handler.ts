@@ -318,10 +318,17 @@ export function createDiscordThreadEventHandler(
     totalChunks: number,
   ): Promise<void> => {
     try {
-      await sendDiscordMarkdown(
+      const notice = await sendDiscordPages(
         channel,
-        `Response delivery was interrupted after ${deliveredChunks}/${totalChunks} parts. The error was logged.`,
+        buildCardPages({
+          title: "Delivery interrupted",
+          text: `Response delivery was interrupted after ${deliveredChunks}/${totalChunks} parts. The error was logged.`,
+          tone: "danger",
+        }),
       );
+      if (!notice.success) {
+        onError(new Error(notice.error ?? "Interrupted-delivery notice failed."));
+      }
     } catch (error) {
       onError(error);
     }
@@ -343,9 +350,15 @@ export function createDiscordThreadEventHandler(
     enqueue(channelId, state, async (channel) => {
       if (failed) {
         if (finalText) {
-          const partial = await sendDiscordMarkdown(channel, `## Partial response\n\n${finalText}`, {
-            replyToMessageId: state.replyToMessageId,
-          });
+          const partial = await sendDiscordPages(
+            channel,
+            buildCardPages({
+              title: "Partial response",
+              text: finalText,
+              tone: "warning",
+            }),
+            { replyToMessageId: state.replyToMessageId },
+          );
           if (!partial.success) {
             onError(new Error(partial.error ?? "Partial response delivery failed."));
             await reportInterruptedDelivery(channel, partial.deliveredChunks, partial.totalChunks);

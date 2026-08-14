@@ -84,8 +84,8 @@ cp envs/discord.env.example envs/discord.env
 
 The Discord bot needs `View Channel`, `Send Messages`, `Read Message History`,
 and `Attach Files` in every channel where Shepherd operates. Shepherd renders
-text with Discord Components V2 and falls back to ordinary message content if
-the API rejects a V2 payload. Generated-image delivery requires `Attach Files`.
+text with Discord Components V2 and reports a delivery failure if the API
+rejects a V2 payload. Generated-image delivery requires `Attach Files`.
 
 > [!WARNING]
 > The checked-in `envs/common.env.example` defaults to `CODEX_APPROVAL_POLICY=never`

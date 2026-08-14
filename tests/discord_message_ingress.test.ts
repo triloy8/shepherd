@@ -327,7 +327,7 @@ describe("Discord message ingress", () => {
     });
 
     expect(replyTexts(replies)).toEqual([
-      "Audio input is not supported. Use your phone's dictation to send the message as text.",
+      "## Unsupported input\nAudio input is not supported. Use your phone's dictation to send the message as text.",
     ]);
     expect(routed).toBe(false);
   });
@@ -353,7 +353,7 @@ describe("Discord message ingress", () => {
     });
 
     expect(replyTexts(replies)).toEqual([
-      "Audio input is not supported. Use your phone's dictation to send the message as text.",
+      "## Unsupported input\nAudio input is not supported. Use your phone's dictation to send the message as text.",
     ]);
   });
 
@@ -381,7 +381,7 @@ describe("Discord message ingress", () => {
     });
 
     expect(replyTexts(replies)).toEqual([
-      "Audio input is not supported. Use your phone's dictation to send the message as text.",
+      "## Unsupported input\nAudio input is not supported. Use your phone's dictation to send the message as text.",
     ]);
     expect(fetchedImage).toBe(false);
     expect(routed).toBe(false);

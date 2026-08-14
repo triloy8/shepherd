@@ -533,13 +533,20 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
     if ((requestedMode === "mention" || requestedMode === "mentions") && message.guildId === null) {
-      await replyMarkdown(message, "Direct messages are always open. Use `!pause` to stop conversation input.");
+      await replyCard(
+        message,
+        "Listening",
+        "Direct messages are always open. Use `!pause` to stop conversation input.",
+        "neutral",
+      );
       return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
     }
     if (requestedMode === "open" && !context.getSurfaceThreadId(channelId)) {
-      await replyMarkdown(
+      await replyCard(
         message,
+        "Thread required",
         "Start or attach a thread before opening this channel. Use `!newthread` or `!thread <id>`.",
+        "warning",
       );
       return { handled: true, threadId: null, input: null };
     }
@@ -547,11 +554,13 @@ export async function handleMessage(
       channelId,
       requestedMode === "open" ? "open" : "mention",
     );
-    await replyMarkdown(
+    await replyCard(
       message,
+      "Listening updated",
       mode === "open"
         ? "Listening is now **open**. Human text and images in this channel will be sent to the active thread."
         : "This channel is now **mention-only**. Use `@Shepherd` or a control command.",
+      "success",
     );
     return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
   }
@@ -562,9 +571,11 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
     context.pauseSurfaceListening(channelId);
-    await replyMarkdown(
+    await replyCard(
       message,
+      "Listening paused",
       "Paused. New conversation messages and attachments will be ignored; control commands remain available. The current Codex turn is unaffected.",
+      "warning",
     );
     return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
   }
@@ -575,7 +586,12 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
     const mode = context.resumeSurfaceListening(channelId);
-    await replyMarkdown(message, `Resumed in **${displayListeningMode(mode)}** mode.`);
+    await replyCard(
+      message,
+      "Listening resumed",
+      `Resumed in **${displayListeningMode(mode)}** mode.`,
+      "success",
+    );
     return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
   }
 
@@ -586,13 +602,15 @@ export async function handleMessage(
     }
     const threadId = context.getSurfaceThreadId(channelId);
     if (!threadId) {
-      await replyMarkdown(message, "No thread is attached to this channel.");
+      await replyCard(message, "Thread unavailable", "No thread is attached to this channel.", "warning");
       return { handled: true, threadId: null, input: null };
     }
     context.clearSurfaceThread(channelId);
-    await replyMarkdown(
+    await replyCard(
       message,
+      "Channel detached",
       `Channel detached from thread ${threadId}. The Codex thread was retained and can be reattached with \`!thread ${threadId}\`.`,
+      "neutral",
     );
     return { handled: true, threadId: null, input: null };
   }
@@ -603,7 +621,7 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
     if (!context.runtimeLifecycle) {
-      await replyMarkdown(message, "Runtime lifecycle controls are unavailable.");
+      await replyCard(message, "Control unavailable", "Runtime lifecycle controls are unavailable.", "warning");
       return { handled: true, threadId: null, input: null };
     }
 
@@ -627,7 +645,7 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
     if (!context.runtimeLifecycle) {
-      await replyMarkdown(message, "Runtime lifecycle controls are unavailable.");
+      await replyCard(message, "Control unavailable", "Runtime lifecycle controls are unavailable.", "warning");
       return { handled: true, threadId: null, input: null };
     }
 
@@ -698,7 +716,12 @@ export async function handleMessage(
     const subcommand = (args[0] ?? "").toLowerCase();
     const threadId = context.getSurfaceThreadId(channelId);
     if (!threadId) {
-      await replyMarkdown(message, "No active thread in this channel yet. Use !newthread first.");
+      await replyCard(
+        message,
+        "Thread required",
+        "No active thread in this channel yet. Use `!newthread` first.",
+        "warning",
+      );
       return { handled: true, threadId: null, input: null };
     }
 
@@ -728,13 +751,15 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for model.set.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Model update failed", result.message, "danger");
       return { handled: true, threadId, input: null };
     }
 
-    await replyMarkdown(
+    await replyCard(
       message,
+      "Model updated",
       `Model for thread ${result.threadId} set to \`${result.model}\`.\nApplies to the next new turn and subsequent turns.`,
+      "success",
     );
     return { handled: true, threadId: result.threadId, input: null };
   }
@@ -745,11 +770,16 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for context.read.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Context unavailable", result.message, "warning");
       return { handled: true, threadId: null, input: null };
     }
     if (!result.tokenUsage) {
-      await replyMarkdown(message, "No context telemetry yet for this thread. Send a turn first.");
+      await replyCard(
+        message,
+        "Context unavailable",
+        "No context telemetry yet for this thread. Send a turn first.",
+        "neutral",
+      );
       return { handled: true, threadId: result.threadId, input: null };
     }
     const text = formatThreadContextForDiscord(result.threadId, result.tokenUsage);
@@ -762,7 +792,7 @@ export async function handleMessage(
     if (result.type !== "thread.create") {
       throw new Error("Unexpected control action result for thread.create.");
     }
-    await replyMarkdown(message, `Started new thread: ${result.threadId}`);
+    await replyCard(message, "Thread created", `Started new thread: ${result.threadId}`, "success");
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -774,11 +804,13 @@ export async function handleMessage(
         throw new Error("Unexpected control action result for repo.get.");
       }
       const current = result.currentRepo;
-      await replyMarkdown(
+      await replyCard(
         message,
+        "Repository",
         current
           ? `Current repo for this channel: ${current}`
           : "No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path`.",
+        current ? "info" : "neutral",
       );
       return { handled: true, threadId: null, input: null };
     }
@@ -790,11 +822,13 @@ export async function handleMessage(
     if (configured.type !== "repo.set") {
       throw new Error("Unexpected control action result for repo.set.");
     }
-    await replyMarkdown(
+    await replyCard(
       message,
+      "Repository updated",
       configured.activeThreadId
         ? `Repo set for this channel: ${configured.repoSlug}\nNote: active thread ${configured.activeThreadId} keeps its current session/cwd; this repo applies to future !newthread/!fork.`
         : `Repo set for this channel: ${configured.repoSlug}`,
+      "success",
     );
     return { handled: true, threadId: null, input: null };
   }
@@ -802,7 +836,12 @@ export async function handleMessage(
   if (command === "!skills") {
     const activeThreadId = context.getSurfaceThreadId(channelId);
     if (!activeThreadId) {
-      await replyMarkdown(message, "No active thread in this channel. Use !newthread or !thread <id> first.");
+      await replyCard(
+        message,
+        "Thread required",
+        "No active thread in this channel. Use `!newthread` or `!thread <id>` first.",
+        "warning",
+      );
       return { handled: true, threadId: null, input: null };
     }
 
@@ -817,7 +856,12 @@ export async function handleMessage(
   if (command === "!skill") {
     const activeThreadId = context.getSurfaceThreadId(channelId);
     if (!activeThreadId) {
-      await replyMarkdown(message, "No active thread in this channel. Use !newthread or !thread <id> first.");
+      await replyCard(
+        message,
+        "Thread required",
+        "No active thread in this channel. Use `!newthread` or `!thread <id>` first.",
+        "warning",
+      );
       return { handled: true, threadId: null, input: null };
     }
 
@@ -838,12 +882,14 @@ export async function handleMessage(
         throw new Error("Unexpected control action result for skill.set-enabled.");
       }
       if (!result.ok) {
-        await replyMarkdown(message, result.message);
+        await replyCard(message, "Skill update failed", result.message, "danger");
         return { handled: true, threadId: null, input: null };
       }
-      await replyMarkdown(
+      await replyCard(
         message,
+        result.enabled ? "Skill enabled" : "Skill disabled",
         `${result.enabled ? "Enabled" : "Disabled"} skill ${result.requestedSkill} (effectiveEnabled=${result.effectiveEnabled})`,
+        result.enabled ? "success" : "neutral",
       );
       return { handled: true, threadId: null, input: null };
     }
@@ -858,7 +904,12 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.get-current.");
     }
     const existing = result.threadId;
-    await replyMarkdown(message, existing ? `Current thread: ${existing}` : "No thread yet. Send a message to start one.");
+    await replyCard(
+      message,
+      "Thread",
+      existing ? `Current thread: ${existing}` : "No thread yet. Send a message to start one.",
+      existing ? "info" : "neutral",
+    );
     return { handled: true, threadId: existing, input: null };
   }
 
@@ -877,7 +928,7 @@ export async function handleMessage(
     if (result.type !== "thread.switch") {
       throw new Error("Unexpected control action result for thread.switch.");
     }
-    await replyMarkdown(message, `Switched active thread to: ${result.threadId}`);
+    await replyCard(message, "Thread switched", `Switched active thread to: ${result.threadId}`, "success");
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -896,10 +947,10 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.rename.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Thread rename failed", result.message, "danger");
       return { handled: true, threadId: null, input: null };
     }
-    await replyMarkdown(message, `Thread renamed: ${result.name}`);
+    await replyCard(message, "Thread renamed", `Thread renamed: ${result.name}`, "success");
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -913,7 +964,7 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.read.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Thread unavailable", result.message, "warning");
       return { handled: true, threadId: null, input: null };
     }
     const threadId = result.threadId;
@@ -938,10 +989,15 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.fork.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Thread fork failed", result.message, "danger");
       return { handled: true, threadId: null, input: null };
     }
-    await replyMarkdown(message, `Forked thread ${result.sourceThreadId} -> ${result.threadId}`);
+    await replyCard(
+      message,
+      "Thread forked",
+      `Forked thread ${result.sourceThreadId} -> ${result.threadId}`,
+      "success",
+    );
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -955,10 +1011,10 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.archive.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Archive failed", result.message, "danger");
       return { handled: true, threadId: null, input: null };
     }
-    await replyMarkdown(message, `Archived thread: ${result.threadId}`);
+    await replyCard(message, "Thread archived", `Archived thread: ${result.threadId}`, "neutral");
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -975,7 +1031,7 @@ export async function handleMessage(
     if (result.type !== "thread.unarchive") {
       throw new Error("Unexpected control action result for thread.unarchive.");
     }
-    await replyMarkdown(message, `Unarchived thread: ${result.threadId}`);
+    await replyCard(message, "Thread unarchived", `Unarchived thread: ${result.threadId}`, "success");
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -990,10 +1046,15 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.rollback.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Rollback failed", result.message, "danger");
       return { handled: true, threadId: null, input: null };
     }
-    await replyMarkdown(message, `Rolled back ${result.numTurns} turn(s) on ${result.threadId}`);
+    await replyCard(
+      message,
+      "Thread rolled back",
+      `Rolled back ${result.numTurns} turn(s) on ${result.threadId}`,
+      "warning",
+    );
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -1007,10 +1068,15 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.compact.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Compaction failed", result.message, "danger");
       return { handled: true, threadId: null, input: null };
     }
-    await replyMarkdown(message, `Started compaction for thread: ${result.threadId}`);
+    await replyCard(
+      message,
+      "Compaction started",
+      `Started compaction for thread: ${result.threadId}`,
+      "working",
+    );
     return { handled: true, threadId: result.threadId, input: null };
   }
 
@@ -1027,15 +1093,25 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for turn.interrupt.");
     }
     if (!result.ok) {
-      await replyMarkdown(message, result.message);
+      await replyCard(message, "Interrupt failed", result.message, "danger");
       return { handled: true, threadId: null, input: null };
     }
-    await replyMarkdown(message, `Interrupt requested for thread: ${result.threadId}`);
+    await replyCard(
+      message,
+      "Interrupt requested",
+      `Interrupt requested for thread: ${result.threadId}`,
+      "warning",
+    );
     return { handled: true, threadId: result.threadId, input: null };
   }
 
   if (command.startsWith("!")) {
-    await replyMarkdown(message, `Unknown command: \`${command}\`. Use \`!help\` to inspect available commands.`);
+    await replyCard(
+      message,
+      "Unknown command",
+      `Unknown command: \`${command}\`. Use \`!help\` to inspect available commands.`,
+      "warning",
+    );
     return { handled: true, threadId: null, input: null };
   }
 

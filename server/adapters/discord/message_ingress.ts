@@ -17,7 +17,7 @@ import {
   isDiscordImageAttachment,
   type DiscordImageFetch,
 } from "./image_input.js";
-import { replyDiscordMarkdown } from "./stream_delivery.js";
+import { replyDiscordCard } from "./stream_delivery.js";
 
 export type DiscordMessageIngressDeps = {
   botUserId: string;
@@ -46,10 +46,11 @@ export async function processDiscordMessage(
 
   const attachments = [...(message.attachments?.values?.() ?? [])];
   if (attachments.some(isDiscordAudioAttachment)) {
-    const delivered = await replyDiscordMarkdown(
-      message,
-      "Audio input is not supported. Use your phone's dictation to send the message as text.",
-    );
+    const delivered = await replyDiscordCard(message, {
+      title: "Unsupported input",
+      text: "Audio input is not supported. Use your phone's dictation to send the message as text.",
+      tone: "warning",
+    });
     if (!delivered.success) throw new Error(delivered.error ?? "Discord delivery failed.");
     return;
   }

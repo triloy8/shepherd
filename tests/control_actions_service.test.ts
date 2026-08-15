@@ -8,7 +8,7 @@ function makeContext(overrides?: {
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
   readAccountRateLimits?: () => Promise<{ rateLimits: unknown }>;
   readThreadTokenUsage?: (threadId: string) => Promise<{ threadId: string; tokenUsage: unknown | null }>;
-  listModels?: () => Promise<{
+  listModels?: (request: { cursor?: string; limit?: number; includeHidden?: boolean }) => Promise<{
     data: Array<{
       id: string;
       model: string;
@@ -18,7 +18,7 @@ function makeContext(overrides?: {
       isDefault: boolean;
       supportsPersonality: boolean;
     }>;
-    nextCursor: null;
+    nextCursor: string | null;
   }>;
   listSkills?: () => Promise<{
     data: Array<{
@@ -74,8 +74,8 @@ function makeContext(overrides?: {
         skillWrites.push({ threadId, path: request.path, enabled: request.enabled });
         return { effectiveEnabled: request.enabled };
       },
-      async listModels() {
-        if (overrides?.listModels) return overrides.listModels();
+      async listModels(request) {
+        if (overrides?.listModels) return overrides.listModels(request);
         return {
           data: [
             {
@@ -227,6 +227,40 @@ describe("ControlActionsService", () => {
       model: "gpt-5.3-codex",
     });
     expect(modelWrites).toEqual([{ threadId: "thread-1", model: "gpt-5.3-codex" }]);
+  });
+
+  test("continues through model cursors when setting a model", async () => {
+    const requests: Array<{ cursor?: string; limit?: number; includeHidden?: boolean }> = [];
+    const { context, modelWrites } = makeContext({
+      async listModels(request) {
+        requests.push(request);
+        return request.cursor
+          ? {
+              data: [{
+                id: "later-model",
+                model: "later-model",
+                displayName: "Later model",
+                description: "",
+                hidden: false,
+                isDefault: false,
+                supportsPersonality: true,
+              }],
+              nextCursor: null,
+            }
+          : { data: [], nextCursor: "models-page-2" };
+      },
+    });
+
+    await expect(executeControlAction(context, {
+      type: "model.set",
+      channelId: "chan-1",
+      requestedModel: "later-model",
+    })).resolves.toMatchObject({ ok: true, model: "later-model" });
+    expect(requests).toEqual([
+      { cursor: undefined, limit: 100, includeHidden: true },
+      { cursor: "models-page-2", limit: 100, includeHidden: true },
+    ]);
+    expect(modelWrites).toEqual([{ threadId: "thread-1", model: "later-model" }]);
   });
 
   test("returns the no-thread model error through the service", async () => {

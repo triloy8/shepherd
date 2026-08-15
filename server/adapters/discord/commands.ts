@@ -8,17 +8,25 @@ import type {
 } from "../../core/runtime_lifecycle_orchestrator.js";
 import type { RuntimeActivity } from "../../core/session_manager.js";
 import type { SurfaceListeningMode } from "../../core/surface_state_service.js";
-import type { ListModelsResponse, ModelSummary, ThreadModelState } from "../../../shared/protocol/requests.js";
+import type { ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 import {
   buildCardPages,
   componentsV2Payload,
+  type DiscordSurfacePage,
   type SurfaceTone,
 } from "./components_renderer.js";
 import {
+  buildLoadedThreadsListPage,
+  buildModelsListPage,
+  buildStoredThreadsListPage,
+  DISCORD_LIST_PAGE_SIZE,
+} from "./list_pagination.js";
+import {
   replyDiscordCard,
   replyDiscordMarkdown,
+  replyDiscordPages,
   type DiscordDeliveryResult,
 } from "./stream_delivery.js";
 
@@ -264,54 +272,6 @@ function formatThreadModelForDiscord(modelState: ThreadModelState): string {
   return lines.join("\n");
 }
 
-function formatModelEntry(
-  model: ModelSummary,
-  index: number,
-  modelState: ThreadModelState | null,
-  defaultModel: string | null,
-): string {
-  const flags: string[] = [];
-  if (model.model === modelState?.currentModel) flags.push("current");
-  if (model.model === modelState?.pendingModel) flags.push("pending");
-  if (model.model === defaultModel || model.isDefault) flags.push("default");
-  const description = model.description ? ` - ${model.description}` : "";
-  const suffix = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
-  return `${index + 1}. \`${model.model}\`${suffix}${description}`;
-}
-
-function formatModelsForDiscord(result: ListModelsResponse, modelState: ThreadModelState | null): string {
-  if (result.data.length === 0) {
-    return "No models returned by Codex app-server.";
-  }
-
-  const defaultEntry = result.data.find((entry) => entry.isDefault) ?? null;
-  const lines: string[] = [];
-
-  if (modelState) {
-    lines.push(`- Thread: ${modelState.threadId}`);
-    lines.push(`- Current: ${modelState.currentModel ?? "unknown"}`);
-    if (modelState.pendingModel) {
-      lines.push(`- Pending next turn: ${modelState.pendingModel}`);
-    }
-  }
-  if (defaultEntry) {
-    lines.push(`- App default: ${defaultEntry.model}`);
-  }
-  lines.push("");
-
-  const defaultModel = defaultEntry?.model ?? null;
-  const visibleEntries = result.data.slice(0, 20);
-  for (const [index, entry] of visibleEntries.entries()) {
-    lines.push(formatModelEntry(entry, index, modelState, defaultModel));
-  }
-
-  if (result.nextCursor) {
-    lines.push("", "More models are available but not shown.");
-  }
-
-  return lines.join("\n");
-}
-
 function ensureDelivery(result: DiscordDeliveryResult): void {
   if (!result.success) throw new Error(result.error ?? "Discord delivery failed.");
 }
@@ -327,6 +287,10 @@ async function replyCard(
   tone: SurfaceTone = "info",
 ): Promise<void> {
   ensureDelivery(await replyDiscordCard(message, { title, text, tone }));
+}
+
+async function replyPage(message: Message, page: DiscordSurfacePage): Promise<void> {
+  ensureDelivery(await replyDiscordPages(message, [page]));
 }
 
 class RuntimeSurfaceReporter {
@@ -403,20 +367,19 @@ async function replyRuntimeLifecycleResult(
 }
 
 async function listStoredThreads(message: Message, context: CommandContext, archived: boolean): Promise<void> {
-  const result = await context.conversation.listStoredThreads({ archived, limit: 25 });
-  const title = archived ? "Archived threads" : "Active threads";
-  if (result.threads.length === 0) {
-    const text = archived ? "No archived threads." : "No active threads.";
-    await replyCard(message, title, text, "neutral");
-    return;
-  }
-
-  const lines = result.threads.map((thread, index) => {
-    const label = thread.name ?? (thread.preview.slice(0, 48) || "untitled");
-    return `${index + 1}. ${thread.threadId} | ${label} | updated ${formatTimestamp(thread.updatedAt)}`;
+  const result = await context.conversation.listStoredThreads({
+    archived,
+    limit: DISCORD_LIST_PAGE_SIZE,
+    sortKey: "updated_at",
+    sortDirection: "desc",
   });
-  const text = lines.join("\n");
-  await replyCard(message, title, text, archived ? "neutral" : "info");
+  await replyPage(message, buildStoredThreadsListPage({
+    result,
+    archived,
+    requesterId: message.author.id,
+    page: 1,
+    requestDirection: "desc",
+  }));
 }
 
 function formatSkillsForDiscord(value: unknown): string {
@@ -680,11 +643,12 @@ export async function handleMessage(
   if (command === "!threads") {
     const mode = (args[0] ?? "").toLowerCase();
     if (mode === "loaded") {
-      const loaded = await context.conversation.listLoadedThreads({ limit: 100 });
-      const text = loaded.threadIds.length > 0
-        ? loaded.threadIds.map((threadId) => `- \`${threadId}\``).join("\n")
-        : "No loaded threads.";
-      await replyCard(message, "Loaded threads", text);
+      const loaded = await context.conversation.listLoadedThreads({ limit: DISCORD_LIST_PAGE_SIZE });
+      await replyPage(message, buildLoadedThreadsListPage({
+        ...loaded,
+        requesterId: message.author.id,
+        page: 1,
+      }));
       return { handled: true, threadId: null, input: null };
     }
 
@@ -703,12 +667,20 @@ export async function handleMessage(
   }
 
   if (command === "!models") {
-    const result = await executeControlAction(context, { type: "models.list", channelId });
+    const result = await executeControlAction(context, {
+      type: "models.list",
+      channelId,
+      limit: DISCORD_LIST_PAGE_SIZE,
+    });
     if (result.type !== "models.list") {
       throw new Error("Unexpected control action result for models.list.");
     }
-    const text = formatModelsForDiscord(result.models, result.modelState);
-    await replyCard(message, "Models", text);
+    await replyPage(message, buildModelsListPage({
+      result: result.models,
+      modelState: result.modelState,
+      requesterId: message.author.id,
+      page: 1,
+    }));
     return { handled: true, threadId: result.modelState?.threadId ?? null, input: null };
   }
 

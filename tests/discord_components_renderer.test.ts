@@ -36,6 +36,19 @@ describe("Discord Components V2 rendering", () => {
     expect(payload.allowedMentions).toEqual({ parse: [] });
   });
 
+  test("normalizes local file links before rendering and leaves web links clickable", () => {
+    const localPath = `${process.cwd()}/server/adapters/discord/components_renderer.ts:42`;
+    const pages = buildMarkdownPages(
+      `See [renderer.ts](${localPath}) and [the docs](https://developers.openai.com/codex).`,
+    );
+    const component = jsonComponent(pages[0]?.components[0]);
+
+    expect(component.content).toBe(
+      "See `server/adapters/discord/components_renderer.ts:42` and "
+      + "[the docs](https://developers.openai.com/codex).",
+    );
+  });
+
   test("splits long markdown on balanced code-fence boundaries", () => {
     const pages = buildMarkdownPages(`\`\`\`ts\n${"const value = 1;\n".repeat(300)}\`\`\``);
 

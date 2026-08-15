@@ -11,6 +11,7 @@ import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.
 import type { BridgeEvent } from "../../../shared/protocol/events.js";
 import { chunkForDiscord } from "./chunking.js";
 import { formatEventLine } from "./message_renderer.js";
+import { normalizeDiscordMarkdown } from "./markdown_normalizer.js";
 
 export const DISCORD_TEXT_DISPLAY_LIMIT = 4_000;
 export const DISCORD_TEXT_DISPLAY_TARGET = 3_900;
@@ -36,7 +37,7 @@ function normalizedText(text: string): string {
 }
 
 function markdownChunks(text: string, maxChars: number): string[] {
-  return chunkForDiscord(normalizedText(text), {
+  return chunkForDiscord(normalizeDiscordMarkdown(normalizedText(text)), {
     maxChars,
     includePageIndicators: false,
   });

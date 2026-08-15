@@ -146,6 +146,8 @@ Containers. Generated images use Media Galleries. Markdown-aware segmentation
 preserves code fences and reply context across long answers. Components V2 is
 the only outbound Discord message format; rejected payloads are reported as
 delivery failures rather than silently downgraded to legacy content or embeds.
+Thread and model listings use Codex cursors and show five entries per page with
+Components V2 navigation controls; Shepherd does not cache list snapshots.
 
 The normal flow is:
 

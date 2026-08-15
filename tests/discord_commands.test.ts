@@ -13,6 +13,7 @@ function makeMessage(content: string) {
       content,
       channelId: "chan-1",
       guildId: "guild-1",
+      author: { id: "user-1" },
       channel: {
         async send(payload: string | MessageCreateOptions) {
           replies.push(payload);

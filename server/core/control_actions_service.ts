@@ -17,7 +17,7 @@ type ControlConversation = {
     threadId: string,
     request: { path: string; enabled: boolean },
   ) => Promise<SkillsConfigWriteResponse>;
-  listModels: (request: { limit?: number; includeHidden?: boolean }) => Promise<ListModelsResponse>;
+  listModels: (request: { cursor?: string; limit?: number; includeHidden?: boolean }) => Promise<ListModelsResponse>;
   getThreadModel: (threadId: string) => ThreadModelState;
   setThreadModel: (threadId: string, model: string) => ThreadModelState;
   readAccountRateLimits: () => Promise<AccountRateLimitsResponse>;
@@ -46,7 +46,7 @@ export type ControlActionRequest =
   | { type: "repo.get"; channelId: string }
   | { type: "repo.set"; channelId: string; repoInput: string }
   | { type: "limits.read" }
-  | { type: "models.list"; channelId: string }
+  | { type: "models.list"; channelId: string; cursor?: string; limit?: number }
   | { type: "model.set"; channelId: string; requestedModel: string }
   | { type: "context.read"; channelId: string }
   | { type: "skill.set-enabled"; channelId: string; requestedSkill: string; enabled: boolean }
@@ -132,7 +132,10 @@ export async function executeControlAction(
 
   if (request.type === "models.list") {
     const threadId = context.getSurfaceThreadId(request.channelId);
-    const models = await context.conversation.listModels({ limit: 20 });
+    const models = await context.conversation.listModels({
+      cursor: request.cursor,
+      limit: request.limit ?? 20,
+    });
     return {
       type: "models.list",
       models,
@@ -150,8 +153,16 @@ export async function executeControlAction(
       };
     }
 
-    const models = await context.conversation.listModels({ limit: 100, includeHidden: true });
-    const resolved = resolveModelArgument(models.data, request.requestedModel);
+    let cursor: string | undefined;
+    let resolved: ModelSummary | null = null;
+    const seenCursors = new Set<string>();
+    do {
+      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true });
+      resolved = resolveModelArgument(models.data, request.requestedModel);
+      if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
+      seenCursors.add(models.nextCursor);
+      cursor = models.nextCursor;
+    } while (true);
     if (!resolved) {
       return {
         type: "model.set",

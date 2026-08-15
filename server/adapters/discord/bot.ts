@@ -206,7 +206,7 @@ export async function startDiscordBot(): Promise<void> {
   client.on("interactionCreate", async (interaction) => {
     if (restartPrepared) return;
     if (!interaction.isButton()) return;
-    await handleInteraction(interaction, conversation);
+    await handleInteraction(interaction, conversation, runtime.commandContext);
   });
 
   await client.login(token);

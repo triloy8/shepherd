@@ -36,6 +36,8 @@ export async function handleInteraction(
       return;
     }
 
+    await interaction.deferUpdate();
+
     let page: DiscordSurfacePage;
     try {
       if (pageRequest.target === "threads-active" || pageRequest.target === "threads-archived") {
@@ -83,14 +85,13 @@ export async function handleInteraction(
     } catch (error) {
       const text = error instanceof Error ? error.message : "Failed to load this page.";
       const page = buildCardPages({ title: "Pagination failed", text, tone: "danger" })[0]!;
-      await interaction.reply({
+      await interaction.followUp({
         ...componentsV2Payload(page),
         flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
       });
       return;
     }
-    await interaction.update({
-      flags: MessageFlags.IsComponentsV2,
+    await interaction.editReply({
       components: page.components,
       allowedMentions: { parse: [] },
     });

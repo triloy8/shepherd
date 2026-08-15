@@ -78,6 +78,7 @@ describe("Discord interactions", () => {
   test("loads the next stored-thread page directly from the Codex cursor", async () => {
     const updates: unknown[] = [];
     const calls: unknown[] = [];
+    const lifecycle: string[] = [];
     const interaction = {
       customId: encodeDiscordListPageId({
         target: "threads-active",
@@ -88,7 +89,11 @@ describe("Discord interactions", () => {
       }),
       user: { id: "user-1" },
       channelId: "chan-1",
-      async update(payload: unknown) {
+      async deferUpdate() {
+        lifecycle.push("deferred");
+      },
+      async editReply(payload: unknown) {
+        lifecycle.push("edited");
         updates.push(payload);
       },
       async reply() {
@@ -97,6 +102,7 @@ describe("Discord interactions", () => {
     };
     const conversation = {
       async listStoredThreads(request: unknown) {
+        lifecycle.push("loaded");
         calls.push(request);
         return {
           threads: [
@@ -118,9 +124,49 @@ describe("Discord interactions", () => {
       sortKey: "updated_at",
       sortDirection: "desc",
     }]);
+    expect(lifecycle).toEqual(["deferred", "loaded", "edited"]);
     expect(updates).toHaveLength(1);
-    expect(allText(updates[0])).toContain("6. thread-6");
-    expect(allText(updates[0])).toContain("7. thread-7");
+    expect(allText(updates[0])).toContain("6. six");
+    expect(allText(updates[0])).toContain("`thread-6`");
+    expect(allText(updates[0])).toContain("7. seven");
+    expect(allText(updates[0])).toContain("`thread-7`");
+  });
+
+  test("reports pagination failures after acknowledging the interaction", async () => {
+    const lifecycle: string[] = [];
+    const followUps: unknown[] = [];
+    const interaction = {
+      customId: encodeDiscordListPageId({
+        target: "threads-active",
+        direction: "desc",
+        page: 2,
+        requesterId: "user-1",
+        cursor: "next-cursor",
+      }),
+      user: { id: "user-1" },
+      channelId: "chan-1",
+      async deferUpdate() {
+        lifecycle.push("deferred");
+      },
+      async followUp(payload: unknown) {
+        lifecycle.push("followed-up");
+        followUps.push(payload);
+      },
+    };
+    const conversation = {
+      async listStoredThreads() {
+        lifecycle.push("loaded");
+        throw new Error("Codex list failed");
+      },
+    };
+
+    await handleInteraction(interaction as never, conversation as never);
+
+    expect(lifecycle).toEqual(["deferred", "loaded", "followed-up"]);
+    expect(allText(followUps[0])).toContain("Codex list failed");
+    expect((followUps[0] as { flags?: unknown }).flags).toBe(
+      MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+    );
   });
 
   test("reverses an ascending Codex page when navigating to newer threads", async () => {
@@ -136,7 +182,8 @@ describe("Discord interactions", () => {
       }),
       user: { id: "user-1" },
       channelId: "chan-1",
-      async update(payload: unknown) {
+      async deferUpdate() {},
+      async editReply(payload: unknown) {
         updates.push(payload);
       },
       async reply() {
@@ -208,7 +255,8 @@ describe("Discord interactions", () => {
       }),
       user: { id: "user-1" },
       channelId: "chan-1",
-      async update(payload: unknown) {
+      async deferUpdate() {},
+      async editReply(payload: unknown) {
         updates.push(payload);
       },
       async reply() {
@@ -257,7 +305,8 @@ describe("Discord interactions", () => {
       }),
       user: { id: "user-1" },
       channelId: "chan-1",
-      async update(payload: unknown) {
+      async deferUpdate() {},
+      async editReply(payload: unknown) {
         updates.push(payload);
       },
       async reply() {

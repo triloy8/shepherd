@@ -45,6 +45,7 @@ export type CommandContext = {
   pauseSurfaceListening: (surfaceId: string) => SurfaceListeningMode;
   resumeSurfaceListening: (surfaceId: string) => SurfaceListeningMode;
   setSurfaceProject: (surfaceId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
+  inheritSurfaceProject?: (surfaceId: string, parentSurfaceId: string) => string | null;
   ensureSurfaceThread: (surfaceId: string) => Promise<string>;
   createSurfaceThread: (surfaceId: string) => Promise<string>;
   switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;

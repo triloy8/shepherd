@@ -142,7 +142,14 @@ function navigationRow(options: {
 
 function formatTimestamp(seconds: number | null): string {
   if (!seconds) return "unknown";
-  return new Date(seconds * 1000).toISOString();
+  return `<t:${Math.floor(seconds)}:R>`;
+}
+
+function formatThreadLabel(name: string | null, preview: string): string {
+  const source = name?.trim() || preview.trim() || "Untitled thread";
+  const singleLine = source.replace(/\s+/g, " ");
+  const shortened = singleLine.length > 80 ? `${singleLine.slice(0, 77)}…` : singleLine;
+  return shortened.replace(/([\\`*_{}[\]()<>#+.!|~-])/g, "\\$1");
 }
 
 export function buildStoredThreadsListPage(options: {
@@ -160,10 +167,10 @@ export function buildStoredThreadsListPage(options: {
   const text = threads.length === 0
     ? (options.archived ? "No archived threads." : "No active threads.")
     : threads.map((thread, index) => {
-        const label = thread.name ?? (thread.preview.slice(0, 48) || "untitled");
+        const label = formatThreadLabel(thread.name, thread.preview);
         const number = (options.page - 1) * DISCORD_LIST_PAGE_SIZE + index + 1;
-        return `${number}. ${thread.threadId} | ${label} | updated ${formatTimestamp(thread.updatedAt)}`;
-      }).join("\n");
+        return `**${number}. ${label}**\n\`${thread.threadId}\` · Updated ${formatTimestamp(thread.updatedAt)}`;
+      }).join("\n\n");
 
   const previousCursor = options.requestDirection === "desc"
     ? options.result.backwardsCursor

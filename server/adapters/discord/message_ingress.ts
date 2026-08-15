@@ -34,6 +34,15 @@ export async function processDiscordMessage(
   message: Message,
   deps: DiscordMessageIngressDeps,
 ): Promise<void> {
+  const channel = message.channel as typeof message.channel & {
+    isThread?: () => boolean;
+    parentId?: string | null;
+  };
+  const parentSurfaceId = channel.isThread?.() ? channel.parentId : null;
+  if (parentSurfaceId) {
+    deps.commandContext.inheritSurfaceProject?.(message.channelId, parentSurfaceId);
+  }
+
   const raw = message.content.trim();
   const isCommand = raw.startsWith("!");
   const isMentioned = message.mentions.users.has(deps.botUserId);

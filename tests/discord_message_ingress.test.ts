@@ -14,12 +14,19 @@ function makeMessage(
     size?: number;
   }> = [],
   guildId: string | null = "guild-1",
+  parentChannelId: string | null = null,
 ) {
   const replies: Array<string | MessageCreateOptions> = [];
   return {
     message: {
       content,
       channelId: "chan-1",
+      channel: {
+        isThread() {
+          return parentChannelId !== null;
+        },
+        parentId: parentChannelId,
+      },
       guildId,
       attachments: {
         values() {
@@ -56,6 +63,34 @@ function replyTexts(replies: Array<string | MessageCreateOptions>): string[] {
 }
 
 describe("Discord message ingress", () => {
+  test("inherits the parent repository before handling a command in a Discord thread", async () => {
+    const { message } = makeMessage("!newthread", false, [], "guild-1", "parent-1");
+    const calls: Array<{ surfaceId: string; parentSurfaceId: string }> = [];
+
+    await processDiscordMessage(message as never, {
+      botUserId: "bot-1",
+      conversation: {} as never,
+      commandContext: {
+        getSurfaceListeningMode() {
+          return "mention";
+        },
+        inheritSurfaceProject(surfaceId, parentSurfaceId) {
+          calls.push({ surfaceId, parentSurfaceId });
+          return "owner/repo";
+        },
+      } as never,
+      approvalPolicy: "on-request",
+      async handleCommandMessage() {
+        return { handled: true, threadId: "thread-1", input: null };
+      },
+      async executeRouting() {
+        return { type: "ignore" } as const;
+      },
+    });
+
+    expect(calls).toEqual([{ surfaceId: "chan-1", parentSurfaceId: "parent-1" }]);
+  });
+
   test("ignores non-command input that does not mention the bot", async () => {
     const { message } = makeMessage("hello", false);
     let handled = false;

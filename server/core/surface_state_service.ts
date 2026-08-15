@@ -24,6 +24,16 @@ export class SurfaceStateService {
     return target;
   }
 
+  inheritProjectTarget(adapter: string, surfaceId: string, parentSurfaceId: string): ProjectTarget | null {
+    const existing = this.getProjectTarget(adapter, surfaceId);
+    if (existing) return existing;
+
+    const parentTarget = this.getProjectTarget(adapter, parentSurfaceId);
+    if (!parentTarget) return null;
+    this.projectTargetsBySurface.set(toSurfaceKey(adapter, surfaceId), parentTarget);
+    return parentTarget;
+  }
+
   clearProjectTarget(adapter: string, surfaceId: string): void {
     this.projectTargetsBySurface.delete(toSurfaceKey(adapter, surfaceId));
   }

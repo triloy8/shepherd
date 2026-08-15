@@ -148,6 +148,9 @@ the only outbound Discord message format; rejected payloads are reported as
 delivery failures rather than silently downgraded to legacy content or embeds.
 Thread and model listings use Codex cursors and show five entries per page with
 Components V2 navigation controls; Shepherd does not cache list snapshots.
+Local Codex file links are rendered as compact workspace-relative code paths
+because Discord cannot open host-local filesystem links. Web links remain
+clickable, and links inside inline or fenced code are preserved verbatim.
 
 The normal flow is:
 

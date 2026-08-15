@@ -70,6 +70,8 @@ export function createDiscordSurfaceRuntime(
       pauseSurfaceListening: (surfaceId) => orchestrator.pauseSurfaceListening(surfaceId),
       resumeSurfaceListening: (surfaceId) => orchestrator.resumeSurfaceListening(surfaceId),
       setSurfaceProject: (surfaceId, repoSlug) => orchestrator.setSurfaceProject(surfaceId, repoSlug),
+      inheritSurfaceProject: (surfaceId, parentSurfaceId) =>
+        orchestrator.inheritSurfaceProject(surfaceId, parentSurfaceId),
       ensureSurfaceThread,
       createSurfaceThread,
       switchSurfaceThread,

@@ -71,6 +71,11 @@ export class SurfaceConversationOrchestrator {
     return { repoSlug: describeProjectTarget(target) };
   }
 
+  inheritSurfaceProject(surfaceId: string, parentSurfaceId: string): string | null {
+    const target = this.surfaceState.inheritProjectTarget(this.adapter, surfaceId, parentSurfaceId);
+    return target ? describeProjectTarget(target) : null;
+  }
+
   async bindSurfaceToThread(
     surfaceId: string,
     threadId: string,

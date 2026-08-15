@@ -95,6 +95,18 @@ describe("SurfaceConversationOrchestrator", () => {
     expect(orchestrator.getSurfaceProjectDisplay("chan-1")).toBe("~");
   });
 
+  test("inherits a parent project without replacing an explicit child project", async () => {
+    const { orchestrator } = makeHarness();
+    await orchestrator.setSurfaceProject("parent-1", "~");
+
+    expect(orchestrator.inheritSurfaceProject("child-1", "parent-1")).toBe("~");
+    expect(orchestrator.getSurfaceProjectDisplay("child-1")).toBe("~");
+
+    await orchestrator.setSurfaceProject("child-1", "~/child-workspace");
+    expect(orchestrator.inheritSurfaceProject("child-1", "parent-1")).toBe("~/child-workspace");
+    expect(orchestrator.getSurfaceProjectDisplay("child-1")).toBe("~/child-workspace");
+  });
+
   test("creates a surface thread before provisioning its thread-id workspace", async () => {
     const { orchestrator, calls } = makeHarness();
     await orchestrator.setSurfaceProject("chan-1", "~");

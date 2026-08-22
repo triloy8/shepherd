@@ -207,16 +207,22 @@ The normal update flow is:
 
 ```text
 develop in an isolated workspace
+→ push the working branch
+→ run !deploy branch <branch-name> for user-level preview testing
 → open and merge a PR into main
 → run !deploy in Discord
 → wait for Shepherd to reconnect
 → copy the posted !repo and !thread recovery commands
 ```
 
-`!deploy` fetches and validates the latest `origin/main` while the current bot
-remains online. On success it exits and the tmux supervisor starts the updated
-checkout. On validation failure it restores the previous commit and stays
-online. Each deployment subprocess has a 30-minute timeout by default. Set
+Bare `!deploy` fetches and validates the latest `origin/main` while the current
+bot remains online. `!deploy branch <branch-name>` applies the same clean-checkout,
+validation, rollback, and restart flow to an exact remote branch commit for
+preview testing. Run `!deploy status` to inspect the deployed source and commit,
+and run bare `!deploy` after preview testing to return to stable main. On success
+Shepherd exits and the tmux supervisor starts the updated checkout. On validation
+failure it restores the previous commit and stays online. Each deployment
+subprocess has a 30-minute timeout by default. Set
 `SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS` in `envs/common.env` to a positive number
 of milliseconds if this deployment needs a different limit.
 

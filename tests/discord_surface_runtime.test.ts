@@ -68,6 +68,13 @@ describe("Discord surface runtime", () => {
           message: "not configured for this test",
         } as const;
       },
+      async deploymentStatus() {
+        return {
+          deployedCommit: "1111111111111111111111111111111111111111",
+          target: { kind: "main" } as const,
+          deploymentInProgress: false,
+        };
+      },
     };
 
     const runtime = createDiscordSurfaceRuntime({

@@ -2,6 +2,11 @@ import { MessageFlags, type Message, type MessageEditOptions } from "discord.js"
 
 import { executeControlAction } from "../../core/control_actions_service.js";
 import type { ConversationService } from "../../core/conversation_service.js";
+import {
+  deploymentTargetLabel,
+  type DeploymentStatus,
+  type DeploymentTarget,
+} from "../../core/deployment_service.js";
 import type {
   RuntimeLifecycleOrchestrator,
   RuntimeLifecycleResult,
@@ -51,7 +56,7 @@ export type CommandContext = {
   switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;
   forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
   clearSurfaceThread: (surfaceId: string) => void;
-  runtimeLifecycle?: Pick<RuntimeLifecycleOrchestrator, "restart" | "deploy">;
+  runtimeLifecycle?: Pick<RuntimeLifecycleOrchestrator, "restart" | "deploy" | "deploymentStatus">;
 };
 
 function formatTimestamp(seconds: number | null): string {
@@ -122,6 +127,18 @@ function formatRecoveryInstructions(context: CommandContext, channelId: string):
   }
 
   return `To continue after reconnect:\n\`\`\`\n${commands.join("\n")}\n\`\`\``;
+}
+
+function formatDeploymentStatus(status: DeploymentStatus): string {
+  const source = status.target
+    ? `\`${deploymentTargetLabel(status.target)}\` (${status.target.kind === "main" ? "stable" : "preview"})`
+    : "unknown (this commit predates deployment-source tracking or was checked out manually)";
+  return [
+    `- Commit: \`${status.deployedCommit}\``,
+    `- Source: ${source}`,
+    `- State: ${status.deploymentInProgress ? "validation in progress" : "idle"}`,
+    ...(status.target?.kind === "branch" ? ["- Return to stable: `!deploy`"] : []),
+  ].join("\n");
 }
 
 function formatRuntimeActivity(activity: RuntimeActivity): string {
@@ -352,7 +369,7 @@ async function replyRuntimeLifecycleResult(
       title: "Deployment validated; restart deferred",
       tone: "warning",
       text: [
-        `Validated commit \`${result.deployment.deployedCommit.slice(0, 7)}\`, but Codex work started during deployment.`,
+        `Validated commit \`${result.deployment.deployedCommit.slice(0, 7)}\` from \`${deploymentTargetLabel(result.deployment.target)}\`, but Codex work started during deployment.`,
         activity,
         "Run `!restart` when the work is complete.",
       ].filter(Boolean).join("\n"),
@@ -465,6 +482,8 @@ export async function handleMessage(
       "- !interrupt",
       "- !restart",
       "- !deploy",
+      "- !deploy branch <branch-name>",
+      "- !deploy status",
     ].join("\n");
     await replyCard(message, "Shepherd commands", helpText);
     return { handled: true, threadId: null, input: null };
@@ -604,22 +623,40 @@ export async function handleMessage(
   }
 
   if (command === "!deploy") {
-    if (args.length > 0) {
-      await replyMarkdown(message, "Usage: !deploy");
-      return { handled: true, threadId: null, input: null };
-    }
     if (!context.runtimeLifecycle) {
       await replyCard(message, "Control unavailable", "Runtime lifecycle controls are unavailable.", "warning");
       return { handled: true, threadId: null, input: null };
     }
 
+    if (args.length === 1 && args[0]?.toLowerCase() === "status") {
+      const status = await context.runtimeLifecycle.deploymentStatus();
+      await replyCard(message, "Deployment status", formatDeploymentStatus(status));
+      return { handled: true, threadId: null, input: null };
+    }
+
+    let target: DeploymentTarget;
+    if (args.length === 0) {
+      target = { kind: "main" };
+    } else if (args.length === 2 && args[0]?.toLowerCase() === "branch") {
+      target = { kind: "branch", branch: args[1]! };
+    } else {
+      await replyMarkdown(
+        message,
+        "Usage: !deploy\nUsage: !deploy branch <branch-name>\nUsage: !deploy status",
+      );
+      return { handled: true, threadId: null, input: null };
+    }
+
     const reporter = new RuntimeSurfaceReporter(message);
     const result = await context.runtimeLifecycle.deploy({
+      target,
       onDeploymentStarted: async () => {
         await reporter.show({
           title: "Checking deployment",
           tone: "working",
-          text: "Fetching the latest merged `origin/main` and validating the deployed checkout…",
+          text: target.kind === "main"
+            ? "Fetching the latest stable `origin/main` and validating the deployed checkout…"
+            : `Fetching preview branch \`${deploymentTargetLabel(target)}\` and validating the deployed checkout…`,
         });
       },
       announce: async (announcement) => {
@@ -627,13 +664,22 @@ export async function handleMessage(
           throw new Error("Deployment completed with an invalid lifecycle announcement.");
         }
         const { deployment } = announcement;
+        const source = deploymentTargetLabel(deployment.target);
         const summary = deployment.changed
-          ? `Deploy validated: ${deployment.previousCommit.slice(0, 7)} → ${deployment.deployedCommit.slice(0, 7)}`
-          : `Deploy validated: already at ${deployment.deployedCommit.slice(0, 7)}`;
+          ? `Deploy validated from \`${source}\`: ${deployment.previousCommit.slice(0, 7)} → ${deployment.deployedCommit.slice(0, 7)}`
+          : `Deploy validated from \`${source}\`: already at ${deployment.deployedCommit.slice(0, 7)}`;
         await reporter.show({
           title: "Deployment validated",
           tone: "success",
-          text: `${summary}\nRestarting Shepherd.\n\n${formatRecoveryInstructions(context, channelId)}`,
+          text: [
+            summary,
+            ...(deployment.target.kind === "branch"
+              ? ["Preview deployment. Run `!deploy` after testing to return to stable `origin/main`."]
+              : []),
+            "Restarting Shepherd.",
+            "",
+            formatRecoveryInstructions(context, channelId),
+          ].join("\n"),
         });
       },
     });

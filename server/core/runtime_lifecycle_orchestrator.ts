@@ -1,4 +1,9 @@
-import type { DeploymentResult } from "./deployment_service.js";
+import {
+  MAIN_DEPLOYMENT_TARGET,
+  type DeploymentResult,
+  type DeploymentStatus,
+  type DeploymentTarget,
+} from "./deployment_service.js";
 import type { RuntimeActivity } from "./session_manager.js";
 
 export type RuntimeLifecycleAction = "restart" | "deploy";
@@ -42,7 +47,8 @@ export type RuntimeLifecyclePort = {
 
 export type RuntimeDeploymentPort = {
   isDeploymentInProgress: () => boolean;
-  deployLatestMain: () => Promise<DeploymentResult>;
+  deploy: (target: DeploymentTarget) => Promise<DeploymentResult>;
+  readStatus: () => Promise<DeploymentStatus>;
 };
 
 export type RuntimeLifecycleOrchestratorOptions = {
@@ -56,6 +62,7 @@ export type RestartOptions = {
 };
 
 export type DeployOptions = RestartOptions & {
+  target?: DeploymentTarget;
   onDeploymentStarted?: () => Promise<void>;
 };
 
@@ -71,6 +78,10 @@ export class RuntimeLifecycleOrchestrator {
   private deploymentOperationInProgress = false;
 
   constructor(private readonly options: RuntimeLifecycleOrchestratorOptions) {}
+
+  deploymentStatus(): Promise<DeploymentStatus> {
+    return this.options.deployment.readStatus();
+  }
 
   async restart(options: RestartOptions): Promise<RuntimeLifecycleResult> {
     if (this.isDeploymentInProgress()) {
@@ -111,7 +122,7 @@ export class RuntimeLifecycleOrchestrator {
 
       let deployment: DeploymentResult;
       try {
-        deployment = await this.options.deployment.deployLatestMain();
+        deployment = await this.options.deployment.deploy(options.target ?? MAIN_DEPLOYMENT_TARGET);
       } catch (error) {
         return {
           type: "deployment-failed",

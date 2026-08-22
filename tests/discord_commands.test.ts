@@ -86,6 +86,7 @@ function makeContext(overrides?: {
   };
   restart?: RuntimeLifecycle["restart"];
   deploy?: RuntimeLifecycle["deploy"];
+  deploymentStatus?: RuntimeLifecycle["deploymentStatus"];
 }) {
   const writes: Array<{ threadId: string; path: string; enabled: boolean }> = [];
   const modelWrites: Array<{ threadId: string; model: string }> = [];
@@ -275,15 +276,25 @@ function makeContext(overrides?: {
       },
       async deploy(options) {
         if (overrides?.deploy) return overrides.deploy(options);
+        const target = options.target ?? { kind: "main" as const };
         const deployment = {
           previousCommit: "1111111111111111111111111111111111111111",
           deployedCommit: "2222222222222222222222222222222222222222",
           changed: true,
+          target,
         };
         await options.onDeploymentStarted?.();
         await options.announce({ action: "deploy", deployment });
         restartRequests += 1;
         return { type: "restart-requested", action: "deploy", deployment };
+      },
+      async deploymentStatus() {
+        if (overrides?.deploymentStatus) return overrides.deploymentStatus();
+        return {
+          deployedCommit: "2222222222222222222222222222222222222222",
+          target: { kind: "main" },
+          deploymentInProgress: false,
+        };
       },
     },
   };
@@ -713,7 +724,65 @@ describe("Discord operational commands", () => {
     expect(edits).toHaveLength(1);
     expect(editedCardAt(edits).title).toBe("Deployment validated");
     expect(editedCardAt(edits).description).toContain("1111111 → 2222222");
+    expect(editedCardAt(edits).description).toContain("origin/main");
     expect(getRestartRequests()).toBe(1);
+  });
+
+  test("deploys a preview branch and explains how to return to main", async () => {
+    const { message, replies, edits } = makeMessage("!deploy branch feat/user-test");
+    let requestedTarget: unknown;
+    const { context, getRestartRequests } = makeContext({
+      async deploy(options) {
+        requestedTarget = options.target;
+        const deployment = {
+          previousCommit: "1111111111111111111111111111111111111111",
+          deployedCommit: "2222222222222222222222222222222222222222",
+          changed: true,
+          target: options.target ?? { kind: "main" as const },
+        };
+        await options.onDeploymentStarted?.();
+        await options.announce({ action: "deploy", deployment });
+        return { type: "restart-requested", action: "deploy", deployment };
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(requestedTarget).toEqual({ kind: "branch", branch: "feat/user-test" });
+    expect(replyCardAt(replies).description).toContain("origin/feat/user-test");
+    expect(editedCardAt(edits).description).toContain("Preview deployment");
+    expect(editedCardAt(edits).description).toContain("Run `!deploy`");
+    expect(getRestartRequests()).toBe(0);
+  });
+
+  test("shows persisted deployment source and stable recovery command", async () => {
+    const { message, replies } = makeMessage("!deploy status");
+    const { context, getRestartRequests } = makeContext({
+      async deploymentStatus() {
+        return {
+          deployedCommit: "2222222222222222222222222222222222222222",
+          target: { kind: "branch", branch: "feat/user-test" },
+          deploymentInProgress: false,
+        };
+      },
+    });
+
+    await handleMessage(message as never, context);
+
+    expect(replyCardAt(replies).title).toBe("Deployment status");
+    expect(replyCardAt(replies).description).toContain("origin/feat/user-test");
+    expect(replyCardAt(replies).description).toContain("Return to stable: `!deploy`");
+    expect(getRestartRequests()).toBe(0);
+  });
+
+  test("rejects malformed deploy command shapes", async () => {
+    const { message, replies } = makeMessage("!deploy feat/user-test");
+    const { context, getRestartRequests } = makeContext();
+
+    await handleMessage(message as never, context);
+
+    expect(replyTextAt(replies)).toContain("Usage: !deploy branch <branch-name>");
+    expect(getRestartRequests()).toBe(0);
   });
 
   test("keeps Shepherd online when deployment validation fails", async () => {

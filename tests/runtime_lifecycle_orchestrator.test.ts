@@ -15,6 +15,7 @@ const DEPLOYMENT = {
   previousCommit: "1111111111111111111111111111111111111111",
   deployedCommit: "2222222222222222222222222222222222222222",
   changed: true,
+  target: { kind: "main" } as const,
 };
 
 function makeHarness(options?: {
@@ -25,6 +26,7 @@ function makeHarness(options?: {
 }) {
   const events: string[] = [];
   const activities = [...(options?.activities ?? [IDLE, IDLE])];
+  const deploymentTargets: unknown[] = [];
   let lastActivity = activities.at(-1) ?? IDLE;
 
   const orchestrator = new RuntimeLifecycleOrchestrator({
@@ -38,10 +40,19 @@ function makeHarness(options?: {
         events.push("deployment-status");
         return options?.deploymentInProgress ?? false;
       },
-      async deployLatestMain() {
+      async deploy(target) {
         events.push("deploy");
+        deploymentTargets.push(target);
         if (options?.deploymentError) throw options.deploymentError;
-        return DEPLOYMENT;
+        return { ...DEPLOYMENT, target };
+      },
+      async readStatus() {
+        events.push("read-deployment-status");
+        return {
+          deployedCommit: DEPLOYMENT.deployedCommit,
+          target: DEPLOYMENT.target,
+          deploymentInProgress: false,
+        };
       },
     },
     lifecycle: {
@@ -58,7 +69,7 @@ function makeHarness(options?: {
     },
   });
 
-  return { orchestrator, events };
+  return { orchestrator, events, deploymentTargets };
 }
 
 describe("RuntimeLifecycleOrchestrator", () => {
@@ -120,7 +131,7 @@ describe("RuntimeLifecycleOrchestrator", () => {
   });
 
   test("coordinates deployment before using the shared restart path", async () => {
-    const { orchestrator, events } = makeHarness();
+    const { orchestrator, events, deploymentTargets } = makeHarness();
 
     await expect(
       orchestrator.deploy({
@@ -148,6 +159,33 @@ describe("RuntimeLifecycleOrchestrator", () => {
       "announce",
       "request",
     ]);
+    expect(deploymentTargets).toEqual([{ kind: "main" }]);
+  });
+
+  test("passes a preview branch target through to deployment", async () => {
+    const { orchestrator, deploymentTargets } = makeHarness();
+
+    await expect(orchestrator.deploy({
+      target: { kind: "branch", branch: "feat/user-test" },
+      async announce() {},
+    })).resolves.toMatchObject({
+      type: "restart-requested",
+      deployment: {
+        target: { kind: "branch", branch: "feat/user-test" },
+      },
+    });
+    expect(deploymentTargets).toEqual([{ kind: "branch", branch: "feat/user-test" }]);
+  });
+
+  test("reads deployment status without entering the restart flow", async () => {
+    const { orchestrator, events } = makeHarness();
+
+    await expect(orchestrator.deploymentStatus()).resolves.toEqual({
+      deployedCommit: DEPLOYMENT.deployedCommit,
+      target: { kind: "main" },
+      deploymentInProgress: false,
+    });
+    expect(events).toEqual(["read-deployment-status"]);
   });
 
   test("keeps the runtime online when deployment validation fails", async () => {

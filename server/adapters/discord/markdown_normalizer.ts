@@ -14,6 +14,10 @@ type FenceState = {
 const FENCE_RE = /^( {0,3})(`{3,}|~{3,})/;
 const ANGLED_LOCAL_LINK_RE = /(?<!!)\[([^\]\n]+)\]\(<((?:file:\/\/)?\/[^>\n]+)>\)/g;
 const BARE_LOCAL_LINK_RE = /(?<!!)\[([^\]\n]+)\]\(((?:file:\/\/)?\/(?:\\\)|[^)\n])*)\)/g;
+const ANGLED_LOCAL_CODE_LABEL_LINK_RE =
+  /(?<!!)\[(`+)[^\]\n]*?\1\]\(<((?:file:\/\/)?\/[^>\n]+)>\)/g;
+const BARE_LOCAL_CODE_LABEL_LINK_RE =
+  /(?<!!)\[(`+)[^\]\n]*?\1\]\(((?:file:\/\/)?\/(?:\\\)|[^)\n])*)\)/g;
 
 function safeDecodeUri(value: string): string {
   try {
@@ -90,6 +94,17 @@ function replaceLocalLinks(
     .replace(BARE_LOCAL_LINK_RE, replace);
 }
 
+function replaceLocalLinksWithCodeLabels(
+  text: string,
+  options: Required<LocalPathFormattingOptions>,
+): string {
+  const replace = (_match: string, _delimiter: string, destination: string) =>
+    inlineCode(shortenLocalPath(destination, options));
+  return text
+    .replace(ANGLED_LOCAL_CODE_LABEL_LINK_RE, replace)
+    .replace(BARE_LOCAL_CODE_LABEL_LINK_RE, replace);
+}
+
 function normalizeOutsideInlineCode(
   line: string,
   options: Required<LocalPathFormattingOptions>,
@@ -153,6 +168,9 @@ export function normalizeDiscordMarkdown(
     const previousFence = fence;
     fence = updateFenceState(line, fence);
     if (previousFence || line.match(FENCE_RE)) return line;
-    return normalizeOutsideInlineCode(line, resolvedOptions);
+    return normalizeOutsideInlineCode(
+      replaceLocalLinksWithCodeLabels(line, resolvedOptions),
+      resolvedOptions,
+    );
   }).join("\n");
 }

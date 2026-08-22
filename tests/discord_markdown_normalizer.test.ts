@@ -13,6 +13,17 @@ describe("Discord Markdown normalization", () => {
     );
   });
 
+  test("renders symbol citations with inline-code labels as relative paths", () => {
+    const markdown = [
+      "[`add_param_group()`](/home/tester/.agent-workspaces/auto-infra/thread-123/leash/ddp/optimizer_state_sharding.py:213)",
+      "[`run()`](</srv/shepherd/server/My Worker.ts:22>)",
+    ].join(" and ");
+
+    expect(normalizeDiscordMarkdown(markdown, options)).toBe(
+      "`leash/ddp/optimizer_state_sharding.py:213` and `server/My Worker.ts:22`",
+    );
+  });
+
   test("removes agent-workspace prefixes from links to other thread workspaces", () => {
     const markdown = [
       "[commands.ts](/home/tester/.agent-workspaces/shepherd/thread-123/server/commands.ts:10)",

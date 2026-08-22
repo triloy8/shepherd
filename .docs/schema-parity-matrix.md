@@ -8,8 +8,8 @@ Status legend:
 
 Generated baseline:
 
-- Codex version: `codex-cli 0.147.0`
-- Last refreshed: `2026-08-10`
+- Codex version: `codex-cli 0.149.0`
+- Last refreshed: `2026-08-22`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -109,7 +109,7 @@ Legacy note:
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
 | `account/rateLimits/read` | Implemented | Core | Exposed via Discord `!limits` |
 | `account/rateLimitResetCredit/consume` | Missing | Out of Scope (for now) | Account quota mutation path |
-| `account/usage/read` | Missing | Maybe Later | Useful for account diagnostics if Shepherd adds admin reporting |
+| `account/usage/read` | Missing | Maybe Later | Useful for account diagnostics if Shepherd adds admin reporting; generated params now optionally scope usage to a `threadId` |
 | `account/workspaceMessages/read` | Missing | Maybe Later | Useful for account/workspace diagnostics |
 | `account/login/start` | Missing | Out of Scope (for now) | |
 | `account/login/cancel` | Missing | Out of Scope (for now) | |
@@ -151,7 +151,10 @@ Legacy note:
 | `thread/tokenUsage/updated` | Partial; mapped to typed bridge event (`thread.tokenUsage.updated`) and cached for Discord `!context` | Core |
 | `thread/archived` / `thread/unarchived` | Typed events (`thread.archived`, `thread.unarchived`) | Core |
 | `thread/closed` | Generic | Maybe Later |
+| `thread/reverted` | Generic | Maybe Later |
 | `thread/compacted` | Generic | Maybe Later |
+| `thread/queue/changed` | Generic | Maybe Later |
+| `project/changed` / `thread/project/updated` | Generic | Maybe Later |
 | `skills/changed` | Generic | Maybe Later |
 | `turn/started` | Generic | Maybe Later |
 | `turn/completed` | Typed event; failed completion payloads emit `turn.failed` with the generated error message | Core |
@@ -160,6 +163,7 @@ Legacy note:
 | `hook/started` / `hook/completed` | Generic | Out of Scope (for now) |
 | `item/started` / `item/completed` | Internal phase tracking only; otherwise generic | Core |
 | `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Generic | Maybe Later |
+| `autoApprovalReview/strictReviewRequired` | Generic | Maybe Later |
 | `rawResponseItem/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
 | `rawResponse/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
 | `item/agentMessage/delta` | Partially interpreted via text delta | Core |
@@ -202,8 +206,8 @@ Legacy note:
 | Area | Status | Notes |
 |---|---|---|
 | Thread lifecycle DTOs | Good | Includes current list filters, pagination cursors, and generated approval-policy values |
-| Rich thread object typing | Partial | `ReadThreadResponse`/`RollbackThreadResponse` now use `ThreadRecord`; deeper nested typing still open |
+| Rich thread object typing | Partial | `ReadThreadResponse`/`RollbackThreadResponse` use `ThreadRecord`; newly generated project assignment and agent-message delivery fields remain only structurally preserved through the open record shape |
 | Rich resume/fork/start options | Partial | Major override fields supported; still not full schema parity |
-| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; broader item/model/realtime notifications remain reduced |
+| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; new project, queue, revert, and strict-review notifications plus broader item/model/realtime notifications remain generic |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.147.0`: 98 TypeScript request methods (95 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 72 TypeScript notifications (70 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.149.0`: 98 TypeScript request methods (95 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 77 TypeScript notifications (75 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |

@@ -241,9 +241,11 @@ Set `SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS` to a positive number of milliseconds
 to override that limit.
 
 If validation fails, Shepherd restores the prior commit and dependencies and
-stays online. If validation succeeds, it records the deployed source and commit
-under `.git/shepherd-deployment.json`, posts the same recovery commands, and
-gracefully restarts. Use `!deploy status` to inspect that source and commit.
+stays online. If validation succeeds, it posts the same recovery commands and
+gracefully restarts. Use `!deploy status` to inspect the current commit and any
+locally fetched `origin` refs that point to it; Shepherd stores no deployment
+provenance of its own. On the first startup after upgrading, it removes the
+legacy `.git/shepherd-deployment.json` record.
 After testing a preview branch, run bare `!deploy` to return to stable
 `origin/main`. Deployment and restart refuse to proceed while a turn or approval
 is active. After Shepherd reconnects, copy the posted commands to resume the

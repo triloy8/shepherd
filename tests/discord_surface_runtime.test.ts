@@ -71,7 +71,7 @@ describe("Discord surface runtime", () => {
       async deploymentStatus() {
         return {
           deployedCommit: "1111111111111111111111111111111111111111",
-          target: { kind: "main" } as const,
+          matchingRemoteRefs: ["origin/main"],
           deploymentInProgress: false,
         };
       },

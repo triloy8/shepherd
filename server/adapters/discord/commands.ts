@@ -130,14 +130,16 @@ function formatRecoveryInstructions(context: CommandContext, channelId: string):
 }
 
 function formatDeploymentStatus(status: DeploymentStatus): string {
-  const source = status.target
-    ? `\`${deploymentTargetLabel(status.target)}\` (${status.target.kind === "main" ? "stable" : "preview"})`
-    : "unknown (this commit predates deployment-source tracking or was checked out manually)";
+  const remoteMatches = status.matchingRemoteRefs.length > 0
+    ? status.matchingRemoteRefs.map((ref) => `\`${ref}\``).join(", ")
+    : "none among locally fetched `origin` refs";
   return [
     `- Commit: \`${status.deployedCommit}\``,
-    `- Source: ${source}`,
+    `- Remote matches: ${remoteMatches}`,
     `- State: ${status.deploymentInProgress ? "validation in progress" : "idle"}`,
-    ...(status.target?.kind === "branch" ? ["- Return to stable: `!deploy`"] : []),
+    ...(!status.matchingRemoteRefs.includes("origin/main")
+      ? ["- Return to stable: `!deploy`"]
+      : []),
   ].join("\n");
 }
 

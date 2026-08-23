@@ -292,7 +292,7 @@ function makeContext(overrides?: {
         if (overrides?.deploymentStatus) return overrides.deploymentStatus();
         return {
           deployedCommit: "2222222222222222222222222222222222222222",
-          target: { kind: "main" },
+          matchingRemoteRefs: ["origin/main"],
           deploymentInProgress: false,
         };
       },
@@ -755,13 +755,13 @@ describe("Discord operational commands", () => {
     expect(getRestartRequests()).toBe(0);
   });
 
-  test("shows persisted deployment source and stable recovery command", async () => {
+  test("shows Git-derived remote matches and stable recovery command", async () => {
     const { message, replies } = makeMessage("!deploy status");
     const { context, getRestartRequests } = makeContext({
       async deploymentStatus() {
         return {
           deployedCommit: "2222222222222222222222222222222222222222",
-          target: { kind: "branch", branch: "feat/user-test" },
+          matchingRemoteRefs: ["origin/feat/user-test"],
           deploymentInProgress: false,
         };
       },
@@ -771,6 +771,7 @@ describe("Discord operational commands", () => {
 
     expect(replyCardAt(replies).title).toBe("Deployment status");
     expect(replyCardAt(replies).description).toContain("origin/feat/user-test");
+    expect(replyCardAt(replies).description).toContain("Remote matches:");
     expect(replyCardAt(replies).description).toContain("Return to stable: `!deploy`");
     expect(getRestartRequests()).toBe(0);
   });

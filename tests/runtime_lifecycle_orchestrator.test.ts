@@ -50,7 +50,7 @@ function makeHarness(options?: {
         events.push("read-deployment-status");
         return {
           deployedCommit: DEPLOYMENT.deployedCommit,
-          target: DEPLOYMENT.target,
+          matchingRemoteRefs: ["origin/main"],
           deploymentInProgress: false,
         };
       },
@@ -182,7 +182,7 @@ describe("RuntimeLifecycleOrchestrator", () => {
 
     await expect(orchestrator.deploymentStatus()).resolves.toEqual({
       deployedCommit: DEPLOYMENT.deployedCommit,
-      target: { kind: "main" },
+      matchingRemoteRefs: ["origin/main"],
       deploymentInProgress: false,
     });
     expect(events).toEqual(["read-deployment-status"]);

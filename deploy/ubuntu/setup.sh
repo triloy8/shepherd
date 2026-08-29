@@ -41,11 +41,8 @@ fi
 if [[ ! -f envs/discord.env ]]; then
   cp envs/discord.env.example envs/discord.env
 fi
-if [[ ! -f .codex/skills/github/local.env ]]; then
-  cp .codex/skills/github/local.env.example .codex/skills/github/local.env
-fi
-chmod 600 envs/common.env envs/discord.env .codex/skills/github/local.env
+chmod 600 envs/common.env envs/discord.env
 
 echo
 echo "Ubuntu provisioning complete."
-echo "Next: configure envs/*.env and .codex/skills/github/local.env, then run 'codex login' and 'gh auth login'."
+echo "Next: configure envs/*.env, then run 'codex login' and 'gh auth login'."

@@ -73,14 +73,11 @@ bun install
 ```bash
 cp envs/common.env.example envs/common.env
 cp envs/discord.env.example envs/discord.env
-cp .codex/skills/github/local.env.example .codex/skills/github/local.env
 ```
 
 4. Fill in at least:
 
 - `DISCORD_BOT_TOKEN` in `envs/discord.env`
-- GitHub identity, repository policy, and active checkout values in
-  `.codex/skills/github/local.env`
 - optionally `CODEX_MODEL` in `envs/common.env`
 - optionally `CODEX_APPROVAL_POLICY` in `envs/common.env`
 - optionally `CODEX_SANDBOX` in `envs/common.env`
@@ -131,10 +128,6 @@ Supported keys:
 - `CODEX_MODEL`: optional. If unset, the runtime falls back to `gpt-5.3-codex`
 - `CODEX_APPROVAL_POLICY`: optional. Default in the example file: `never`
 - `CODEX_SANDBOX`: optional. One of `read-only`, `workspace-write`, or `danger-full-access`
-- `SHEPHERD_CONFIG_DIR`: optional. Directory containing Shepherd-owned Codex
-  configuration. Defaults to `.codex` in the Shepherd checkout. The GitHub skill
-  loads its central `skills/github/local.env` from this directory; target
-  workspaces must not contain policy copies.
 
 > [!WARNING]
 > `CODEX_APPROVAL_POLICY=never` disables approval prompts. Combined with

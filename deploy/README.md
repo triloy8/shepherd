@@ -75,10 +75,6 @@ CODEX_APPROVAL_POLICY=on-request
 CODEX_SANDBOX=workspace-write
 ```
 
-Configure GitHub identity and repository policy once in
-`.codex/skills/github/local.env`. Shepherd passes its central configuration
-directory to Codex sessions; do not copy this file into agent workspaces.
-
 Authenticate as `nio`:
 
 ```bash

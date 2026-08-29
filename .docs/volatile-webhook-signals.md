@@ -76,19 +76,50 @@ loopback address. It must not bind to a public or wildcard interface by
 default.
 
 ```http
-POST /signals/research-state-changed HTTP/1.1
+POST /signals HTTP/1.1
 Host: 127.0.0.1:8787
 Content-Type: application/json
 
 {
-  "runId": "run-123",
-  "state": "COMPLETE"
+  "kind": "research.state-changed",
+  "version": 1,
+  "subject": {
+    "type": "research-run",
+    "id": "run-123"
+  },
+  "payload": {
+    "state": "COMPLETE",
+    "verified": true,
+    "researchProject": "P001"
+  }
 }
 ```
 
-The route name identifies a configured signal kind. Payload schemas may differ
-by signal kind, but each schema should be explicit, narrow, and validated
-before the signal enters the in-memory dispatcher.
+All producers use the same endpoint and envelope:
+
+```ts
+type SignalEnvelope = {
+  kind: string;
+  version: number;
+  subject?: { type: string; id: string };
+  payload: unknown;
+};
+```
+
+Each signal kind owns a narrow, versioned payload schema. A service unrelated
+to research can therefore use the same API with a different kind and payload:
+
+```json
+{
+  "kind": "build.finished",
+  "version": 1,
+  "subject": { "type": "build", "id": "build-456" },
+  "payload": { "status": "failed", "branch": "main" }
+}
+```
+
+Unknown kinds, unsupported versions, and invalid kind-specific payloads are
+rejected before entering the in-memory dispatcher.
 
 Suggested response semantics:
 
@@ -105,19 +136,19 @@ acceptance, or delivery of an agent response.
 ## Trusted routing configuration
 
 Webhook payloads should contain external facts, not execution authority.
-Shepherd-owned configuration maps each signal kind to a trusted route such as:
+Shepherd registers each signal kind with its validation, input construction,
+coalescing policy, and trusted route:
 
 ```ts
-type SignalRoute = {
-  kind: string;
-  threadId: string;
-  cwd: string;
-  prompt: string;
-  replyTo?: {
-    adapter: "discord";
-    surfaceId: string;
+type SignalDefinition<T> = {
+  validatePayload: (value: unknown) => T;
+  buildInput: (signal: SignalEnvelope & { payload: T }) => UserInput[];
+  coalesceKey?: (signal: SignalEnvelope & { payload: T }) => string;
+  route: {
+    threadId: string;
+    cwd: string;
+    replyTo?: { adapter: "discord"; surfaceId: string };
   };
-  coalesceBy?: string[];
 };
 ```
 
@@ -138,7 +169,6 @@ The dispatcher may retain the following state for the life of the process:
 - coalescing keys for queued and active signals;
 - active Codex sessions and turns;
 - per-thread concurrency state;
-- recent signal identifiers for short-lived duplicate suppression; and
 - transient response-delivery state.
 
 All of this state is discarded on restart.
@@ -147,6 +177,10 @@ The default busy-thread policy should queue the signal in memory. It should not
 steer an unrelated active turn automatically. A bounded queue prevents local
 producers from causing unbounded memory growth. Repeated level-triggered signals
 with the same configured coalescing key may collapse into one pending signal.
+For example, three queued `research.state-changed` signals for `run-123` can
+become one inspection, while a signal for `run-456` remains separate. This is
+only an in-memory optimization and provides no delivery or deduplication
+guarantee across restarts.
 
 An implementation may add an in-memory startup or periodic reconciliation
 signal. Such a signal still provides no durable cursor or processing history;

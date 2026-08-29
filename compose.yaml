@@ -14,6 +14,7 @@ services:
       - envs/discord.env
     environment:
       HOME: /home/bun
+      SHEPHERD_CONFIG_DIR: /home/bun/.codex
     volumes:
       - codex-home:/home/bun/.codex
       - github-config:/home/bun/.config/gh

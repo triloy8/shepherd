@@ -226,7 +226,7 @@ describe("Discord thread event handler", () => {
     handler.dispose();
   });
 
-  test("replies from the first final chunk without chaining continuations", async () => {
+  test("notifies on the first final chunk without chaining continuations", async () => {
     const harness = createHarness();
     const handler = createDiscordThreadEventHandler(harness.client);
     handler.recordUserMessage("chan-1", "user-message-1");
@@ -240,7 +240,7 @@ describe("Discord thread event handler", () => {
       messageReference: "user-message-1",
       failIfNotExists: false,
     });
-    expect(harness.sent[0]?.allowedMentions).toEqual({ parse: [], repliedUser: false });
+    expect(harness.sent[0]?.allowedMentions).toEqual({ parse: [], repliedUser: true });
     expect(harness.sent.slice(1).every((message) => message.reply === undefined)).toBe(true);
     handler.dispose();
   });
@@ -252,6 +252,7 @@ describe("Discord thread event handler", () => {
       onError: (error) => harness.errors.push(error),
     });
 
+    handler.recordUserMessage("chan-1", "user-message-1");
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent("chan-1", commentaryDelta("I found the issue."));
     handler.handleThreadEvent(
@@ -282,6 +283,11 @@ describe("Discord thread event handler", () => {
     expect(sentCard(harness.sent, 1).title).toBe("Working");
     expect(sentCard(harness.sent, 1).description).toContain("🔧 Running command: bun test");
     expect(payloadText(harness.sent[2])).toBe("The tests pass.");
+    expect(harness.sent[2]?.reply).toEqual({
+      messageReference: "user-message-1",
+      failIfNotExists: false,
+    });
+    expect(harness.sent[2]?.allowedMentions).toEqual({ parse: [], repliedUser: true });
     expect(harness.errors).toHaveLength(0);
     handler.dispose();
   });

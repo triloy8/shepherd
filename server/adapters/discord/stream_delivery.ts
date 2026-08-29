@@ -99,7 +99,10 @@ async function sendSurfacePages(
   pages: DiscordSurfacePage[],
   sendFirst: (payload: MessageCreateOptions) => Promise<DiscordMessage>,
   sendContinuation: (payload: MessageCreateOptions) => Promise<DiscordMessage>,
-  options: { replyToMessageId?: string | null } = {},
+  options: {
+    replyToMessageId?: string | null;
+    notifyRepliedUser?: boolean;
+  } = {},
 ): Promise<DiscordDeliveryResult> {
   const messageIds: string[] = [];
 
@@ -110,6 +113,7 @@ async function sendSurfacePages(
       const sent = await send(
         componentsV2Payload(page, {
           replyToMessageId: index === 0 ? options.replyToMessageId : null,
+          notifyRepliedUser: index === 0 ? options.notifyRepliedUser : false,
         }),
       );
       messageIds.push(sent.id);
@@ -138,7 +142,10 @@ async function sendSurfacePages(
 export async function sendDiscordPages(
   channel: SendableChannel,
   pages: DiscordSurfacePage[],
-  options: { replyToMessageId?: string | null } = {},
+  options: {
+    replyToMessageId?: string | null;
+    notifyRepliedUser?: boolean;
+  } = {},
 ): Promise<DiscordDeliveryResult> {
   return sendSurfacePages(
     pages,
@@ -151,7 +158,10 @@ export async function sendDiscordPages(
 export async function sendDiscordMarkdown(
   channel: SendableChannel,
   text: string,
-  options: { replyToMessageId?: string | null } = {},
+  options: {
+    replyToMessageId?: string | null;
+    notifyRepliedUser?: boolean;
+  } = {},
 ): Promise<DiscordDeliveryResult> {
   return sendDiscordPages(channel, buildMarkdownPages(text), options);
 }
@@ -255,7 +265,11 @@ export async function updateDiscordPreview(
   channel: SendableChannel,
   state: DiscordPreviewState,
   text: string,
-  options: { finalize?: boolean; replyToMessageId?: string | null } = {},
+  options: {
+    finalize?: boolean;
+    replyToMessageId?: string | null;
+    notifyRepliedUser?: boolean;
+  } = {},
 ): Promise<DiscordDeliveryResult> {
   const pages = buildMarkdownPages(text, { maxChars: DISCORD_CHUNK_TARGET });
   if (pages.length === 0) {
@@ -273,6 +287,7 @@ export async function updateDiscordPreview(
     const initialPages = options.finalize ? pages : pages.slice(0, 1);
     const result = await sendDiscordPages(channel, initialPages, {
       replyToMessageId: options.replyToMessageId,
+      notifyRepliedUser: options.notifyRepliedUser,
     });
     state.messageId = result.messageIds[0] ?? null;
     state.continuationMessageIds = result.messageIds.slice(1);

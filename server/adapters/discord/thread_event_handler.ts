@@ -299,6 +299,7 @@ export function createDiscordThreadEventHandler(
     enqueue(channelId, state, async (channel) => {
       const result = await updateDiscordPreview(channel, state.preview, text, {
         replyToMessageId: state.replyToMessageId,
+        notifyRepliedUser: true,
       });
       if (!result.success) {
         onError(new Error(result.error ?? "Discord preview update failed."));
@@ -357,7 +358,10 @@ export function createDiscordThreadEventHandler(
               text: finalText,
               tone: "warning",
             }),
-            { replyToMessageId: state.replyToMessageId },
+            {
+              replyToMessageId: state.replyToMessageId,
+              notifyRepliedUser: true,
+            },
           );
           if (!partial.success) {
             onError(new Error(partial.error ?? "Partial response delivery failed."));
@@ -374,12 +378,14 @@ export function createDiscordThreadEventHandler(
       }
 
       const result = streaming
-        ? await updateDiscordPreview(channel, state.preview, finalText, {
+          ? await updateDiscordPreview(channel, state.preview, finalText, {
             finalize: true,
             replyToMessageId: state.replyToMessageId,
+            notifyRepliedUser: true,
           })
         : await sendDiscordMarkdown(channel, finalText, {
             replyToMessageId: state.replyToMessageId,
+            notifyRepliedUser: true,
           });
       if (!result.success) {
         onError(new Error(result.error ?? "Final response delivery failed."));

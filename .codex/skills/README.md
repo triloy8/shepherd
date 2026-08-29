@@ -21,7 +21,10 @@ Each skill lives in its own directory and is anchored by a `SKILL.md` file. Addi
 
 ## 🔐 Local Configuration
 
-Some skills may rely on local, untracked configuration. For example, the `github` skill uses `github/local.env` for machine-specific identity and policy values, while `github/local.env.example` is the tracked template.
+Some skills may rely on local, untracked configuration. The `github` skill uses the
+single Shepherd-owned `github/local.env` for machine-specific identity and policy
+values, while `github/local.env.example` is the tracked template. Target workspaces
+must not contain their own copies of this policy.
 
 ## 📝 Notes
 

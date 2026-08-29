@@ -43,6 +43,15 @@ export function loadEnvironment(scope: "discord" | "all"): void {
   const envDir = fs.existsSync(envsDir) ? envsDir : legacyDir;
   loadEnvFile(path.join(envDir, "common.env"));
   loadEnvFile(path.join(envDir, `${scope}.env`));
+  process.env.SHEPHERD_CONFIG_DIR = resolveShepherdConfigDir(
+    process.env.SHEPHERD_CONFIG_DIR,
+    process.cwd(),
+  );
+}
+
+export function resolveShepherdConfigDir(value: string | undefined, cwd: string): string {
+  const configured = value?.trim();
+  return path.resolve(cwd, configured || ".codex");
 }
 
 export function readApprovalPolicy(value: string | undefined): ApprovalPolicy {

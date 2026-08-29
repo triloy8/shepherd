@@ -9,19 +9,27 @@ Use `gh` as the default interface for any GitHub-related task. Use `git` only fo
 
 Prefer `gh` commands/API for remote operations, but allow `git push` for branch updates in PR workflows and for the verified owner-repository exception below. Keep `git pull`, `git fetch`, `git ls-remote`, `git remote` mutations, and `git submodule update --remote` blocked unless the user explicitly approves an exception in the current turn.
 
-## Workspace Policy
+## Shepherd Policy
 
-Load local policy values from `.codex/skills/github/local.env` before any remote action:
+Load policy values from the single Shepherd-owned configuration before any remote action:
 
 ```bash
+shepherd_github_policy="${SHEPHERD_CONFIG_DIR:?SHEPHERD_CONFIG_DIR is not set}/skills/github/local.env"
+test -r "$shepherd_github_policy" || {
+  echo "missing Shepherd GitHub policy: $shepherd_github_policy" >&2
+  exit 1
+}
 set -a
-source .codex/skills/github/local.env
+source "$shepherd_github_policy"
 set +a
+unset shepherd_github_policy
 ```
 
-Keep `.codex/skills/github/local.env` untracked. Commit only `.codex/skills/github/local.env.example`.
+Never create or source `.codex/skills/github/local.env` in a target workspace. Keep the
+central `${SHEPHERD_CONFIG_DIR}/skills/github/local.env` untracked and commit only the
+Shepherd-owned `local.env.example` template.
 
-Set these policy values for this workspace and enforce them on every remote action:
+Set these policy values for the Shepherd installation and enforce them on every remote action:
 
 - `EXPECTED_GITHUB_LOGIN`: from `$EXPECTED_GITHUB_LOGIN`
 - `EXPECTED_GIT_USER_NAME`: from `$EXPECTED_GIT_USER_NAME`
@@ -35,7 +43,6 @@ Set these policy values for this workspace and enforce them on every remote acti
 
 Treat any mismatch as a hard stop unless the user explicitly overrides in the current turn.
 
-Set `ACTIVE_REPO_PATH` per task/session to the user's current primary working repository.
 Treat `ALLOWED_REPOS` as a comma-separated list, for example `owner/repo-one,owner/repo-two`.
 
 ## Workspace Isolation (Hard-Clone Mode)

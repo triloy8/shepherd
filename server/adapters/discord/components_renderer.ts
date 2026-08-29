@@ -169,17 +169,14 @@ export function buildEventPages(event: BridgeEvent): DiscordSurfacePage[] {
 
 export function componentsV2Payload(
   page: DiscordSurfacePage,
-  options: {
-    replyToMessageId?: string | null;
-    notifyRepliedUser?: boolean;
-  } = {},
+  options: { replyToMessageId?: string | null } = {},
 ): MessageCreateOptions {
   return {
     flags: MessageFlags.IsComponentsV2,
     components: page.components,
     allowedMentions: {
       parse: [],
-      ...(options.replyToMessageId ? { repliedUser: options.notifyRepliedUser ?? false } : {}),
+      ...(options.replyToMessageId ? { repliedUser: false } : {}),
     },
     ...(options.replyToMessageId
       ? {

@@ -223,8 +223,9 @@ export function createDiscordThreadEventHandler(
   const currentOrCreate = (channelId: string, turnId: string | null): DiscordTurnDeliveryState => {
     const current = stateByChannel.get(channelId);
     if (current) return current;
-    const created = createState(turnId, Promise.resolve(), pendingReplyByChannel.get(channelId) ?? null);
-    pendingReplyByChannel.delete(channelId);
+    const replyToMessageId = turnId ? pendingReplyByChannel.get(channelId) ?? null : null;
+    const created = createState(turnId, Promise.resolve(), replyToMessageId);
+    if (turnId) pendingReplyByChannel.delete(channelId);
     stateByChannel.set(channelId, created);
     return created;
   };
@@ -299,7 +300,6 @@ export function createDiscordThreadEventHandler(
     enqueue(channelId, state, async (channel) => {
       const result = await updateDiscordPreview(channel, state.preview, text, {
         replyToMessageId: state.replyToMessageId,
-        notifyRepliedUser: true,
       });
       if (!result.success) {
         onError(new Error(result.error ?? "Discord preview update failed."));
@@ -358,10 +358,7 @@ export function createDiscordThreadEventHandler(
               text: finalText,
               tone: "warning",
             }),
-            {
-              replyToMessageId: state.replyToMessageId,
-              notifyRepliedUser: true,
-            },
+            { replyToMessageId: state.replyToMessageId },
           );
           if (!partial.success) {
             onError(new Error(partial.error ?? "Partial response delivery failed."));
@@ -378,14 +375,12 @@ export function createDiscordThreadEventHandler(
       }
 
       const result = streaming
-          ? await updateDiscordPreview(channel, state.preview, finalText, {
+        ? await updateDiscordPreview(channel, state.preview, finalText, {
             finalize: true,
             replyToMessageId: state.replyToMessageId,
-            notifyRepliedUser: true,
           })
         : await sendDiscordMarkdown(channel, finalText, {
             replyToMessageId: state.replyToMessageId,
-            notifyRepliedUser: true,
           });
       if (!result.success) {
         onError(new Error(result.error ?? "Final response delivery failed."));

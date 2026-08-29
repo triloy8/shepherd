@@ -245,6 +245,29 @@ describe("Discord thread event handler", () => {
     handler.dispose();
   });
 
+  test("keeps the user reply target across lifecycle events before turn start", async () => {
+    const harness = createHarness();
+    const handler = createDiscordThreadEventHandler(harness.client);
+    handler.recordUserMessage("chan-1", "user-message-1");
+    handler.handleThreadEvent(
+      "chan-1",
+      makeEvent("thread.name.updated", { threadName: "Comparison research" }),
+    );
+    handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("chan-1", finalDelta("The comparison is ready."));
+    handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("chan-1");
+
+    expect(sentCard(harness.sent, 0).title).toBe("Thread updated");
+    expect(payloadText(harness.sent[1])).toBe("The comparison is ready.");
+    expect(harness.sent[1]?.reply).toEqual({
+      messageReference: "user-message-1",
+      failIfNotExists: false,
+    });
+    expect(harness.sent[1]?.allowedMentions).toEqual({ parse: [], repliedUser: false });
+    handler.dispose();
+  });
+
   test("orders completed commentary, progress, and the final answer independently", async () => {
     const harness = createHarness();
     const handler = createDiscordThreadEventHandler(harness.client, {
@@ -252,6 +275,7 @@ describe("Discord thread event handler", () => {
       onError: (error) => harness.errors.push(error),
     });
 
+    handler.recordUserMessage("chan-1", "user-message-1");
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent("chan-1", commentaryDelta("I found the issue."));
     handler.handleThreadEvent(
@@ -282,6 +306,11 @@ describe("Discord thread event handler", () => {
     expect(sentCard(harness.sent, 1).title).toBe("Working");
     expect(sentCard(harness.sent, 1).description).toContain("🔧 Running command: bun test");
     expect(payloadText(harness.sent[2])).toBe("The tests pass.");
+    expect(harness.sent[2]?.reply).toEqual({
+      messageReference: "user-message-1",
+      failIfNotExists: false,
+    });
+    expect(harness.sent[2]?.allowedMentions).toEqual({ parse: [], repliedUser: false });
     expect(harness.errors).toHaveLength(0);
     handler.dispose();
   });

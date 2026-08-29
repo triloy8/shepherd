@@ -223,8 +223,9 @@ export function createDiscordThreadEventHandler(
   const currentOrCreate = (channelId: string, turnId: string | null): DiscordTurnDeliveryState => {
     const current = stateByChannel.get(channelId);
     if (current) return current;
-    const created = createState(turnId, Promise.resolve(), pendingReplyByChannel.get(channelId) ?? null);
-    pendingReplyByChannel.delete(channelId);
+    const replyToMessageId = turnId ? pendingReplyByChannel.get(channelId) ?? null : null;
+    const created = createState(turnId, Promise.resolve(), replyToMessageId);
+    if (turnId) pendingReplyByChannel.delete(channelId);
     stateByChannel.set(channelId, created);
     return created;
   };

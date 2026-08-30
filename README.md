@@ -8,9 +8,9 @@ Shepherd is an opinionated application layer around `codex app-server`.
 
 It packages the parts that sit above the raw app-server bridge: surface lifecycle, workspace targeting, command semantics, routing policy, approvals, and event delivery.
 
-The goal is a reusable core that can back multiple surfaces. Discord is the current canary in the coal mine: the first serious adapter proving that architecture under real constraints. Other adapters may be added later, but the core application flow is intended to stay the same.
+The goal is a reusable core that can back multiple surfaces and local ingress adapters. Discord is the current canary in the coal mine: the first serious surface proving that architecture under real constraints. Other adapters may be added later, but the core application flow is intended to stay the same.
 
-Today, the shipped adapter is Discord.
+Today, Shepherd ships a Discord surface and an opt-in localhost signal webhook.
 
 ## 🎯 What It Does
 
@@ -40,6 +40,9 @@ Discord channel.
 - `shared/protocol`: request, event, approval, and user-input contracts
 - `server/core`: the application and runtime core around `codex app-server`
 - `server/adapters/discord`: Discord transport, parsing, rendering, delivery, and interactions
+- `server/adapters/webhook`: loopback HTTP signal ingress
+- `server/signals`: registered signal-kind definitions
+- `server/runtime`: shared process composition and lifecycle
 - `server/config`: env loading
 - `envs`: local runtime config and example env files
 - `schemas`: generated protocol schemas
@@ -128,6 +131,14 @@ Supported keys:
 - `CODEX_MODEL`: optional. If unset, the runtime falls back to `gpt-5.3-codex`
 - `CODEX_APPROVAL_POLICY`: optional. Default in the example file: `never`
 - `CODEX_SANDBOX`: optional. One of `read-only`, `workspace-write`, or `danger-full-access`
+- `SHEPHERD_SIGNAL_WEBHOOK_ENABLED`: optional boolean, default `false`
+- `SHEPHERD_SIGNAL_WEBHOOK_HOST`: optional, default `127.0.0.1`; non-loopback binds are rejected
+- `SHEPHERD_SIGNAL_WEBHOOK_PORT`: optional integer, default `8787`
+- `SHEPHERD_SIGNAL_WEBHOOK_MAX_BODY_BYTES`: optional integer, default `65536`
+- `SHEPHERD_SIGNAL_QUEUE_CAPACITY`: optional integer, default `100`
+- `SHEPHERD_SIGNAL_WEBHOOK_TOKEN`: optional shared bearer token
+- `SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID`: Discord channel whose current
+  thread receives `research.state-changed` turns; required when the webhook is enabled
 
 > [!WARNING]
 > `CODEX_APPROVAL_POLICY=never` disables approval prompts. Combined with
@@ -135,6 +146,32 @@ Supported keys:
 > Use it only when that trust boundary is acceptable.
 
 The committed `.example` files are the templates intended for public use.
+
+## Local signal webhook
+
+When enabled, Shepherd accepts versioned signals at `POST /signals` on the
+configured loopback address. The initial kind is `research.state-changed`:
+
+```bash
+curl --fail-with-body http://127.0.0.1:8787/signals \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer replace-with-a-local-shared-token' \
+  --data '{
+    "kind": "research.state-changed",
+    "version": 1,
+    "subject": {"type": "research-run", "id": "run-123"},
+    "payload": {"state": "COMPLETE", "verified": true, "researchProject": "P001"}
+  }'
+```
+
+The configured Discord channel must already have an attached thread. Shepherd
+queues and coalesces signals only in memory, never steers an active human turn,
+and uses the channel's existing event subscription to deliver the result.
+`202 Accepted` means only that the current process accepted the signal; queued
+signals are intentionally lost on restart. `GET /health` reports whether the
+adapter is accepting work. See
+[the signal contract](.docs/volatile-webhook-signals.md) for the complete API,
+failure semantics, and extension model.
 
 ## 💬 Current Adapter: Discord
 

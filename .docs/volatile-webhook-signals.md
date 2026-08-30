@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Objective
 
@@ -71,7 +71,7 @@ but it is not part of the experiment control plane.
 
 ## HTTP ingress
 
-The initial adapter should expose a small HTTP surface on a configurable
+The adapter exposes a small HTTP surface on a configurable
 loopback address. It must not bind to a public or wildcard interface by
 default.
 
@@ -125,14 +125,19 @@ Suggested response semantics:
 
 - `202 Accepted`: the current Shepherd process accepted the signal into memory;
 - `400 Bad Request`: the request or payload is malformed;
+- `401 Unauthorized`: the configured bearer token is missing or incorrect;
 - `404 Not Found`: the signal kind is unknown;
 - `409 Conflict`: the configured target has no active thread binding;
 - `413 Content Too Large`: the request exceeds the configured size limit;
+- `415 Unsupported Media Type`: the request is not JSON;
 - `429 Too Many Requests`: the bounded in-memory queue is full; and
 - `503 Service Unavailable`: Shepherd is starting, quiescing, or shutting down.
 
 `202 Accepted` deliberately does not promise eventual execution, durable
 acceptance, or delivery of an agent response.
+
+`GET /health` returns `200` while the adapter is accepting signals and `503`
+while Shepherd is quiescing.
 
 ## Trusted routing configuration
 
@@ -159,7 +164,7 @@ type SignalDefinition<T> = {
 ```
 
 The target resolves to the surface's current in-memory thread binding and that
-thread's workspace when the signal is dispatched. Switching the surface to a
+thread's workspace when the signal is accepted. Switching the surface to a
 different thread changes where later signals go. If the surface has no active
 binding, Shepherd cannot dispatch the signal. This preserves the intentionally
 volatile model without permanently configuring Codex thread IDs.
@@ -284,18 +289,16 @@ type SignalExecutor = {
   resolveTarget: (target: SignalTarget) => Promise<{
     threadId: string;
     cwd: string;
-  }>;
-  getActiveTurnId: (threadId: string) => string | null;
-  submitTurn: (threadId: string, input: UserInput[]) => Promise<void>;
+  } | null>;
+  waitUntilIdle: (target: ResolvedSignalTarget) => Promise<void>;
+  executeTurn: (target: ResolvedSignalTarget, input: UserInput[]) => Promise<void>;
 };
 ```
 
 Existing surface subscriptions can deliver the resulting Codex events to
 Discord. Signal turns should not need a second response-delivery mechanism.
 
-## Initial implementation sequence
-
-Implementation should proceed as small follow-up pull requests.
+## Implementation structure
 
 ### 1. Core signal mechanism
 
@@ -357,8 +360,9 @@ In either case, producer business logic stays outside Shepherd.
 
 ## Open decisions
 
-- Configuration format and precedence for signal routes.
-- Whether the first version enables a bearer token by default.
-- Queue capacity, coalescing-key rules, and periodic reconciliation interval.
+- Whether later kinds use environment configuration, a declarative route file,
+  or TypeScript-only registration.
+- Whether a bearer token should become mandatory rather than optional.
+- Whether periodic reconciliation should complement producer webhooks.
 - Whether responses are delivered only to surfaces or can also be returned
   asynchronously to local producers in a later design.

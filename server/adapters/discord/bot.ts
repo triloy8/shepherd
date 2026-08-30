@@ -14,8 +14,17 @@ import {
 
 import type { SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment, readApprovalPolicy, readBoolean } from "../../config/environment.js";
+import { readSignalRuntimeConfig } from "../../config/signal_environment.js";
+import { ConversationSignalExecutor } from "../../core/conversation_signal_executor.js";
 import { DeploymentService } from "../../core/deployment_service.js";
+import { SignalDispatcher } from "../../core/signal_dispatcher.js";
+import { SignalRegistry } from "../../core/signal_registry.js";
 import { ShepherdRuntime } from "../../runtime/shepherd_runtime.js";
+import { createResearchStateChangedDefinition } from "../../signals/research_state_changed.js";
+import {
+  startWebhookSignalServer,
+  type WebhookSignalServer,
+} from "../webhook/server.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
@@ -84,6 +93,12 @@ export async function startDiscordBot(): Promise<void> {
     process.env.SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS,
     "SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS",
   );
+  const signalConfig = readSignalRuntimeConfig();
+  if (signalConfig.enabled && !signalConfig.researchDiscordSurfaceId) {
+    throw new Error(
+      "SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID is required when signal webhooks are enabled.",
+    );
+  }
   const deployment = new DeploymentService({
     ...(deploymentCommandTimeoutMs ? { commandTimeoutMs: deploymentCommandTimeoutMs } : {}),
   });
@@ -106,6 +121,7 @@ export async function startDiscordBot(): Promise<void> {
     partials: [Partials.Channel],
   });
   let disposeThreadEvents = (): void => {};
+  let webhookServer: WebhookSignalServer | null = null;
 
   const threadEvents = createDiscordThreadEventHandler(client, {
     streaming: discordStreaming,
@@ -125,7 +141,22 @@ export async function startDiscordBot(): Promise<void> {
     runtimeLifecycle: shepherd.lifecycle,
   });
 
+  const signalRegistry = new SignalRegistry();
+  if (signalConfig.researchDiscordSurfaceId) {
+    signalRegistry.register(
+      createResearchStateChangedDefinition(signalConfig.researchDiscordSurfaceId),
+    );
+  }
+  const signalDispatcher = new SignalDispatcher(
+    new ConversationSignalExecutor(conversation),
+    {
+      capacity: signalConfig.queueCapacity,
+    },
+  );
+
   shepherd.registerShutdownHook(async () => {
+    signalDispatcher.dispose();
+    await webhookServer?.stop();
     disposeThreadEvents();
     await client.destroy();
   });
@@ -169,7 +200,28 @@ export async function startDiscordBot(): Promise<void> {
     await handleInteraction(interaction, conversation, runtime.commandContext);
   });
 
-  await client.login(token);
+  try {
+    await client.login(token);
+    if (signalConfig.enabled) {
+      webhookServer = startWebhookSignalServer({
+        registry: signalRegistry,
+        dispatcher: signalDispatcher,
+        hostname: signalConfig.hostname,
+        port: signalConfig.port,
+        maxBodyBytes: signalConfig.maxBodyBytes,
+        bearerToken: signalConfig.bearerToken,
+        isAvailable: () => !shepherd.isQuiescing(),
+      });
+      console.log(`signal webhook ready at ${webhookServer.url}`);
+    }
+  } catch (error) {
+    try {
+      await shepherd.shutdown();
+    } catch (shutdownError) {
+      console.error("Shepherd startup cleanup failed:", shutdownError);
+    }
+    throw error;
+  }
 
   process.on("SIGINT", () => {
     void shepherd.shutdown().finally(() => process.exit(0));

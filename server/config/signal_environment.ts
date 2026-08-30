@@ -6,7 +6,6 @@ export type SignalRuntimeConfig = {
   port: number;
   maxBodyBytes: number;
   queueCapacity: number;
-  bearerToken?: string;
   researchDiscordSurfaceId?: string;
 };
 
@@ -61,9 +60,6 @@ export function readSignalRuntimeConfig(
       1,
       10_000,
     ),
-    ...(optionalTrimmed(environment.SHEPHERD_SIGNAL_WEBHOOK_TOKEN)
-      ? { bearerToken: optionalTrimmed(environment.SHEPHERD_SIGNAL_WEBHOOK_TOKEN) }
-      : {}),
     ...(optionalTrimmed(environment.SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID)
       ? {
           researchDiscordSurfaceId: optionalTrimmed(

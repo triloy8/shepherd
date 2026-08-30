@@ -13,8 +13,8 @@ archive when historical reasoning is useful.
 - [Known errors](errors.md) — diagnosed errors, their impact, and recovery.
 - [Future implementations](future-implementations.md) — proposed work that has
   not been accepted as current behavior.
-- [Volatile localhost webhook signals](volatile-webhook-signals.md) — proposed
-  best-effort local service signals with in-memory-only coordination.
+- [Volatile signal callbacks](volatile-webhook-signals.md) — implemented
+  loopback signals and the accepted ephemeral per-operation routing proposal.
 
 ## Historical design material
 

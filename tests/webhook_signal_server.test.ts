@@ -34,7 +34,6 @@ function makeRegistry(): SignalRegistry {
 
 function start(options: {
   result?: SignalDispatchResult;
-  token?: string;
   maxBodyBytes?: number;
   available?: boolean;
   accepted?: RegisteredSignal[];
@@ -49,7 +48,6 @@ function start(options: {
     },
     hostname: "127.0.0.1",
     port: 0,
-    bearerToken: options.token,
     maxBodyBytes: options.maxBodyBytes,
     isAvailable: () => options.available ?? true,
   });
@@ -67,7 +65,7 @@ function validBody(): Record<string, unknown> {
 }
 
 describe("webhook signal server", () => {
-  test("accepts and resolves a typed signal", async () => {
+  test("accepts and resolves an unauthenticated typed signal", async () => {
     const accepted: RegisteredSignal[] = [];
     const server = start({ accepted });
     const response = await fetch(`${server.url}/signals`, {
@@ -117,21 +115,11 @@ describe("webhook signal server", () => {
     expect((await request(validBody(), "text/plain")).status).toBe(415);
   });
 
-  test("enforces bearer authentication and body limits", async () => {
-    const server = start({ token: "secret", maxBodyBytes: 32 });
-    const unauthorized = await fetch(`${server.url}/signals`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(validBody()),
-    });
-    expect(unauthorized.status).toBe(401);
-
+  test("enforces body limits", async () => {
+    const server = start({ maxBodyBytes: 32 });
     const oversized = await fetch(`${server.url}/signals`, {
       method: "POST",
-      headers: {
-        authorization: "Bearer secret",
-        "content-type": "application/json",
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(validBody()),
     });
     expect(oversized.status).toBe(413);

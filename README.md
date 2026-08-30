@@ -136,7 +136,6 @@ Supported keys:
 - `SHEPHERD_SIGNAL_WEBHOOK_PORT`: optional integer, default `8787`
 - `SHEPHERD_SIGNAL_WEBHOOK_MAX_BODY_BYTES`: optional integer, default `65536`
 - `SHEPHERD_SIGNAL_QUEUE_CAPACITY`: optional integer, default `100`
-- `SHEPHERD_SIGNAL_WEBHOOK_TOKEN`: optional shared bearer token
 - `SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID`: Discord channel whose current
   thread receives `research.state-changed` turns; omitting it leaves that kind unregistered
 
@@ -150,12 +149,13 @@ The committed `.example` files are the templates intended for public use.
 ## Local signal webhook
 
 When enabled, Shepherd accepts versioned signals at `POST /signals` on the
-configured loopback address. The initial kind is `research.state-changed`:
+configured loopback address. The endpoint is intentionally unauthenticated and
+must not be proxied or exposed beyond the trusted local host. The initial kind
+is `research.state-changed`:
 
 ```bash
 curl --fail-with-body http://127.0.0.1:8787/signals \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer replace-with-a-local-shared-token' \
   --data '{
     "kind": "research.state-changed",
     "version": 1,

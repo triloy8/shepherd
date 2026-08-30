@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 import type { SignalDispatchResult } from "../../core/signal_dispatcher.js";
 import {
   InvalidSignalError,
@@ -39,7 +37,6 @@ export type WebhookSignalServerOptions = {
   hostname?: string;
   port?: number;
   maxBodyBytes?: number;
-  bearerToken?: string;
   allowNonLoopback?: boolean;
   isAvailable?: () => boolean;
   onError?: (error: unknown) => void;
@@ -62,13 +59,6 @@ function jsonResponse(status: number, body: Record<string, unknown>): Response {
       "cache-control": "no-store",
     },
   });
-}
-
-function bearerMatches(header: string | null, expected: string): boolean {
-  if (!header?.startsWith("Bearer ")) return false;
-  const actual = Buffer.from(header.slice("Bearer ".length), "utf8");
-  const wanted = Buffer.from(expected, "utf8");
-  return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
 
 async function readBoundedJson(request: Request, maxBodyBytes: number): Promise<unknown> {
@@ -157,9 +147,6 @@ export function startWebhookSignalServer(options: WebhookSignalServerOptions): W
       }
       if (!isAvailable()) {
         return jsonResponse(503, { error: "Shepherd is not accepting signals." });
-      }
-      if (options.bearerToken && !bearerMatches(request.headers.get("authorization"), options.bearerToken)) {
-        return jsonResponse(401, { error: "Unauthorized." });
       }
       const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
       if (contentType !== "application/json") {

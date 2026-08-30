@@ -1,79 +1,242 @@
-# Volatile localhost webhook signals
+# Volatile signal callbacks
 
 ## Status
 
-Implemented.
+The generic loopback webhook, signal registry, bounded in-memory dispatcher,
+and static Discord-surface route are implemented.
+
+Ephemeral callback routes are the accepted next design step. They are proposed
+here but are not implemented yet. Until that work lands,
+`research.state-changed` continues to use the single Discord channel configured
+by `SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID`, and that channel must have a
+live in-memory Codex thread binding.
 
 ## Objective
 
-Allow an always-on Shepherd process to begin agent work in response to local
-service signals, without requiring a human message and without introducing
-durable coordination state into Shepherd.
+Allow an always-on Shepherd process to begin agent work when a detached local
+service reports a meaningful state change. The service can outlive the Codex
+turn that launched it, and the resulting agent turn should return to the
+originating Codex conversation and Discord channel without placing thread or
+channel identifiers in producer-controlled payloads.
 
-The first intended producer is a local remote-experiment service. The design
-must remain generic enough for other local producers without turning Shepherd
-into a workflow engine.
+The first producer is a detached research-run service supervised by systemd.
+The mechanism must remain generic enough for builds, data preparation, and
+other local services without turning Shepherd into a workflow engine.
+
+## Target flow
+
+```text
+Discord conversation
+  -> Shepherd/Codex requests a detached operation
+  -> Shepherd creates an ephemeral callback route for that conversation
+  -> the opaque route ID is passed to the systemd service
+  -> the interactive Codex turn ends
+  -> the service operates independently
+  -> the service POSTs a level-triggered signal to its callback route
+  -> Shepherd starts a new turn in the originating Codex thread
+  -> existing surface subscriptions deliver the response to Discord
+  -> the route is revoked or expires
+```
+
+Shepherd owns callback routing and agent execution policy. The detached service
+continues to own every correctness-critical part of its operation.
 
 ## Core decisions
 
-- Shepherd is always running. Process activation and process wake-up are not
-  part of this design.
-- Producers communicate with Shepherd through HTTP webhooks bound to the
-  loopback interface.
-- All signal coordination inside Shepherd is in memory.
+- Shepherd is always running. Process activation is outside this design.
+- Producers communicate through HTTP bound to the loopback interface.
+- Signals and callback routes are best-effort and held only in memory.
 - Shepherd does not add SQLite, a durable inbox, an event log, leases, durable
-  acknowledgements, or restart recovery for signals.
-- Signals are best-effort notifications that something may deserve attention.
-  They are not durable jobs or commands that must execute exactly once.
-- The producer continues to own every correctness-critical lifecycle concern.
-- Trusted Shepherd configuration owns routing and execution policy. Webhook
-  payloads report facts and cannot select arbitrary execution privileges.
+  acknowledgements, or callback recovery.
+- A signal means that current authoritative state may deserve inspection. It
+  is not a durable job that must execute exactly once.
+- Trusted Shepherd code creates routes from an active conversation context.
+  Producers cannot select a Codex thread, workspace, Discord channel, prompt,
+  model, sandbox, approval policy, or shell command.
+- Each detached operation receives an opaque, random route identifier.
+- Existing validation, bounded queueing, coalescing, busy-thread policy, Codex
+  execution, and Discord rendering remain the delivery path.
+- The producer remains correct if Shepherd is stopped, its route expires, a
+  signal is lost, or the resulting agent turn fails.
+
+## Current implemented baseline
+
+The implemented route for `research.state-changed` is static:
+
+```text
+configured Discord channel
+  -> current in-memory thread binding
+  -> signal-started Codex turn
+  -> Discord delivery through the channel subscription
+```
+
+This proves the webhook, validation, dispatch, and delivery path, but has two
+important limitations:
+
+- one Shepherd process has one configured research destination; and
+- a Shepherd restart loses the channel-to-thread binding.
+
+The static route remains as a compatibility fallback during the ephemeral-route
+rollout. It should not be extended into a collection of indexed environment
+variables. Dynamic per-operation routes are the intended scaling mechanism.
 
 ## Terminology
 
-This design calls inbound messages **signals** rather than jobs or events. A
-signal means:
+### Signal
 
-> Something changed. If Shepherd hears this signal, it may inspect the current
-> state and begin an agent turn.
-
-The word is intentionally weaker than a durable event. Receiving a successful
-HTTP response does not create a persistent obligation for Shepherd.
+A versioned, validated notification that something changed and Shepherd may
+want to inspect authoritative current state.
 
 Signals should normally be level-triggered. For example,
-`research.state-changed` asks Shepherd to inspect current research state. It
-does not require Shepherd to execute a unique `run-completed` task exactly
-once. Repeated level-triggered signals can be coalesced safely, and later
-signals can make earlier missed changes visible.
+`research.state-changed` means "inspect the current state of this run," not
+"perform this completion action exactly once." Repeated signals can therefore
+be safely coalesced in memory.
+
+### Signal definition
+
+Trusted code that owns a signal kind's payload validation, Codex input
+construction, coalescing policy, and allowed execution behavior.
+
+### Callback route
+
+An opaque, temporary routing handle created by Shepherd. It associates one or more
+allowed signal definitions with a trusted execution and delivery target.
+
+### Producer
+
+The detached local service that owns domain state and reports changes through
+the route. For research, this is the systemd-supervised research service, not
+Shepherd.
 
 ## Responsibility boundary
 
 ```text
-local producer
-  owns its durable state and correctness-critical lifecycle
+trusted launch context in Shepherd
+  creates route for originating thread and surface
        |
-       | best-effort HTTP signal over loopback
+       | opaque route ID
+       v
+detached local producer
+  owns execution, monitoring, budgets, artifacts, recovery, and cleanup
+       |
+       | best-effort localhost signal
        v
 Shepherd
-  validates, routes, coalesces, and queues in memory
+  validates, resolves, coalesces, and queues in memory
        |
-       | starts or resumes a configured Codex thread
+       | starts a new turn in the captured Codex thread
        v
-surface adapter
-  optionally delivers the agent response, for example to Discord
+Discord surface
+  renders normal Shepherd activity and the final response
 ```
 
 For remote experiments, the experiment service remains responsible for launch,
-budgets, monitoring, evidence publication, recovery, and resource termination.
-Those invariants must remain correct if Shepherd is stopped, busy, or never
-receives the signal. Shepherd may inspect and interpret the resulting state,
-but it is not part of the experiment control plane.
+spending limits, monitoring, evidence publication, recovery, and resource
+termination. These invariants must remain correct if Shepherd never receives a
+signal. Shepherd may inspect and interpret the resulting state, but it is not
+part of the experiment control plane.
+
+## Ephemeral route model
+
+The core registry should retain records shaped approximately as follows:
+
+```ts
+type EphemeralSignalRoute = {
+  id: string;
+  allowedSignals: ReadonlyArray<{
+    kind: string;
+    version: number;
+  }>;
+  target: {
+    threadId: string;
+    cwd: string;
+  };
+  delivery: {
+    adapter: "discord";
+    surfaceId: string;
+  };
+  createdAt: number;
+  expiresAt: number;
+  state: "active" | "revoked" | "expired";
+};
+```
+
+Route IDs must have enough entropy to avoid collisions and casual enumeration,
+but they are routing handles rather than authentication secrets. The loopback
+listener is intentionally unauthenticated. Logs should use a shortened route-ID
+prefix when that is sufficient for correlation.
+
+The route captures both concerns that were previously conflated:
+
+- `threadId` determines which Codex conversation receives the new turn; and
+- `surfaceId` determines where existing thread events are rendered.
+
+The producer receives neither identifier.
+
+Routes are process-local. Restarting Shepherd invalidates all outstanding route
+IDs by design. A producer may retry or rely on a later level-triggered
+notification, but it must not assume callback delivery.
+
+## Trusted route creation
+
+Route creation must occur inside Shepherd while the originating conversation is
+known. The trusted caller supplies conversation context already resolved by the
+runtime:
+
+```ts
+type CreateSignalRouteRequest = {
+  allowedSignals: ReadonlyArray<{ kind: string; version: number }>;
+  target: { threadId: string; cwd: string };
+  delivery: { adapter: "discord"; surfaceId: string };
+  ttlMs: number;
+};
+```
+
+Signal ingress must not accept arbitrary thread or Discord channel IDs. Route
+creation is a trusted control-plane operation, not part of producer ingress.
+
+The initial research integration needs a Shepherd-aware launch operation. From
+an active conversation it should:
+
+1. Resolve the current Codex thread, workspace, and Discord surface.
+2. Create a route allowing `research.state-changed@1`.
+3. Add the callback URL and route ID to the detached unit's environment.
+4. Launch or hand off to the existing systemd research runner.
+5. Return control while systemd and the producer own the remaining lifecycle.
+
+The generic route service must not depend on research or systemd. The first
+integration can adapt that service to the existing research launcher. Later
+launchers can reuse the same route-creation API.
+
+One implementation detail still requires a focused interface decision: how an
+agent-initiated launch invokes the trusted route service with its active
+conversation context. Acceptable approaches include a first-class Shepherd
+control/tool operation or a route-aware launcher owned by the adapter/core
+boundary. A public webhook that lets the producer claim a thread or surface is
+not acceptable.
+
+## Producer handoff
+
+The route-aware launcher passes two ordinary callback values to the detached
+service:
+
+```env
+SHEPHERD_SIGNAL_URL=http://127.0.0.1:8787/signals
+SHEPHERD_SIGNAL_ROUTE_ID=<opaque-route-id>
+```
+
+No token file, authorization header, credential exchange, or secret rotation is
+part of this contract. The URL and route ID may be passed directly through the
+unit environment. Producers should still avoid dumping their complete runtime
+environment or unbounded signal payloads into logs.
+
+Shepherd initiating this handoff does not make it the research supervisor. The
+unit remains independently managed and can continue or clean up after the
+interactive Codex turn ends.
 
 ## HTTP ingress
 
-The adapter exposes a small HTTP surface on a configurable
-loopback address. It must not bind to a public or wildcard interface by
-default.
+The existing endpoint remains generic:
 
 ```http
 POST /signals HTTP/1.1
@@ -81,6 +244,7 @@ Host: 127.0.0.1:8787
 Content-Type: application/json
 
 {
+  "routeId": "opaque-route-id",
   "kind": "research.state-changed",
   "version": 1,
   "subject": {
@@ -95,10 +259,11 @@ Content-Type: application/json
 }
 ```
 
-All producers use the same endpoint and envelope:
+The proposed routed envelope is:
 
 ```ts
-type SignalEnvelope = {
+type RoutedSignalEnvelope = {
+  routeId: string;
   kind: string;
   version: number;
   subject?: { type: string; id: string };
@@ -106,274 +271,278 @@ type SignalEnvelope = {
 };
 ```
 
-Each signal kind owns a narrow, versioned payload schema. A service unrelated
-to research can therefore use the same API with a different kind and payload:
+Ingress processing order should avoid leaking route information:
 
-```json
-{
-  "kind": "build.finished",
-  "version": 1,
-  "subject": { "type": "build", "id": "build-456" },
-  "payload": { "status": "failed", "branch": "main" }
-}
-```
+1. Enforce lifecycle availability, method, path, content type, and body limit.
+2. Parse the envelope and validate its structural bounds.
+3. Resolve the route and confirm it is active and allows the requested kind and
+   version.
+4. Validate the kind-specific payload.
+5. Resolve the captured thread and delivery subscription.
+6. Offer the signal to the bounded dispatcher.
 
-Unknown kinds, unsupported versions, and invalid kind-specific payloads are
-rejected before entering the in-memory dispatcher.
+The existing static envelope may remain temporarily for backward compatibility.
 
-Suggested response semantics:
+## Response semantics
 
-- `202 Accepted`: the current Shepherd process accepted the signal into memory;
-- `400 Bad Request`: the request or payload is malformed;
-- `401 Unauthorized`: the configured bearer token is missing or incorrect;
-- `404 Not Found`: the signal kind is unknown;
-- `409 Conflict`: the configured target has no active thread binding;
-- `413 Content Too Large`: the request exceeds the configured size limit;
-- `415 Unsupported Media Type`: the request is not JSON;
-- `429 Too Many Requests`: the bounded in-memory queue is full; and
+- `202 Accepted`: accepted into the current process's memory;
+- `400 Bad Request`: malformed envelope or kind-specific payload;
+- `404 Not Found`: unknown route or signal kind;
+- `409 Conflict`: the captured target cannot currently execute or deliver;
+- `410 Gone`: known route that has been revoked or expired, if Shepherd retains
+  a bounded tombstone; otherwise return `404`;
+- `413 Content Too Large`: request exceeds the configured body limit;
+- `415 Unsupported Media Type`: request is not JSON;
+- `429 Too Many Requests`: bounded queue or route rate limit is saturated; and
 - `503 Service Unavailable`: Shepherd is starting, quiescing, or shutting down.
 
-`202 Accepted` deliberately does not promise eventual execution, durable
-acceptance, or delivery of an agent response.
+`202 Accepted` means only that the current Shepherd process accepted the
+signal. It does not promise eventual execution, durable acceptance, or delivery
+of an agent response.
 
-An accepted response reports whether the signal replaced equivalent pending
-work and which live thread was resolved:
+An accepted response may report coalescing without exposing internal routing:
 
 ```json
 {
   "accepted": true,
-  "coalesced": false,
-  "threadId": "thread-123"
+  "coalesced": false
 }
 ```
 
-`GET /health` returns `200` while the adapter is accepting signals and `503`
-while Shepherd is quiescing.
+The routed response should not return a Codex thread ID. `GET /health` reports
+only whether the adapter can accept work.
 
-## Trusted routing configuration
+## Signal definitions
 
-Webhook payloads should contain external facts, not execution authority.
-Shepherd registers each signal kind with its validation, input construction,
-coalescing policy, and trusted target. Definitions are registered during runtime
-composition rather than handled by a central `switch` statement:
+Signal definitions remain independent of routes:
 
 ```ts
-type SignalTarget = {
-  type: "surface";
-  adapter: string;
-  surfaceId: string;
-};
-
 type SignalDefinition<T> = {
   kind: string;
   version: number;
   validatePayload: (value: unknown) => T;
   buildInput: (signal: SignalEnvelope & { payload: T }) => UserInput[];
   coalesceKey?: (signal: SignalEnvelope & { payload: T }) => string;
-  target: SignalTarget;
 };
 ```
 
-The target resolves to the surface's current in-memory thread binding and that
-thread's workspace when the signal is accepted. Switching the surface to a
-different thread changes where later signals go. If the surface has no active
-binding, Shepherd cannot dispatch the signal. This preserves the intentionally
-volatile model without permanently configuring Codex thread IDs.
+A route authorizes one or more registered definitions and supplies the trusted
+target. This allows many simultaneous routes to reuse
+`research.state-changed@1` while delivering to different conversations.
 
-The exact configuration format is an implementation decision. The boundary is
-more important than the syntax: a producer must not be able to choose an
-arbitrary workspace, thread, prompt template, model, sandbox mode, approval
-policy, surface destination, or shell command.
+The configured input should direct Codex to inspect authoritative current state.
+For consequential operations it must retain the same explicit human authority
+requirements as an interactive turn.
 
-The configured prompt should direct Codex to inspect authoritative current
-state. For consequential operations it should require the same explicit human
-authority that an interactive turn would require.
+## Dispatch and Discord delivery
 
-## In-memory dispatch
+The existing dispatcher remains responsible for:
 
-The dispatcher retains the following state for the life of the process:
+- a bounded in-memory queue;
+- coalescing queued and active signals;
+- per-thread serialization;
+- waiting for active human turns without steering them; and
+- submitting the resulting Codex input.
 
-- a bounded queue of accepted signals;
-- coalescing keys for queued and active signals;
-- active Codex sessions and turns;
-- per-thread concurrency state;
-- transient response-delivery state.
+Repeated level-triggered signals with the same coalescing key may collapse into
+one pending inspection. A matching signal received while its turn is active may
+retain at most one follow-up containing the latest payload.
 
-All of this state is discarded on restart.
+The route's captured thread is the execution target. The captured Discord
+surface uses the existing thread-event subscription, Components V2 renderer,
+streaming behavior, and final-answer delivery. A signal-started turn should be
+visibly identified as automated context, for example with a concise
+`Research signal` status card, while its substantive output remains a normal
+Shepherd response.
 
-The default busy-thread policy queues the signal in memory. It does not
-steer an unrelated active turn automatically. A bounded queue prevents local
-producers from causing unbounded memory growth. Repeated level-triggered signals
-with the same configured coalescing key may collapse into one pending signal.
-For example, three queued `research.state-changed` signals for `run-123` can
-become one inspection, while a signal for `run-456` remains separate. This is
-only an in-memory optimization and provides no delivery or deduplication
-guarantee across restarts.
+Multiple routes may target different threads and Discord channels. Routes that
+target the same thread share its serialization queue and conversation context.
 
-If an equivalent signal arrives while its turn is active, the dispatcher
-retains at most one pending follow-up containing the latest accepted payload.
-This lets Shepherd inspect changes that occurred during the active turn without
-building an unbounded backlog.
+## Route lifecycle
 
-An implementation may add an in-memory startup or periodic reconciliation
-signal. Such a signal still provides no durable cursor or processing history;
-it simply asks the agent to inspect current external state again.
+Route cleanup is bounded housekeeping, not a correctness mechanism.
+
+- Every route has a maximum TTL.
+- Trusted launch code can explicitly revoke a route.
+- A route may optionally revoke after a terminal signal is accepted, but only
+  when the signal definition declares that policy.
+- Shepherd shutdown clears routes, queues, and transient delivery state.
+- Expired route records and optional tombstones are pruned with strict bounds.
+
+A failed revocation must not affect research cleanup. A terminal signal may be
+lost, duplicated, or arrive after expiration.
 
 ## Failure semantics
 
-This design knowingly accepts the following behavior:
+This design knowingly accepts that:
 
-- a signal may be lost during process restart or shutdown;
+- route IDs become invalid after Shepherd restarts;
+- a signal may be lost during restart or shutdown;
 - an accepted signal may never begin a Codex turn;
-- a turn may begin but its response may not be delivered;
+- a turn may begin but its response may not reach Discord;
 - repeated signals may cause repeated inspection;
-- signals from different producers may be observed in timing-dependent order;
-- Shepherd cannot prove that a particular external change was handled; and
-- surface bindings and other in-memory routing state may need to be recreated
-  after restart unless supplied by static configuration.
+- callbacks from different producers may be observed in timing-dependent order;
+- a systemd service may outlive its Shepherd callback route; and
+- Shepherd cannot prove that an external change was handled.
 
-These are product semantics, not implementation bugs. A feature must not use
-volatile signals when losing or duplicating the requested work would violate a
-safety, cost, publication, cleanup, or audit requirement.
+These are product semantics, not implementation bugs. Volatile callbacks must
+not be used for GPU termination, spending enforcement, artifact preservation,
+publication, auditing, or any action that must happen exactly once.
 
-## Local security boundary
+## Security boundary
 
-Loopback binding substantially narrows exposure, but the endpoint still crosses
-a trust boundary because Shepherd may run Codex with broad filesystem and
-command permissions.
+The listener is deliberately unauthenticated. Loopback binding is therefore the
+network trust boundary, and any local process that learns a live route ID can
+submit allowed signals to that route. It cannot redirect execution or select a
+different thread or surface. This tradeoff is accepted for the trusted,
+single-user deployment, but the mode must never be exposed on a public or
+wildcard interface.
 
-The adapter therefore:
+The implementation must:
 
-- bind to `127.0.0.1` by default and reject unsafe bind configuration unless it
-  is explicitly enabled;
-- enforce strict route-specific payload validation and request-size limits;
-- reject unknown fields where practical;
-- avoid logging secrets or full untrusted payloads;
-- place rate and queue bounds on every producer;
-- use trusted route configuration for execution context; and
-- optionally support a shared bearer token as inexpensive defense in depth.
+- bind to loopback and reject wildcard or public binds;
+- create routes only from trusted conversation context;
+- generate random, non-sequential route IDs;
+- strictly validate allowed kinds, versions, payloads, and request sizes;
+- place bounds on routes, tombstones, queues, and per-route request rates;
+- avoid logging full untrusted payloads;
+- prevent producers from selecting execution or delivery targets; and
+- ensure revocation and expiration disable future signals for the route.
 
-A Unix domain socket remains a possible future transport, but stdio is not the
-preferred boundary. Stdio would couple producer and Shepherd process
-lifecycles, complicate multiple producers, and make independent restarts and
-manual testing less convenient.
+## Relationship to MCP
 
-## Relationship to Shepherd's architecture
+MCP or a domain CLI can provide the command path from Codex to a research
+service:
 
-The webhook listener is an ingress adapter alongside Discord, not a Discord
-feature. Signal validation, coalescing, busy-thread policy, and dispatch belong
-in the application core. HTTP request parsing and response delivery belong in a
-localhost webhook adapter.
+```text
+Codex -> launch, inspect, cancel -> research service
+```
 
-The implementation avoids introducing a general plugin loader.
-The webhook adapter and one remote-experiment integration should establish the
-extension seam. A formal addon contract can be designed after a second use case
-shows which parts are genuinely reusable.
+The callback route provides the opposite asynchronous direction:
 
-A likely initial module boundary is:
+```text
+research service -> state changed -> Shepherd -> new Codex turn
+```
+
+Normal MCP tool calls occur during an active turn and do not by themselves wake
+Shepherd after a detached operation completes. The two mechanisms are
+complementary. If a future Codex/MCP notification path can reliably initiate a
+new Shepherd turn with trusted conversation context, it may replace the HTTP
+callback without changing the route and dispatch semantics.
+
+## Proposed module structure
+
+Existing modules remain in place:
 
 ```text
 shared/protocol/signals.ts
-  common envelope and normalized signal contracts
-
 server/core/signal_registry.ts
-  kind registration and per-kind payload validation
-
 server/core/signal_dispatcher.ts
-  in-memory queue, coalescing, bounds, and per-thread dispatch
+server/core/conversation_signal_executor.ts
+server/adapters/webhook/server.ts
+server/signals/research_state_changed.ts
+server/runtime/shepherd_runtime.ts
+```
+
+Add narrowly scoped route components:
+
+```text
+server/core/signal_route_registry.ts
+  create, resolve, revoke, expire, and bound ephemeral routes
+
+server/core/signal_route_service.ts
+  trusted conversation-context route creation and producer handoff contract
 
 server/adapters/webhook/server.ts
-  loopback HTTP lifecycle, parsing, validation, and status mapping
+  routed-envelope resolution and response mapping
 
-server/signals/research_state_changed.ts
-  first kind definition and Codex input construction
-
-server/runtime/shepherd_runtime.ts
-  shared composition and lifecycle for Discord and webhook adapters
+shared/protocol/signals.ts
+  routed envelope and route-safe response types
 ```
 
-The dispatcher should depend on a small execution port rather than HTTP or
-Discord directly:
+Research-specific systemd handoff belongs in the research integration or
+launcher, not in the generic registry or dispatcher.
 
-```ts
-type SignalExecutor = {
-  resolveTarget: (target: SignalTarget) => Promise<{
-    threadId: string;
-    cwd: string;
-  } | null>;
-  waitUntilIdle: (target: ResolvedSignalTarget) => Promise<void>;
-  executeTurn: (target: ResolvedSignalTarget, input: UserInput[]) => Promise<void>;
-};
-```
+## Implementation sequence
 
-Existing surface subscriptions can deliver the resulting Codex events to
-Discord. Signal turns should not need a second response-delivery mechanism.
+### 1. Route registry
 
-## Implementation structure
+- Add route records, random ID generation, TTL enforcement, capacity bounds,
+  revocation, pruning, and disposal.
+- Keep the registry independent of HTTP, Discord, Codex, research, and systemd.
+- Add deterministic clock and route-ID generation seams for tests.
 
-### 1. Core signal mechanism
+### 2. Routed ingress
 
-- Add the shared envelope, kind registry, dispatcher, and execution port.
-- Implement a bounded FIFO queue, per-thread serialization, pending-signal
-  coalescing, and one follow-up for a matching active signal.
-- Resolve a trusted surface target to its current thread and workspace.
-- Never steer an unrelated active turn.
-- Cover the mechanism with transport-independent unit tests.
+- Extend the envelope with `routeId`.
+- Resolve routes and enforce their signal allowlists.
+- Keep the legacy static route operational during migration.
+- Avoid returning internal thread or surface identifiers.
 
-### 2. Local webhook adapter
+### 3. Trusted conversation integration
 
-- Implement `POST /signals` with Bun's built-in HTTP server.
-- Bind to loopback, enforce content type and body-size limits, and optionally
-  check a bearer token.
-- Map validation, saturation, and lifecycle results to the documented status
-  codes.
-- Stop accepting signals while Shepherd is quiescing.
-- Add adapter tests without introducing a web framework dependency.
+- Add a route service that accepts an already-resolved thread and surface.
+- Ensure the thread is resumable and the Discord subscription is active.
+- Produce a handoff containing the callback URL and route ID.
+- Decide and implement the trusted agent-launch invocation boundary.
 
-### 3. Runtime wiring and first kind
+### 4. Research launcher integration
 
-- Extract shared runtime composition from the Discord entry point so both
-  adapters use one `ConversationService` and lifecycle.
-- Register `research.state-changed` with its payload schema, coalescing key,
-  prompt construction, and configured Discord surface target.
-- Submit the turn to the surface's current thread and use its existing event
-  subscription for response delivery.
-- Exercise the integration with a local producer before defining a general
-  addon API.
+- Create a route before launching the detached systemd unit.
+- Pass the callback URL and route ID through the detached unit environment.
+- Keep the existing research supervisor responsible for all lifecycle work.
+- Add explicit revocation where convenient and rely on TTL as the bound.
 
-Simple future kinds may use declarative schemas and prompt templates. Kinds
-requiring richer interpretation can remain small TypeScript definition modules.
-In either case, producer business logic stays outside Shepherd.
+### 5. Presentation and operations
+
+- Identify signal-started turns in Discord without creating a second renderer.
+- Add bounded diagnostics for active route count, expiration, rejection, queue
+  saturation, and dispatch failure without logging full payloads.
+- Document operator inspection and route expiration.
+
+### 6. Compatibility cleanup
+
+- Exercise multiple concurrent routes from different Discord conversations.
+- Decide whether the single static research channel remains a supported fallback
+  or is deprecated after migration.
+- Do not remove it until the producer integration is deployed and verified.
 
 ## Test matrix
 
-- unknown kinds, unsupported versions, and invalid payloads are rejected;
+- route creation captures the originating thread, workspace, and Discord
+  surface;
+- unknown, expired, and revoked route IDs are rejected;
+- a producer cannot alter its route's thread, workspace, or delivery surface;
+- a route cannot submit an unapproved kind or version;
+- independent routes for the same kind remain isolated;
+- routes from different Discord channels deliver only to their origin;
 - equal pending signals coalesce while different subjects remain separate;
-- a matching signal during an active turn creates at most one follow-up;
-- busy threads are queued and never implicitly steered;
-- queue saturation returns `429`;
-- missing surface bindings fail cleanly;
-- quiescing returns `503` and disposal clears pending work; and
-- a signal-started turn is delivered through the existing surface subscription.
+- matching signals during an active turn create at most one follow-up;
+- busy threads queue signals and are never implicitly steered;
+- route and queue saturation return explicit errors;
+- shutdown rejects new work and clears all volatile state;
+- a reboot invalidates routes without affecting producer-owned cleanup; and
+- the static route remains compatible until deliberately retired.
 
-## Acceptance criteria for the experiment
+## Acceptance criteria
 
-- A local process can signal Shepherd without sending a Discord message.
-- Shepherd can route the signal into the current thread and workspace of a
-  configured surface.
-- A configured surface can receive the resulting final answer.
-- Multiple equal level-triggered signals can be coalesced in memory.
-- A busy target thread does not receive an implicit steer.
-- Queue saturation and lifecycle unavailability return explicit HTTP errors.
-- Restarting Shepherd clears all signal coordination state without migrations
-  or recovery work.
-- Remote-experiment correctness and cleanup remain independent of Shepherd.
+- A detached service can wake Shepherd after its originating Codex turn ends.
+- No Discord channel or Codex thread ID is supplied by the producer.
+- The new turn resumes the originating Codex conversation.
+- Commentary, activity, and the final answer reach the originating Discord
+  channel through the existing renderer.
+- Simultaneous operations launched from different conversations remain isolated.
+- Routes are narrowly scoped, bounded, revocable, and process-local.
+- A busy target thread is queued rather than steered.
+- Restarting Shepherd invalidates routes without migrations or recovery state.
+- Research correctness, spending control, evidence, and cleanup remain fully
+  independent of Shepherd.
 
 ## Open decisions
 
-- Whether later kinds use environment configuration, a declarative route file,
-  or TypeScript-only registration.
-- Whether a bearer token should become mandatory rather than optional.
-- Whether periodic reconciliation should complement producer webhooks.
-- Whether responses are delivered only to surfaces or can also be returned
-  asynchronously to local producers in a later design.
+- Which trusted control/tool boundary lets an agent-initiated launch request a
+  route using its active conversation context.
+- Default and maximum route TTLs.
+- Whether terminal research signals automatically revoke their routes.
+- Whether bounded route tombstones justify distinct `404` and `410` responses.
+- When, if ever, to deprecate the static research-channel environment route.

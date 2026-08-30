@@ -204,7 +204,6 @@ export async function startDiscordBot(): Promise<void> {
         hostname: signalConfig.hostname,
         port: signalConfig.port,
         maxBodyBytes: signalConfig.maxBodyBytes,
-        bearerToken: signalConfig.bearerToken,
         isAvailable: () => !shepherd.isQuiescing(),
       });
       console.log(`signal webhook ready at ${webhookServer.url}`);

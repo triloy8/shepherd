@@ -94,6 +94,15 @@ export class SignalRegistry {
     if (this.definitions.has(key)) {
       throw new Error(`Signal definition already registered: ${key}.`);
     }
+    if (
+      definition.target.type !== "surface" ||
+      !definition.target.adapter.trim() ||
+      definition.target.adapter !== definition.target.adapter.trim() ||
+      !definition.target.surfaceId.trim() ||
+      definition.target.surfaceId !== definition.target.surfaceId.trim()
+    ) {
+      throw new Error(`Signal definition has an invalid target: ${key}.`);
+    }
 
     this.definitions.set(key, definition as SignalDefinition<unknown>);
     const versions = this.versionsByKind.get(envelope.kind) ?? new Set<number>();

@@ -73,4 +73,17 @@ describe("SignalRegistry", () => {
       }),
     ).toThrow("already registered");
   });
+
+  test("rejects invalid trusted targets at registration", () => {
+    const registry = new SignalRegistry();
+    expect(() =>
+      registry.register({
+        kind: "build.finished",
+        version: 1,
+        target: { type: "surface", adapter: "discord", surfaceId: " " },
+        validatePayload: (value) => value,
+        buildInput: () => [toTextUserInput("build")],
+      }),
+    ).toThrow("invalid target");
+  });
 });

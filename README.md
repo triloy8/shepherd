@@ -138,7 +138,7 @@ Supported keys:
 - `SHEPHERD_SIGNAL_QUEUE_CAPACITY`: optional integer, default `100`
 - `SHEPHERD_SIGNAL_WEBHOOK_TOKEN`: optional shared bearer token
 - `SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID`: Discord channel whose current
-  thread receives `research.state-changed` turns; required when the webhook is enabled
+  thread receives `research.state-changed` turns; omitting it leaves that kind unregistered
 
 > [!WARNING]
 > `CODEX_APPROVAL_POLICY=never` disables approval prompts. Combined with

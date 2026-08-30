@@ -94,11 +94,6 @@ export async function startDiscordBot(): Promise<void> {
     "SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS",
   );
   const signalConfig = readSignalRuntimeConfig();
-  if (signalConfig.enabled && !signalConfig.researchDiscordSurfaceId) {
-    throw new Error(
-      "SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID is required when signal webhooks are enabled.",
-    );
-  }
   const deployment = new DeploymentService({
     ...(deploymentCommandTimeoutMs ? { commandTimeoutMs: deploymentCommandTimeoutMs } : {}),
   });

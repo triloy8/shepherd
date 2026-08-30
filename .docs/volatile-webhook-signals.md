@@ -136,6 +136,17 @@ Suggested response semantics:
 `202 Accepted` deliberately does not promise eventual execution, durable
 acceptance, or delivery of an agent response.
 
+An accepted response reports whether the signal replaced equivalent pending
+work and which live thread was resolved:
+
+```json
+{
+  "accepted": true,
+  "coalesced": false,
+  "threadId": "thread-123"
+}
+```
+
 `GET /health` returns `200` while the adapter is accepting signals and `503`
 while Shepherd is quiescing.
 
@@ -180,7 +191,7 @@ authority that an interactive turn would require.
 
 ## In-memory dispatch
 
-The dispatcher may retain the following state for the life of the process:
+The dispatcher retains the following state for the life of the process:
 
 - a bounded queue of accepted signals;
 - coalescing keys for queued and active signals;
@@ -190,7 +201,7 @@ The dispatcher may retain the following state for the life of the process:
 
 All of this state is discarded on restart.
 
-The default busy-thread policy should queue the signal in memory. It should not
+The default busy-thread policy queues the signal in memory. It does not
 steer an unrelated active turn automatically. A bounded queue prevents local
 producers from causing unbounded memory growth. Repeated level-triggered signals
 with the same configured coalescing key may collapse into one pending signal.
@@ -199,8 +210,8 @@ become one inspection, while a signal for `run-456` remains separate. This is
 only an in-memory optimization and provides no delivery or deduplication
 guarantee across restarts.
 
-If an equivalent signal arrives while its turn is active, the dispatcher should
-retain at most one pending follow-up containing the latest accepted payload.
+If an equivalent signal arrives while its turn is active, the dispatcher
+retains at most one pending follow-up containing the latest accepted payload.
 This lets Shepherd inspect changes that occurred during the active turn without
 building an unbounded backlog.
 
@@ -231,7 +242,7 @@ Loopback binding substantially narrows exposure, but the endpoint still crosses
 a trust boundary because Shepherd may run Codex with broad filesystem and
 command permissions.
 
-The adapter should therefore:
+The adapter therefore:
 
 - bind to `127.0.0.1` by default and reject unsafe bind configuration unless it
   is explicitly enabled;
@@ -254,7 +265,7 @@ feature. Signal validation, coalescing, busy-thread policy, and dispatch belong
 in the application core. HTTP request parsing and response delivery belong in a
 localhost webhook adapter.
 
-The first implementation should avoid introducing a general plugin loader.
+The implementation avoids introducing a general plugin loader.
 The webhook adapter and one remote-experiment integration should establish the
 extension seam. A formal addon contract can be designed after a second use case
 shows which parts are genuinely reusable.

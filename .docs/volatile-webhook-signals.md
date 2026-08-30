@@ -126,6 +126,7 @@ Suggested response semantics:
 - `202 Accepted`: the current Shepherd process accepted the signal into memory;
 - `400 Bad Request`: the request or payload is malformed;
 - `404 Not Found`: the signal kind is unknown;
+- `409 Conflict`: the configured target has no active thread binding;
 - `413 Content Too Large`: the request exceeds the configured size limit;
 - `429 Too Many Requests`: the bounded in-memory queue is full; and
 - `503 Service Unavailable`: Shepherd is starting, quiescing, or shutting down.
@@ -137,20 +138,31 @@ acceptance, or delivery of an agent response.
 
 Webhook payloads should contain external facts, not execution authority.
 Shepherd registers each signal kind with its validation, input construction,
-coalescing policy, and trusted route:
+coalescing policy, and trusted target. Definitions are registered during runtime
+composition rather than handled by a central `switch` statement:
 
 ```ts
+type SignalTarget = {
+  type: "surface";
+  adapter: string;
+  surfaceId: string;
+};
+
 type SignalDefinition<T> = {
+  kind: string;
+  version: number;
   validatePayload: (value: unknown) => T;
   buildInput: (signal: SignalEnvelope & { payload: T }) => UserInput[];
   coalesceKey?: (signal: SignalEnvelope & { payload: T }) => string;
-  route: {
-    threadId: string;
-    cwd: string;
-    replyTo?: { adapter: "discord"; surfaceId: string };
-  };
+  target: SignalTarget;
 };
 ```
+
+The target resolves to the surface's current in-memory thread binding and that
+thread's workspace when the signal is dispatched. Switching the surface to a
+different thread changes where later signals go. If the surface has no active
+binding, Shepherd cannot dispatch the signal. This preserves the intentionally
+volatile model without permanently configuring Codex thread IDs.
 
 The exact configuration format is an implementation decision. The boundary is
 more important than the syntax: a producer must not be able to choose an
@@ -181,6 +193,11 @@ For example, three queued `research.state-changed` signals for `run-123` can
 become one inspection, while a signal for `run-456` remains separate. This is
 only an in-memory optimization and provides no delivery or deduplication
 guarantee across restarts.
+
+If an equivalent signal arrives while its turn is active, the dispatcher should
+retain at most one pending follow-up containing the latest accepted payload.
+This lets Shepherd inspect changes that occurred during the active turn without
+building an unbounded backlog.
 
 An implementation may add an in-memory startup or periodic reconciliation
 signal. Such a signal still provides no durable cursor or processing history;
@@ -240,37 +257,96 @@ shows which parts are genuinely reusable.
 A likely initial module boundary is:
 
 ```text
+shared/protocol/signals.ts
+  common envelope and normalized signal contracts
+
+server/core/signal_registry.ts
+  kind registration and per-kind payload validation
+
 server/core/signal_dispatcher.ts
-  signal routing, coalescing, bounds, and turn dispatch
+  in-memory queue, coalescing, bounds, and per-thread dispatch
 
 server/adapters/webhook/server.ts
   loopback HTTP lifecycle, parsing, validation, and status mapping
 
-server/adapters/discord/*
-  optional response delivery for configured routes
+server/signals/research_state_changed.ts
+  first kind definition and Codex input construction
+
+server/runtime/shepherd_runtime.ts
+  shared composition and lifecycle for Discord and webhook adapters
 ```
 
-Runtime construction should eventually move out of the Discord bootstrap so
-Discord and webhook ingress can share one `ConversationService` and lifecycle.
+The dispatcher should depend on a small execution port rather than HTTP or
+Discord directly:
+
+```ts
+type SignalExecutor = {
+  resolveTarget: (target: SignalTarget) => Promise<{
+    threadId: string;
+    cwd: string;
+  }>;
+  getActiveTurnId: (threadId: string) => string | null;
+  submitTurn: (threadId: string, input: UserInput[]) => Promise<void>;
+};
+```
+
+Existing surface subscriptions can deliver the resulting Codex events to
+Discord. Signal turns should not need a second response-delivery mechanism.
 
 ## Initial implementation sequence
 
-1. Extract shared Shepherd runtime composition from the Discord entry point.
-2. Define the normalized core signal and configured route contracts.
-3. Implement and test a bounded in-memory dispatcher with coalescing and
-   per-thread busy handling.
-4. Add the loopback-only HTTP adapter with validation and explicit response
-   semantics.
-5. Configure one remote-experiment signal and deliver its agent response to a
-   Discord surface.
-6. Exercise restart, saturation, duplicate, active-turn, and shutdown behavior
-   while preserving the deliberately volatile contract.
-7. Revisit an addon API only after another local producer is integrated.
+Implementation should proceed as small follow-up pull requests.
+
+### 1. Core signal mechanism
+
+- Add the shared envelope, kind registry, dispatcher, and execution port.
+- Implement a bounded FIFO queue, per-thread serialization, pending-signal
+  coalescing, and one follow-up for a matching active signal.
+- Resolve a trusted surface target to its current thread and workspace.
+- Never steer an unrelated active turn.
+- Cover the mechanism with transport-independent unit tests.
+
+### 2. Local webhook adapter
+
+- Implement `POST /signals` with Bun's built-in HTTP server.
+- Bind to loopback, enforce content type and body-size limits, and optionally
+  check a bearer token.
+- Map validation, saturation, and lifecycle results to the documented status
+  codes.
+- Stop accepting signals while Shepherd is quiescing.
+- Add adapter tests without introducing a web framework dependency.
+
+### 3. Runtime wiring and first kind
+
+- Extract shared runtime composition from the Discord entry point so both
+  adapters use one `ConversationService` and lifecycle.
+- Register `research.state-changed` with its payload schema, coalescing key,
+  prompt construction, and configured Discord surface target.
+- Submit the turn to the surface's current thread and use its existing event
+  subscription for response delivery.
+- Exercise the integration with a local producer before defining a general
+  addon API.
+
+Simple future kinds may use declarative schemas and prompt templates. Kinds
+requiring richer interpretation can remain small TypeScript definition modules.
+In either case, producer business logic stays outside Shepherd.
+
+## Test matrix
+
+- unknown kinds, unsupported versions, and invalid payloads are rejected;
+- equal pending signals coalesce while different subjects remain separate;
+- a matching signal during an active turn creates at most one follow-up;
+- busy threads are queued and never implicitly steered;
+- queue saturation returns `429`;
+- missing surface bindings fail cleanly;
+- quiescing returns `503` and disposal clears pending work; and
+- a signal-started turn is delivered through the existing surface subscription.
 
 ## Acceptance criteria for the experiment
 
 - A local process can signal Shepherd without sending a Discord message.
-- Shepherd can route the signal into a configured Codex thread and workspace.
+- Shepherd can route the signal into the current thread and workspace of a
+  configured surface.
 - A configured surface can receive the resulting final answer.
 - Multiple equal level-triggered signals can be coalesced in memory.
 - A busy target thread does not receive an implicit steer.

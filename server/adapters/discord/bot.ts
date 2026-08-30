@@ -14,9 +14,8 @@ import {
 
 import type { SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment, readApprovalPolicy, readBoolean } from "../../config/environment.js";
-import { ConversationService } from "../../core/conversation_service.js";
 import { DeploymentService } from "../../core/deployment_service.js";
-import { RuntimeLifecycleOrchestrator } from "../../core/runtime_lifecycle_orchestrator.js";
+import { ShepherdRuntime } from "../../runtime/shepherd_runtime.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
@@ -90,14 +89,12 @@ export async function startDiscordBot(): Promise<void> {
   });
   await deployment.removeLegacyState();
 
-  const conversation = new ConversationService({
-    routing: {
-      autoCreateIfMissing: true,
-      defaultApprovalPolicy: approvalPolicy,
-      defaultSandbox,
-      exclusiveThreadBinding: true,
-    },
+  const shepherd = new ShepherdRuntime({
+    approvalPolicy,
+    defaultSandbox,
+    deployment,
   });
+  const { conversation } = shepherd;
 
   const client = new Client({
     intents: [
@@ -108,50 +105,7 @@ export async function startDiscordBot(): Promise<void> {
     ],
     partials: [Partials.Channel],
   });
-  let shutdownPromise: Promise<void> | null = null;
-  let restartPrepared = false;
-  let restartExitScheduled = false;
   let disposeThreadEvents = (): void => {};
-
-  const shutdown = (): Promise<void> => {
-    if (shutdownPromise) return shutdownPromise;
-    shutdownPromise = (async () => {
-      disposeThreadEvents();
-      conversation.stopAll();
-      await client.destroy();
-    })();
-    return shutdownPromise;
-  };
-
-  const prepareRestart = (): boolean => {
-    if (restartPrepared) return false;
-    restartPrepared = true;
-    return true;
-  };
-
-  const cancelRestart = (): void => {
-    if (restartExitScheduled) return;
-    restartPrepared = false;
-  };
-
-  const requestRestart = (): void => {
-    if (restartExitScheduled) return;
-    restartPrepared = true;
-    restartExitScheduled = true;
-    setTimeout(() => {
-      void shutdown().finally(() => process.exit(0));
-    }, 250);
-  };
-
-  const runtimeLifecycle = new RuntimeLifecycleOrchestrator({
-    readActivity: () => conversation.getRuntimeActivity(),
-    deployment,
-    lifecycle: {
-      prepareRestart,
-      cancelRestart,
-      requestRestart,
-    },
-  });
 
   const threadEvents = createDiscordThreadEventHandler(client, {
     streaming: discordStreaming,
@@ -168,7 +122,12 @@ export async function startDiscordBot(): Promise<void> {
     },
     resolveGithubRepo: async (slug) =>
       runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
-    runtimeLifecycle,
+    runtimeLifecycle: shepherd.lifecycle,
+  });
+
+  shepherd.registerShutdownHook(async () => {
+    disposeThreadEvents();
+    await client.destroy();
   });
 
   client.once("clientReady", () => {
@@ -176,7 +135,7 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("messageCreate", async (message) => {
-    if (restartPrepared) return;
+    if (shepherd.isQuiescing()) return;
     if (message.author.bot) return;
     if (!isSupportedChannel(message.channel)) return;
     if (!client.user) return;
@@ -205,7 +164,7 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("interactionCreate", async (interaction) => {
-    if (restartPrepared) return;
+    if (shepherd.isQuiescing()) return;
     if (!interaction.isButton()) return;
     await handleInteraction(interaction, conversation, runtime.commandContext);
   });
@@ -213,10 +172,10 @@ export async function startDiscordBot(): Promise<void> {
   await client.login(token);
 
   process.on("SIGINT", () => {
-    void shutdown().finally(() => process.exit(0));
+    void shepherd.shutdown().finally(() => process.exit(0));
   });
   process.on("SIGTERM", () => {
-    void shutdown().finally(() => process.exit(0));
+    void shepherd.shutdown().finally(() => process.exit(0));
   });
 }
 

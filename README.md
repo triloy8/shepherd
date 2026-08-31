@@ -180,7 +180,7 @@ research states revoke their route after acceptance; otherwise routes expire
 after 24 hours. `GET /health` reports whether the adapter is accepting work.
 
 Dynamic tools are persisted when a thread is created. A thread created before
-this feature was deployed must be replaced with `!new` once so its rollout
+this feature was deployed must be replaced with `!newthread` once so its rollout
 contains the callback tool. See
 [the signal contract](.docs/volatile-webhook-signals.md) for the complete API,
 failure semantics, and extension model.

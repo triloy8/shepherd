@@ -662,5 +662,6 @@ The architecture, app-server contract, callback handoff, and route-lifetime
 policy are implemented. Enable the shared listener with
 `SHEPHERD_SIGNAL_WEBHOOK_ENABLED=true` before creating a Codex thread that needs
 the tool. App-server persists dynamic tools in the thread rollout, so a thread
-created before this feature was deployed must be replaced once; Shepherd does
-not mutate historical rollouts during `thread/resume`.
+created before this feature was deployed must be replaced once with
+`!newthread`; Shepherd does not mutate historical rollouts during
+`thread/resume`.

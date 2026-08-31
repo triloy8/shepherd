@@ -91,9 +91,35 @@ service. It must remain correct if Shepherd never receives a callback.
 
 ## Dynamic tool contract
 
+The [official Codex app-server documentation](https://learn.chatgpt.com/docs/app-server)
+defines `dynamicTools` on `thread/start` and the corresponding
+`item/tool/call` request/response flow as experimental APIs. Shepherd's pinned
+`codex-cli 0.149.0` exposes the same fields when schemas are generated with the
+experimental surface included.
+
 ### Advertisement
 
-Shepherd advertises one narrowly scoped dynamic function to Codex:
+Shepherd first opts into experimental app-server fields during initialization:
+
+```json
+{
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "clientInfo": {
+      "name": "shepherd",
+      "title": "Shepherd",
+      "version": "1.0.0"
+    },
+    "capabilities": {
+      "experimentalApi": true
+    }
+  }
+}
+```
+
+It then advertises one narrowly scoped function namespace when starting the
+thread. The function arguments are:
 
 ```ts
 type GetSignalCallbackArguments = {
@@ -102,22 +128,59 @@ type GetSignalCallbackArguments = {
 };
 ```
 
-The initial registered invocation is:
+The `thread/start` registration is:
 
 ```json
 {
-  "namespace": "shepherd",
-  "tool": "get_signal_callback",
-  "arguments": {
-    "kind": "research.state-changed",
-    "version": 1
+  "id": 10,
+  "method": "thread/start",
+  "params": {
+    "model": "<configured-model>",
+    "approvalPolicy": "<configured-policy>",
+    "dynamicTools": [
+      {
+        "type": "namespace",
+        "name": "shepherd",
+        "description": "Shepherd conversation services",
+        "tools": [
+          {
+            "type": "function",
+            "name": "get_signal_callback",
+            "description": "Create a unique callback URL for a detached local service.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string" },
+                "version": { "type": "integer", "minimum": 1 }
+              },
+              "required": ["kind", "version"],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
 The tool allocates routing context only. It does not execute a command or start
-a service. The installed Codex app-server's exact dynamic-tool advertisement
-field must be confirmed with a focused protocol test before implementation.
+a service. Dynamic tool and namespace names must follow Responses API naming
+constraints and must not collide with reserved built-in Codex namespaces.
+
+App-server persists the dynamic tool definitions in the thread rollout. A
+normal `thread/resume` restores them, so Shepherd does not need to re-register
+the function on every turn.
+
+The default schema-generation commands omit experimental fields. Protocol
+verification therefore adds `--experimental` to both generators; without that
+flag, `ThreadStartParams` does not show `dynamicTools` even though the installed
+app-server supports it:
+
+```bash
+codex app-server generate-ts --experimental --out ./schemas
+codex app-server generate-json-schema --experimental --out ./schemas
+```
 
 ### App-server request
 
@@ -141,6 +204,15 @@ request on the existing stdio connection:
   }
 }
 ```
+
+For each invocation, app-server emits this lifecycle on the same thread:
+
+1. `item/started` with `item.type = "dynamicToolCall"` and an in-progress
+   status;
+2. the `item/tool/call` server request shown above;
+3. Shepherd's correlated JSON-RPC response; and
+4. `item/completed` with the final status, returned content items, and success
+   value.
 
 Shepherd must validate that:
 
@@ -484,12 +556,15 @@ signal definition.
 
 ## Implementation sequence
 
-### 1. App-server protocol spike
+### 1. Experimental app-server integration
 
-- Confirm how the installed Codex app-server accepts dynamic function specs.
-- Advertise a no-side-effect test function.
-- Verify `item/tool/call` request and response framing with generated schemas.
-- Record the supported app-server version and registration field.
+- Set `initialize.params.capabilities.experimentalApi` to `true`.
+- Add the documented `dynamicTools` namespace to `thread/start`.
+- Include experimental fields when generating protocol fixtures for tests.
+- Verify the documented `item/started`, `item/tool/call`, response, and
+  `item/completed` lifecycle against the pinned app-server version.
+- Treat failures as an experimental-protocol compatibility error rather than
+  silently launching without a callback.
 
 ### 2. Dynamic tool handling
 
@@ -542,8 +617,15 @@ signal definition.
 
 ## Test matrix
 
+- initialization opts into `capabilities.experimentalApi`;
+- `thread/start` advertises the `shepherd` namespace and strict callback-tool
+  input schema;
+- default schema output omits `dynamicTools` while experimental schema output
+  contains the documented field;
 - dynamic tool specs are advertised using the supported app-server contract;
 - valid `item/tool/call` requests receive schema-conforming responses;
+- dynamic tool lifecycle notifications remain correlated to the originating
+  thread and turn;
 - malformed, stale-turn, wrong-session, and unknown-tool requests are rejected;
 - every successful tool call returns a distinct opaque callback URL;
 - repeated calls from one turn create independent routes;
@@ -584,10 +666,7 @@ signal definition.
 
 ## Remaining implementation policy
 
-The architecture is settled. Implementation still needs to choose and document:
+The architecture and app-server contract are settled. Implementation still
+needs to choose and document concrete default and maximum route lifetimes.
 
-- the exact dynamic-tool advertisement field supported by the pinned Codex
-  app-server version; and
-- concrete default and maximum route lifetimes.
-
-These choices do not change the responsibility or communication model above.
+That policy does not change the responsibility or communication model above.

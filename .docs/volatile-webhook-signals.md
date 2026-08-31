@@ -443,17 +443,20 @@ conversation context while retaining distinct route and run identities.
 
 Route cleanup is bounded housekeeping, not a correctness mechanism.
 
-- Every route has a mandatory maximum lifetime.
+- A new route expires after 24 hours by default.
+- No route may remain active for more than 7 days.
 - Registry capacity is bounded.
 - Expired and revoked routes are removed rather than retained as tombstones.
 - A signal definition may mark a signal as terminal.
-- A route is revoked after its terminal signal has been accepted.
+- A route is revoked immediately after its terminal signal has been accepted.
 - Nonterminal signals leave the route active until expiration.
+- A route allocated for a launch that later fails is not special-cased; it
+  expires naturally after its configured lifetime.
 - Shepherd shutdown clears routes, queues, and transient delivery state.
 
-Exact default and maximum lifetimes remain configuration-policy values to set
-during implementation. They must comfortably exceed normal research-run
-duration while still bounding abandoned routes from failed launches.
+The 24-hour default covers normal research runs without requiring the launcher
+to manage callback cleanup. The 7-day hard limit bounds unusually long runs and
+abandoned routes while keeping callback state explicitly volatile.
 
 ## Security boundary
 
@@ -641,6 +644,9 @@ signal definition.
 - busy threads queue signals and are never implicitly steered;
 - route and queue saturation return explicit errors;
 - terminal signals revoke their routes after acceptance;
+- routes expire after 24 hours by default and can never exceed 7 days;
+- failed launches leave no permanent callback state because their unused routes
+  expire naturally;
 - shutdown rejects new work and clears all volatile state;
 - restart invalidates callback URLs without affecting producer-owned cleanup;
   and
@@ -664,9 +670,7 @@ signal definition.
 - The obsolete static route and dynamic callback environment variables are
   absent rather than supported through shims.
 
-## Remaining implementation policy
+## Implementation readiness
 
-The architecture and app-server contract are settled. Implementation still
-needs to choose and document concrete default and maximum route lifetimes.
-
-That policy does not change the responsibility or communication model above.
+The architecture, app-server contract, callback handoff, and route-lifetime
+policy are settled. No remaining design choice blocks implementation.

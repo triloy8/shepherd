@@ -13,7 +13,7 @@ describe("signal runtime configuration", () => {
     });
   });
 
-  test("reads explicit webhook and research route settings", () => {
+  test("reads explicit webhook and queue settings", () => {
     expect(
       readSignalRuntimeConfig({
         SHEPHERD_SIGNAL_WEBHOOK_ENABLED: "true",
@@ -21,7 +21,6 @@ describe("signal runtime configuration", () => {
         SHEPHERD_SIGNAL_WEBHOOK_PORT: "9000",
         SHEPHERD_SIGNAL_WEBHOOK_MAX_BODY_BYTES: "2048",
         SHEPHERD_SIGNAL_QUEUE_CAPACITY: "5",
-        SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID: " channel-1 ",
       }),
     ).toEqual({
       enabled: true,
@@ -29,7 +28,6 @@ describe("signal runtime configuration", () => {
       port: 9000,
       maxBodyBytes: 2048,
       queueCapacity: 5,
-      researchDiscordSurfaceId: "channel-1",
     });
   });
 

@@ -136,8 +136,6 @@ Supported keys:
 - `SHEPHERD_SIGNAL_WEBHOOK_PORT`: optional integer, default `8787`
 - `SHEPHERD_SIGNAL_WEBHOOK_MAX_BODY_BYTES`: optional integer, default `65536`
 - `SHEPHERD_SIGNAL_QUEUE_CAPACITY`: optional integer, default `100`
-- `SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID`: Discord channel whose current
-  thread receives `research.state-changed` turns; omitting it leaves that kind unregistered
 
 > [!WARNING]
 > `CODEX_APPROVAL_POLICY=never` disables approval prompts. Combined with
@@ -148,13 +146,20 @@ The committed `.example` files are the templates intended for public use.
 
 ## Local signal webhook
 
-When enabled, Shepherd accepts versioned signals at `POST /signals` on the
-configured loopback address. The endpoint is intentionally unauthenticated and
-must not be proxied or exposed beyond the trusted local host. The initial kind
-is `research.state-changed`:
+When enabled, Shepherd advertises `shepherd.get_signal_callback` to new Codex
+threads. Codex calls it immediately before launching a detached local service,
+then passes the returned URL to that service with its `--signal-url` CLI
+argument. Each call creates a fresh callback bound to the active Codex thread,
+workspace, and Discord surface; no channel or thread ID is configured by the
+producer.
+
+The callback endpoint is intentionally unauthenticated and must not be proxied
+or exposed beyond the trusted local host. The initial signal kind is
+`research.state-changed`. A producer posts to the exact URL returned by the
+tool:
 
 ```bash
-curl --fail-with-body http://127.0.0.1:8787/signals \
+curl --fail-with-body http://127.0.0.1:8787/signals/RETURNED_OPAQUE_ROUTE_ID \
   -H 'Content-Type: application/json' \
   --data '{
     "kind": "research.state-changed",
@@ -164,12 +169,19 @@ curl --fail-with-body http://127.0.0.1:8787/signals \
   }'
 ```
 
-The configured Discord channel must already have an attached thread. Shepherd
-queues and coalesces signals only in memory, never steers an active human turn,
-and uses the channel's existing event subscription to deliver the result.
+The originating Discord conversation must remain attached when the callback is
+created and delivered. Shepherd queues and coalesces signals only in memory,
+never steers an active human turn, and uses that conversation's existing event
+subscription to deliver the result.
+
 `202 Accepted` means only that the current process accepted the signal; queued
-signals are intentionally lost on restart. `GET /health` reports whether the
-adapter is accepting work. See
+signals and callback routes are intentionally lost on restart. Terminal
+research states revoke their route after acceptance; otherwise routes expire
+after 24 hours. `GET /health` reports whether the adapter is accepting work.
+
+Dynamic tools are persisted when a thread is created. A thread created before
+this feature was deployed must be replaced with `!new` once so its rollout
+contains the callback tool. See
 [the signal contract](.docs/volatile-webhook-signals.md) for the complete API,
 failure semantics, and extension model.
 

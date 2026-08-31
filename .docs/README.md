@@ -14,7 +14,7 @@ archive when historical reasoning is useful.
 - [Future implementations](future-implementations.md) — proposed work that has
   not been accepted as current behavior.
 - [Volatile signal callbacks](volatile-webhook-signals.md) — implemented
-  loopback signals and the accepted ephemeral per-operation routing proposal.
+  dynamic callback allocation, routed loopback ingress, and delivery semantics.
 
 ## Historical design material
 

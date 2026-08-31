@@ -57,10 +57,20 @@ describe("ConversationSignalExecutor", () => {
     const executor = new ConversationSignalExecutor(conversation);
 
     await expect(
-      executor.resolveTarget({ type: "surface", adapter: "discord", surfaceId: "channel-1" }),
+      executor.resolveTarget({
+        type: "conversation",
+        threadId: "thread-1",
+        cwd: "/workspace",
+        delivery: { adapter: "discord", surfaceId: "channel-1" },
+      }),
     ).resolves.toEqual({ threadId: "thread-1", cwd: "/workspace" });
     await expect(
-      executor.resolveTarget({ type: "surface", adapter: "discord", surfaceId: "missing" }),
+      executor.resolveTarget({
+        type: "conversation",
+        threadId: "thread-1",
+        cwd: "/workspace",
+        delivery: { adapter: "discord", surfaceId: "missing" },
+      }),
     ).resolves.toBeNull();
   });
 

@@ -6,18 +6,22 @@ const ENVELOPE_KEYS = new Set(["kind", "version", "subject", "payload"]);
 const SUBJECT_KEYS = new Set(["type", "id"]);
 
 export type SignalTarget = {
-  type: "surface";
-  adapter: string;
-  surfaceId: string;
+  type: "conversation";
+  threadId: string;
+  cwd: string;
+  delivery: {
+    adapter: string;
+    surfaceId: string;
+  };
 };
 
 export type SignalDefinition<TPayload> = {
   kind: string;
   version: number;
-  target: SignalTarget;
   validatePayload: (value: unknown) => TPayload;
   buildInput: (signal: SignalEnvelope<TPayload>) => UserInput[];
   coalesceKey?: (signal: SignalEnvelope<TPayload>) => string;
+  isTerminal?: (signal: SignalEnvelope<TPayload>) => boolean;
 };
 
 export type RegisteredSignal = {
@@ -25,11 +29,28 @@ export type RegisteredSignal = {
   target: SignalTarget;
   input: UserInput[];
   coalesceKey: string | null;
+  terminal: boolean;
 };
 
 export class InvalidSignalError extends Error {}
 export class UnknownSignalKindError extends Error {}
 export class UnsupportedSignalVersionError extends Error {}
+
+export function assertSignalTarget(target: SignalTarget): void {
+  if (
+    target.type !== "conversation" ||
+    !target.threadId.trim() ||
+    target.threadId !== target.threadId.trim() ||
+    !target.cwd.trim() ||
+    target.cwd !== target.cwd.trim() ||
+    !target.delivery.adapter.trim() ||
+    target.delivery.adapter !== target.delivery.adapter.trim() ||
+    !target.delivery.surfaceId.trim() ||
+    target.delivery.surfaceId !== target.delivery.surfaceId.trim()
+  ) {
+    throw new InvalidSignalError("Signal has an invalid trusted target.");
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -94,24 +115,29 @@ export class SignalRegistry {
     if (this.definitions.has(key)) {
       throw new Error(`Signal definition already registered: ${key}.`);
     }
-    if (
-      definition.target.type !== "surface" ||
-      !definition.target.adapter.trim() ||
-      definition.target.adapter !== definition.target.adapter.trim() ||
-      !definition.target.surfaceId.trim() ||
-      definition.target.surfaceId !== definition.target.surfaceId.trim()
-    ) {
-      throw new Error(`Signal definition has an invalid target: ${key}.`);
-    }
-
     this.definitions.set(key, definition as SignalDefinition<unknown>);
     const versions = this.versionsByKind.get(envelope.kind) ?? new Set<number>();
     versions.add(envelope.version);
     this.versionsByKind.set(envelope.kind, versions);
   }
 
-  resolve(value: unknown): RegisteredSignal {
-    const envelope = parseSignalEnvelope(value);
+  has(kind: string, version: number): boolean {
+    return this.definitions.has(this.key(kind, version));
+  }
+
+  resolve(
+    value: unknown,
+    target: SignalTarget,
+    coalesceScope?: string,
+  ): RegisteredSignal {
+    return this.resolveEnvelope(parseSignalEnvelope(value), target, coalesceScope);
+  }
+
+  resolveEnvelope(
+    envelope: SignalEnvelope,
+    target: SignalTarget,
+    coalesceScope?: string,
+  ): RegisteredSignal {
     const versions = this.versionsByKind.get(envelope.kind);
     if (!versions) throw new UnknownSignalKindError(`Unknown signal kind: ${envelope.kind}.`);
 
@@ -134,14 +160,17 @@ export class SignalRegistry {
     const input = definition.buildInput(typedEnvelope);
     if (input.length === 0) throw new InvalidSignalError("Signal definition produced no input.");
     const rawCoalesceKey = definition.coalesceKey?.(typedEnvelope)?.trim() ?? null;
+    const terminal = definition.isTerminal?.(typedEnvelope) ?? false;
+    assertSignalTarget(target);
 
     return {
       envelope: typedEnvelope,
-      target: definition.target,
+      target,
       input,
       coalesceKey: rawCoalesceKey
-        ? `${typedEnvelope.kind}@${typedEnvelope.version}:${rawCoalesceKey}`
+        ? `${coalesceScope ? `${coalesceScope}:` : ""}${typedEnvelope.kind}@${typedEnvelope.version}:${rawCoalesceKey}`
         : null,
+      terminal,
     };
   }
 

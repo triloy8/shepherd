@@ -20,9 +20,15 @@ function signal(subject: string, text = subject): RegisteredSignal {
       subject: { type: "research-run", id: subject },
       payload: { text },
     },
-    target: { type: "surface", adapter: "discord", surfaceId: "channel-1" },
+    target: {
+      type: "conversation",
+      threadId: "thread-1",
+      cwd: "/workspace",
+      delivery: { adapter: "discord", surfaceId: "channel-1" },
+    },
     input: [toTextUserInput(text)],
     coalesceKey: `research.state-changed@1:${subject}`,
+    terminal: false,
   };
 }
 

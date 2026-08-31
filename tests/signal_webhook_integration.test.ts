@@ -6,6 +6,7 @@ import { startWebhookSignalServer } from "../server/adapters/webhook/server.js";
 import { ConversationSignalExecutor } from "../server/core/conversation_signal_executor.js";
 import { SignalDispatcher } from "../server/core/signal_dispatcher.js";
 import { SignalRegistry } from "../server/core/signal_registry.js";
+import { SignalRouteRegistry } from "../server/core/signal_route_registry.js";
 import { createResearchStateChangedDefinition } from "../server/signals/research_state_changed.js";
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -44,17 +45,29 @@ test("a webhook signal starts a turn observed by the configured surface", async 
   conversation.subscribeToThreadEvents("thread-1", (event) => delivered.push(event));
 
   const registry = new SignalRegistry();
-  registry.register(createResearchStateChangedDefinition("channel-1"));
+  registry.register(createResearchStateChangedDefinition());
+  const routes = new SignalRouteRegistry({ generateId: () => "integration_route_0000000000000001" });
+  const route = routes.create({
+    allowedSignal: { kind: "research.state-changed", version: 1 },
+    target: {
+      type: "conversation",
+      threadId: "thread-1",
+      cwd: "/workspace",
+      delivery: { adapter: "discord", surfaceId: "channel-1" },
+    },
+    originTurnId: "turn-origin",
+  });
   const dispatcher = new SignalDispatcher(new ConversationSignalExecutor(conversation));
   const server = startWebhookSignalServer({
     registry,
+    routes,
     dispatcher,
     hostname: "127.0.0.1",
     port: 0,
   });
 
   try {
-    const response = await fetch(`${server.url}/signals`, {
+    const response = await fetch(`${server.url}/signals/${route.id}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -66,7 +79,7 @@ test("a webhook signal starts a turn observed by the configured surface", async 
     });
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({ accepted: true, coalesced: false, threadId: "thread-1" });
+    expect(await response.json()).toEqual({ accepted: true, coalesced: false });
     await waitFor(() => submitted.length === 1);
     const prompt = submitted[0]?.[0];
     expect(prompt?.type === "text" ? prompt.text : "").toContain("run-123");
@@ -85,6 +98,7 @@ test("a webhook signal starts a turn observed by the configured surface", async 
     expect(delivered).toEqual([completed]);
   } finally {
     dispatcher.dispose();
+    routes.dispose();
     await server.stop();
   }
 });

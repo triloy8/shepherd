@@ -6,7 +6,6 @@ export type SignalRuntimeConfig = {
   port: number;
   maxBodyBytes: number;
   queueCapacity: number;
-  researchDiscordSurfaceId?: string;
 };
 
 function readInteger(
@@ -60,12 +59,5 @@ export function readSignalRuntimeConfig(
       1,
       10_000,
     ),
-    ...(optionalTrimmed(environment.SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID)
-      ? {
-          researchDiscordSurfaceId: optionalTrimmed(
-            environment.SHEPHERD_RESEARCH_SIGNAL_DISCORD_CHANNEL_ID,
-          ),
-        }
-      : {}),
   };
 }

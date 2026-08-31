@@ -29,11 +29,16 @@ export class ConversationSignalExecutor implements SignalExecutor {
   constructor(private readonly conversation: ConversationSignalPort) {}
 
   async resolveTarget(target: SignalTarget): Promise<ResolvedSignalTarget | null> {
-    const threadId = this.conversation.getSurfaceThread(target.adapter, target.surfaceId);
-    if (!threadId) return null;
+    const threadId = this.conversation.getSurfaceThread(
+      target.delivery.adapter,
+      target.delivery.surfaceId,
+    );
+    if (threadId !== target.threadId) return null;
+    const cwd = await this.conversation.getThreadCwd(threadId);
+    if (cwd !== target.cwd) return null;
     return {
       threadId,
-      cwd: await this.conversation.getThreadCwd(threadId),
+      cwd,
     };
   }
 

@@ -6,6 +6,15 @@ import {
 } from "../core/signal_registry.js";
 
 const PAYLOAD_KEYS = new Set(["state", "verified", "researchProject"]);
+const TERMINAL_STATES = new Set([
+  "CANCELED",
+  "CANCELLED",
+  "COMPLETE",
+  "COMPLETED",
+  "ERROR",
+  "FAILED",
+  "TERMINATED",
+]);
 
 export type ResearchStateChangedPayload = {
   state?: string;
@@ -68,20 +77,14 @@ function buildResearchInput(signal: SignalEnvelope<ResearchStateChangedPayload>)
   ];
 }
 
-export function createResearchStateChangedDefinition(
-  discordSurfaceId: string,
-): SignalDefinition<ResearchStateChangedPayload> {
-  if (!discordSurfaceId.trim()) throw new Error("Research signal Discord surface ID is required.");
+export function createResearchStateChangedDefinition(): SignalDefinition<ResearchStateChangedPayload> {
   return {
     kind: "research.state-changed",
     version: 1,
-    target: {
-      type: "surface",
-      adapter: "discord",
-      surfaceId: discordSurfaceId.trim(),
-    },
     validatePayload: validateResearchStateChangedPayload,
     buildInput: buildResearchInput,
     coalesceKey: (signal) => signal.subject?.id ?? "research",
+    isTerminal: (signal) =>
+      Boolean(signal.payload.state && TERMINAL_STATES.has(signal.payload.state.toUpperCase())),
   };
 }

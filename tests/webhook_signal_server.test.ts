@@ -3,12 +3,20 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { toTextUserInput } from "../shared/protocol/user_input.js";
 import type { SignalDispatchResult } from "../server/core/signal_dispatcher.js";
 import { SignalRegistry, type RegisteredSignal } from "../server/core/signal_registry.js";
+import { SignalRouteRegistry } from "../server/core/signal_route_registry.js";
 import {
   startWebhookSignalServer,
   type WebhookSignalServer,
 } from "../server/adapters/webhook/server.js";
 
 const servers: WebhookSignalServer[] = [];
+const target = {
+  type: "conversation" as const,
+  threadId: "thread-1",
+  cwd: "/workspace",
+  delivery: { adapter: "discord", surfaceId: "channel-1" },
+};
+let routeSequence = 0;
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.stop()));
@@ -19,7 +27,6 @@ function makeRegistry(): SignalRegistry {
   registry.register({
     kind: "build.finished",
     version: 1,
-    target: { type: "surface", adapter: "discord", surfaceId: "channel-1" },
     validatePayload(value) {
       if (!value || typeof value !== "object" || typeof (value as { status?: unknown }).status !== "string") {
         throw new Error("Build status is required.");
@@ -28,6 +35,7 @@ function makeRegistry(): SignalRegistry {
     },
     buildInput: (signal) => [toTextUserInput(`Build ${signal.subject?.id}: ${signal.payload.status}`)],
     coalesceKey: (signal) => signal.subject?.id ?? "builds",
+    isTerminal: (signal) => signal.payload.status === "complete",
   });
   return registry;
 }
@@ -37,9 +45,18 @@ function start(options: {
   maxBodyBytes?: number;
   available?: boolean;
   accepted?: RegisteredSignal[];
-} = {}): WebhookSignalServer {
+} = {}): { server: WebhookSignalServer; routeUrl: string; routes: SignalRouteRegistry } {
+  const routes = new SignalRouteRegistry({
+    generateId: () => `route_${String(++routeSequence).padStart(32, "0")}`,
+  });
+  const route = routes.create({
+    allowedSignal: { kind: "build.finished", version: 1 },
+    target,
+    originTurnId: "turn-origin",
+  });
   const server = startWebhookSignalServer({
     registry: makeRegistry(),
+    routes,
     dispatcher: {
       async accept(signal) {
         options.accepted?.push(signal);
@@ -52,7 +69,7 @@ function start(options: {
     isAvailable: () => options.available ?? true,
   });
   servers.push(server);
-  return server;
+  return { server, routes, routeUrl: `${server.url}/signals/${route.id}` };
 }
 
 function validBody(): Record<string, unknown> {
@@ -67,16 +84,17 @@ function validBody(): Record<string, unknown> {
 describe("webhook signal server", () => {
   test("accepts and resolves an unauthenticated typed signal", async () => {
     const accepted: RegisteredSignal[] = [];
-    const server = start({ accepted });
-    const response = await fetch(`${server.url}/signals`, {
+    const { server, routeUrl } = start({ accepted });
+    const response = await fetch(routeUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(validBody()),
     });
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({ accepted: true, coalesced: false, threadId: "thread-1" });
-    expect(accepted[0]?.coalesceKey).toBe("build.finished@1:build-1");
+    expect(await response.json()).toEqual({ accepted: true, coalesced: false });
+    expect(accepted[0]?.coalesceKey).toContain("build.finished@1:build-1");
+    expect(await fetch(`${server.url}/signals`, { method: "POST" }).then((item) => item.status)).toBe(404);
   });
 
   test("maps dispatcher outcomes to explicit status codes", async () => {
@@ -88,8 +106,8 @@ describe("webhook signal server", () => {
     ];
 
     for (const [result, expectedStatus] of cases) {
-      const server = start({ result });
-      const response = await fetch(`${server.url}/signals`, {
+      const { server, routeUrl } = start({ result });
+      const response = await fetch(routeUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(validBody()),
@@ -101,23 +119,23 @@ describe("webhook signal server", () => {
   });
 
   test("rejects unknown kinds, versions, invalid payloads, and content types", async () => {
-    const server = start();
+    const { routeUrl } = start();
     const request = (body: unknown, contentType = "application/json") =>
-      fetch(`${server.url}/signals`, {
+      fetch(routeUrl, {
         method: "POST",
         headers: { "content-type": contentType },
         body: JSON.stringify(body),
       });
 
     expect((await request({ ...validBody(), kind: "unknown.signal" })).status).toBe(404);
-    expect((await request({ ...validBody(), version: 2 })).status).toBe(400);
+    expect((await request({ ...validBody(), version: 2 })).status).toBe(404);
     expect((await request({ ...validBody(), payload: {} })).status).toBe(400);
     expect((await request(validBody(), "text/plain")).status).toBe(415);
   });
 
   test("enforces body limits", async () => {
-    const server = start({ maxBodyBytes: 32 });
-    const oversized = await fetch(`${server.url}/signals`, {
+    const { routeUrl } = start({ maxBodyBytes: 32 });
+    const oversized = await fetch(routeUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(validBody()),
@@ -125,12 +143,30 @@ describe("webhook signal server", () => {
     expect(oversized.status).toBe(413);
   });
 
+  test("revokes a route only after accepting a terminal signal", async () => {
+    const { routeUrl } = start();
+    const response = await fetch(routeUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...validBody(),
+        payload: { status: "complete" },
+      }),
+    });
+    expect(response.status).toBe(202);
+    expect((await fetch(routeUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(validBody()),
+    })).status).toBe(404);
+  });
+
   test("reports health and quiescing without accepting a signal", async () => {
     const accepted: RegisteredSignal[] = [];
-    const server = start({ available: false, accepted });
+    const { server, routeUrl } = start({ available: false, accepted });
 
     expect((await fetch(`${server.url}/health`)).status).toBe(503);
-    const response = await fetch(`${server.url}/signals`, {
+    const response = await fetch(routeUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(validBody()),
@@ -143,6 +179,7 @@ describe("webhook signal server", () => {
     expect(() =>
       startWebhookSignalServer({
         registry: makeRegistry(),
+        routes: new SignalRouteRegistry(),
         dispatcher: { async accept() { return { type: "unavailable" }; } },
         hostname: "0.0.0.0",
       }),

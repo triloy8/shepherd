@@ -19,6 +19,8 @@ import { ConversationSignalExecutor } from "../../core/conversation_signal_execu
 import { DeploymentService } from "../../core/deployment_service.js";
 import { SignalDispatcher } from "../../core/signal_dispatcher.js";
 import { SignalRegistry } from "../../core/signal_registry.js";
+import { SignalRouteRegistry } from "../../core/signal_route_registry.js";
+import { SignalRouteService } from "../../core/signal_route_service.js";
 import { ShepherdRuntime } from "../../runtime/shepherd_runtime.js";
 import { createResearchStateChangedDefinition } from "../../signals/research_state_changed.js";
 import {
@@ -137,11 +139,23 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   const signalRegistry = new SignalRegistry();
-  if (signalConfig.researchDiscordSurfaceId) {
-    signalRegistry.register(
-      createResearchStateChangedDefinition(signalConfig.researchDiscordSurfaceId),
-    );
-  }
+  signalRegistry.register(createResearchStateChangedDefinition());
+  const signalRoutes = new SignalRouteRegistry({
+    onEvent: (event) => {
+      console.info(
+        `signal route ${event.type}: ${event.routePrefix} (${event.kind}@${event.version})`,
+      );
+    },
+  });
+  const signalRouteService = new SignalRouteService({
+    routes: signalRoutes,
+    signals: signalRegistry,
+    conversation,
+    getWebhookBaseUrl: () => webhookServer?.url ?? null,
+  });
+  const unregisterSignalTool = signalConfig.enabled
+    ? conversation.registerDynamicTool(signalRouteService.registration())
+    : (): void => {};
   const signalDispatcher = new SignalDispatcher(
     new ConversationSignalExecutor(conversation),
     {
@@ -150,6 +164,8 @@ export async function startDiscordBot(): Promise<void> {
   );
 
   shepherd.registerShutdownHook(async () => {
+    unregisterSignalTool();
+    signalRoutes.dispose();
     signalDispatcher.dispose();
     await webhookServer?.stop();
     disposeThreadEvents();
@@ -200,6 +216,7 @@ export async function startDiscordBot(): Promise<void> {
     if (signalConfig.enabled) {
       webhookServer = startWebhookSignalServer({
         registry: signalRegistry,
+        routes: signalRoutes,
         dispatcher: signalDispatcher,
         hostname: signalConfig.hostname,
         port: signalConfig.port,

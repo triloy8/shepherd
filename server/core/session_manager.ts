@@ -44,6 +44,7 @@ import type {
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
 import { CodexSession } from "./codex_session.js";
+import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
 
 interface ManagedSession {
   session: CodexSession;
@@ -112,6 +113,8 @@ export class SessionManager {
   private cwdByThread = new Map<string, string>();
   private modelStateByThread = new Map<string, ManagedModelState>();
   private controlSession: CodexSession | null = null;
+
+  constructor(private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry()) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
     const approvalPolicy = request.approvalPolicy ?? "on-request";
@@ -452,7 +455,7 @@ export class SessionManager {
   }
 
   private async createManagedSession(approvalPolicy: ApprovalPolicy): Promise<ManagedSession> {
-    const session = new CodexSession(approvalPolicy);
+    const session = new CodexSession(approvalPolicy, this.dynamicTools);
     this.attachSessionSubscriptions(session);
     return {
       session,
@@ -480,7 +483,7 @@ export class SessionManager {
 
   private async getControlSession(): Promise<CodexSession> {
     if (this.controlSession) return this.controlSession;
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("on-request", this.dynamicTools);
     this.attachSessionSubscriptions(session);
     await session.initialize();
     this.controlSession = session;

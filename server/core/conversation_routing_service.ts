@@ -35,6 +35,11 @@ export type ResolveRouteResult = {
   reason: "explicit" | "default" | "auto-created";
 };
 
+export type ConversationSurface = {
+  adapter: string;
+  surfaceId: string;
+};
+
 export type ConversationRoutingServiceOptions = {
   autoCreateIfMissing?: boolean;
   defaultApprovalPolicy?: ApprovalPolicy;
@@ -68,6 +73,14 @@ export class ConversationRoutingService {
     const surface = this.getSurface(adapter, surfaceId);
     if (!surface) return [];
     return [...surface.attachedThreadIds];
+  }
+
+  getSurfaceForThread(threadId: string): ConversationSurface | null {
+    const key = this.surfaceByThread.get(threadId);
+    if (!key) return null;
+    const surface = this.surfaces.get(key);
+    if (!surface || surface.defaultThreadId !== threadId) return null;
+    return { adapter: surface.adapter, surfaceId: surface.surfaceId };
   }
 
   async setDefaultThread(

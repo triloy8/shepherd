@@ -171,12 +171,18 @@ So the simplest mental model is:
 ## Webhook Signal Modules
 
 - `server/adapters/webhook/server.ts`
-  Exposes `POST /signals` and `GET /health` through a bounded loopback-only Bun
-  HTTP server.
+  Exposes routed `POST /signals/:routeId` callbacks and `GET /health` through a
+  bounded loopback-only Bun HTTP server.
 - `server/signals/research_state_changed.ts`
   Defines the first typed signal kind and its bounded research-inspection input.
 - `server/config/signal_environment.ts`
-  Loads opt-in webhook, queue, token, and Discord target configuration.
+  Loads stable opt-in listener, body-limit, and queue configuration.
+- `server/core/dynamic_tool_registry.ts`
+  Advertises and dispatches explicitly registered app-server dynamic tools.
+- `server/core/signal_route_registry.ts`
+  Owns bounded, expiring, process-local callback routes.
+- `server/core/signal_route_service.ts`
+  Converts trusted `item/tool/call` context into a callback URL.
 
 ## Main Runtime Flows
 
@@ -198,12 +204,14 @@ So the simplest mental model is:
 
 ### Local webhook signals
 
-1. A local producer posts a common signal envelope to `POST /signals`
-2. The webhook adapter applies availability, authentication, content-type, and size checks
-3. `signal_registry.ts` resolves the versioned kind and validates its payload
-4. `signal_dispatcher.ts` resolves the configured surface target and queues or coalesces the signal in memory
-5. `conversation_signal_executor.ts` waits for the target thread to become idle and starts a Codex turn
-6. The existing surface subscription delivers Codex events and the final response to Discord
+1. During a live turn, Codex calls `shepherd.get_signal_callback` for a registered kind and version
+2. App-server sends `item/tool/call`; Shepherd validates the active thread and turn, captures its live surface, and returns a fresh opaque URL
+3. Codex passes that URL to the detached producer as a CLI argument
+4. The producer posts a typed envelope to `POST /signals/:routeId`
+5. The webhook adapter applies availability, route, content-type, size, and payload checks
+6. `signal_dispatcher.ts` queues or coalesces the signal in memory without steering an active turn
+7. `conversation_signal_executor.ts` verifies the captured thread, workspace, and surface, then starts a Codex turn
+8. The existing surface subscription delivers Codex events and the final response to Discord
 
 ### Runtime restart and deployment
 

@@ -1,10 +1,17 @@
 import type { SignalDispatchResult } from "../../core/signal_dispatcher.js";
 import {
+  SignalRouteRateLimitError,
+  type SignalRoute,
+} from "../../core/signal_route_registry.js";
+import {
   InvalidSignalError,
+  parseSignalEnvelope,
   UnknownSignalKindError,
   UnsupportedSignalVersionError,
   type RegisteredSignal,
+  type SignalTarget,
 } from "../../core/signal_registry.js";
+import type { SignalEnvelope } from "../../../shared/protocol/signals.js";
 
 const DEFAULT_HOSTNAME = "127.0.0.1";
 const DEFAULT_PORT = 8787;
@@ -12,7 +19,16 @@ const DEFAULT_MAX_BODY_BYTES = 64 * 1024;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 type SignalResolver = {
-  resolve: (value: unknown) => RegisteredSignal;
+  resolveEnvelope: (
+    envelope: SignalEnvelope,
+    target: SignalTarget,
+    coalesceScope?: string,
+  ) => RegisteredSignal;
+};
+
+type SignalRouteResolver = {
+  consume: (routeId: string) => SignalRoute | null;
+  revoke: (routeId: string) => boolean;
 };
 
 type SignalAcceptor = {
@@ -33,6 +49,7 @@ type BunServe = (options: {
 
 export type WebhookSignalServerOptions = {
   registry: SignalResolver;
+  routes: SignalRouteResolver;
   dispatcher: SignalAcceptor;
   hostname?: string;
   port?: number;
@@ -99,9 +116,9 @@ async function readBoundedJson(request: Request, maxBodyBytes: number): Promise<
 function responseForDispatch(result: SignalDispatchResult): Response {
   switch (result.type) {
     case "accepted":
-      return jsonResponse(202, { accepted: true, coalesced: false, threadId: result.threadId });
+      return jsonResponse(202, { accepted: true, coalesced: false });
     case "coalesced":
-      return jsonResponse(202, { accepted: true, coalesced: true, threadId: result.threadId });
+      return jsonResponse(202, { accepted: true, coalesced: true });
     case "saturated":
       return jsonResponse(429, { error: "Signal queue is full." });
     case "target-unavailable":
@@ -109,6 +126,11 @@ function responseForDispatch(result: SignalDispatchResult): Response {
     case "unavailable":
       return jsonResponse(503, { error: "Shepherd is not accepting signals." });
   }
+}
+
+function routeIdFromPath(pathname: string): string | null {
+  const match = /^\/signals\/([A-Za-z0-9_-]{20,128})$/.exec(pathname);
+  return match?.[1] ?? null;
 }
 
 export function startWebhookSignalServer(options: WebhookSignalServerOptions): WebhookSignalServer {
@@ -142,7 +164,8 @@ export function startWebhookSignalServer(options: WebhookSignalServerOptions): W
           ? jsonResponse(200, { ok: true })
           : jsonResponse(503, { ok: false });
       }
-      if (request.method !== "POST" || url.pathname !== "/signals") {
+      const routeId = routeIdFromPath(url.pathname);
+      if (request.method !== "POST" || !routeId) {
         return jsonResponse(404, { error: "Not found." });
       }
       if (!isAvailable()) {
@@ -155,14 +178,33 @@ export function startWebhookSignalServer(options: WebhookSignalServerOptions): W
 
       try {
         const value = await readBoundedJson(request, maxBodyBytes);
-        const signal = options.registry.resolve(value);
-        return responseForDispatch(await options.dispatcher.accept(signal));
+        const envelope = parseSignalEnvelope(value);
+        const route = options.routes.consume(routeId);
+        if (!route) return jsonResponse(404, { error: "Signal route not found." });
+        if (
+          route.allowedSignal.kind !== envelope.kind ||
+          route.allowedSignal.version !== envelope.version
+        ) {
+          return jsonResponse(404, { error: "Signal route not found." });
+        }
+        const signal = options.registry.resolveEnvelope(envelope, route.target, route.id);
+        const result = await options.dispatcher.accept(signal);
+        if (
+          signal.terminal &&
+          (result.type === "accepted" || result.type === "coalesced")
+        ) {
+          options.routes.revoke(route.id);
+        }
+        return responseForDispatch(result);
       } catch (error) {
         if (error instanceof BodyTooLargeError) {
           return jsonResponse(413, { error: error.message });
         }
         if (error instanceof UnknownSignalKindError) {
           return jsonResponse(404, { error: error.message });
+        }
+        if (error instanceof SignalRouteRateLimitError) {
+          return jsonResponse(429, { error: error.message });
         }
         if (
           error instanceof InvalidSignalError ||

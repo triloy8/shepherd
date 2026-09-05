@@ -13,7 +13,9 @@ const TERMINAL_STATES = new Set([
   "COMPLETED",
   "ERROR",
   "FAILED",
+  "INTERRUPTED",
   "TERMINATED",
+  "TIMED_OUT",
 ]);
 
 export type ResearchStateChangedPayload = {

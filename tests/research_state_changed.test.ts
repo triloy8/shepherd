@@ -30,6 +30,23 @@ describe("research.state-changed signal", () => {
     );
   });
 
+  test.each(["COMPLETE", "FAILED", "INTERRUPTED", "TIMED_OUT", "ERROR"])(
+    "treats producer outcome %s as terminal",
+    (state) => {
+      const registry = new SignalRegistry();
+      registry.register(createResearchStateChangedDefinition());
+
+      const signal = registry.resolve({
+        kind: "research.state-changed",
+        version: 1,
+        subject: { type: "research-run", id: "run-123" },
+        payload: { state, verified: false },
+      }, target);
+
+      expect(signal.terminal).toBe(true);
+    },
+  );
+
   test("rejects unexpected payload fields and non-run subjects", () => {
     const registry = new SignalRegistry();
     registry.register(createResearchStateChangedDefinition());

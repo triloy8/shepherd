@@ -1,13 +1,14 @@
 # Architecture
 
 This document describes the current ownership boundaries between Shepherd's
-Discord adapter, application core, and runtime core.
+Discord and webhook adapters, application core, and runtime core.
 
 ## Boundary
 
-The Discord path is now split along this rule:
+The adapter paths are split along this rule:
 
 - `server/adapters/discord/*` owns Discord transport, Discord event parsing, Discord rendering, and Discord delivery/runtime glue
+- `server/adapters/webhook/*` owns loopback HTTP parsing, authentication, limits, and response mapping
 - `server/core/*` owns reusable policy, action semantics, state, and orchestration
 
 ## Core Model
@@ -86,6 +87,9 @@ These modules coordinate multi-step workflows across policy, state, and lower-le
 - `server/core/runtime_lifecycle_orchestrator.ts`
   Owns restart/deploy eligibility, deployment sequencing, runtime quiescing,
   recovery announcement ordering, and shutdown requests.
+- `server/core/signal_dispatcher.ts`
+  Owns bounded in-memory queuing, coalescing, per-thread serialization, and
+  signal-turn sequencing.
 
 These are the workflow modules. They do not just expose interfaces; they execute coordinated behavior that spans multiple underlying operations.
 
@@ -103,6 +107,11 @@ These files are also in `server/core/*`, but they are better understood as runti
   The stdio-backed Codex/app-server bridge.
 - `server/core/event_bus.ts`
   In-process pub/sub for thread/session events.
+- `server/core/signal_registry.ts`
+  Versioned signal-kind registration, envelope parsing, payload validation, and
+  trusted target/input resolution.
+- `server/core/conversation_signal_executor.ts`
+  Resolves live surface bindings and bridges dispatcher work into Codex turns.
 - `server/core/approvals.ts`
   Approval record storage and approval lifecycle support.
 - `server/core/deployment_service.ts`
@@ -112,6 +121,8 @@ These files are also in `server/core/*`, but they are better understood as runti
   Mapping layer for Codex/app-server RPC shapes.
 - `server/core/types.ts`
   Shared runtime types.
+- `server/runtime/shepherd_runtime.ts`
+  Shared conversation, quiescing, restart, and adapter-shutdown lifecycle.
 
 So the simplest mental model is:
 
@@ -157,6 +168,22 @@ So the simplest mental model is:
 - `server/adapters/discord/interactions.ts`
   Owns Discord button interaction handling.
 
+## Webhook Signal Modules
+
+- `server/adapters/webhook/server.ts`
+  Exposes routed `POST /signals/:routeId` callbacks and `GET /health` through a
+  bounded loopback-only Bun HTTP server.
+- `server/signals/research_state_changed.ts`
+  Defines the first typed signal kind and its bounded research-inspection input.
+- `server/config/signal_environment.ts`
+  Loads stable opt-in listener, body-limit, and queue configuration.
+- `server/core/dynamic_tool_registry.ts`
+  Advertises and dispatches explicitly registered app-server dynamic tools.
+- `server/core/signal_route_registry.ts`
+  Owns bounded, expiring, process-local callback routes.
+- `server/core/signal_route_service.ts`
+  Converts trusted `item/tool/call` context into a callback URL.
+
 ## Main Runtime Flows
 
 ### Message ingress
@@ -174,6 +201,17 @@ So the simplest mental model is:
 3. `thread_event_handler.ts` feeds events into `response_stream_reducer.ts`
 4. `stream_delivery.ts` updates Discord messages
 5. `message_renderer.ts` handles event/approval text formatting
+
+### Local webhook signals
+
+1. During a live turn, Codex calls `shepherd.get_signal_callback` for a registered kind and version
+2. App-server sends `item/tool/call`; Shepherd validates the active thread and turn, captures its live surface, and returns a fresh opaque URL
+3. Codex passes that URL to the detached producer as a CLI argument
+4. The producer posts a typed envelope to `POST /signals/:routeId`
+5. The webhook adapter applies availability, route, content-type, size, and payload checks
+6. `signal_dispatcher.ts` queues or coalesces the signal in memory without steering an active turn
+7. `conversation_signal_executor.ts` verifies the captured thread, workspace, and surface, then starts a Codex turn
+8. The existing surface subscription delivers Codex events and the final response to Discord
 
 ### Runtime restart and deployment
 

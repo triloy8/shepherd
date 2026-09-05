@@ -14,9 +14,19 @@ import {
 
 import type { SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment, readApprovalPolicy, readBoolean } from "../../config/environment.js";
-import { ConversationService } from "../../core/conversation_service.js";
+import { readSignalRuntimeConfig } from "../../config/signal_environment.js";
+import { ConversationSignalExecutor } from "../../core/conversation_signal_executor.js";
 import { DeploymentService } from "../../core/deployment_service.js";
-import { RuntimeLifecycleOrchestrator } from "../../core/runtime_lifecycle_orchestrator.js";
+import { SignalDispatcher } from "../../core/signal_dispatcher.js";
+import { SignalRegistry } from "../../core/signal_registry.js";
+import { SignalRouteRegistry } from "../../core/signal_route_registry.js";
+import { SignalRouteService } from "../../core/signal_route_service.js";
+import { ShepherdRuntime } from "../../runtime/shepherd_runtime.js";
+import { createResearchStateChangedDefinition } from "../../signals/research_state_changed.js";
+import {
+  startWebhookSignalServer,
+  type WebhookSignalServer,
+} from "../webhook/server.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
@@ -85,19 +95,18 @@ export async function startDiscordBot(): Promise<void> {
     process.env.SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS,
     "SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS",
   );
+  const signalConfig = readSignalRuntimeConfig();
   const deployment = new DeploymentService({
     ...(deploymentCommandTimeoutMs ? { commandTimeoutMs: deploymentCommandTimeoutMs } : {}),
   });
   await deployment.removeLegacyState();
 
-  const conversation = new ConversationService({
-    routing: {
-      autoCreateIfMissing: true,
-      defaultApprovalPolicy: approvalPolicy,
-      defaultSandbox,
-      exclusiveThreadBinding: true,
-    },
+  const shepherd = new ShepherdRuntime({
+    approvalPolicy,
+    defaultSandbox,
+    deployment,
   });
+  const { conversation } = shepherd;
 
   const client = new Client({
     intents: [
@@ -108,50 +117,8 @@ export async function startDiscordBot(): Promise<void> {
     ],
     partials: [Partials.Channel],
   });
-  let shutdownPromise: Promise<void> | null = null;
-  let restartPrepared = false;
-  let restartExitScheduled = false;
   let disposeThreadEvents = (): void => {};
-
-  const shutdown = (): Promise<void> => {
-    if (shutdownPromise) return shutdownPromise;
-    shutdownPromise = (async () => {
-      disposeThreadEvents();
-      conversation.stopAll();
-      await client.destroy();
-    })();
-    return shutdownPromise;
-  };
-
-  const prepareRestart = (): boolean => {
-    if (restartPrepared) return false;
-    restartPrepared = true;
-    return true;
-  };
-
-  const cancelRestart = (): void => {
-    if (restartExitScheduled) return;
-    restartPrepared = false;
-  };
-
-  const requestRestart = (): void => {
-    if (restartExitScheduled) return;
-    restartPrepared = true;
-    restartExitScheduled = true;
-    setTimeout(() => {
-      void shutdown().finally(() => process.exit(0));
-    }, 250);
-  };
-
-  const runtimeLifecycle = new RuntimeLifecycleOrchestrator({
-    readActivity: () => conversation.getRuntimeActivity(),
-    deployment,
-    lifecycle: {
-      prepareRestart,
-      cancelRestart,
-      requestRestart,
-    },
-  });
+  let webhookServer: WebhookSignalServer | null = null;
 
   const threadEvents = createDiscordThreadEventHandler(client, {
     streaming: discordStreaming,
@@ -168,7 +135,41 @@ export async function startDiscordBot(): Promise<void> {
     },
     resolveGithubRepo: async (slug) =>
       runGh(["repo", "view", slug, "--json", "nameWithOwner", "--jq", ".nameWithOwner"]),
-    runtimeLifecycle,
+    runtimeLifecycle: shepherd.lifecycle,
+  });
+
+  const signalRegistry = new SignalRegistry();
+  signalRegistry.register(createResearchStateChangedDefinition());
+  const signalRoutes = new SignalRouteRegistry({
+    onEvent: (event) => {
+      console.info(
+        `signal route ${event.type}: ${event.routePrefix} (${event.kind}@${event.version})`,
+      );
+    },
+  });
+  const signalRouteService = new SignalRouteService({
+    routes: signalRoutes,
+    signals: signalRegistry,
+    conversation,
+    getWebhookBaseUrl: () => webhookServer?.url ?? null,
+  });
+  const unregisterSignalTool = signalConfig.enabled
+    ? conversation.registerDynamicTool(signalRouteService.registration())
+    : (): void => {};
+  const signalDispatcher = new SignalDispatcher(
+    new ConversationSignalExecutor(conversation),
+    {
+      capacity: signalConfig.queueCapacity,
+    },
+  );
+
+  shepherd.registerShutdownHook(async () => {
+    unregisterSignalTool();
+    signalRoutes.dispose();
+    signalDispatcher.dispose();
+    await webhookServer?.stop();
+    disposeThreadEvents();
+    await client.destroy();
   });
 
   client.once("clientReady", () => {
@@ -176,7 +177,7 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("messageCreate", async (message) => {
-    if (restartPrepared) return;
+    if (shepherd.isQuiescing()) return;
     if (message.author.bot) return;
     if (!isSupportedChannel(message.channel)) return;
     if (!client.user) return;
@@ -205,18 +206,39 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("interactionCreate", async (interaction) => {
-    if (restartPrepared) return;
+    if (shepherd.isQuiescing()) return;
     if (!interaction.isButton()) return;
     await handleInteraction(interaction, conversation, runtime.commandContext);
   });
 
-  await client.login(token);
+  try {
+    await client.login(token);
+    if (signalConfig.enabled) {
+      webhookServer = startWebhookSignalServer({
+        registry: signalRegistry,
+        routes: signalRoutes,
+        dispatcher: signalDispatcher,
+        hostname: signalConfig.hostname,
+        port: signalConfig.port,
+        maxBodyBytes: signalConfig.maxBodyBytes,
+        isAvailable: () => !shepherd.isQuiescing(),
+      });
+      console.log(`signal webhook ready at ${webhookServer.url}`);
+    }
+  } catch (error) {
+    try {
+      await shepherd.shutdown();
+    } catch (shutdownError) {
+      console.error("Shepherd startup cleanup failed:", shutdownError);
+    }
+    throw error;
+  }
 
   process.on("SIGINT", () => {
-    void shutdown().finally(() => process.exit(0));
+    void shepherd.shutdown().finally(() => process.exit(0));
   });
   process.on("SIGTERM", () => {
-    void shutdown().finally(() => process.exit(0));
+    void shepherd.shutdown().finally(() => process.exit(0));
   });
 }
 

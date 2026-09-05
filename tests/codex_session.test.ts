@@ -2,6 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import { CodexSession } from "../server/core/codex_session.js";
+import { DynamicToolRegistry } from "../server/core/dynamic_tool_registry.js";
 import { extractThreadSummary } from "../server/core/session_manager.js";
 
 type SessionInternals = {
@@ -37,12 +38,110 @@ describe("CodexSession app-server contract", () => {
       {
         method: "initialize",
         params: {
-          capabilities: {},
+          capabilities: { experimentalApi: true },
           clientInfo: { name: "shepherd", title: "Shepherd", version: "1.0.0" },
         },
       },
     ]);
     expect(notifications).toEqual(["initialized"]);
+  });
+
+  test("advertises registered dynamic tools when starting a thread", async () => {
+    const tools = new DynamicToolRegistry();
+    tools.register({
+      namespace: "shepherd",
+      namespaceDescription: "Shepherd services.",
+      name: "callback",
+      description: "Create a callback.",
+      inputSchema: { type: "object" },
+      async execute() {
+        return { success: true, contentItems: [] };
+      },
+    });
+    const session = new CodexSession("on-request", tools);
+    const requests: Array<{ method: string; params: unknown }> = [];
+    session.initialize = async () => {};
+    internals(session).sendRequest = async (method, params) => {
+      requests.push({ method, params });
+      return { thread: { id: "thread-1", modelProvider: "openai" } };
+    };
+
+    await session.startThread({ cwd: "/workspace" });
+
+    expect(requests[0]?.method).toBe("thread/start");
+    expect(requests[0]?.params).toMatchObject({
+      cwd: "/workspace",
+      dynamicTools: [{
+        type: "namespace",
+        name: "shepherd",
+        description: "Shepherd services.",
+        tools: [{
+          type: "function",
+          name: "callback",
+          description: "Create a callback.",
+          inputSchema: { type: "object" },
+        }],
+      }],
+    });
+  });
+
+  test("dispatches a dynamic tool call only for the active thread and turn", async () => {
+    const tools = new DynamicToolRegistry();
+    const calls: unknown[] = [];
+    tools.register({
+      namespace: "shepherd",
+      namespaceDescription: "Shepherd services.",
+      name: "callback",
+      description: "Create a callback.",
+      inputSchema: { type: "object" },
+      async execute(params) {
+        calls.push(params);
+        return { success: true, contentItems: [{ type: "inputText", text: "ready" }] };
+      },
+    });
+    const session = new CodexSession("on-request", tools);
+    session.threadId = "thread-1";
+    session.activeTurnId = "turn-1";
+    const writes: unknown[] = [];
+    internals(session).writeLine = (payload) => writes.push(payload);
+
+    internals(session).onServerRequest({
+      id: 9,
+      method: "item/tool/call",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        callId: "call-1",
+        namespace: "shepherd",
+        tool: "callback",
+        arguments: { kind: "build.finished" },
+      },
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(calls).toHaveLength(1);
+    expect(writes).toEqual([{
+      id: 9,
+      result: { success: true, contentItems: [{ type: "inputText", text: "ready" }] },
+    }]);
+
+    internals(session).onServerRequest({
+      id: 10,
+      method: "item/tool/call",
+      params: {
+        threadId: "thread-1",
+        turnId: "stale-turn",
+        callId: "call-2",
+        namespace: "shepherd",
+        tool: "callback",
+        arguments: {},
+      },
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(writes.at(-1)).toEqual({
+      id: 10,
+      error: { code: -32602, message: "Dynamic tool call targets a stale turn." },
+    });
   });
 
   test("omits params for parameterless requests and removed skill-list fields", async () => {

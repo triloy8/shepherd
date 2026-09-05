@@ -3,6 +3,11 @@ import readline, { type Interface as ReadlineInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../shared/protocol/approvals.js";
+import type {
+  DynamicToolCallParams,
+  DynamicToolSpec,
+  JsonValue,
+} from "../../shared/protocol/dynamic_tools.js";
 import type { BridgeEvent, BridgeEventType, MessagePhase } from "../../shared/protocol/events.js";
 import type {
   ApprovalPolicy,
@@ -20,6 +25,11 @@ import type {
   ThreadTokenUsage,
 } from "../../shared/protocol/requests.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
+import {
+  DynamicToolRegistry,
+  InvalidDynamicToolCallError,
+  UnknownDynamicToolError,
+} from "./dynamic_tool_registry.js";
 import { EventBus } from "./event_bus.js";
 import {
   extractCompletedAgentMessage,
@@ -65,6 +75,7 @@ type AppServerRequestParams = {
     modelProvider?: string;
     ephemeral?: boolean;
     serviceName?: string;
+    dynamicTools?: DynamicToolSpec[];
   };
   "thread/resume": {
     threadId: string;
@@ -129,6 +140,38 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function isJsonValue(value: unknown, depth = 0): value is JsonValue {
+  if (depth > 50) return false;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => isJsonValue(item, depth + 1));
+  if (!value || typeof value !== "object") return false;
+  return Object.values(value as Record<string, unknown>).every((item) => isJsonValue(item, depth + 1));
+}
+
+function parseDynamicToolCallParams(value: unknown): DynamicToolCallParams {
+  const record = asRecord(value);
+  const threadId = asString(record.threadId);
+  const turnId = asString(record.turnId);
+  const callId = asString(record.callId);
+  const tool = asString(record.tool);
+  const namespace = record.namespace === null ? null : asString(record.namespace);
+  if (!threadId || !turnId || !callId || !tool || (record.namespace !== null && !namespace)) {
+    throw new InvalidDynamicToolCallError("Dynamic tool call has invalid identity fields.");
+  }
+  if (!Object.hasOwn(record, "arguments") || !isJsonValue(record.arguments)) {
+    throw new InvalidDynamicToolCallError("Dynamic tool call arguments must be valid JSON.");
+  }
+  return {
+    threadId,
+    turnId,
+    callId,
+    namespace,
+    tool,
+    arguments: record.arguments,
+  };
 }
 
 type ThreadBootstrapInfo = {
@@ -206,7 +249,10 @@ export class CodexSession {
   private messagePhaseByItemId = new Map<string, MessagePhase | null>();
   private eventCounter = 0;
 
-  constructor(approvalPolicy: ApprovalPolicy) {
+  constructor(
+    approvalPolicy: ApprovalPolicy,
+    private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
+  ) {
     this.approvalPolicy = approvalPolicy;
   }
 
@@ -242,7 +288,7 @@ export class CodexSession {
     this.initPromise = (async () => {
       await this.start();
       await this.sendRequest("initialize", {
-        capabilities: {},
+        capabilities: { experimentalApi: true },
         clientInfo: { name: "shepherd", title: "Shepherd", version: "1.0.0" },
       });
       this.sendNotification("initialized");
@@ -265,6 +311,7 @@ export class CodexSession {
   async startThread(request: CreateThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
+    const dynamicTools = this.dynamicTools.specifications();
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
       approvalPolicy: this.approvalPolicy,
@@ -277,6 +324,7 @@ export class CodexSession {
       ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
       ...(request.ephemeral !== undefined ? { ephemeral: request.ephemeral } : {}),
       ...(request.serviceName ? { serviceName: request.serviceName } : {}),
+      ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
     });
 
     const bootstrap = this.extractThreadBootstrapInfo(result, "thread/start");
@@ -623,6 +671,11 @@ export class CodexSession {
   }
 
   private onServerRequest(request: RawServerRequest): void {
+    if (request.method.toLowerCase() === "item/tool/call") {
+      this.handleDynamicToolCall(request);
+      return;
+    }
+
     if (!isApprovalServerRequest(request.method)) {
       this.writeLine({
         id: request.id,
@@ -649,6 +702,50 @@ export class CodexSession {
 
     this.serverRequestsByApprovalId.set(approvalId, request);
     this.publish("approval.requested", threadId, approvalPayload);
+  }
+
+  private handleDynamicToolCall(request: RawServerRequest): void {
+    void (async () => {
+      try {
+        if (!this.dynamicTools.hasTools()) {
+          throw new UnknownDynamicToolError("Shepherd has no dynamic tools registered.");
+        }
+        const params = parseDynamicToolCallParams(request.params);
+        if (params.threadId !== this.threadId) {
+          throw new InvalidDynamicToolCallError("Dynamic tool call targets the wrong thread.");
+        }
+        if (params.turnId !== this.activeTurnId) {
+          throw new InvalidDynamicToolCallError("Dynamic tool call targets a stale turn.");
+        }
+        const result = await this.dynamicTools.execute(params);
+        this.writeLine({ id: request.id, result });
+      } catch (error) {
+        if (error instanceof InvalidDynamicToolCallError) {
+          this.writeLine({
+            id: request.id,
+            error: { code: -32602, message: error.message },
+          });
+          return;
+        }
+        if (error instanceof UnknownDynamicToolError) {
+          this.writeLine({
+            id: request.id,
+            error: { code: -32601, message: error.message },
+          });
+          return;
+        }
+
+        const message = error instanceof Error ? error.message : "Dynamic tool execution failed.";
+        this.writeLine({
+          id: request.id,
+          result: {
+            success: false,
+            contentItems: [{ type: "inputText", text: message }],
+          },
+        });
+        this.publish("session.error", this.threadId ?? "unbound", { message });
+      }
+    })();
   }
 
   private onNotification(method: string, params: unknown): void {

@@ -62,7 +62,7 @@ export class SignalRouteService {
       namespaceDescription: "Services supplied by the Shepherd conversation bridge.",
       name: "get_signal_callback",
       description:
-        "Create a unique localhost callback URL immediately before launching a detached local service. Pass the returned URL to that service with its --signal-url CLI argument.",
+        "Create a unique localhost callback URL immediately before launching a detached local service. Transfer the returned capability directly to the service through stdin; never place it in command arguments, environment variables, files, or logs.",
       inputSchema: {
         type: "object",
         properties: {

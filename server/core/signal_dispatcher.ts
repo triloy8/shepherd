@@ -21,6 +21,7 @@ export type SignalDispatchResult =
 
 export type SignalDispatcherOptions = {
   capacity?: number;
+  beforeExecute?: (signal: RegisteredSignal) => Promise<void>;
   onError?: (error: unknown, signal: RegisteredSignal) => void;
 };
 
@@ -40,6 +41,7 @@ type TargetQueue = {
 
 export class SignalDispatcher {
   private readonly capacity: number;
+  private readonly beforeExecute: (signal: RegisteredSignal) => Promise<void>;
   private readonly onError: (error: unknown, signal: RegisteredSignal) => void;
   private readonly queuesByThread = new Map<string, TargetQueue>();
   private pendingCount = 0;
@@ -54,6 +56,7 @@ export class SignalDispatcher {
     if (!Number.isInteger(this.capacity) || this.capacity < 1) {
       throw new Error("Signal dispatcher capacity must be a positive integer.");
     }
+    this.beforeExecute = options.beforeExecute ?? (async () => {});
     this.onError = options.onError ?? ((error) => console.error("Signal dispatch failed:", error));
   }
 
@@ -129,6 +132,7 @@ export class SignalDispatcher {
       try {
         await this.executor.waitUntilIdle(queued.target);
         if (this.disposed) return;
+        await this.beforeExecute(queued.signal);
         await this.executor.executeTurn(queued.target, queued.signal.input);
       } catch (error) {
         this.onError(error, queued.signal);

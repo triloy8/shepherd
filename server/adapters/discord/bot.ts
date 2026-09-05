@@ -29,6 +29,7 @@ import {
 } from "../webhook/server.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
+import { presentDiscordSignalNotice } from "./signal_notice.js";
 import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
 import { createDiscordThreadEventHandler } from "./thread_event_handler.js";
 import { replyDiscordCard } from "./stream_delivery.js";
@@ -123,7 +124,7 @@ export async function startDiscordBot(): Promise<void> {
   const threadEvents = createDiscordThreadEventHandler(client, {
     streaming: discordStreaming,
   });
-  const { handleThreadEvent, recordUserMessage } = threadEvents;
+  const { handleThreadEvent, recordReplyTarget } = threadEvents;
   disposeThreadEvents = threadEvents.dispose;
   const runtime = createDiscordSurfaceRuntime({
     conversation,
@@ -160,6 +161,13 @@ export async function startDiscordBot(): Promise<void> {
     new ConversationSignalExecutor(conversation),
     {
       capacity: signalConfig.queueCapacity,
+      beforeExecute: async (signal) => {
+        try {
+          await presentDiscordSignalNotice({ client, signal, recordReplyTarget });
+        } catch (error) {
+          console.error("Discord signal notice delivery failed:", error);
+        }
+      },
     },
   );
 
@@ -183,7 +191,7 @@ export async function startDiscordBot(): Promise<void> {
     if (!client.user) return;
 
     try {
-      recordUserMessage(message.channelId, message.id);
+      recordReplyTarget(message.channelId, message.id);
       await processDiscordMessage(message, {
         botUserId: client.user.id,
         conversation,

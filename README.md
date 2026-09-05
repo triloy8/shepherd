@@ -174,6 +174,13 @@ created and delivered. Shepherd queues and coalesces signals only in memory,
 never steers an active human turn, and uses that conversation's existing event
 subscription to deliver the result.
 
+Immediately before a queued research signal starts its Codex turn, Shepherd
+posts a distinct **Research run reported ...** Components V2 card containing
+only the validated run ID, reported state, producer verification flag, and
+optional project. The card is the reply target for the resulting Codex report,
+so an asynchronous update cannot look like a continuation of the launch reply.
+The raw callback body and opaque route remain hidden.
+
 `202 Accepted` means only that the current process accepted the signal; queued
 signals and callback routes are intentionally lost on restart. Terminal
 research states revoke their route after acceptance; otherwise routes expire

@@ -146,7 +146,7 @@ export function createDiscordThreadEventHandler(
   options: DiscordThreadEventHandlerOptions = {},
 ): {
   handleThreadEvent: (channelId: string, event: BridgeEvent) => void;
-  recordUserMessage: (channelId: string, messageId: string) => void;
+  recordReplyTarget: (channelId: string, messageId: string) => void;
   waitForIdle: (channelId: string) => Promise<void>;
   dispose: () => void;
 } {
@@ -542,7 +542,7 @@ export function createDiscordThreadEventHandler(
     await state.queue;
   };
 
-  const recordUserMessage = (channelId: string, messageId: string): void => {
+  const recordReplyTarget = (channelId: string, messageId: string): void => {
     pendingReplyByChannel.set(channelId, messageId);
   };
 
@@ -556,5 +556,5 @@ export function createDiscordThreadEventHandler(
     pendingReplyByChannel.clear();
   };
 
-  return { handleThreadEvent, recordUserMessage, waitForIdle, dispose };
+  return { handleThreadEvent, recordReplyTarget, waitForIdle, dispose };
 }

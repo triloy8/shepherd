@@ -38,7 +38,8 @@ Discord conversation
   -> the interactive Codex turn ends
   -> the systemd-supervised service operates independently
   -> the service POSTs a level-triggered signal to its unique callback URL
-  -> Shepherd resolves the route and starts a new turn in the captured thread
+  -> Shepherd resolves the route and posts a sanitized signal notice to Discord
+  -> Shepherd starts a new turn in the captured thread, replying to that notice
   -> existing surface subscriptions deliver the response to Discord
   -> the route expires or is revoked after a terminal signal
 ```
@@ -64,7 +65,8 @@ run.
 - Signals are best-effort and level-triggered. They are not durable jobs or
   exactly-once events.
 - Existing validation, queueing, busy-thread policy, Codex execution, and Discord
-  rendering remain the delivery path.
+  rendering remain the delivery path. The Discord adapter adds a sanitized
+  signal notice immediately before execution and anchors the new turn to it.
 - No compatibility shim is retained for the static research-channel route.
 
 ## Explicit non-goals
@@ -426,11 +428,17 @@ The existing dispatcher remains responsible for:
 - per-thread serialization;
 - coalescing queued and active level-triggered signals;
 - waiting for active human turns without steering them; and
+- invoking an adapter-owned pre-execution presentation hook; and
 - submitting the resulting Codex input.
 
 The captured thread is the execution target. The captured Discord surface uses
 the existing thread-event subscription, Components V2 renderer, streaming
-behavior, and final-answer delivery.
+behavior, and final-answer delivery. For `research.state-changed`, the Discord
+adapter first renders a status-accented card from the already validated run ID,
+reported state, producer verification flag, and optional research project. It
+records that bot-authored card as the reply target for the signal-started turn.
+The raw HTTP body, callback URL, route ID, thread ID, and surface ID are not
+rendered.
 
 Multiple routes can target one thread. They share its serialization queue and
 conversation context while retaining distinct route and run identities.

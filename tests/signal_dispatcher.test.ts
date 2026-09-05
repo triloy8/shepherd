@@ -46,6 +46,32 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 describe("SignalDispatcher", () => {
+  test("presents a signal after the thread is idle and before its turn", async () => {
+    const events: string[] = [];
+    const executor: SignalExecutor = {
+      async resolveTarget() {
+        return { threadId: "thread-1", cwd: "/workspace" };
+      },
+      async waitUntilIdle() {
+        events.push("idle");
+      },
+      async executeTurn() {
+        events.push("turn");
+      },
+    };
+    const dispatcher = new SignalDispatcher(executor, {
+      beforeExecute: async (pendingSignal) => {
+        events.push(`notice:${pendingSignal.envelope.subject?.id}`);
+      },
+    });
+
+    await dispatcher.accept(signal("run-1"));
+    await waitFor(() => events.includes("turn"));
+
+    expect(events).toEqual(["idle", "notice:run-1", "turn"]);
+    dispatcher.dispose();
+  });
+
   test("coalesces pending and active signals while retaining the latest follow-up", async () => {
     const idle = deferred();
     const releases: Array<ReturnType<typeof deferred>> = [];

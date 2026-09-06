@@ -102,6 +102,19 @@ describe("Discord message renderer", () => {
     ).toBe("🔧 Running command: tool --api-key [REDACTED] --token=[REDACTED]");
     expect(
       formatActivityLine({
+        itemId: "command-3",
+        turnId: "turn-1",
+        kind: "command",
+        label: "Running command",
+        detail:
+          "just launch-signaled run-specs/gpu-smoke.json SPEND http://127.0.0.1:8787/signals/abcdefghijklmnopqrstuvwx",
+        status: "started",
+      }),
+    ).toBe(
+      "🔧 Running command: just launch-signaled run-specs/gpu-smoke.json SPEND [REDACTED_SIGNAL_URL]",
+    );
+    expect(
+      formatActivityLine({
         itemId: "tool-1",
         turnId: "turn-1",
         kind: "mcp_tool",

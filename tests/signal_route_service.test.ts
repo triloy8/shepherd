@@ -46,10 +46,18 @@ function harness(options: { activeTurnId?: string | null; surface?: boolean; cap
     },
     getWebhookBaseUrl: () => "http://127.0.0.1:8787/",
   });
-  return { routes, execute: service.registration().execute };
+  const registration = service.registration();
+  return { routes, registration, execute: registration.execute };
 }
 
 describe("SignalRouteService", () => {
+  test("instructs Codex to use the producer's one-shot CLI callback argument", () => {
+    const { registration } = harness();
+
+    expect(registration.description).toContain("--signal-url CLI argument");
+    expect(registration.description).not.toContain("through stdin");
+  });
+
   test("allocates a fresh route captured from the active tool-call conversation", async () => {
     const { routes, execute } = harness();
     const first = await execute(params());

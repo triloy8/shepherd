@@ -61,6 +61,10 @@ const ACTIVITY_ICON: Record<TurnActivityKind, string> = {
 
 function redactActivityDetail(value: string): string {
   return value
+    .replace(
+      /http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+\/signals\/[A-Za-z0-9_-]{20,128}/gi,
+      "[REDACTED_SIGNAL_URL]",
+    )
     .replace(/\b(Bearer)\s+\S+/gi, "$1 [REDACTED]")
     .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "[REDACTED]")
     .replace(/\b(?:gh[opusr]_|github_pat_)[A-Za-z0-9_]{10,}\b/gi, "[REDACTED]")

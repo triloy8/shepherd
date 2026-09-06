@@ -477,6 +477,7 @@ The implementation must:
 - validate route, kind, version, subject, payload, and request-size bounds;
 - bound route count, queue size, and per-route request rate;
 - avoid logging complete callback URLs or untrusted payloads;
+- redact callback URLs from Discord command-activity rendering;
 - prevent producer-controlled execution and delivery targets; and
 - make expiration and revocation effective immediately.
 

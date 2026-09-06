@@ -153,6 +153,10 @@ argument. Each call creates a fresh callback bound to the active Codex thread,
 workspace, and Discord surface; no channel or thread ID is configured by the
 producer.
 
+Discord command-activity rendering redacts callback URLs that match the local
+signal-route shape, including when the URL is supplied to a one-shot launch
+command.
+
 The callback endpoint is intentionally unauthenticated and must not be proxied
 or exposed beyond the trusted local host. The initial signal kind is
 `research.state-changed`. A producer posts to the exact URL returned by the

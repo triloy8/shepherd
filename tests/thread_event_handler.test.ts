@@ -229,7 +229,7 @@ describe("Discord thread event handler", () => {
   test("replies from the first final chunk without chaining continuations", async () => {
     const harness = createHarness();
     const handler = createDiscordThreadEventHandler(harness.client);
-    handler.recordUserMessage("chan-1", "user-message-1");
+    handler.recordReplyTarget("chan-1", "user-message-1");
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent("chan-1", finalDelta("x".repeat(5_000)));
     handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
@@ -248,7 +248,7 @@ describe("Discord thread event handler", () => {
   test("keeps the user reply target across lifecycle events before turn start", async () => {
     const harness = createHarness();
     const handler = createDiscordThreadEventHandler(harness.client);
-    handler.recordUserMessage("chan-1", "user-message-1");
+    handler.recordReplyTarget("chan-1", "user-message-1");
     handler.handleThreadEvent(
       "chan-1",
       makeEvent("thread.name.updated", { threadName: "Comparison research" }),
@@ -275,7 +275,7 @@ describe("Discord thread event handler", () => {
       onError: (error) => harness.errors.push(error),
     });
 
-    handler.recordUserMessage("chan-1", "user-message-1");
+    handler.recordReplyTarget("chan-1", "user-message-1");
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent("chan-1", commentaryDelta("I found the issue."));
     handler.handleThreadEvent(

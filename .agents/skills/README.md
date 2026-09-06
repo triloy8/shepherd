@@ -4,7 +4,8 @@
 
 </div>
 
-This directory contains vendored local Codex skills used by Shepherd.
+This directory contains vendored local Codex skills used by Shepherd. It uses
+the standard repository skill location discovered by Codex.
 
 Each skill is a small, focused instruction bundle that teaches Codex how to handle a class of tasks with repo-specific policy, examples, and workflow guidance. Shepherd discovers these skills locally and can expose them to active threads through its adapter surfaces.
 
@@ -26,9 +27,19 @@ single Shepherd-owned `github/local.env` for machine-specific identity and polic
 values, while `github/local.env.example` is the tracked template. Target workspaces
 must not contain their own copies of this policy.
 
+When upgrading an existing checkout, move the ignored
+`.codex/skills/github/local.env` file to `.agents/skills/github/local.env` before
+restarting Shepherd.
+
 ## 📝 Notes
 
-These skills were vendored from `https://github.com/triloy8/shepherd-skills` at commit
+The `github` and `playwright-cli` skills were vendored from
+`https://github.com/triloy8/shepherd-skills` at commit
 `acf6b0cc94f64dbd0696908e995d235a3036bdfd`.
+
+Producer workflow skills belong in their project repositories so Codex
+discovers them with repo scope and their instructions remain versioned with
+the commands they operate. Shepherd supplies the generic callback tool and
+resumption transport without owning producer-specific launch policy.
 
 The collection is meant to stay practical and local-first. The goal is not a giant catalog of generic prompts, but a curated set of reusable skills that reflect how Shepherd is actually operated.

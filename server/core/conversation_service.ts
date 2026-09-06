@@ -35,10 +35,15 @@ import type {
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import {
   ConversationRoutingService,
+  type ConversationSurface,
   type ConversationRoutingServiceOptions,
   type ResolveRouteInput,
   type ResolveRouteResult,
 } from "./conversation_routing_service.js";
+import {
+  DynamicToolRegistry,
+  type DynamicToolRegistration,
+} from "./dynamic_tool_registry.js";
 import { SessionManager } from "./session_manager.js";
 import type { RuntimeActivity } from "./session_manager.js";
 
@@ -60,17 +65,32 @@ export type ConversationServiceOptions = {
 };
 
 export class ConversationService {
+  private readonly dynamicTools = new DynamicToolRegistry();
   private readonly manager: SessionManager;
   private readonly routing: ConversationRoutingService;
   private readonly subscriptionsBySurface = new Map<string, SurfaceSubscription>();
 
   constructor(options: ConversationServiceOptions = {}) {
-    this.manager = new SessionManager();
+    this.manager = new SessionManager(this.dynamicTools);
     this.routing = new ConversationRoutingService(this.manager, options.routing);
   }
 
   getSurfaceThread(adapter: string, surfaceId: string): string | null {
     return this.routing.getDefaultThread(adapter, surfaceId);
+  }
+
+  getThreadSurface(threadId: string): ConversationSurface | null {
+    const surface = this.routing.getSurfaceForThread(threadId);
+    if (!surface) return null;
+    const subscription = this.subscriptionsBySurface.get(
+      toSurfaceKey(surface.adapter, surface.surfaceId),
+    );
+    if (!subscription?.unsubscribe || subscription.threadId !== threadId) return null;
+    return surface;
+  }
+
+  registerDynamicTool(registration: DynamicToolRegistration): () => void {
+    return this.dynamicTools.register(registration);
   }
 
   getRuntimeActivity(): RuntimeActivity {

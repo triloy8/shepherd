@@ -13,6 +13,9 @@ Generated baseline:
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
+- Experimental verification commands used for dynamic tools:
+  - `codex app-server generate-ts --experimental --out <temporary-directory>`
+  - `codex app-server generate-json-schema --experimental --out <temporary-directory>`
 
 Legacy note:
 
@@ -22,8 +25,8 @@ Legacy note:
 
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
-| `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced by the transport type map |
-| `thread/start` | Partial | Core | Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource`; other generated fields are exposed |
+| `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools |
+| `thread/start` | Partial | Core | Advertises registered experimental `dynamicTools`; missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
 | `thread/resume` | Partial | Core | Missing `serviceTier` and `approvalsReviewer`; other generated fields are exposed |
 | `thread/fork` | Partial | Core | Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, and `threadSource`; other generated fields are exposed |
 | `thread/archive` | Implemented | Core | |
@@ -132,7 +135,7 @@ Legacy note:
 | `item/tool/requestUserInput` | Explicit JSON-RPC unsupported response; Shepherd has no structured-answer surface | Maybe Later |
 | `mcpServer/elicitation/request` | Explicit JSON-RPC unsupported response; Shepherd has no form/URL elicitation surface | Maybe Later |
 | `item/permissions/requestApproval` | Explicit JSON-RPC unsupported response; Discord buttons cannot return permission profiles | Maybe Later |
-| `item/tool/call` | Explicit JSON-RPC unsupported response; no dynamic-tool registry is advertised | Out of Scope (for now) |
+| `item/tool/call` | Typed identity/JSON validation and explicit registered-tool dispatch; stale turns, wrong threads, and unknown tools are rejected | Core (Experimental) |
 | `account/chatgptAuthTokens/refresh` | Explicit JSON-RPC unsupported response; authentication is owned by the Codex installation | Out of Scope (for now) |
 | `attestation/generate` | Explicit JSON-RPC unsupported response; no client attestation provider is configured | Out of Scope (for now) |
 

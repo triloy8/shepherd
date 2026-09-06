@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SHEPHERD_PROJECT_DIR:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
-CODEX_VERSION="${CODEX_VERSION:-0.145.0}"
+CODEX_VERSION="${CODEX_VERSION:-0.149.0}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   echo "run this setup as the Ubuntu user nio, not root" >&2

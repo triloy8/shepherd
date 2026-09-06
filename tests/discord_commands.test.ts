@@ -107,7 +107,7 @@ function makeContext(overrides?: {
                 {
                   name: "github",
                   scope: "workspace",
-                  path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
                   description: "GitHub task execution with a gh-first workflow.",
                   enabled: true,
                 },
@@ -429,7 +429,7 @@ describe("Discord !skill commands", () => {
     expect(writes).toEqual([
       {
         threadId: "thread-1",
-        path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+        path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
         enabled: false,
       },
     ]);
@@ -452,14 +452,14 @@ describe("Discord !skill commands", () => {
                 {
                   name: "github",
                   scope: "workspace",
-                  path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
                   description: "",
                   enabled: true,
                 },
                 {
                   name: "github",
                   scope: "personal",
-                  path: "/home/tadhiel/.codex/skills/github/SKILL.md",
+                  path: "/home/tadhiel/.agents/skills/github/SKILL.md",
                   description: "",
                   enabled: true,
                 },

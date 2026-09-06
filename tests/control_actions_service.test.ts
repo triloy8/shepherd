@@ -61,7 +61,7 @@ function makeContext(overrides?: {
                 {
                   name: "github",
                   scope: "repo",
-                  path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
                   description: "",
                   enabled: true,
                 },
@@ -297,7 +297,7 @@ describe("ControlActionsService", () => {
     expect(skillWrites).toEqual([
       {
         threadId: "thread-1",
-        path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+        path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
         enabled: false,
       },
     ]);
@@ -315,14 +315,14 @@ describe("ControlActionsService", () => {
                 {
                   name: "github",
                   scope: "repo",
-                  path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
                   description: "",
                   enabled: true,
                 },
                 {
                   name: "github",
                   scope: "user",
-                  path: "/home/tadhiel/.codex/skills/github/SKILL.md",
+                  path: "/home/tadhiel/.agents/skills/github/SKILL.md",
                   description: "",
                   enabled: true,
                 },

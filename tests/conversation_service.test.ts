@@ -15,6 +15,7 @@ type FakeRouting = {
   getDefaultThread: (adapter: string, surfaceId: string) => string | null;
   setDefaultThread: (adapter: string, surfaceId: string, threadId: string) => Promise<string>;
   clearDefaultThread: (adapter: string, surfaceId: string) => void;
+  getSurfaceForThread: (threadId: string) => { adapter: string; surfaceId: string } | null;
   resolveRoute: (input: {
     adapter: string;
     surfaceId: string;
@@ -53,6 +54,14 @@ function makeServiceHarness() {
     },
     clearDefaultThread(adapter, surfaceId) {
       surfaceThreads.set(`${adapter}:${surfaceId}`, null);
+    },
+    getSurfaceForThread(threadId) {
+      for (const [key, candidate] of surfaceThreads) {
+        if (candidate !== threadId) continue;
+        const separator = key.indexOf(":");
+        return { adapter: key.slice(0, separator), surfaceId: key.slice(separator + 1) };
+      }
+      return null;
     },
     async resolveRoute(input) {
       const key = `${input.adapter}:${input.surfaceId}`;
@@ -130,5 +139,17 @@ describe("ConversationService surface subscriptions", () => {
 
     expect(h.subscribeCalls).toHaveLength(2);
     expect(h.getUnsubscribeCalls()).toBe(1);
+  });
+
+  test("exposes a thread surface only while its delivery subscription is live", async () => {
+    const h = makeServiceHarness();
+    await h.service.bindSurfaceToThread("discord", "chan-1", "thread-a");
+    expect(h.service.getThreadSurface("thread-a")).toBeNull();
+
+    const unsubscribe = h.service.subscribeSurfaceEvents("discord", "chan-1", () => undefined);
+    expect(h.service.getThreadSurface("thread-a")).toEqual({ adapter: "discord", surfaceId: "chan-1" });
+
+    unsubscribe();
+    expect(h.service.getThreadSurface("thread-a")).toBeNull();
   });
 });

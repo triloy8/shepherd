@@ -11,5 +11,5 @@ schemas
 envs/*.env
 !envs/*.env.example
 
-.codex/skills/**/*.env
-!.codex/skills/**/*.env.example
+.agents/skills/**/*.env
+!.agents/skills/**/*.env.example

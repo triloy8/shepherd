@@ -14,14 +14,14 @@ services:
       - envs/discord.env
     environment:
       HOME: /home/bun
-      SHEPHERD_CONFIG_DIR: /home/bun/.codex
+      SHEPHERD_SKILLS_DIR: /home/bun/.agents/skills
     volumes:
       - codex-home:/home/bun/.codex
       - github-config:/home/bun/.config/gh
       - agent-workspaces:/home/bun/.agent-workspaces
       - type: bind
-        source: ./.codex/skills
-        target: /home/bun/.codex/skills
+        source: ./.agents/skills
+        target: /home/bun/.agents/skills
         read_only: true
 
 volumes:

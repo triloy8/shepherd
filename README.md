@@ -46,7 +46,7 @@ Discord channel.
 - `server/config`: env loading
 - `envs`: local runtime config and example env files
 - `schemas`: generated protocol schemas
-- `.codex/skills`: vendored Codex skills used by Shepherd
+- `.agents/skills`: vendored Codex skills used by Shepherd
 
 The architectural split is intentional:
 

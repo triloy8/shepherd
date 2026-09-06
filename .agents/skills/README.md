@@ -4,7 +4,8 @@
 
 </div>
 
-This directory contains vendored local Codex skills used by Shepherd.
+This directory contains vendored local Codex skills used by Shepherd. It uses
+the standard repository skill location discovered by Codex.
 
 Each skill is a small, focused instruction bundle that teaches Codex how to handle a class of tasks with repo-specific policy, examples, and workflow guidance. Shepherd discovers these skills locally and can expose them to active threads through its adapter surfaces.
 
@@ -25,6 +26,10 @@ Some skills may rely on local, untracked configuration. The `github` skill uses 
 single Shepherd-owned `github/local.env` for machine-specific identity and policy
 values, while `github/local.env.example` is the tracked template. Target workspaces
 must not contain their own copies of this policy.
+
+When upgrading an existing checkout, move the ignored
+`.codex/skills/github/local.env` file to `.agents/skills/github/local.env` before
+restarting Shepherd.
 
 ## 📝 Notes
 

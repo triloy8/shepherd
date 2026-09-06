@@ -12,11 +12,11 @@ Prefer `gh` commands/API for remote operations, but allow `git push` for branch 
 ## Shepherd Policy
 
 Load policy values from the single Shepherd-owned configuration before any remote action.
-`SHEPHERD_CONFIG_DIR` may override the default checkout location:
+`SHEPHERD_SKILLS_DIR` may override the default skills location:
 
 ```bash
-shepherd_config_dir="${SHEPHERD_CONFIG_DIR:-$HOME/shepherd/.codex}"
-shepherd_github_policy="$shepherd_config_dir/skills/github/local.env"
+shepherd_skills_dir="${SHEPHERD_SKILLS_DIR:-$HOME/shepherd/.agents/skills}"
+shepherd_github_policy="$shepherd_skills_dir/github/local.env"
 test -r "$shepherd_github_policy" || {
   echo "missing Shepherd GitHub policy: $shepherd_github_policy" >&2
   exit 1
@@ -24,11 +24,11 @@ test -r "$shepherd_github_policy" || {
 set -a
 source "$shepherd_github_policy"
 set +a
-unset shepherd_config_dir shepherd_github_policy
+unset shepherd_skills_dir shepherd_github_policy
 ```
 
-Never create or source `.codex/skills/github/local.env` in a target workspace. Keep the
-central `${SHEPHERD_CONFIG_DIR}/skills/github/local.env` untracked and commit only the
+Never create or source `.agents/skills/github/local.env` in a target workspace. Keep the
+central `${SHEPHERD_SKILLS_DIR}/github/local.env` untracked and commit only the
 Shepherd-owned `local.env.example` template.
 
 Set these policy values for the Shepherd installation and enforce them on every remote action:

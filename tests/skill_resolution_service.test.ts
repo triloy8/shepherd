@@ -11,7 +11,7 @@ const listed = {
         {
           name: "github",
           scope: "workspace",
-          path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+          path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
           description: "",
           enabled: true,
         },
@@ -27,7 +27,7 @@ describe("SkillResolutionService", () => {
 
   test("resolves a unique skill name", () => {
     expect(resolveSkillPathFromList(listed, "github")).toEqual({
-      path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+      path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
     });
   });
 
@@ -41,14 +41,14 @@ describe("SkillResolutionService", () => {
             {
               name: "github",
               scope: "workspace",
-              path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
               description: "",
               enabled: true,
             },
             {
               name: "github",
               scope: "user",
-              path: "/home/tadhiel/.codex/skills/github/SKILL.md",
+              path: "/home/tadhiel/.agents/skills/github/SKILL.md",
               description: "",
               enabled: true,
             },
@@ -64,7 +64,7 @@ describe("SkillResolutionService", () => {
 
   test("resolves a qualified skill name", () => {
     expect(resolveSkillPathFromList(listed, "github [workspace]")).toEqual({
-      path: "/home/tadhiel/shepherd/.codex/skills/github/SKILL.md",
+      path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
     });
   });
 

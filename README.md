@@ -153,6 +153,11 @@ argument. Each call creates a fresh callback bound to the active Codex thread,
 workspace, and Discord surface; no channel or thread ID is configured by the
 producer.
 
+Shepherd owns this generic callback and resumption transport, not the
+producer's operating workflow. Producer repositories may provide repo-scoped
+Codex skills, such as auto-infra's `research-infra`, so launch and evidence
+instructions remain versioned with the commands they describe.
+
 Discord command-activity rendering redacts callback URLs that match the local
 signal-route shape, including when the URL is supplied to a one-shot launch
 command.

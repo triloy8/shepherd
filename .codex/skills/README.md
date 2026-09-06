@@ -14,8 +14,6 @@ The current set is intentionally small:
 
 - `github`: GitHub task workflow and safety policy for this workspace
 - `playwright-cli`: browser automation workflow for Playwright CLI usage
-- `research-infra`: repository-backed remote research through the auto-infra
-  control plane and Shepherd completion callbacks
 
 ## 🧱 Structure
 
@@ -32,7 +30,11 @@ must not contain their own copies of this policy.
 
 The `github` and `playwright-cli` skills were vendored from
 `https://github.com/triloy8/shepherd-skills` at commit
-`acf6b0cc94f64dbd0696908e995d235a3036bdfd`. The `research-infra` skill is
-owned here because it describes Shepherd's signal contract.
+`acf6b0cc94f64dbd0696908e995d235a3036bdfd`.
+
+Producer workflow skills belong in their project repositories so Codex
+discovers them with repo scope and their instructions remain versioned with
+the commands they operate. Shepherd supplies the generic callback tool and
+resumption transport without owning producer-specific launch policy.
 
 The collection is meant to stay practical and local-first. The goal is not a giant catalog of generic prompts, but a curated set of reusable skills that reflect how Shepherd is actually operated.

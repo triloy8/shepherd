@@ -59,6 +59,9 @@ run.
   conversation context. They are never model-supplied tool arguments.
 - Codex launches the detached service using the existing domain CLI or shell
   command. Shepherd does not launch, supervise, cancel, or clean up the service.
+- Producer repositories own any repo-scoped Codex skills that describe their
+  launch, authorization, evidence, and cleanup workflows. Shepherd owns only
+  the generic callback and resumed-turn transport.
 - The callback URL is passed to the service as a per-launch CLI argument, not an
   environment variable or shared configuration file.
 - Routes, queued signals, and delivery state are bounded and process-local.

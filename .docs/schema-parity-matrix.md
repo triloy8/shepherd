@@ -8,8 +8,8 @@ Status legend:
 
 Generated baseline:
 
-- Codex version: `codex-cli 0.149.0`
-- Last refreshed: `2026-08-22`
+- Codex version: `codex-cli 0.153.4`
+- Last refreshed: `2026-09-07`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -27,8 +27,8 @@ Legacy note:
 |---|---|---|---|
 | `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools |
 | `thread/start` | Partial | Core | Advertises registered experimental `dynamicTools`; missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
-| `thread/resume` | Partial | Core | Missing `serviceTier` and `approvalsReviewer`; other generated fields are exposed |
-| `thread/fork` | Partial | Core | Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, and `threadSource`; other generated fields are exposed |
+| `thread/resume` | Partial | Core | Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns`; other generated fields are exposed |
+| `thread/fork` | Partial | Core | Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns`; other generated fields are exposed |
 | `thread/archive` | Implemented | Core | |
 | `thread/delete` | Missing | Maybe Later | Destructive thread lifecycle path; useful if Shepherd adds stronger thread management UX |
 | `thread/unarchive` | Implemented | Core | |
@@ -41,21 +41,24 @@ Legacy note:
 | `thread/compact/start` | Implemented | Core | |
 | `thread/shellCommand` | Missing | Out of Scope (for now) | Terminal-oriented thread helper; Shepherd should route requests, not become a shell command surface |
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
-| `thread/rollback` | Implemented | Core | Generated schema marks this method as deprecated |
+| `thread/rollback` | Implemented | Core | Existing turn-count rollback flow; the generated surface now also provides turn-ID-based `thread/revert` |
+| `thread/revert` | Missing | Core | Modern persisted-history replacement by `beforeTurnId`; does not revert local file changes |
 | `thread/list` | Implemented | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors |
 | `threadSection/list` | Missing | Maybe Later | Useful if Shepherd adds section-based thread organization UX |
 | `threadSection/create` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
 | `threadSection/update` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
 | `threadSection/delete` | Missing | Maybe Later | Destructive section-management path; not exposed by the current Discord flow |
 | `thread/loaded/list` | Implemented | Core | |
-| `thread/read` | Implemented | Core | `includeTurns` supported |
+| `thread/read` | Implemented | Core | `includeTurns` supported, though the generated schema now recommends metadata-only reads plus paginated turn/item listing |
+| `thread/turns/list` | Missing | Core | Paginated thread-history API and preferred replacement for full-history hydration |
+| `thread/items/list` | Missing | Core | Paginated item-history API, optionally filtered by turn |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
 | `thread/unsubscribe` | Missing | Maybe Later | Useful for lifecycle cleanup/stream controls; not required for current correctness |
 | `hooks/list` | Missing | Maybe Later | Useful for admin diagnostics, but hook management is not part of the current Discord surface |
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports all generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, approval reviewer, sandbox policy, service tier, effort, summary, personality, and output schema |
+| `turn/start` | Partial | Core | Supports all generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, effort, summary, personality, and output schema |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
@@ -66,6 +69,7 @@ Legacy note:
 | `skills/config/write` | Partial | Core | Wrapped in core and exposed via Discord `!skill enable|disable`; supports path selection but not the generated name selector |
 | `plugin/list` | Missing | Out of Scope (for now) | Plugin management is outside Shepherd's current Discord/admin surface |
 | `plugin/installed` | Missing | Out of Scope (for now) | Plugin inventory surface is outside Shepherd's current Discord/admin surface |
+| `plugin/reconcile` | Missing | Out of Scope (for now) | Plugin reconciliation is outside Shepherd's current Discord/admin surface |
 | `plugin/read` | Missing | Out of Scope (for now) | |
 | `plugin/skill/read` | Missing | Out of Scope (for now) | Plugin skill inspection is outside Shepherd's current Discord/admin surface |
 | `plugin/install` | Missing | Out of Scope (for now) | High-risk mutation path |
@@ -181,6 +185,7 @@ Legacy note:
 | `item/mcpToolCall/progress` | Generic | Out of Scope (for now) |
 | `mcpServer/oauthLogin/completed` | Generic | Out of Scope (for now) |
 | `mcpServer/startupStatus/updated` | Generic | Out of Scope (for now) |
+| `mcpServer/event/stream/notification` | Generic | Out of Scope (for now) |
 | `account/updated` / `account/rateLimits/updated` | Generic; `account/rateLimits/read` is wrapped separately | Maybe Later |
 | `app/list/updated` | Generic | Out of Scope (for now) |
 | `remoteControl/status/changed` | Generic | Out of Scope (for now) |
@@ -192,12 +197,14 @@ Legacy note:
 | `item/reasoning/textDelta` | Partially interpreted via text delta | Maybe Later |
 | `model/rerouted` | Generic | Maybe Later |
 | `model/verification` | Generic | Maybe Later |
+| `modelProvider/authRecoveryStarted` / `modelProvider/authRecoveryCompleted` | Generic | Maybe Later |
 | `turn/moderationMetadata` | Generic | Maybe Later |
 | `model/safetyBuffering/updated` | Generic | Maybe Later |
 | `warning` / `guardianWarning` | Generic | Maybe Later |
 | `deprecationNotice` / `configWarning` | Generic | Maybe Later |
 | `fuzzyFileSearch/sessionUpdated` / `fuzzyFileSearch/sessionCompleted` | Generic | Out of Scope (for now) |
 | `thread/realtime/started` / `thread/realtime/itemAdded` | Generic | Out of Scope (for now) |
+| `thread/realtime/item/started` / `thread/realtime/item/transcript/delta` / `thread/realtime/item/completed` | Generic | Out of Scope (for now) |
 | `thread/realtime/transcript/delta` / `thread/realtime/transcript/done` | Delta partially interpreted via generic text-delta handling; done notification is generic | Out of Scope (for now) |
 | `thread/realtime/outputAudio/delta` / `thread/realtime/sdp` | Generic | Out of Scope (for now) |
 | `thread/realtime/error` / `thread/realtime/closed` | Generic | Out of Scope (for now) |
@@ -210,7 +217,7 @@ Legacy note:
 |---|---|---|
 | Thread lifecycle DTOs | Good | Includes current list filters, pagination cursors, and generated approval-policy values |
 | Rich thread object typing | Partial | `ReadThreadResponse`/`RollbackThreadResponse` use `ThreadRecord`; newly generated project assignment and agent-message delivery fields remain only structurally preserved through the open record shape |
-| Rich resume/fork/start options | Partial | Major override fields supported; still not full schema parity |
-| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; new project, queue, revert, and strict-review notifications plus broader item/model/realtime notifications remain generic |
+| Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
+| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, revert, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.149.0`: 98 TypeScript request methods (95 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 77 TypeScript notifications (75 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.153.4`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |

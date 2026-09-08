@@ -21,11 +21,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates gh git openssh-client \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app /home/bun/.agent-workspaces /home/bun/.bun/bin \
-      /home/bun/.bun/install/global /home/bun/.codex /home/bun/.config/gh \
+    && mkdir -p /app /home/bun/.agent-workspaces /home/bun/.agents /home/bun/.bun/bin \
+      /home/bun/.bun/install/global /home/bun/.config/gh \
     && chown -R bun:bun /app /home/bun
 
 ENV HOME=/home/bun
+ENV CODEX_HOME=/home/bun/.agents
 ENV PATH=/home/bun/.bun/bin:${PATH}
 ENV BUN_INSTALL_BIN=/home/bun/.bun/bin
 ENV BUN_INSTALL_GLOBAL_DIR=/home/bun/.bun/install/global

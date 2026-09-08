@@ -27,10 +27,6 @@ single Shepherd-owned `github/local.env` for machine-specific identity and polic
 values, while `github/local.env.example` is the tracked template. Target workspaces
 must not contain their own copies of this policy.
 
-When upgrading an existing checkout, move the ignored
-`.codex/skills/github/local.env` file to `.agents/skills/github/local.env` before
-restarting Shepherd.
-
 ## 📝 Notes
 
 The `github` and `playwright-cli` skills were vendored from

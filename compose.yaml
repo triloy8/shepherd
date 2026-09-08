@@ -14,9 +14,10 @@ services:
       - envs/discord.env
     environment:
       HOME: /home/bun
+      CODEX_HOME: /home/bun/.agents
       SHEPHERD_SKILLS_DIR: /home/bun/.agents/skills
     volumes:
-      - codex-home:/home/bun/.codex
+      - codex-home:/home/bun/.agents
       - github-config:/home/bun/.config/gh
       - agent-workspaces:/home/bun/.agent-workspaces
       - type: bind

@@ -82,3 +82,13 @@ If verification fails, retain the old installation and restore the previous
 launcher and mount settings while investigating. Do not remove the working
 copy first. Future updates should be deliberate Git updates with their revision
 recorded; installing the skills does not require automatic updates at startup.
+
+## Follow-up: branch naming conventions
+
+Add explicit branch naming conventions to the GitHub skill. The current skill
+sets commit and PR title conventions but does not define branch names.
+Specify allowed prefixes, a consistent descriptive format, and examples for
+common task types. Branch names should describe the work and omit assistant or
+tool branding. Define these rules in the versioned skills repository so they
+apply consistently across projects; this document records the requirement,
+without introducing a naming policy yet.

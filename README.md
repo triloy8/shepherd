@@ -46,7 +46,6 @@ Discord channel.
 - `server/config`: env loading
 - `envs`: local runtime config and example env files
 - `schemas`: generated protocol schemas
-- `.agents/skills`: vendored Codex skills used by Shepherd
 
 The architectural split is intentional:
 
@@ -97,7 +96,12 @@ rejects a V2 payload. Generated-image delivery requires `Attach Files`.
 > approval prompts. Review those values before running Shepherd against any repo
 > or machine you care about.
 
-5. Start the Discord adapter:
+5. Install the shared `github` and `playwright-cli` skills in `~/.agents/skills`
+   and configure the private GitHub policy using the
+   [shared skills installation guide](.docs/shared-skills-location.md). Existing
+   installations should follow its migration steps before removing vendored skills.
+
+6. Start the Discord adapter:
 
 ```bash
 bun run dev

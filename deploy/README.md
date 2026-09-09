@@ -86,6 +86,13 @@ gh auth status
 
 If needed, use `codex login --device-auth` on the phone.
 
+Install the generic skills as `nio` at `/home/nio/.agents/skills` and preserve
+or configure `github/local.env` using the
+[shared skills guide](../.docs/shared-skills-location.md). The host processes
+inherit `HOME=/home/nio`, so the standard installation needs no
+`SHEPHERD_SKILLS_DIR` override or launcher change. Install skills once; they are
+not automatically updated when Shepherd starts or deploys.
+
 Verify Shepherd:
 
 ```bash

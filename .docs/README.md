@@ -6,6 +6,9 @@ archive when historical reasoning is useful.
 
 ## Maintained references
 
+- [Shared skills installation](shared-skills-location.md) — host setup,
+  private policy migration, discovery checks, and recovery.
+
 - [Architecture](architecture.md) — current adapter, application-core, and
   runtime-core ownership boundaries and flows.
 - [Schema parity matrix](schema-parity-matrix.md) — coverage of the generated

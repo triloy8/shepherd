@@ -1,94 +1,81 @@
-# Shared installation of Shepherd skills
+# Shared skills installation
 
-Status: proposed migration. This document records the intended layout and rollout;
-adding it does not move skills or change the running installation.
+Shepherd's generic `github` and `playwright-cli` skills are maintained in
+[`triloy8/shepherd-skills`](https://github.com/triloy8/shepherd-skills) and
+installed at `~/.agents/skills`. Shepherd no longer vendors these skills.
+Project-specific skills remain in their project repositories.
 
-## Decision
+This guide covers the host deployment launched from `~/shepherd`. Docker is
+outside this migration's scope.
 
-Manage Shepherd's generic skills in a separate Git repository and install them
-manually at `~/.agents/skills`. Remove the vendored copy at
-`~/shepherd/.agents/skills` after the replacement is installed and verified.
+## Install
 
-The current skills README identifies `triloy8/shepherd-skills` as the source of
-`github` and `playwright-cli`. Prefer reusing that repository after confirming
-its current contents and access, rather than creating a second source of truth.
+When `~/.agents/skills` does not exist:
 
-A repository-local skills directory applies to work within that repository.
-The user-level directory makes these generic skills discoverable when Shepherd
-opens threads in other repositories or isolated workspaces.
-
-## Intended layout
-
-```text
-~/.agents/skills/                  # Git checkout of the skills repository
-  .gitignore
-  github/
-    SKILL.md
-    local.env.example             # Tracked policy template
-    local.env                     # Private, untracked installation policy
-  playwright-cli/
-    SKILL.md
-
-~/shepherd/
-  .docs/shared-skills-location.md
+```bash
+gh repo clone triloy8/shepherd-skills ~/.agents/skills
 ```
 
-Each skill must be directly under the installation directory, without an extra
-nested `skills/` level. Keep skill changes versioned in the skills repository.
-Do not create a second clone under `~/shepherd/skills` or retain duplicate
-installed copies. Project-specific workflow skills remain in their own projects.
+The checkout must contain `github/SKILL.md` and `playwright-cli/SKILL.md`
+directly under `~/.agents/skills`, without an extra `skills/` level. If unrelated
+skills already occupy that directory, preserve them and link the individual
+Shepherd skill folders from a separate checkout instead of replacing it.
 
-If `~/.agents/skills` already contains unrelated skills, preserve them: install
-the Shepherd skill folders individually or link them from a separate checkout.
-Do not replace an existing directory merely to obtain the preferred layout.
+For a fresh installation, create the private policy:
 
-## Migration sequence
+```bash
+cp ~/.agents/skills/github/local.env.example ~/.agents/skills/github/local.env
+chmod 600 ~/.agents/skills/github/local.env
+git -C ~/.agents/skills check-ignore github/local.env
+```
 
-1. Inspect the existing installation and record its revision and local changes.
-   Preserve `github/local.env` privately before changing either location.
-2. Install the skills repository at `~/.agents/skills`, when that destination is
-   available. Verify its folder layout and ensure `github/local.env` is ignored
-   before restoring the private policy. Commit only its example template.
-3. Update the GitHub skill's default policy lookup from
-   `~/shepherd/.agents/skills` to `~/.agents/skills`, or explicitly configure
-   `SHEPHERD_SKILLS_DIR` for every relevant launcher. Keep one authoritative
-   policy file and avoid workspace-specific copies.
-4. Update Shepherd's Docker bind-mount source from `./.agents/skills` to the
-   operator's installed skills directory. Keep the container destination at
-   `/home/bun/.agents/skills`, read-only, and keep `SHEPHERD_SKILLS_DIR` aligned
-   with that container path. Ensure the installed skills exist before startup.
-5. Update installation instructions, packaging references and tests that assume
-   the vendored directory. Configure the host service environment explicitly;
-   an interactive shell setting alone may not reach a running service.
-6. Run `!skills reload` in a thread targeting a different repository. Confirm
-   that `github` and `playwright-cli` are listed from the shared installation.
-   Restart the service or open a fresh thread if its context is stale.
-7. Verify that the GitHub skill resolves the preserved policy without printing
-   its contents. For Docker users, also check discovery and policy readability
-   inside the container.
-8. Only after verification, remove Shepherd's tracked vendored skills and the
-   old private file. Keep any temporary private backup outside Git until the
-   migration is confirmed, then dispose of it through the operator's normal
-   secret-handling process.
+Fill in the expected GitHub identity and allowed repositories in that file.
+Include repositories this installation manages, including the skills repository
+if it will maintain its own skills. Commit only the example template; `*.env`
+is ignored.
 
-## Completion and recovery
+The GitHub skill defaults to `$HOME/.agents/skills/github/local.env`.
+`SHEPHERD_SKILLS_DIR` can override the installation root. The standard host
+launcher inherits the user's `HOME`, so no override or launcher edit is needed.
+For a custom root, set the override in the launcher environment; an unrelated
+interactive shell setting does not update an already-running service.
 
-Completion requires one discoverable installation of each generic skill, intact
-Git history in the skills repository, successful policy lookup, and working
-host/container paths for the deployments in use. No credentials or private
-policy values may enter either repository.
+## Migrate an existing host
 
-If verification fails, retain the old installation and restore the previous
-launcher and mount settings while investigating. Do not remove the working
-copy first. Future updates should be deliberate Git updates with their revision
-recorded; installing the skills does not require automatic updates at startup.
+1. Record the old skills revision and local changes. Privately back up
+   `~/shepherd/.agents/skills/github/local.env` outside Git.
+2. Install the shared checkout and confirm its ignore rule before restoring
+   the existing private policy into `~/.agents/skills/github/local.env`.
+   Preserve the policy values; do not replace them with the example template.
+3. Verify discovery in a thread targeting a different repository with
+   `!skills reload`. Both skills must be enabled and resolve to their shared
+   paths. Also verify the GitHub skill can load the policy without printing it.
+4. Apply the Shepherd revision that removes the tracked vendored skills.
+   Remove the old private policy after successful verification. Preserve any
+   unrelated local files. Retire old generic skill copies in active workspaces
+   too, so they do not cause duplicate-name ambiguity.
+5. Reload skills for the Shepherd repository and active workspaces. Expect
+   exactly one `github` and one `playwright-cli`, both from the shared location.
+   Codex watches skill changes; open a fresh thread if an existing context
+   still advertises the retired paths.
 
-## Follow-up: branch naming conventions
+The underlying verification API is `skills/list` with the target repository in
+`cwds` and `forceReload: true`, which is also what `!skills reload` requests.
+[Codex skill discovery documentation](https://developers.openai.com/codex/skills)
+describes the user directory, symlinks, and automatic change detection.
 
-Add explicit branch naming conventions to the GitHub skill. The current skill
-sets commit and PR title conventions but does not define branch names.
-Specify allowed prefixes, a consistent descriptive format, and examples for
-common task types. Branch names should describe the work and omit assistant or
-tool branding. Define these rules in the versioned skills repository so they
-apply consistently across projects; this document records the requirement,
-without introducing a naming policy yet.
+## Updates and recovery
+
+Keep generic skill edits in the skills repository, including the GitHub skill's
+`<type>/<description>` branch naming rules. Use lowercase hyphenated descriptions
+and omit assistant/tool branding; see that skill for the allowed types and examples.
+
+Record the installed version with `git -C ~/.agents/skills rev-parse HEAD`.
+Review and install updates deliberately; Shepherd does not update skills at
+startup. Preserve ignored policy and local changes during upgrades.
+
+If verification fails, keep or restore the previous checkout and private policy
+and restore any previous launcher override. Do not remove the only working
+installation. Dispose of temporary private backups after verifying the completed
+migration. A successful host migration has one discoverable copy of each generic
+skill, preserved Git history, and one readable, ignored private policy file.

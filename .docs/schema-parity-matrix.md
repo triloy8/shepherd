@@ -58,7 +58,7 @@ Legacy note:
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports all generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, effort, summary, personality, and output schema |
+| `turn/start` | Partial | Core | Supports all generated input variants plus `approvalPolicy`, `model`, `effort` (Discord `!effort`), and resolved `cwd`; missing client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |

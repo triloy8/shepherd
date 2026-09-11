@@ -47,6 +47,7 @@ export interface CreateThreadResponse {
 }
 
 export interface SubmitTurnRequest {
+  effort?: string;
   input: UserInput[];
   approvalPolicy?: ApprovalPolicy;
   model?: string;
@@ -254,6 +255,8 @@ export interface ModelSummary {
   hidden: boolean;
   isDefault: boolean;
   supportsPersonality: boolean;
+  supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }>;
+  defaultReasoningEffort?: string | null;
 }
 
 export interface ListModelsResponse {
@@ -330,4 +333,13 @@ export interface SkillsConfigWriteRequest {
 
 export interface SkillsConfigWriteResponse {
   effectiveEnabled: boolean;
+}
+
+export interface ThreadEffortState {
+  threadId: string;
+  model: string;
+  currentEffort: string | null;
+  pendingEffort: string | null;
+  defaultEffort: string | null;
+  supportedEfforts: Array<{ reasoningEffort: string; description: string }>;
 }

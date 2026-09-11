@@ -434,6 +434,7 @@ export async function handleMessage(
       "- !models",
       "- !model",
       "- !model set <id>",
+      "- !effort [set <level|default>]",
       "- !context",
       "- !skills [reload]",
       "- !skill enable <name-or-path>",
@@ -700,6 +701,35 @@ export async function handleMessage(
       page: 1,
     }));
     return { handled: true, threadId: result.modelState?.threadId ?? null, input: null };
+  }
+
+  if (command === "!effort") {
+    const threadId = context.getSurfaceThreadId(channelId);
+    if (!threadId) {
+      await replyCard(message, "Thread required", "No active thread in this channel. Use `!newthread` or `!thread <id>` first.", "warning");
+      return { handled: true, threadId: null, input: null };
+    }
+    if (args.length && (args.length !== 2 || args[0]?.toLowerCase() !== "set")) {
+      await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level|default>");
+      return { handled: true, threadId, input: null };
+    }
+    try {
+      const state = args.length
+        ? await context.conversation.setThreadEffort(threadId, args[1]!.toLowerCase())
+        : await context.conversation.getThreadEffort(threadId);
+      const lines = [
+        `- Model: ${state.model}`,
+        `- Current: ${state.currentEffort ?? "unknown"}`,
+        `- Model default: ${state.defaultEffort ?? "unknown"}`,
+        `- Available: ${state.supportedEfforts.map((option) => option.reasoningEffort).join(", ") || "none"}`,
+      ];
+      if (state.pendingEffort) lines.push(`- Pending next turn: ${state.pendingEffort}`);
+      if (args.length) lines.push("Applies to the next new turn and subsequent turns.");
+      await replyCard(message, args.length ? "Effort updated" : "Effort", lines.join("\n"));
+    } catch (error) {
+      await replyCard(message, "Effort unavailable", error instanceof Error ? error.message : "Failed to read effort settings.", "danger");
+    }
+    return { handled: true, threadId, input: null };
   }
 
   if (command === "!model") {

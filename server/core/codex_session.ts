@@ -128,6 +128,7 @@ type AppServerRequestParams = {
     approvalPolicy: ApprovalPolicy;
     input: UserInput[];
     model?: string;
+    effort?: string;
     cwd?: string;
   };
   "turn/interrupt": { threadId: string; turnId: string };
@@ -175,6 +176,7 @@ function parseDynamicToolCallParams(value: unknown): DynamicToolCallParams {
 }
 
 type ThreadBootstrapInfo = {
+  reasoningEffort: string | null;
   threadId: string;
   model: string | null;
   modelProvider: string | null;
@@ -461,6 +463,7 @@ export class CodexSession {
     approvalPolicy?: ApprovalPolicy,
     model?: string,
     cwd?: string,
+    effort?: string,
   ): Promise<string | null> {
     const threadId = await this.ensureThread();
     if (approvalPolicy) {
@@ -474,6 +477,7 @@ export class CodexSession {
       input,
       ...(model ? { model } : {}),
       ...(cwd ? { cwd } : {}),
+      ...(effort ? { effort } : {}),
     });
 
     const turnId = extractTurnId(result);
@@ -549,6 +553,7 @@ export class CodexSession {
     return {
       threadId,
       model: asString(record.model),
+      reasoningEffort: asString(record.reasoningEffort),
       modelProvider: asString(record.modelProvider) ?? asString(thread.modelProvider),
       approvalPolicy: asApprovalPolicy(record.approvalPolicy) ?? this.approvalPolicy,
     };

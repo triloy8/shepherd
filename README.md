@@ -266,6 +266,8 @@ If a channel has no repo selected, thread creation fails until `!repo` is set.
 - `!models`
 - `!model`
 - `!model set <id>`
+- `!effort` — show current/pending effort and the selected model’s supported levels.
+- `!effort set <level|default>` — apply a supported reasoning effort to the next new turn and subsequent turns; `default` selects the model catalog default. Pending changes are kept in memory until a turn starts.
 - `!context`
 - `!skills [reload]` — five entries per page with First/Previous/Next controls; each page refreshes the skills inventory for the channel’s active thread.
 - `!skill enable <name-or-path>`

@@ -360,6 +360,7 @@ export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
     input: parseUserInputArray(value.input, "input"),
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     model: parseOptionalString(value.model, "model"),
+    effort: parseOptionalString(value.effort, "effort"),
   };
 }
 

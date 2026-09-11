@@ -17,6 +17,10 @@ import type {
   ListLoadedThreadsRequest,
   ListLoadedThreadsResponse,
   ListModelsRequest,
+  ListThreadTurnsRequest,
+  ListThreadTurnsResponse,
+  ListThreadItemsRequest,
+  ListThreadItemsResponse,
   ListModelsResponse,
   ListStoredThreadsRequest,
   ListStoredThreadsResponse,
@@ -223,6 +227,16 @@ export class SessionManager {
       activeTurnId: managed.session.activeTurnId,
       approvalPolicy: managed.session.approvalPolicy,
     };
+  }
+
+  async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession();
+    return session.listThreadTurns(threadId, request);
+  }
+
+  async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession();
+    return session.listThreadItems(threadId, request);
   }
 
   async readThread(threadId: string, request: ReadThreadRequest): Promise<ReadThreadResponse> {

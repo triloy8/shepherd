@@ -36,6 +36,8 @@ import {
   type DiscordDeliveryResult,
 } from "./stream_delivery.js";
 
+import { initialHistoryRequest, loadHistoryPage } from "./history_pagination.js";
+
 type HandleResult = { handled: boolean; threadId: string | null; input: UserInput[] | null };
 const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
 
@@ -435,6 +437,8 @@ export async function handleMessage(
       "- !model",
       "- !model set <id>",
       "- !effort [set <level|default>]",
+      "- !history [thread-id]",
+      "- !history items <turn-id> [thread-id]",
       "- !context",
       "- !skills [reload]",
       "- !skill enable <name-or-path>",
@@ -701,6 +705,27 @@ export async function handleMessage(
       page: 1,
     }));
     return { handled: true, threadId: result.modelState?.threadId ?? null, input: null };
+  }
+
+  if (command === "!history") {
+    const items = args[0]?.toLowerCase() === "items";
+    if ((items && (args.length < 2 || args.length > 3)) || (!items && args.length > 1)) {
+      await replyMarkdown(message, "Usage: !history [thread-id]\nUsage: !history items <turn-id> [thread-id]");
+      return { handled: true, threadId: null, input: null };
+    }
+    const threadId = (items ? args[2] : args[0]) ?? context.getSurfaceThreadId(channelId);
+    if (!threadId) {
+      await replyCard(message, "Thread required", "Use `!history <thread-id>` or select a thread first.", "warning");
+      return { handled: true, threadId: null, input: null };
+    }
+    try {
+      const page = await loadHistoryPage(context.conversation,
+        initialHistoryRequest(threadId, message.author.id, items ? args[1] : undefined));
+      await replyPage(message, page);
+    } catch (error) {
+      await replyCard(message, "History unavailable", error instanceof Error ? error.message : "Failed to load history.", "danger");
+    }
+    return { handled: true, threadId: null, input: null };
   }
 
   if (command === "!effort") {

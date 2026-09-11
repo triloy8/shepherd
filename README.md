@@ -266,6 +266,8 @@ If a channel has no repo selected, thread creation fails until `!repo` is set.
 - `!models`
 - `!model`
 - `!model set <id>`
+- `!history [thread-id]` — browse recent turns, five per page, with First/Previous/Next and per-turn Items buttons. Defaults to the channel’s active thread; an explicit ID can inspect stored history without switching threads.
+- `!history items <turn-id> [thread-id]` — browse a turn’s items in chronological order, five per page. Cards show message/activity excerpts; Read buttons open paginated message text or activity summaries. History controls stay bound to their original thread and expire after one hour, on restart, or when the bounded control cache evicts them.
 - `!effort` — show current/pending effort and the selected model’s supported levels.
 - `!effort set <level|default>` — apply a supported reasoning effort to the next new turn and subsequent turns; `default` selects the model catalog default. Pending changes are kept in memory until a turn starts.
 - `!context`

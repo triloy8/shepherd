@@ -14,7 +14,7 @@ import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.j
 
 export const DISCORD_LIST_PAGE_SIZE = 5;
 
-export type DiscordListTarget = "threads-active" | "threads-archived" | "threads-loaded" | "models" | "skills";
+export type DiscordListTarget = "threads-active" | "threads-archived" | "threads-loaded" | "models" | "skills" | "history-turns" | "history-items";
 export type DiscordListDirection = "asc" | "desc" | "forward" | "first";
 
 export type DiscordListPageRequest = {
@@ -32,6 +32,8 @@ const TARGET_CODES: Record<DiscordListTarget, string> = {
   "threads-loaded": "tl",
   models: "m",
   skills: "s",
+  "history-turns": "ht",
+  "history-items": "hi",
 };
 
 const TARGETS_BY_CODE = Object.fromEntries(
@@ -88,15 +90,17 @@ export function decodeDiscordListPageId(customId: string): DiscordListPageReques
   }
 }
 
-function navigationRow(options: {
+export function navigationRow(options: {
   target: DiscordListTarget;
   requesterId: string;
   page: number;
+  encode?: (request: DiscordListPageRequest) => string;
   previous?: { cursor: string; direction: DiscordListDirection; boundaryId?: string | null } | null;
   next?: { cursor: string; direction: DiscordListDirection; boundaryId?: string | null } | null;
 }): ActionRowBuilder<ButtonBuilder> {
+  const encode = options.encode ?? encodeDiscordListPageId;
   const first = new ButtonBuilder()
-    .setCustomId(encodeDiscordListPageId({
+    .setCustomId(encode({
       target: options.target,
       direction: "first",
       page: 1,
@@ -108,7 +112,7 @@ function navigationRow(options: {
     .setDisabled(options.page === 1);
   const previous = new ButtonBuilder()
     .setCustomId(options.previous
-      ? encodeDiscordListPageId({
+      ? encode({
           target: options.target,
           direction: options.previous.direction,
           page: Math.max(1, options.page - 1),
@@ -127,7 +131,7 @@ function navigationRow(options: {
     .setDisabled(true);
   const next = new ButtonBuilder()
     .setCustomId(options.next
-      ? encodeDiscordListPageId({
+      ? encode({
           target: options.target,
           direction: options.next.direction,
           page: options.page + 1,

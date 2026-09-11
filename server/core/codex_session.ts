@@ -15,6 +15,10 @@ import type {
   ForkThreadRequest,
   ListLoadedThreadsRequest,
   ListModelsRequest,
+  ListThreadTurnsRequest,
+  ListThreadTurnsResponse,
+  ListThreadItemsRequest,
+  ListThreadItemsResponse,
   ListModelsResponse,
   ListStoredThreadsRequest,
   ResumeThreadRequest,
@@ -118,6 +122,8 @@ type AppServerRequestParams = {
     useStateDbOnly?: boolean;
   };
   "thread/loaded/list": { cursor: string | null; limit: number | null };
+  "thread/turns/list": ListThreadTurnsRequest & { threadId: string };
+  "thread/items/list": ListThreadItemsRequest & { threadId: string };
   "thread/read": { threadId: string; includeTurns: boolean };
   "account/rateLimits/read": undefined;
   "model/list": { cursor: string | null; limit: number | null; includeHidden: boolean | null };
@@ -421,6 +427,16 @@ export class CodexSession {
       cursor: request.cursor ?? null,
       limit: request.limit ?? null,
     });
+  }
+
+  async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
+    await this.initialize();
+    return this.sendRequest("thread/turns/list", { ...request, threadId }) as Promise<ListThreadTurnsResponse>;
+  }
+
+  async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
+    await this.initialize();
+    return this.sendRequest("thread/items/list", { ...request, threadId }) as Promise<ListThreadItemsResponse>;
   }
 
   async readThread(threadId: string, includeTurns: boolean): Promise<unknown> {

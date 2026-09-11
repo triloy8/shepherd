@@ -10,6 +10,7 @@ import {
 import {
   buildLoadedThreadsListPage,
   buildModelsListPage,
+  buildSkillsListPage,
   buildStoredThreadsListPage,
   decodeDiscordListPageId,
   DISCORD_LIST_PAGE_SIZE,
@@ -68,6 +69,17 @@ export async function handleInteraction(
           ...result,
           requesterId: pageRequest.requesterId,
           page: pageRequest.page,
+        });
+      } else if (pageRequest.target === "skills") {
+        const threadId = surfaceContext?.getSurfaceThreadId(interaction.channelId);
+        if (!threadId) {
+          throw new Error("No active thread in this channel. Use `!newthread` or `!thread <id>` first.");
+        }
+        const result = await conversation.listSkills(threadId, {});
+        page = buildSkillsListPage({
+          result,
+          requesterId: pageRequest.requesterId,
+          page: pageRequest.direction === "first" ? 1 : pageRequest.page,
         });
       } else {
         const result = await conversation.listModels({

@@ -8,12 +8,13 @@ import type {
   ListModelsResponse,
   ListStoredThreadsResponse,
   ThreadModelState,
+  SkillsListResponse,
 } from "../../../shared/protocol/requests.js";
 import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.js";
 
 export const DISCORD_LIST_PAGE_SIZE = 5;
 
-export type DiscordListTarget = "threads-active" | "threads-archived" | "threads-loaded" | "models";
+export type DiscordListTarget = "threads-active" | "threads-archived" | "threads-loaded" | "models" | "skills";
 export type DiscordListDirection = "asc" | "desc" | "forward" | "first";
 
 export type DiscordListPageRequest = {
@@ -30,6 +31,7 @@ const TARGET_CODES: Record<DiscordListTarget, string> = {
   "threads-archived": "tr",
   "threads-loaded": "tl",
   models: "m",
+  skills: "s",
 };
 
 const TARGETS_BY_CODE = Object.fromEntries(
@@ -273,6 +275,51 @@ export function buildModelsListPage(options: {
       next: options.result.nextCursor
         ? { cursor: options.result.nextCursor, direction: "forward" }
         : null,
+    })],
+  })[0]!;
+}
+
+// Skills have no API cursor: reload the inventory and select a local page.
+export function buildSkillsListPage(options: {
+  result: SkillsListResponse;
+  requesterId: string;
+  page: number;
+}): DiscordSurfacePage {
+  const brief = (value: string, limit: number): string => {
+    const text = value.replace(/\s+/g, " ").trim();
+    return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+  };
+  const entries = options.result.data.flatMap((entry) => [
+    ...entry.skills.map((skill) => ({
+      label: formatThreadLabel(skill.name, ""),
+      detail: `[${skill.scope}] ${skill.enabled ? "enabled" : "disabled"}`,
+      description: brief(skill.description, 300),
+      location: brief(entry.cwd, 100),
+    })),
+    ...entry.errors.map((error) => ({
+      label: "Skill discovery error",
+      detail: brief(error.path, 100),
+      description: brief(error.message, 300),
+      location: brief(entry.cwd, 100),
+    })),
+  ]);
+  const lastPage = Math.max(1, Math.ceil(entries.length / DISCORD_LIST_PAGE_SIZE));
+  const page = Math.min(Math.max(1, options.page), lastPage);
+  const offset = (page - 1) * DISCORD_LIST_PAGE_SIZE;
+  const text = entries.slice(offset, offset + DISCORD_LIST_PAGE_SIZE)
+    .map((entry, index) =>
+      `**${offset + index + 1}. ${entry.label}**\n${entry.detail} · cwd: ${entry.location}${entry.description ? `\n${entry.description}` : ""}`)
+    .join("\n\n") || "No skills found.";
+  return buildCardPages({
+    title: "Skills",
+    text,
+    tone: "info",
+    actionRows: [navigationRow({
+      target: "skills",
+      requesterId: options.requesterId,
+      page,
+      previous: page > 1 ? { cursor: String(page - 1), direction: "asc" } : null,
+      next: page < lastPage ? { cursor: String(page + 1), direction: "forward" } : null,
     })],
   })[0]!;
 }

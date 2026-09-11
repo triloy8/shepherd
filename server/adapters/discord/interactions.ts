@@ -16,6 +16,7 @@ import {
   DISCORD_LIST_PAGE_SIZE,
 } from "./list_pagination.js";
 import { decodeApprovalButtonId, formatApprovalDecisionReply } from "./message_renderer.js";
+import { decodeHistoryPageId, loadHistoryPage } from "./history_pagination.js";
 
 async function replyEphemeralText(interaction: ButtonInteraction, text: string): Promise<void> {
   const page = buildMarkdownPages(text)[0]!;
@@ -30,8 +31,34 @@ export async function handleInteraction(
   conversation: ConversationService,
   surfaceContext?: { getSurfaceThreadId: (surfaceId: string) => string | null },
 ): Promise<void> {
+  if (interaction.customId.startsWith("history|")) {
+    const request = decodeHistoryPageId(interaction.customId);
+    if (!request) {
+      await replyEphemeralText(interaction, "This history view expired. Run !history again.");
+      return;
+    }
+    if (interaction.user.id !== request.requesterId) {
+      await replyEphemeralText(interaction, "Only the person who opened this list can change its page.");
+      return;
+    }
+    await interaction.deferUpdate();
+    try {
+      const page = await loadHistoryPage(conversation, request);
+      await interaction.editReply({ components: page.components, allowedMentions: { parse: [] } });
+    } catch (error) {
+      const page = buildCardPages({
+        title: "History unavailable", tone: "danger",
+        text: error instanceof Error ? error.message : "Failed to load history.",
+      })[0]!;
+      await interaction.followUp({
+        ...componentsV2Payload(page),
+        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+      });
+    }
+    return;
+  }
   const pageRequest = decodeDiscordListPageId(interaction.customId);
-  if (pageRequest) {
+  if (pageRequest && pageRequest.target !== "history-turns" && pageRequest.target !== "history-items") {
     if (interaction.user.id !== pageRequest.requesterId) {
       await replyEphemeralText(interaction, "Only the person who opened this list can change its page.");
       return;

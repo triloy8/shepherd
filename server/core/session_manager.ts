@@ -17,11 +17,16 @@ import type {
   ListLoadedThreadsRequest,
   ListLoadedThreadsResponse,
   ListModelsRequest,
+  ListThreadTurnsRequest,
+  ListThreadTurnsResponse,
+  ListThreadItemsRequest,
+  ListThreadItemsResponse,
   ListModelsResponse,
   ListStoredThreadsRequest,
   ListStoredThreadsResponse,
   ListThreadsResponse,
   ThreadModelState,
+  ThreadEffortState,
   ReadThreadRequest,
   ReadThreadResponse,
   ReadThreadTokenUsageResponse,
@@ -111,6 +116,7 @@ export class SessionManager {
   private approvals = new ApprovalsStore();
   private tokenUsageByThread = new Map<string, ThreadTokenUsage>();
   private cwdByThread = new Map<string, string>();
+  private effortStateByThread = new Map<string, { current: string | null; pending: string | null }>();
   private modelStateByThread = new Map<string, ManagedModelState>();
   private controlSession: CodexSession | null = null;
 
@@ -124,6 +130,7 @@ export class SessionManager {
     if (request.cwd) {
       this.cwdByThread.set(created.threadId, request.cwd);
     }
+    this.effortStateByThread.set(created.threadId, { current: created.reasoningEffort, pending: null });
     this.modelStateByThread.set(created.threadId, {
       currentModel: created.model,
       modelProvider: created.modelProvider,
@@ -145,6 +152,7 @@ export class SessionManager {
     if (request.cwd) {
       this.cwdByThread.set(resumed.threadId, request.cwd);
     }
+    this.effortStateByThread.set(resumed.threadId, { current: resumed.reasoningEffort, pending: null });
     this.modelStateByThread.set(resumed.threadId, {
       currentModel: resumed.model,
       modelProvider: resumed.modelProvider,
@@ -161,6 +169,7 @@ export class SessionManager {
     if (request.cwd) {
       this.cwdByThread.set(forked.threadId, request.cwd);
     }
+    this.effortStateByThread.set(forked.threadId, { current: forked.reasoningEffort, pending: null });
     this.modelStateByThread.set(forked.threadId, {
       currentModel: forked.model,
       modelProvider: forked.modelProvider,
@@ -218,6 +227,16 @@ export class SessionManager {
       activeTurnId: managed.session.activeTurnId,
       approvalPolicy: managed.session.approvalPolicy,
     };
+  }
+
+  async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession();
+    return session.listThreadTurns(threadId, request);
+  }
+
+  async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession();
+    return session.listThreadItems(threadId, request);
   }
 
   async readThread(threadId: string, request: ReadThreadRequest): Promise<ReadThreadResponse> {
@@ -290,6 +309,13 @@ export class SessionManager {
           hidden: record.hidden === true,
           isDefault: record.isDefault === true,
           supportsPersonality: record.supportsPersonality === true,
+          defaultReasoningEffort: asString(record.defaultReasoningEffort),
+          supportedReasoningEfforts: (Array.isArray(record.supportedReasoningEfforts) ? record.supportedReasoningEfforts : [])
+            .map((value) => {
+              const option = asRecord(value);
+              return { reasoningEffort: asString(option.reasoningEffort) ?? "", description: asString(option.description) ?? "" };
+            }).filter((option) => option.reasoningEffort),
+
         };
       }),
       nextCursor: asString(raw.nextCursor),
@@ -325,6 +351,41 @@ export class SessionManager {
       modelProvider: next.modelProvider,
       pendingModel: next.pendingModel,
     };
+  }
+
+  async getThreadEffort(threadId: string): Promise<ThreadEffortState> {
+    const modelState = this.getThreadModel(threadId);
+    const model = modelState.pendingModel ?? modelState.currentModel;
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    do {
+      const result = await this.listModels({ cursor, limit: 100, includeHidden: true });
+      const entry = result.data.find((entry) => model ? entry.model === model : entry.isDefault);
+      if (entry) {
+        const state = this.effortStateByThread.get(threadId);
+        return {
+          threadId, model: entry.model,
+          currentEffort: state?.current ?? null,
+          pendingEffort: state?.pending ?? null,
+          defaultEffort: entry.defaultReasoningEffort ?? null,
+          supportedEfforts: entry.supportedReasoningEfforts ?? [],
+        };
+      }
+      if (!result.nextCursor || seen.has(result.nextCursor)) break;
+      seen.add(result.nextCursor);
+      cursor = result.nextCursor;
+    } while (true);
+    throw new Error("The thread's model is not in the model catalog. Use !model set <id> first.");
+  }
+
+  async setThreadEffort(threadId: string, requested: string): Promise<ThreadEffortState> {
+    const state = await this.getThreadEffort(threadId);
+    const effort = requested === "default" ? state.defaultEffort : requested;
+    if (!effort || !state.supportedEfforts.some((option) => option.reasoningEffort === effort)) {
+      throw new Error(`Unsupported effort for ${state.model}: ${requested}. Available: ${state.supportedEfforts.map((option) => option.reasoningEffort).join(", ") || "none"}.`);
+    }
+    this.effortStateByThread.set(threadId, { current: state.currentEffort, pending: effort });
+    return { ...state, pendingEffort: effort };
   }
 
   async listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
@@ -370,7 +431,16 @@ export class SessionManager {
     const modelState = this.modelStateByThread.get(threadId);
     const model = request.model ?? modelState?.pendingModel ?? undefined;
     const cwd = await this.resolveThreadCwd(threadId);
-    const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd);
+    const effortState = this.effortStateByThread.get(threadId);
+    const effort = request.effort ?? effortState?.pending ?? undefined;
+    const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
+    if (effort) {
+      const latest = this.effortStateByThread.get(threadId);
+      this.effortStateByThread.set(threadId, {
+        current: effort,
+        pending: latest?.pending === effort ? null : latest?.pending ?? null,
+      });
+    }
     if (model) {
       this.modelStateByThread.set(threadId, {
         currentModel: model,
@@ -450,6 +520,7 @@ export class SessionManager {
     this.tokenUsageByThread.clear();
     this.cwdByThread.clear();
     this.modelStateByThread.clear();
+    this.effortStateByThread.clear();
     this.controlSession?.stop();
     this.controlSession = null;
   }

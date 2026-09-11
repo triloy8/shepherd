@@ -50,15 +50,15 @@ Legacy note:
 | `threadSection/delete` | Missing | Maybe Later | Destructive section-management path; not exposed by the current Discord flow |
 | `thread/loaded/list` | Implemented | Core | |
 | `thread/read` | Implemented | Core | `includeTurns` supported, though the generated schema now recommends metadata-only reads plus paginated turn/item listing |
-| `thread/turns/list` | Missing | Core | Paginated thread-history API and preferred replacement for full-history hydration |
-| `thread/items/list` | Missing | Core | Paginated item-history API, optionally filtered by turn |
+| `thread/turns/list` | Implemented | Core | Wrapped with cursors, direction, and items view; Discord `!history` uses five-turn summary pages |
+| `thread/items/list` | Implemented | Core | Wrapped with cursors, direction, and optional turn filter; Discord history Items buttons and `!history items` show paginated excerpts with Read buttons for message text/activity summaries |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
 | `thread/unsubscribe` | Missing | Maybe Later | Useful for lifecycle cleanup/stream controls; not required for current correctness |
 | `hooks/list` | Missing | Maybe Later | Useful for admin diagnostics, but hook management is not part of the current Discord surface |
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports all generated input variants plus `approvalPolicy`, `model`, and resolved `cwd`; missing client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, effort, summary, personality, and output schema |
+| `turn/start` | Partial | Core | Supports all generated input variants plus `approvalPolicy`, `model`, `effort` (Discord `!effort`), and resolved `cwd`; missing client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |

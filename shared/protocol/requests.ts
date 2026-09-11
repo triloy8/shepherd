@@ -47,6 +47,7 @@ export interface CreateThreadResponse {
 }
 
 export interface SubmitTurnRequest {
+  effort?: string;
   input: UserInput[];
   approvalPolicy?: ApprovalPolicy;
   model?: string;
@@ -254,6 +255,8 @@ export interface ModelSummary {
   hidden: boolean;
   isDefault: boolean;
   supportsPersonality: boolean;
+  supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }>;
+  defaultReasoningEffort?: string | null;
 }
 
 export interface ListModelsResponse {
@@ -330,4 +333,56 @@ export interface SkillsConfigWriteRequest {
 
 export interface SkillsConfigWriteResponse {
   effectiveEnabled: boolean;
+}
+
+export interface ThreadEffortState {
+  threadId: string;
+  model: string;
+  currentEffort: string | null;
+  pendingEffort: string | null;
+  defaultEffort: string | null;
+  supportedEfforts: Array<{ reasoningEffort: string; description: string }>;
+}
+
+export interface ListThreadTurnsRequest {
+  cursor?: string;
+  limit?: number;
+  sortDirection?: SortDirection;
+  itemsView?: "notLoaded" | "summary" | "full";
+}
+
+export interface HistoryItem {
+  id: string;
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface HistoryTurn {
+  id: string;
+  items: HistoryItem[];
+  itemsView: "notLoaded" | "summary" | "full";
+  status: "completed" | "interrupted" | "failed" | "inProgress";
+  error: { message: string; [key: string]: unknown } | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  durationMs: number | null;
+}
+
+export interface ListThreadTurnsResponse {
+  data: HistoryTurn[];
+  nextCursor: string | null;
+  backwardsCursor: string | null;
+}
+
+export interface ListThreadItemsRequest {
+  turnId?: string;
+  cursor?: string;
+  limit?: number;
+  sortDirection?: SortDirection;
+}
+
+export interface ListThreadItemsResponse {
+  data: Array<{ turnId: string; item: HistoryItem }>;
+  nextCursor: string | null;
+  backwardsCursor: string | null;
 }

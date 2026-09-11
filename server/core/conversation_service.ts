@@ -11,6 +11,10 @@ import type {
   ListLoadedThreadsRequest,
   ListLoadedThreadsResponse,
   ListModelsRequest,
+  ListThreadTurnsRequest,
+  ListThreadTurnsResponse,
+  ListThreadItemsRequest,
+  ListThreadItemsResponse,
   ListModelsResponse,
   ListStoredThreadsRequest,
   ListStoredThreadsResponse,
@@ -31,6 +35,7 @@ import type {
   SubmitTurnRequest,
   SubmitTurnResponse,
   ThreadModelState,
+  ThreadEffortState,
 } from "../../shared/protocol/requests.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import {
@@ -240,6 +245,22 @@ export class ConversationService {
 
   listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
     return this.manager.listModels(request);
+  }
+
+  getThreadEffort(threadId: string): Promise<ThreadEffortState> {
+    return this.manager.getThreadEffort(threadId);
+  }
+
+  setThreadEffort(threadId: string, effort: string): Promise<ThreadEffortState> {
+    return this.manager.setThreadEffort(threadId, effort);
+  }
+
+  listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
+    return this.manager.listThreadTurns(threadId, request);
+  }
+
+  listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
+    return this.manager.listThreadItems(threadId, request);
   }
 
   getThreadModel(threadId: string): ThreadModelState {

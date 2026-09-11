@@ -25,6 +25,7 @@ import {
 import {
   buildLoadedThreadsListPage,
   buildModelsListPage,
+  buildSkillsListPage,
   buildStoredThreadsListPage,
   DISCORD_LIST_PAGE_SIZE,
 } from "./list_pagination.js";
@@ -400,38 +401,6 @@ async function listStoredThreads(message: Message, context: CommandContext, arch
     page: 1,
     requestDirection: "desc",
   }));
-}
-
-function formatSkillsForDiscord(value: unknown): string {
-  const payload = asRecord(value);
-  const entries = Array.isArray(payload.data) ? payload.data : [];
-  if (entries.length === 0) {
-    return "No skills found.";
-  }
-
-  const lines: string[] = [];
-  for (const entry of entries) {
-    const record = asRecord(entry);
-    const cwd = asString(record.cwd) ?? "unknown";
-    const skills = Array.isArray(record.skills) ? record.skills : [];
-    const errors = Array.isArray(record.errors) ? record.errors : [];
-    lines.push(`- cwd: ${cwd} (skills: ${skills.length}, errors: ${errors.length})`);
-    for (const skillValue of skills) {
-      const skill = asRecord(skillValue);
-      const name = asString(skill.name) ?? "unknown";
-      const scope = asString(skill.scope) ?? "unknown";
-      const enabled = skill.enabled === true ? "enabled" : "disabled";
-      const description = asString(skill.description) ?? "";
-      lines.push(`  - ${name} [${scope}] ${enabled}${description ? ` :: ${description}` : ""}`);
-    }
-    for (const errorValue of errors) {
-      const error = asRecord(errorValue);
-      const message = asString(error.message) ?? "unknown error";
-      const path = asString(error.path) ?? "unknown path";
-      lines.push(`  - error: ${message} (${path})`);
-    }
-  }
-  return lines.join("\n");
 }
 
 export async function handleMessage(
@@ -869,8 +838,11 @@ export async function handleMessage(
     const mode = (args[0] ?? "").toLowerCase();
     const forceReload = mode === "reload";
     const listed = await context.conversation.listSkills(activeThreadId, { forceReload });
-    const text = formatSkillsForDiscord(listed);
-    await replyCard(message, "Skills", text);
+    await replyPage(message, buildSkillsListPage({
+      result: listed,
+      requesterId: message.author.id,
+      page: 1,
+    }));
     return { handled: true, threadId: null, input: null };
   }
 

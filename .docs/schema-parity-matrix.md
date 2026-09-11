@@ -64,7 +64,7 @@ Legacy note:
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
 | `model/list` | Implemented | Core | Wrapped in core and exposed via Discord `!models`/`!model` |
 | `modelProvider/capabilities/read` | Missing | Maybe Later | Useful for model diagnostics and richer model selection UX |
-| `skills/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills` |
+| `skills/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills` with local five-entry pages; the API returns the full inventory without cursors |
 | `skills/extraRoots/set` | Missing | Maybe Later | Required for extra skill roots; the removed `skills/list.perCwdExtraUserRoots` compatibility field is no longer exposed |
 | `skills/config/write` | Partial | Core | Wrapped in core and exposed via Discord `!skill enable|disable`; supports path selection but not the generated name selector |
 | `plugin/list` | Missing | Out of Scope (for now) | Plugin management is outside Shepherd's current Discord/admin surface |

@@ -267,7 +267,7 @@ If a channel has no repo selected, thread creation fails until `!repo` is set.
 - `!model`
 - `!model set <id>`
 - `!context`
-- `!skills [reload]`
+- `!skills [reload]` — five entries per page with First/Previous/Next controls; each page refreshes the skills inventory for the channel’s active thread.
 - `!skill enable <name-or-path>`
 - `!skill disable <name-or-path>`
 - `!threads`

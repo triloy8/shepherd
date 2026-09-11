@@ -415,7 +415,7 @@ describe("Discord !skill commands", () => {
     await handleMessage(threads.message as never, context);
 
     expect(replyCardAt(skills.replies).title).toBe("Skills");
-    expect(replyCardAt(skills.replies).description).toContain("github [workspace] enabled");
+    expect(replyCardAt(skills.replies).description).toContain("1. github**\n[workspace] enabled");
     expect(replyCardAt(threads.replies).title).toBe("Active threads");
     expect(replyCardAt(threads.replies).description).toContain("thread-1");
   });

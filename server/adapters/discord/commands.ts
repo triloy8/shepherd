@@ -1,3 +1,4 @@
+import { loadSkillsPage } from "../../core/skills_page_service.js";
 import { MessageFlags, type Message, type MessageEditOptions } from "discord.js";
 
 import { executeControlAction } from "../../core/control_actions_service.js";
@@ -892,11 +893,12 @@ export async function handleMessage(
 
     const mode = (args[0] ?? "").toLowerCase();
     const forceReload = mode === "reload";
-    const listed = await context.conversation.listSkills(activeThreadId, { forceReload });
+    const listed = await loadSkillsPage(context.conversation, {
+      threadId: activeThreadId, forceReload, page: 1, pageSize: DISCORD_LIST_PAGE_SIZE,
+    });
     await replyPage(message, buildSkillsListPage({
       result: listed,
       requesterId: message.author.id,
-      page: 1,
     }));
     return { handled: true, threadId: null, input: null };
   }

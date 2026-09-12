@@ -1,3 +1,4 @@
+import { loadSkillsPage } from "../../core/skills_page_service.js";
 import { MessageFlags, type ButtonInteraction } from "discord.js";
 
 import type { ConversationService } from "../../core/conversation_service.js";
@@ -102,11 +103,13 @@ export async function handleInteraction(
         if (!threadId) {
           throw new Error("No active thread in this channel. Use `!newthread` or `!thread <id>` first.");
         }
-        const result = await conversation.listSkills(threadId, {});
+        const result = await loadSkillsPage(conversation, {
+          threadId, page: pageRequest.direction === "first" ? 1 : pageRequest.page,
+          pageSize: DISCORD_LIST_PAGE_SIZE,
+        });
         page = buildSkillsListPage({
           result,
           requesterId: pageRequest.requesterId,
-          page: pageRequest.direction === "first" ? 1 : pageRequest.page,
         });
       } else {
         const result = await conversation.listModels({

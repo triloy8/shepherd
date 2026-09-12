@@ -93,6 +93,65 @@ These modules coordinate multi-step workflows across policy, state, and lower-le
 
 These are the workflow modules. They do not just expose interfaces; they execute coordinated behavior that spans multiple underlying operations.
 
+## Shared list and history pages
+
+Two application services supply plain data to adapters:
+
+- `server/core/skills_page_service.ts` loads a thread's skills inventory and
+  selects a local page. `selectSkillsPage` can also page an inventory already
+  fetched by a caller. Skills and discovery errors retain their cwd, original
+  metadata, and ordering. An empty or shrunken inventory clamps to a valid page.
+- `server/core/history_page_service.ts` loads turn summaries or turn items from
+  the paginated Codex APIs. It owns cursor navigation and the original thread
+  context, including returning from a turn's items to the parent turn page.
+
+Both accept a caller-selected page size; five entries is the Discord adapter's
+choice. Their return values preserve full source data, with no Markdown,
+truncation, components, user IDs, button IDs, or Discord imports.
+
+History starts with `initialHistoryPage(threadId, pageSize)`. Pass the returned
+state to `loadHistoryPage(conversation, state)`; its `first`, `previous`, and
+`next` fields contain complete navigation requests. Previous navigation reuses
+a visited forward cursor rather than reversing direction through an inclusive
+anchor. `openHistoryTurn(page.request, turnId)` carries the parent turn page;
+`returnToHistoryTurns(itemsPage.request)` restores it. Turn lists are newest
+first, while item lists are chronological. Returned API cursors and raw records
+remain available to callers.
+
+For example, a future adapter can load these without importing Discord:
+
+```ts
+import { loadSkillsPage } from "../core/skills_page_service.js";
+import {
+  initialHistoryPage,
+  loadHistoryPage,
+  openHistoryTurn,
+} from "../core/history_page_service.js";
+
+const skills = await loadSkillsPage(conversation, {
+  threadId, page: 1, pageSize: 20,
+});
+const history = await loadHistoryPage(conversation, initialHistoryPage(threadId, 20));
+if (history.next) {
+  const older = await loadHistoryPage(conversation, history.next);
+}
+const items = await loadHistoryPage(conversation, openHistoryTurn(history.request, turnId));
+```
+
+The adapter must still authenticate callers, authorize thread access, validate
+transport input, and retain or protect navigation state. The page services
+validate page numbers and cursor continuity, but are not HTTP endpoints or an
+authorization boundary. Navigation state has no core persistence or expiry.
+
+Discord's `history_pagination.ts` is now a renderer and transport wrapper:
+`loadHistoryPage` delegates to core, while `buildHistoryPage` renders an already
+loaded page. It retains requester checks through the interaction handler,
+bounded expiring control IDs, message excerpts, Read buttons, and Discord-sized
+text pages. Skills command and button handlers use the shared loader, then pass
+its result to `buildSkillsListPage` for rendering.
+
+This extraction adds no web adapter, network listener, or new Codex API method.
+
 ## Runtime Core
 
 These files are also in `server/core/*`, but they are better understood as runtime infrastructure than as part of the four application buckets:
@@ -247,6 +306,8 @@ The Discord adapter no longer owns:
 - thread orchestration policy
 - input routing policy
 - stream reduction state machine
+- skills inventory page selection
+- history fetching and cursor navigation
 
 The adapter still owns:
 

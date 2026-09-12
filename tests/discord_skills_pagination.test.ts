@@ -1,3 +1,4 @@
+import { selectSkillsPage } from "../server/core/skills_page_service.js";
 import { expect, test } from "bun:test";
 import { buildSkillsListPage, decodeDiscordListPageId } from "../server/adapters/discord/list_pagination.js";
 import { handleInteraction } from "../server/adapters/discord/interactions.js";
@@ -26,7 +27,7 @@ function button(page: unknown, label: string): any {
 
 test("skills navigate forward, backward and first using the shared buttons", async () => {
   const result = inventory(12);
-  let page: unknown = buildSkillsListPage({ result, requesterId: "user-1", page: 1 });
+  let page: unknown = buildSkillsListPage({ result: selectSkillsPage(result, 1, 5), requesterId: "user-1" });
   expect(button(page, "Previous").disabled).toBe(true);
   expect(button(page, "First").disabled).toBe(true);
   expect(JSON.stringify(page)).not.toContain("skill6");
@@ -53,13 +54,13 @@ test("skills navigate forward, backward and first using the shared buttons", asy
 });
 
 test("skills clamp stale pages and keep empty lists and discovery errors visible", () => {
-  const empty = buildSkillsListPage({ result: inventory(0), requesterId: "user-1", page: 5 });
+  const empty = buildSkillsListPage({ result: selectSkillsPage(inventory(0), 5, 5), requesterId: "user-1" });
   expect(JSON.stringify(empty)).toContain("No skills found.");
   expect(button(empty, "Page 1").disabled).toBe(true);
   expect(button(empty, "Next").disabled).toBe(true);
   const result = inventory(5);
   result.data.push({ cwd: "/other", skills: [], errors: [{ path: "/bad/SKILL.md", message: "Invalid skill" }] });
-  const errors = buildSkillsListPage({ result, requesterId: "user-1", page: 9 });
+  const errors = buildSkillsListPage({ result: selectSkillsPage(result, 9, 5), requesterId: "user-1" });
   expect(JSON.stringify(errors)).toContain("Skill discovery error");
   expect(JSON.stringify(errors)).toContain("Invalid skill");
   expect(JSON.stringify(errors)).toContain("/other");
@@ -69,7 +70,7 @@ test("skills clamp stale pages and keep empty lists and discovery errors visible
 test("long descriptions fit all five skills and navigation in one card", () => {
   const result = inventory(5);
   for (const skill of result.data[0]!.skills) skill.description = "long description ".repeat(1000);
-  const page = buildSkillsListPage({ result, requesterId: "user-1", page: 1 });
+  const page = buildSkillsListPage({ result: selectSkillsPage(result, 1, 5), requesterId: "user-1" });
   expect(JSON.stringify(page)).toContain("5. skill5");
   expect(JSON.stringify(page).length).toBeLessThan(4000);
   expect(button(page, "Next").disabled).toBe(true);
@@ -77,7 +78,7 @@ test("long descriptions fit all five skills and navigation in one card", () => {
 
 test("skills pagination reports a missing active thread without replacing the list", async () => {
   const result = inventory(6);
-  const page = buildSkillsListPage({ result, requesterId: "user-1", page: 1 });
+  const page = buildSkillsListPage({ result: selectSkillsPage(result, 1, 5), requesterId: "user-1" });
   let error: unknown;
   await handleInteraction({
     customId: button(page, "Next").custom_id,

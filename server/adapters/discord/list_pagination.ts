@@ -1,3 +1,4 @@
+import type { SkillsPage } from "../../core/skills_page_service.js";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -8,7 +9,6 @@ import type {
   ListModelsResponse,
   ListStoredThreadsResponse,
   ThreadModelState,
-  SkillsListResponse,
 } from "../../../shared/protocol/requests.js";
 import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.js";
 
@@ -283,37 +283,24 @@ export function buildModelsListPage(options: {
   })[0]!;
 }
 
-// Skills have no API cursor: reload the inventory and select a local page.
+// Render the shared page without applying Discord limits to the underlying data.
 export function buildSkillsListPage(options: {
-  result: SkillsListResponse;
+  result: SkillsPage;
   requesterId: string;
-  page: number;
 }): DiscordSurfacePage {
   const brief = (value: string, limit: number): string => {
     const text = value.replace(/\s+/g, " ").trim();
     return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
   };
-  const entries = options.result.data.flatMap((entry) => [
-    ...entry.skills.map((skill) => ({
-      label: formatThreadLabel(skill.name, ""),
-      detail: `[${skill.scope}] ${skill.enabled ? "enabled" : "disabled"}`,
-      description: brief(skill.description, 300),
-      location: brief(entry.cwd, 100),
-    })),
-    ...entry.errors.map((error) => ({
-      label: "Skill discovery error",
-      detail: brief(error.path, 100),
-      description: brief(error.message, 300),
-      location: brief(entry.cwd, 100),
-    })),
-  ]);
-  const lastPage = Math.max(1, Math.ceil(entries.length / DISCORD_LIST_PAGE_SIZE));
-  const page = Math.min(Math.max(1, options.page), lastPage);
-  const offset = (page - 1) * DISCORD_LIST_PAGE_SIZE;
-  const text = entries.slice(offset, offset + DISCORD_LIST_PAGE_SIZE)
-    .map((entry, index) =>
-      `**${offset + index + 1}. ${entry.label}**\n${entry.detail} · cwd: ${entry.location}${entry.description ? `\n${entry.description}` : ""}`)
-    .join("\n\n") || "No skills found.";
+  const { page, offset, previousPage, nextPage } = options.result;
+  const text = options.result.entries.map((entry, index) => {
+    const label = entry.kind === "skill" ? formatThreadLabel(entry.skill.name, "") : "Skill discovery error";
+    const detail = entry.kind === "skill"
+      ? `[${entry.skill.scope}] ${entry.skill.enabled ? "enabled" : "disabled"}`
+      : brief(entry.error.path, 100);
+    const description = brief(entry.kind === "skill" ? entry.skill.description : entry.error.message, 300);
+    return `**${offset + index + 1}. ${label}**\n${detail} · cwd: ${brief(entry.cwd, 100)}${description ? `\n${description}` : ""}`;
+  }).join("\n\n") || "No skills found.";
   return buildCardPages({
     title: "Skills",
     text,
@@ -322,8 +309,8 @@ export function buildSkillsListPage(options: {
       target: "skills",
       requesterId: options.requesterId,
       page,
-      previous: page > 1 ? { cursor: String(page - 1), direction: "asc" } : null,
-      next: page < lastPage ? { cursor: String(page + 1), direction: "forward" } : null,
+      previous: previousPage ? { cursor: String(previousPage), direction: "asc" } : null,
+      next: nextPage ? { cursor: String(nextPage), direction: "forward" } : null,
     })],
   })[0]!;
 }

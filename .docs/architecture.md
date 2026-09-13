@@ -386,3 +386,12 @@ caller authorization, and delivery remain adapter responsibilities. Existing
 runtime diagnostics and dedicated page reads can call their core services
 directly; identical behavior does not require routing every read through one
 dispatcher. Authentication policy remains proposed in `future-implementations.md`.
+
+## Host composition
+
+`createHostRuntime` in `server/runtime/host_runtime.ts` assembles the process
+runtime, deployment service, and GitHub workspace ports. Shared runtime config
+is parsed by `server/config/runtime_environment.ts`; invalid sandbox names and
+nonpositive deployment timeouts fail before startup. Each adapter loads its
+own environment files and parses only its transport settings. GitHub execution
+uses argument arrays and the configured host checkout directory.

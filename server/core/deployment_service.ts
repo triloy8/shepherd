@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -58,8 +59,16 @@ export function deploymentTargetLabel(target: DeploymentTarget): string {
 function formatCommandError(error: unknown): string {
   if (!(error instanceof Error)) return String(error);
   const details = error as Error & { stderr?: string; stdout?: string };
-  const output = details.stderr?.trim() || details.stdout?.trim();
-  return output ? `${error.message}\n${output}` : error.message;
+  const output = [details.stderr?.trim(), details.stdout?.trim()].filter(Boolean).join("\n");
+  if (!output) return error.message;
+  // execFile includes stderr in Error.message already. Keep the command heading
+  // once, then both output streams, with actionable failure lines first.
+  const heading = error.message.split("\n", 1)[0];
+  const cleanOutput = stripVTControlCharacters(output);
+  const failures = [...new Set(cleanOutput.split("\n").filter((line) =>
+    /\(fail\)|^\s*error:|timed out/i.test(line),
+  ))].slice(0, 12);
+  return [heading, ...(failures.length ? ["Failure summary:", ...failures, "", "Command output:"] : []), cleanOutput].join("\n");
 }
 
 async function defaultCommandRunner(

@@ -808,3 +808,38 @@ describe("Discord operational commands", () => {
     expect(getRestartRequests()).toBe(0);
   });
 });
+
+test("deployment failures deliver every page after editing the progress card", async () => {
+  const { message, replies, edits } = makeMessage("!deploy");
+  const diagnostics = Array.from({ length: 500 }, (_, i) => `diagnostic-line-${i}: test output`).join("\n");
+  const { context } = makeContext({
+    async deploy(options) {
+      await options.onDeploymentStarted?.();
+      return { type: "deployment-failed", message: diagnostics };
+    },
+  });
+  await handleMessage(message as never, context);
+  const title = editedCardAt(edits).title;
+  const count = Number(title.match(/\(1\/(\d+)\)/)?.[1]);
+  expect(count).toBeGreaterThan(1);
+  // replies include the initial progress card plus each continuation.
+  expect(replies).toHaveLength(count);
+  const delivered = [editedCardAt(edits).description, ...replies.slice(1).map((_, i) => replyTextAt(replies, i + 1))].join("\n");
+  expect(delivered).toContain("diagnostic-line-499");
+  for (let i = 0; i < 500; i++) expect(delivered).toContain(`diagnostic-line-${i}:`);
+});
+
+test("deployment diagnostic continuation failures propagate instead of reporting success", async () => {
+  const { message } = makeMessage("!deploy");
+  const reply = message.reply;
+  let calls = 0;
+  message.reply = async (payload) => {
+    if (++calls > 1) throw new Error("delivery rejected");
+    return reply(payload);
+  };
+  const { context } = makeContext({ async deploy(options) {
+    await options.onDeploymentStarted?.();
+    return { type: "deployment-failed", message: "diagnostic output\n".repeat(1000) };
+  } });
+  await expect(handleMessage(message as never, context)).rejects.toThrow("delivery rejected");
+});

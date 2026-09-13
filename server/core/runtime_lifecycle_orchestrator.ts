@@ -124,9 +124,11 @@ export class RuntimeLifecycleOrchestrator {
       try {
         deployment = await this.options.deployment.deploy(options.target ?? MAIN_DEPLOYMENT_TARGET);
       } catch (error) {
+        const message = formatError(error);
+        console.error("Shepherd deployment failed:", message);
         return {
           type: "deployment-failed",
-          message: formatError(error),
+          message,
         };
       }
 

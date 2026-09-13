@@ -1,3 +1,4 @@
+import { formatActionFailure } from "./action_error.js";
 import { loadSkillsPage } from "../../core/skills_page_service.js";
 import { MessageFlags, type Message, type MessageEditOptions } from "discord.js";
 
@@ -693,7 +694,7 @@ export async function handleMessage(
   if (command === "!models") {
     const result = await executeControlAction(context, {
       type: "models.list",
-      channelId,
+      surfaceId: channelId,
       limit: DISCORD_LIST_PAGE_SIZE,
     });
     if (result.type !== "models.list") {
@@ -790,14 +791,14 @@ export async function handleMessage(
 
     const result = await executeControlAction(context, {
       type: "model.set",
-      channelId,
+      surfaceId: channelId,
       requestedModel,
     });
     if (result.type !== "model.set") {
       throw new Error("Unexpected control action result for model.set.");
     }
     if (!result.ok) {
-      await replyCard(message, "Model update failed", result.message, "danger");
+      await replyCard(message, "Model update failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId, input: null };
     }
 
@@ -811,12 +812,12 @@ export async function handleMessage(
   }
 
   if (command === "!context") {
-    const result = await executeControlAction(context, { type: "context.read", channelId });
+    const result = await executeControlAction(context, { type: "context.read", surfaceId: channelId });
     if (result.type !== "context.read") {
       throw new Error("Unexpected control action result for context.read.");
     }
     if (!result.ok) {
-      await replyCard(message, "Context unavailable", result.message, "warning");
+      await replyCard(message, "Context unavailable", formatActionFailure(result.error), "warning");
       return { handled: true, threadId: null, input: null };
     }
     if (!result.tokenUsage) {
@@ -834,7 +835,7 @@ export async function handleMessage(
   }
 
   if (command === "!newthread") {
-    const result = await executeControlAction(context, { type: "thread.create", channelId });
+    const result = await executeControlAction(context, { type: "thread.create", surfaceId: channelId });
     if (result.type !== "thread.create") {
       throw new Error("Unexpected control action result for thread.create.");
     }
@@ -845,7 +846,7 @@ export async function handleMessage(
   if (command === "!repo") {
     const repoSlug = args[0]?.trim();
     if (!repoSlug) {
-      const result = await executeControlAction(context, { type: "repo.get", channelId });
+      const result = await executeControlAction(context, { type: "repo.get", surfaceId: channelId });
       if (result.type !== "repo.get") {
         throw new Error("Unexpected control action result for repo.get.");
       }
@@ -862,7 +863,7 @@ export async function handleMessage(
     }
     const configured = await executeControlAction(context, {
       type: "repo.set",
-      channelId,
+      surfaceId: channelId,
       repoInput: repoSlug,
     });
     if (configured.type !== "repo.set") {
@@ -924,7 +925,7 @@ export async function handleMessage(
       }
       const result = await executeControlAction(context, {
         type: "skill.set-enabled",
-        channelId,
+        surfaceId: channelId,
         requestedSkill,
         enabled: sub === "enable",
       });
@@ -932,7 +933,7 @@ export async function handleMessage(
         throw new Error("Unexpected control action result for skill.set-enabled.");
       }
       if (!result.ok) {
-        await replyCard(message, "Skill update failed", result.message, "danger");
+        await replyCard(message, "Skill update failed", formatActionFailure(result.error), "danger");
         return { handled: true, threadId: null, input: null };
       }
       await replyCard(
@@ -948,7 +949,7 @@ export async function handleMessage(
   if (command === "!thread" && args.length === 0) {
     const result = await executeControlAction(context, {
       type: "thread.get-current",
-      channelId,
+      surfaceId: channelId,
     });
     if (result.type !== "thread.get-current") {
       throw new Error("Unexpected control action result for thread.get-current.");
@@ -972,7 +973,7 @@ export async function handleMessage(
 
     const result = await executeControlAction(context, {
       type: "thread.switch",
-      channelId,
+      surfaceId: channelId,
       threadId: requestedThreadId,
     });
     if (result.type !== "thread.switch") {
@@ -990,14 +991,14 @@ export async function handleMessage(
     }
     const result = await executeControlAction(context, {
       type: "thread.rename",
-      channelId,
+      surfaceId: channelId,
       name,
     });
     if (result.type !== "thread.rename") {
       throw new Error("Unexpected control action result for thread.rename.");
     }
     if (!result.ok) {
-      await replyCard(message, "Thread rename failed", result.message, "danger");
+      await replyCard(message, "Thread rename failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(message, "Thread renamed", `Thread renamed: ${result.name}`, "success");
@@ -1007,14 +1008,14 @@ export async function handleMessage(
   if (command === "!threadread") {
     const result = await executeControlAction(context, {
       type: "thread.read",
-      channelId,
+      surfaceId: channelId,
       threadId: args[0],
     });
     if (result.type !== "thread.read") {
       throw new Error("Unexpected control action result for thread.read.");
     }
     if (!result.ok) {
-      await replyCard(message, "Thread unavailable", result.message, "warning");
+      await replyCard(message, "Thread unavailable", formatActionFailure(result.error), "warning");
       return { handled: true, threadId: null, input: null };
     }
     const threadId = result.threadId;
@@ -1032,14 +1033,14 @@ export async function handleMessage(
   if (command === "!fork") {
     const result = await executeControlAction(context, {
       type: "thread.fork",
-      channelId,
+      surfaceId: channelId,
       sourceThreadId: args[0],
     });
     if (result.type !== "thread.fork") {
       throw new Error("Unexpected control action result for thread.fork.");
     }
     if (!result.ok) {
-      await replyCard(message, "Thread fork failed", result.message, "danger");
+      await replyCard(message, "Thread fork failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(
@@ -1054,14 +1055,14 @@ export async function handleMessage(
   if (command === "!archive") {
     const result = await executeControlAction(context, {
       type: "thread.archive",
-      channelId,
+      surfaceId: channelId,
       threadId: args[0],
     });
     if (result.type !== "thread.archive") {
       throw new Error("Unexpected control action result for thread.archive.");
     }
     if (!result.ok) {
-      await replyCard(message, "Archive failed", result.message, "danger");
+      await replyCard(message, "Archive failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(message, "Thread archived", `Archived thread: ${result.threadId}`, "neutral");
@@ -1088,7 +1089,7 @@ export async function handleMessage(
   if (command === "!rollback") {
     const result = await executeControlAction(context, {
       type: "thread.rollback",
-      channelId,
+      surfaceId: channelId,
       numTurns: Number(args[0]),
       threadId: args[1],
     });
@@ -1096,7 +1097,7 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.rollback.");
     }
     if (!result.ok) {
-      await replyCard(message, "Rollback failed", result.message, "danger");
+      await replyCard(message, "Rollback failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(
@@ -1111,14 +1112,14 @@ export async function handleMessage(
   if (command === "!compact") {
     const result = await executeControlAction(context, {
       type: "thread.compact",
-      channelId,
+      surfaceId: channelId,
       threadId: args[0],
     });
     if (result.type !== "thread.compact") {
       throw new Error("Unexpected control action result for thread.compact.");
     }
     if (!result.ok) {
-      await replyCard(message, "Compaction failed", result.message, "danger");
+      await replyCard(message, "Compaction failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(
@@ -1137,13 +1138,13 @@ export async function handleMessage(
     }
     const result = await executeControlAction(context, {
       type: "turn.interrupt",
-      channelId,
+      surfaceId: channelId,
     });
     if (result.type !== "turn.interrupt") {
       throw new Error("Unexpected control action result for turn.interrupt.");
     }
     if (!result.ok) {
-      await replyCard(message, "Interrupt failed", result.message, "danger");
+      await replyCard(message, "Interrupt failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(

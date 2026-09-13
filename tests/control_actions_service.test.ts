@@ -35,7 +35,7 @@ function makeContext(overrides?: {
   }>;
 }) {
   const modelWrites: Array<{ threadId: string; model: string }> = [];
-  const repoWrites: Array<{ channelId: string; repoSlug: string }> = [];
+  const repoWrites: Array<{ surfaceId: string; repoSlug: string }> = [];
   const skillWrites: Array<{ threadId: string; path: string; enabled: boolean }> = [];
   const threadNameWrites: Array<{ threadId: string; name: string }> = [];
   const archivedThreads: string[] = [];
@@ -45,8 +45,8 @@ function makeContext(overrides?: {
   const interruptedThreads: string[] = [];
   const clearedChannels: string[] = [];
   const createdSurfaceThreads: string[] = [];
-  const switchedSurfaceThreads: Array<{ channelId: string; threadId: string }> = [];
-  const forkedSurfaceThreads: Array<{ channelId: string; sourceThreadId: string }> = [];
+  const switchedSurfaceThreads: Array<{ surfaceId: string; threadId: string }> = [];
+  const forkedSurfaceThreads: Array<{ surfaceId: string; sourceThreadId: string }> = [];
 
   const context: ControlActionsContext = {
     conversation: {
@@ -150,24 +150,24 @@ function makeContext(overrides?: {
     getSurfaceProject() {
       return overrides?.currentRepo ?? null;
     },
-    async setSurfaceProject(channelId, repoSlug) {
-      repoWrites.push({ channelId, repoSlug });
+    async setSurfaceProject(surfaceId, repoSlug) {
+      repoWrites.push({ surfaceId, repoSlug });
       return { repoSlug };
     },
-    async createSurfaceThread(channelId) {
-      createdSurfaceThreads.push(channelId);
+    async createSurfaceThread(surfaceId) {
+      createdSurfaceThreads.push(surfaceId);
       return "thread-created";
     },
-    async switchSurfaceThread(channelId, threadId) {
-      switchedSurfaceThreads.push({ channelId, threadId });
+    async switchSurfaceThread(surfaceId, threadId) {
+      switchedSurfaceThreads.push({ surfaceId, threadId });
       return threadId;
     },
-    async forkSurfaceThread(channelId, sourceThreadId) {
-      forkedSurfaceThreads.push({ channelId, sourceThreadId });
+    async forkSurfaceThread(surfaceId, sourceThreadId) {
+      forkedSurfaceThreads.push({ surfaceId, sourceThreadId });
       return "thread-forked";
     },
-    clearSurfaceThread(channelId) {
-      clearedChannels.push(channelId);
+    clearSurfaceThread(surfaceId) {
+      clearedChannels.push(surfaceId);
     },
   };
 
@@ -193,7 +193,7 @@ describe("ControlActionsService", () => {
   test("reads the current repo binding", async () => {
     const { context } = makeContext({ currentRepo: "owner/repo" });
     await expect(
-      executeControlAction(context, { type: "repo.get", channelId: "chan-1" }),
+      executeControlAction(context, { type: "repo.get", surfaceId: "chan-1" }),
     ).resolves.toEqual({
       type: "repo.get",
       currentRepo: "owner/repo",
@@ -203,13 +203,13 @@ describe("ControlActionsService", () => {
   test("sets the repo binding and returns active thread context", async () => {
     const { context, repoWrites } = makeContext({ activeThreadId: "thread-1" });
     await expect(
-      executeControlAction(context, { type: "repo.set", channelId: "chan-1", repoInput: "owner/repo" }),
+      executeControlAction(context, { type: "repo.set", surfaceId: "chan-1", repoInput: "owner/repo" }),
     ).resolves.toEqual({
       type: "repo.set",
       repoSlug: "owner/repo",
       activeThreadId: "thread-1",
     });
-    expect(repoWrites).toEqual([{ channelId: "chan-1", repoSlug: "owner/repo" }]);
+    expect(repoWrites).toEqual([{ surfaceId: "chan-1", repoSlug: "owner/repo" }]);
   });
 
   test("sets a pending thread model override", async () => {
@@ -217,7 +217,7 @@ describe("ControlActionsService", () => {
     await expect(
       executeControlAction(context, {
         type: "model.set",
-        channelId: "chan-1",
+        surfaceId: "chan-1",
         requestedModel: "gpt-5.3-codex",
       }),
     ).resolves.toEqual({
@@ -253,7 +253,7 @@ describe("ControlActionsService", () => {
 
     await expect(executeControlAction(context, {
       type: "model.set",
-      channelId: "chan-1",
+      surfaceId: "chan-1",
       requestedModel: "later-model",
     })).resolves.toMatchObject({ ok: true, model: "later-model" });
     expect(requests).toEqual([
@@ -268,13 +268,13 @@ describe("ControlActionsService", () => {
     await expect(
       executeControlAction(context, {
         type: "model.set",
-        channelId: "chan-1",
+        surfaceId: "chan-1",
         requestedModel: "gpt-5.3-codex",
       }),
     ).resolves.toEqual({
       type: "model.set",
       ok: false,
-      message: "No active thread in this channel yet. Use !newthread first.",
+      error: { code: "thread_required" },
     });
   });
 
@@ -283,7 +283,7 @@ describe("ControlActionsService", () => {
     await expect(
       executeControlAction(context, {
         type: "skill.set-enabled",
-        channelId: "chan-1",
+        surfaceId: "chan-1",
         requestedSkill: "github",
         enabled: false,
       }),
@@ -335,21 +335,24 @@ describe("ControlActionsService", () => {
     await expect(
       executeControlAction(context, {
         type: "skill.set-enabled",
-        channelId: "chan-1",
+        surfaceId: "chan-1",
         requestedSkill: "github",
         enabled: false,
       }),
     ).resolves.toEqual({
       type: "skill.set-enabled",
       ok: false,
-      message: "Multiple skills match `github`: github [repo], github [user]. Use the full path.",
+      error: { code: "skill_ambiguous", requestedSkill: "github", candidates: [
+ { name: "github", scope: "repo", path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md" },
+ { name: "github", scope: "user", path: "/home/tadhiel/.agents/skills/github/SKILL.md" },
+] },
     });
   });
 
   test("returns the current active thread", async () => {
     const { context } = makeContext({ activeThreadId: "thread-1" });
     await expect(
-      executeControlAction(context, { type: "thread.get-current", channelId: "chan-1" }),
+      executeControlAction(context, { type: "thread.get-current", surfaceId: "chan-1" }),
     ).resolves.toEqual({
       type: "thread.get-current",
       threadId: "thread-1",
@@ -359,7 +362,7 @@ describe("ControlActionsService", () => {
   test("renames the active thread", async () => {
     const { context, threadNameWrites } = makeContext();
     await expect(
-      executeControlAction(context, { type: "thread.rename", channelId: "chan-1", name: "new-name" }),
+      executeControlAction(context, { type: "thread.rename", surfaceId: "chan-1", name: "new-name" }),
     ).resolves.toEqual({
       type: "thread.rename",
       ok: true,
@@ -372,7 +375,7 @@ describe("ControlActionsService", () => {
   test("reads thread details using the active thread by default", async () => {
     const { context } = makeContext();
     await expect(
-      executeControlAction(context, { type: "thread.read", channelId: "chan-1" }),
+      executeControlAction(context, { type: "thread.read", surfaceId: "chan-1" }),
     ).resolves.toEqual({
       type: "thread.read",
       ok: true,
@@ -384,7 +387,7 @@ describe("ControlActionsService", () => {
   test("archives the active thread and clears the active binding", async () => {
     const { context, archivedThreads, clearedChannels } = makeContext();
     await expect(
-      executeControlAction(context, { type: "thread.archive", channelId: "chan-1" }),
+      executeControlAction(context, { type: "thread.archive", surfaceId: "chan-1" }),
     ).resolves.toEqual({
       type: "thread.archive",
       ok: true,
@@ -412,7 +415,7 @@ describe("ControlActionsService", () => {
     await expect(
       executeControlAction(context, {
         type: "thread.rollback",
-        channelId: "chan-1",
+        surfaceId: "chan-1",
         numTurns: 2,
       }),
     ).resolves.toEqual({
@@ -427,7 +430,7 @@ describe("ControlActionsService", () => {
   test("starts compaction for the active thread", async () => {
     const { context, compactedThreads } = makeContext();
     await expect(
-      executeControlAction(context, { type: "thread.compact", channelId: "chan-1" }),
+      executeControlAction(context, { type: "thread.compact", surfaceId: "chan-1" }),
     ).resolves.toEqual({
       type: "thread.compact",
       ok: true,
@@ -439,7 +442,7 @@ describe("ControlActionsService", () => {
   test("interrupts the active thread", async () => {
     const { context, interruptedThreads } = makeContext();
     await expect(
-      executeControlAction(context, { type: "turn.interrupt", channelId: "chan-1" }),
+      executeControlAction(context, { type: "turn.interrupt", surfaceId: "chan-1" }),
     ).resolves.toEqual({
       type: "turn.interrupt",
       ok: true,
@@ -451,7 +454,7 @@ describe("ControlActionsService", () => {
   test("creates a new surface thread through the orchestration hook", async () => {
     const { context, createdSurfaceThreads } = makeContext();
     await expect(
-      executeControlAction(context, { type: "thread.create", channelId: "chan-1" }),
+      executeControlAction(context, { type: "thread.create", surfaceId: "chan-1" }),
     ).resolves.toEqual({
       type: "thread.create",
       threadId: "thread-created",
@@ -462,25 +465,25 @@ describe("ControlActionsService", () => {
   test("switches surface threads through the orchestration hook", async () => {
     const { context, switchedSurfaceThreads } = makeContext();
     await expect(
-      executeControlAction(context, { type: "thread.switch", channelId: "chan-1", threadId: "thread-9" }),
+      executeControlAction(context, { type: "thread.switch", surfaceId: "chan-1", threadId: "thread-9" }),
     ).resolves.toEqual({
       type: "thread.switch",
       threadId: "thread-9",
     });
-    expect(switchedSurfaceThreads).toEqual([{ channelId: "chan-1", threadId: "thread-9" }]);
+    expect(switchedSurfaceThreads).toEqual([{ surfaceId: "chan-1", threadId: "thread-9" }]);
   });
 
   test("forks surface threads through the orchestration hook", async () => {
     const { context, forkedSurfaceThreads } = makeContext();
     await expect(
-      executeControlAction(context, { type: "thread.fork", channelId: "chan-1", sourceThreadId: "thread-1" }),
+      executeControlAction(context, { type: "thread.fork", surfaceId: "chan-1", sourceThreadId: "thread-1" }),
     ).resolves.toEqual({
       type: "thread.fork",
       ok: true,
       threadId: "thread-forked",
       sourceThreadId: "thread-1",
     });
-    expect(forkedSurfaceThreads).toEqual([{ channelId: "chan-1", sourceThreadId: "thread-1" }]);
+    expect(forkedSurfaceThreads).toEqual([{ surfaceId: "chan-1", sourceThreadId: "thread-1" }]);
   });
 
   test("reads account limits through the service", async () => {
@@ -493,7 +496,7 @@ describe("ControlActionsService", () => {
 
   test("lists models with current thread model state", async () => {
     const { context } = makeContext();
-    const result = await executeControlAction(context, { type: "models.list", channelId: "chan-1" });
+    const result = await executeControlAction(context, { type: "models.list", surfaceId: "chan-1" });
     expect(result.type).toBe("models.list");
     if (result.type !== "models.list") {
       throw new Error("Expected models.list result");
@@ -505,12 +508,41 @@ describe("ControlActionsService", () => {
   test("reads thread context telemetry", async () => {
     const { context } = makeContext();
     await expect(
-      executeControlAction(context, { type: "context.read", channelId: "chan-1" }),
+      executeControlAction(context, { type: "context.read", surfaceId: "chan-1" }),
     ).resolves.toEqual({
       type: "context.read",
       ok: true,
       threadId: "thread-1",
       tokenUsage: { total: { totalTokens: 42 } },
     });
+  });
+});
+
+describe("surface-independent failures", () => {
+  test("missing bindings reject mutations before calling services", async () => {
+    const { context, modelWrites, skillWrites, threadNameWrites, archivedThreads, rolledBackThreads, compactedThreads, interruptedThreads } = makeContext({ activeThreadId: null });
+    const requests = [
+      { type: "model.set", requestedModel: "model" },
+      { type: "skill.set-enabled", requestedSkill: "skill", enabled: true },
+      { type: "thread.rename", name: "name" },
+      { type: "thread.archive" },
+      { type: "thread.rollback", numTurns: 1 },
+      { type: "thread.compact" },
+      { type: "turn.interrupt" },
+    ] as const;
+    for (const request of requests) {
+      expect(await executeControlAction(context, { ...request, surfaceId: "terminal-session" }))
+        .toEqual({ type: request.type, ok: false, error: { code: "thread_required" } });
+    }
+    expect([modelWrites, skillWrites, threadNameWrites, archivedThreads, rolledBackThreads, compactedThreads, interruptedThreads].flat()).toEqual([]);
+  });
+
+  test("invalid rollback counts never reach the conversation", async () => {
+    const { context, rolledBackThreads } = makeContext();
+    for (const numTurns of [0, -1, 1.5, NaN]) {
+      expect(await executeControlAction(context, { type: "thread.rollback", surfaceId: "terminal-session", numTurns }))
+        .toEqual({ type: "thread.rollback", ok: false, error: { code: "invalid_turn_count" } });
+    }
+    expect(rolledBackThreads).toEqual([]);
   });
 });

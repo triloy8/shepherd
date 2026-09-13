@@ -1,3 +1,4 @@
+import type { ActionFailure } from "./action_error.js";
 import type {
   AccountRateLimitsResponse,
   ListModelsResponse,
@@ -43,24 +44,24 @@ export type ControlActionsContext = {
 };
 
 export type ControlActionRequest =
-  | { type: "repo.get"; channelId: string }
-  | { type: "repo.set"; channelId: string; repoInput: string }
+  | { type: "repo.get"; surfaceId: string }
+  | { type: "repo.set"; surfaceId: string; repoInput: string }
   | { type: "limits.read" }
-  | { type: "models.list"; channelId: string; cursor?: string; limit?: number }
-  | { type: "model.set"; channelId: string; requestedModel: string }
-  | { type: "context.read"; channelId: string }
-  | { type: "skill.set-enabled"; channelId: string; requestedSkill: string; enabled: boolean }
-  | { type: "thread.get-current"; channelId: string }
-  | { type: "thread.create"; channelId: string }
-  | { type: "thread.switch"; channelId: string; threadId: string }
-  | { type: "thread.rename"; channelId: string; name: string }
-  | { type: "thread.read"; channelId: string; threadId?: string }
-  | { type: "thread.fork"; channelId: string; sourceThreadId?: string }
-  | { type: "thread.archive"; channelId: string; threadId?: string }
+  | { type: "models.list"; surfaceId: string; cursor?: string; limit?: number }
+  | { type: "model.set"; surfaceId: string; requestedModel: string }
+  | { type: "context.read"; surfaceId: string }
+  | { type: "skill.set-enabled"; surfaceId: string; requestedSkill: string; enabled: boolean }
+  | { type: "thread.get-current"; surfaceId: string }
+  | { type: "thread.create"; surfaceId: string }
+  | { type: "thread.switch"; surfaceId: string; threadId: string }
+  | { type: "thread.rename"; surfaceId: string; name: string }
+  | { type: "thread.read"; surfaceId: string; threadId?: string }
+  | { type: "thread.fork"; surfaceId: string; sourceThreadId?: string }
+  | { type: "thread.archive"; surfaceId: string; threadId?: string }
   | { type: "thread.unarchive"; threadId: string }
-  | { type: "thread.rollback"; channelId: string; numTurns: number; threadId?: string }
-  | { type: "thread.compact"; channelId: string; threadId?: string }
-  | { type: "turn.interrupt"; channelId: string };
+  | { type: "thread.rollback"; surfaceId: string; numTurns: number; threadId?: string }
+  | { type: "thread.compact"; surfaceId: string; threadId?: string }
+  | { type: "turn.interrupt"; surfaceId: string };
 
 export type ControlActionResult =
   | { type: "repo.get"; currentRepo: string | null }
@@ -68,29 +69,29 @@ export type ControlActionResult =
   | { type: "limits.read"; rateLimits: unknown }
   | { type: "models.list"; models: ListModelsResponse; modelState: ThreadModelState | null }
   | { type: "model.set"; ok: true; threadId: string; model: string }
-  | { type: "model.set"; ok: false; message: string }
+  | { type: "model.set"; ok: false; error: ActionFailure }
   | { type: "context.read"; ok: true; threadId: string; tokenUsage: ReadThreadTokenUsageResponse["tokenUsage"] }
-  | { type: "context.read"; ok: false; message: string }
+  | { type: "context.read"; ok: false; error: ActionFailure }
   | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; effectiveEnabled: boolean }
-  | { type: "skill.set-enabled"; ok: false; message: string }
+  | { type: "skill.set-enabled"; ok: false; error: ActionFailure }
   | { type: "thread.get-current"; threadId: string | null }
   | { type: "thread.create"; threadId: string }
   | { type: "thread.switch"; threadId: string }
   | { type: "thread.rename"; ok: true; threadId: string; name: string }
-  | { type: "thread.rename"; ok: false; message: string }
+  | { type: "thread.rename"; ok: false; error: ActionFailure }
   | { type: "thread.read"; ok: true; threadId: string; thread: ReadThreadResponse["thread"] }
-  | { type: "thread.read"; ok: false; message: string }
+  | { type: "thread.read"; ok: false; error: ActionFailure }
   | { type: "thread.fork"; ok: true; threadId: string; sourceThreadId: string }
-  | { type: "thread.fork"; ok: false; message: string }
+  | { type: "thread.fork"; ok: false; error: ActionFailure }
   | { type: "thread.archive"; ok: true; threadId: string; clearedActiveBinding: boolean }
-  | { type: "thread.archive"; ok: false; message: string }
+  | { type: "thread.archive"; ok: false; error: ActionFailure }
   | { type: "thread.unarchive"; ok: true; threadId: string }
   | { type: "thread.rollback"; ok: true; threadId: string; numTurns: number }
-  | { type: "thread.rollback"; ok: false; message: string }
+  | { type: "thread.rollback"; ok: false; error: ActionFailure }
   | { type: "thread.compact"; ok: true; threadId: string }
-  | { type: "thread.compact"; ok: false; message: string }
+  | { type: "thread.compact"; ok: false; error: ActionFailure }
   | { type: "turn.interrupt"; ok: true; threadId: string }
-  | { type: "turn.interrupt"; ok: false; message: string };
+  | { type: "turn.interrupt"; ok: false; error: ActionFailure };
 
 function resolveModelArgument(models: ModelSummary[], raw: string): ModelSummary | null {
   const normalized = raw.trim().toLowerCase();
@@ -109,16 +110,16 @@ export async function executeControlAction(
   if (request.type === "repo.get") {
     return {
       type: "repo.get",
-      currentRepo: context.getSurfaceProject(request.channelId),
+      currentRepo: context.getSurfaceProject(request.surfaceId),
     };
   }
 
   if (request.type === "repo.set") {
-    const configured = await context.setSurfaceProject(request.channelId, request.repoInput);
+    const configured = await context.setSurfaceProject(request.surfaceId, request.repoInput);
     return {
       type: "repo.set",
       repoSlug: configured.repoSlug,
-      activeThreadId: context.getSurfaceThreadId(request.channelId),
+      activeThreadId: context.getSurfaceThreadId(request.surfaceId),
     };
   }
 
@@ -131,7 +132,7 @@ export async function executeControlAction(
   }
 
   if (request.type === "models.list") {
-    const threadId = context.getSurfaceThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.surfaceId);
     const models = await context.conversation.listModels({
       cursor: request.cursor,
       limit: request.limit ?? 20,
@@ -144,12 +145,12 @@ export async function executeControlAction(
   }
 
   if (request.type === "model.set") {
-    const threadId = context.getSurfaceThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.surfaceId);
     if (!threadId) {
       return {
         type: "model.set",
         ok: false,
-        message: "No active thread in this channel yet. Use !newthread first.",
+        error: { code: "thread_required" },
       };
     }
 
@@ -167,7 +168,7 @@ export async function executeControlAction(
       return {
         type: "model.set",
         ok: false,
-        message: `Unknown model: \`${request.requestedModel}\`. Use \`!models\` to inspect available models.`,
+        error: { code: "unknown_model", requestedModel: request.requestedModel },
       };
     }
 
@@ -181,12 +182,12 @@ export async function executeControlAction(
   }
 
   if (request.type === "context.read") {
-    const threadId = context.getSurfaceThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.surfaceId);
     if (!threadId) {
       return {
         type: "context.read",
         ok: false,
-        message: "No active thread in this channel yet. Use !newthread first.",
+        error: { code: "thread_required" },
       };
     }
     const result = await context.conversation.readThreadTokenUsage(threadId);
@@ -201,7 +202,7 @@ export async function executeControlAction(
   if (request.type === "thread.get-current") {
     return {
       type: "thread.get-current",
-      threadId: context.getSurfaceThreadId(request.channelId),
+      threadId: context.getSurfaceThreadId(request.surfaceId),
     };
   }
 
@@ -211,7 +212,7 @@ export async function executeControlAction(
     }
     return {
       type: "thread.create",
-      threadId: await context.createSurfaceThread(request.channelId),
+      threadId: await context.createSurfaceThread(request.surfaceId),
     };
   }
 
@@ -221,17 +222,17 @@ export async function executeControlAction(
     }
     return {
       type: "thread.switch",
-      threadId: await context.switchSurfaceThread(request.channelId, request.threadId),
+      threadId: await context.switchSurfaceThread(request.surfaceId, request.threadId),
     };
   }
 
   if (request.type === "thread.rename") {
-    const threadId = context.getSurfaceThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.surfaceId);
     if (!threadId) {
       return {
         type: "thread.rename",
         ok: false,
-        message: "No active thread in this channel.",
+        error: { code: "thread_required" },
       };
     }
     await context.conversation.setThreadName(threadId, { name: request.name });
@@ -244,12 +245,12 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.read") {
-    const threadId = request.threadId ?? context.getSurfaceThreadId(request.channelId);
+    const threadId = request.threadId ?? context.getSurfaceThreadId(request.surfaceId);
     if (!threadId) {
       return {
         type: "thread.read",
         ok: false,
-        message: "Usage: !threadread <id>",
+        error: { code: "thread_required" },
       };
     }
     const result = await context.conversation.readThread(threadId, { includeTurns: false });
@@ -262,12 +263,12 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.fork") {
-    const sourceThreadId = request.sourceThreadId ?? context.getSurfaceThreadId(request.channelId);
+    const sourceThreadId = request.sourceThreadId ?? context.getSurfaceThreadId(request.surfaceId);
     if (!sourceThreadId) {
       return {
         type: "thread.fork",
         ok: false,
-        message: "Usage: !fork <id>",
+        error: { code: "thread_required" },
       };
     }
     if (!context.forkSurfaceThread) {
@@ -276,24 +277,24 @@ export async function executeControlAction(
     return {
       type: "thread.fork",
       ok: true,
-      threadId: await context.forkSurfaceThread(request.channelId, sourceThreadId),
+      threadId: await context.forkSurfaceThread(request.surfaceId, sourceThreadId),
       sourceThreadId,
     };
   }
 
   if (request.type === "thread.archive") {
-    const threadId = request.threadId ?? context.getSurfaceThreadId(request.channelId);
+    const threadId = request.threadId ?? context.getSurfaceThreadId(request.surfaceId);
     if (!threadId) {
       return {
         type: "thread.archive",
         ok: false,
-        message: "Usage: !archive <id>",
+        error: { code: "thread_required" },
       };
     }
     await context.conversation.archiveThread(threadId);
-    const clearedActiveBinding = context.getSurfaceThreadId(request.channelId) === threadId;
+    const clearedActiveBinding = context.getSurfaceThreadId(request.surfaceId) === threadId;
     if (clearedActiveBinding) {
-      context.clearSurfaceThread?.(request.channelId);
+      context.clearSurfaceThread?.(request.surfaceId);
     }
     return {
       type: "thread.archive",
@@ -313,12 +314,12 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.rollback") {
-    const threadId = request.threadId ?? context.getSurfaceThreadId(request.channelId);
+    const threadId = request.threadId ?? context.getSurfaceThreadId(request.surfaceId);
     if (!Number.isInteger(request.numTurns) || request.numTurns < 1 || !threadId) {
       return {
         type: "thread.rollback",
         ok: false,
-        message: "Usage: !rollback <numTurns> [id]",
+        error: { code: !threadId ? "thread_required" : "invalid_turn_count" },
       };
     }
     await context.conversation.rollbackThread(threadId, { numTurns: request.numTurns });
@@ -331,12 +332,12 @@ export async function executeControlAction(
   }
 
   if (request.type === "thread.compact") {
-    const threadId = request.threadId ?? context.getSurfaceThreadId(request.channelId);
+    const threadId = request.threadId ?? context.getSurfaceThreadId(request.surfaceId);
     if (!threadId) {
       return {
         type: "thread.compact",
         ok: false,
-        message: "Usage: !compact <id>",
+        error: { code: "thread_required" },
       };
     }
     await context.conversation.compactThread(threadId);
@@ -348,12 +349,12 @@ export async function executeControlAction(
   }
 
   if (request.type === "turn.interrupt") {
-    const threadId = context.getSurfaceThreadId(request.channelId);
+    const threadId = context.getSurfaceThreadId(request.surfaceId);
     if (!threadId) {
       return {
         type: "turn.interrupt",
         ok: false,
-        message: "No active thread in this channel.",
+        error: { code: "thread_required" },
       };
     }
     await context.conversation.interruptTurn(threadId);
@@ -364,12 +365,12 @@ export async function executeControlAction(
     };
   }
 
-  const threadId = context.getSurfaceThreadId(request.channelId);
+  const threadId = context.getSurfaceThreadId(request.surfaceId);
   if (!threadId) {
     return {
       type: "skill.set-enabled",
       ok: false,
-      message: "No active thread in this channel. Use !newthread or !thread <id> first.",
+      error: { code: "thread_required" },
     };
   }
 
@@ -379,7 +380,7 @@ export async function executeControlAction(
     return {
       type: "skill.set-enabled",
       ok: false,
-      message: resolved.error,
+      error: resolved.error,
     };
   }
 

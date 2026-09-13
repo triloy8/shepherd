@@ -318,3 +318,12 @@ The adapter still owns:
 
 That is the intended end state from the historical
 [adapter-to-core refactor map](archive/adapter-to-core-refactor-map.md).
+
+## Application failures
+
+Control actions identify their target with `surfaceId` and return structured
+`ActionFailure` values for expected prerequisite and selection failures. Core
+orchestration throws `ApplicationActionError` when a prerequisite prevents a
+workflow from starting. Adapters render these codes and their data; Discord's
+`action_error.ts` owns command hints and Markdown. Unexpected infrastructure
+errors still propagate to the adapter's error boundary.

@@ -1,3 +1,4 @@
+import { ApplicationActionError } from "./action_error.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
 import { ConversationService } from "./conversation_service.js";
@@ -178,7 +179,7 @@ export class SurfaceConversationOrchestrator {
   private getSurfaceProjectTarget(surfaceId: string) {
     const target = this.surfaceState.getProjectTarget(this.adapter, surfaceId);
     if (!target) {
-      throw new Error("No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.");
+      throw new ApplicationActionError({ code: "project_required" });
     }
     return target;
   }

@@ -58,7 +58,7 @@ describe("SkillResolutionService", () => {
     };
 
     expect(resolveSkillPathFromList(ambiguous, "github")).toEqual({
-      error: "Multiple skills match `github`: github [workspace], github [user]. Use the full path.",
+      error: { code: "skill_ambiguous", requestedSkill: "github", candidates: ambiguous.data[0].skills.map(({ name, scope, path }) => ({ name, scope, path })) },
     });
   });
 
@@ -70,7 +70,7 @@ describe("SkillResolutionService", () => {
 
   test("returns a clear error when no skill matches", () => {
     expect(resolveSkillPathFromList(listed, "missing")).toEqual({
-      error: "No loaded skill matches `missing`. Use `!skills` to inspect available names.",
+      error: { code: "skill_not_found", requestedSkill: "missing" },
     });
   });
 });

@@ -1,3 +1,4 @@
+import { formatApplicationError } from "./action_error.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
@@ -199,7 +200,7 @@ export async function startDiscordBot(): Promise<void> {
         approvalPolicy,
       });
     } catch (error) {
-      const text = error instanceof Error ? error.message : "Failed to process message.";
+      const text = formatApplicationError(error, "Failed to process message.");
       try {
         const delivered = await replyDiscordCard(message, {
           title: "Request failed",

@@ -1,8 +1,9 @@
+import type { ActionFailure } from "./action_error.js";
 import type { SkillMetadata, SkillsListResponse } from "../../shared/protocol/requests.js";
 
 export type ResolvedSkillPath =
   | { path: string }
-  | { error: string };
+  | { error: ActionFailure };
 
 function normalizeValue(value: string): string {
   return value.trim().toLowerCase();
@@ -24,7 +25,7 @@ export function resolveSkillPathFromList(
 ): ResolvedSkillPath {
   const value = rawValue.trim();
   if (!value) {
-    return { error: "Invalid skill name or path." };
+    return { error: { code: "invalid_skill" } };
   }
 
   if (value.includes("/") || value.endsWith(".md")) {
@@ -39,8 +40,7 @@ export function resolveSkillPathFromList(
     return { path: exactNameMatches[0]!.path };
   }
   if (exactNameMatches.length > 1) {
-    const options = exactNameMatches.map((skill) => `${skill.name} [${skill.scope}]`).join(", ");
-    return { error: `Multiple skills match \`${value}\`: ${options}. Use the full path.` };
+    return { error: { code: "skill_ambiguous", requestedSkill: value, candidates: exactNameMatches.map(({ name, scope, path }) => ({ name, scope, path })) } };
   }
 
   const qualifiedMatches = skills.filter(
@@ -50,5 +50,5 @@ export function resolveSkillPathFromList(
     return { path: qualifiedMatches[0]!.path };
   }
 
-  return { error: `No loaded skill matches \`${value}\`. Use \`!skills\` to inspect available names.` };
+  return { error: { code: "skill_not_found", requestedSkill: value } };
 }

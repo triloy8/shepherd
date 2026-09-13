@@ -1,15 +1,17 @@
+import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery } from "../../core/surface_snapshot_service.js";
+import type { SurfaceApplicationContext } from "../../core/surface_application_context.js";
+import { executeSurfaceAction } from "../../core/surface_actions_service.js";
+import { formatActionFailure } from "./action_error.js";
 import { loadSkillsPage } from "../../core/skills_page_service.js";
 import { MessageFlags, type Message, type MessageEditOptions } from "discord.js";
 
 import { executeControlAction } from "../../core/control_actions_service.js";
-import type { ConversationService } from "../../core/conversation_service.js";
 import {
   deploymentTargetLabel,
   type DeploymentStatus,
   type DeploymentTarget,
 } from "../../core/deployment_service.js";
 import type {
-  RuntimeLifecycleOrchestrator,
   RuntimeLifecycleResult,
 } from "../../core/runtime_lifecycle_orchestrator.js";
 import type { RuntimeActivity } from "../../core/session_manager.js";
@@ -42,26 +44,7 @@ import { initialHistoryRequest, loadHistoryPage } from "./history_pagination.js"
 type HandleResult = { handled: boolean; threadId: string | null; input: UserInput[] | null };
 const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
 
-export type CommandContext = {
-  conversation: ConversationService;
-  getSurfaceThreadId: (surfaceId: string) => string | null;
-  getSurfaceProject: (surfaceId: string) => string | null;
-  getSurfaceListeningMode: (surfaceId: string) => SurfaceListeningMode;
-  setSurfaceListeningMode: (
-    surfaceId: string,
-    mode: Exclude<SurfaceListeningMode, "paused">,
-  ) => SurfaceListeningMode;
-  pauseSurfaceListening: (surfaceId: string) => SurfaceListeningMode;
-  resumeSurfaceListening: (surfaceId: string) => SurfaceListeningMode;
-  setSurfaceProject: (surfaceId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
-  inheritSurfaceProject?: (surfaceId: string, parentSurfaceId: string) => string | null;
-  ensureSurfaceThread: (surfaceId: string) => Promise<string>;
-  createSurfaceThread: (surfaceId: string) => Promise<string>;
-  switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;
-  forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
-  clearSurfaceThread: (surfaceId: string) => void;
-  runtimeLifecycle?: Pick<RuntimeLifecycleOrchestrator, "restart" | "deploy" | "deploymentStatus">;
-};
+export type CommandContext = SurfaceApplicationContext;
 
 function formatTimestamp(seconds: number | null): string {
   if (!seconds) return "unknown";
@@ -97,34 +80,30 @@ function formatListeningStatus(message: Message, context: CommandContext): strin
 }
 
 function formatSurfaceStatus(message: Message, context: CommandContext): string {
-  const channelId = message.channelId;
-  const threadId = context.getSurfaceThreadId(channelId);
-  const project = context.getSurfaceProject(channelId);
+  const status = readSurfaceStatus(context, message.channelId);
+  const effectiveMode = message.guildId === null && status.listeningMode !== "paused" ? "open" : status.listeningMode;
   const lines = [
-    `- Listening: ${displayListeningMode(effectiveListeningMode(message, context))}`,
-    `- Repository: ${project ?? "not selected"}`,
-    `- Thread: ${threadId ?? "not attached"}`,
+    `- Listening: ${displayListeningMode(effectiveMode)}`,
+    `- Repository: ${status.project ?? "not selected"}`,
+    `- Thread: ${status.threadId ?? "not attached"}`,
   ];
-
-  if (threadId) {
-    const thread = context.conversation.getThreadState(threadId);
-    const model = context.conversation.getThreadModel(threadId);
-    lines.push(`- Turn: ${thread.activeTurnId ? `running (${thread.activeTurnId})` : "idle"}`);
-    lines.push(`- Model: ${model.pendingModel ?? model.currentModel ?? "default"}`);
+  if (status.model) {
+    lines.push(`- Turn: ${status.activeTurnId ? `running (${status.activeTurnId})` : "idle"}`);
+    lines.push(`- Model: ${status.model.pendingModel ?? status.model.currentModel ?? "default"}`);
   }
 
   return lines.join("\n");
 }
 
 function formatRecoveryInstructions(context: CommandContext, channelId: string): string {
-  const project = context.getSurfaceProject(channelId);
-  const threadId = context.getSurfaceThreadId(channelId);
-  const listeningMode = context.getSurfaceListeningMode(channelId);
-  const commands = [
-    ...(project ? [`!repo ${project}`] : []),
-    ...(threadId ? [`!thread ${threadId}`] : []),
-    ...(listeningMode === "open" ? ["!listen open"] : []),
-  ];
+  const actions = planSurfaceRecovery(readSurfaceBinding(context, channelId));
+  const commands = actions.map((action) => {
+    switch (action.type) {
+      case "repo.set": return `!repo ${action.repoInput}`;
+      case "thread.switch": return `!thread ${action.threadId}`;
+      case "listening.set": return "!listen open";
+    }
+  });
 
   if (commands.length === 0) {
     return "No channel binding needs to be restored after reconnect.";
@@ -501,19 +480,15 @@ export async function handleMessage(
       );
       return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
     }
-    if (requestedMode === "open" && !context.getSurfaceThreadId(channelId)) {
-      await replyCard(
-        message,
-        "Thread required",
-        "Start or attach a thread before opening this channel. Use `!newthread` or `!thread <id>`.",
-        "warning",
-      );
+    const result = executeSurfaceAction(context, {
+      type: "listening.set", surfaceId: channelId,
+      mode: requestedMode === "open" ? "open" : "mention",
+    });
+    if (!result.ok) {
+      await replyCard(message, "Thread required", formatActionFailure(result.error), "warning");
       return { handled: true, threadId: null, input: null };
     }
-    const mode = context.setSurfaceListeningMode(
-      channelId,
-      requestedMode === "open" ? "open" : "mention",
-    );
+    const { mode } = result;
     await replyCard(
       message,
       "Listening updated",
@@ -530,7 +505,7 @@ export async function handleMessage(
       await replyMarkdown(message, "Usage: !pause");
       return { handled: true, threadId: null, input: null };
     }
-    context.pauseSurfaceListening(channelId);
+    executeSurfaceAction(context, { type: "listening.pause", surfaceId: channelId });
     await replyCard(
       message,
       "Listening paused",
@@ -545,7 +520,12 @@ export async function handleMessage(
       await replyMarkdown(message, "Usage: !resume");
       return { handled: true, threadId: null, input: null };
     }
-    const mode = context.resumeSurfaceListening(channelId);
+    const result = executeSurfaceAction(context, { type: "listening.resume", surfaceId: channelId });
+    if (!result.ok) {
+      await replyCard(message, "Thread required", formatActionFailure(result.error), "warning");
+      return { handled: true, threadId: null, input: null };
+    }
+    const { mode } = result;
     await replyCard(
       message,
       "Listening resumed",
@@ -560,12 +540,12 @@ export async function handleMessage(
       await replyMarkdown(message, "Usage: !detach");
       return { handled: true, threadId: null, input: null };
     }
-    const threadId = context.getSurfaceThreadId(channelId);
-    if (!threadId) {
-      await replyCard(message, "Thread unavailable", "No thread is attached to this channel.", "warning");
+    const result = executeSurfaceAction(context, { type: "surface.detach", surfaceId: channelId });
+    if (!result.ok) {
+      await replyCard(message, "Thread unavailable", formatActionFailure(result.error), "warning");
       return { handled: true, threadId: null, input: null };
     }
-    context.clearSurfaceThread(channelId);
+    const { threadId } = result;
     await replyCard(
       message,
       "Channel detached",
@@ -693,7 +673,7 @@ export async function handleMessage(
   if (command === "!models") {
     const result = await executeControlAction(context, {
       type: "models.list",
-      channelId,
+      surfaceId: channelId,
       limit: DISCORD_LIST_PAGE_SIZE,
     });
     if (result.type !== "models.list") {
@@ -731,18 +711,20 @@ export async function handleMessage(
 
   if (command === "!effort") {
     const threadId = context.getSurfaceThreadId(channelId);
-    if (!threadId) {
-      await replyCard(message, "Thread required", "No active thread in this channel. Use `!newthread` or `!thread <id>` first.", "warning");
-      return { handled: true, threadId: null, input: null };
-    }
     if (args.length && (args.length !== 2 || args[0]?.toLowerCase() !== "set")) {
       await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level|default>");
       return { handled: true, threadId, input: null };
     }
     try {
-      const state = args.length
-        ? await context.conversation.setThreadEffort(threadId, args[1]!.toLowerCase())
-        : await context.conversation.getThreadEffort(threadId);
+      const result = await executeControlAction(context, args.length
+        ? { type: "effort.set", surfaceId: channelId, effort: args[1]!.toLowerCase() }
+        : { type: "effort.get", surfaceId: channelId });
+      if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
+      if (!result.ok) {
+        await replyCard(message, result.error.code === "thread_required" ? "Thread required" : "Effort unavailable", formatActionFailure(result.error), "warning");
+        return { handled: true, threadId: null, input: null };
+      }
+      const { state } = result;
       const lines = [
         `- Model: ${state.model}`,
         `- Current: ${state.currentEffort ?? "unknown"}`,
@@ -790,14 +772,14 @@ export async function handleMessage(
 
     const result = await executeControlAction(context, {
       type: "model.set",
-      channelId,
+      surfaceId: channelId,
       requestedModel,
     });
     if (result.type !== "model.set") {
       throw new Error("Unexpected control action result for model.set.");
     }
     if (!result.ok) {
-      await replyCard(message, "Model update failed", result.message, "danger");
+      await replyCard(message, "Model update failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId, input: null };
     }
 
@@ -811,12 +793,12 @@ export async function handleMessage(
   }
 
   if (command === "!context") {
-    const result = await executeControlAction(context, { type: "context.read", channelId });
+    const result = await executeControlAction(context, { type: "context.read", surfaceId: channelId });
     if (result.type !== "context.read") {
       throw new Error("Unexpected control action result for context.read.");
     }
     if (!result.ok) {
-      await replyCard(message, "Context unavailable", result.message, "warning");
+      await replyCard(message, "Context unavailable", formatActionFailure(result.error), "warning");
       return { handled: true, threadId: null, input: null };
     }
     if (!result.tokenUsage) {
@@ -834,7 +816,7 @@ export async function handleMessage(
   }
 
   if (command === "!newthread") {
-    const result = await executeControlAction(context, { type: "thread.create", channelId });
+    const result = await executeControlAction(context, { type: "thread.create", surfaceId: channelId });
     if (result.type !== "thread.create") {
       throw new Error("Unexpected control action result for thread.create.");
     }
@@ -845,7 +827,7 @@ export async function handleMessage(
   if (command === "!repo") {
     const repoSlug = args[0]?.trim();
     if (!repoSlug) {
-      const result = await executeControlAction(context, { type: "repo.get", channelId });
+      const result = await executeControlAction(context, { type: "repo.get", surfaceId: channelId });
       if (result.type !== "repo.get") {
         throw new Error("Unexpected control action result for repo.get.");
       }
@@ -862,7 +844,7 @@ export async function handleMessage(
     }
     const configured = await executeControlAction(context, {
       type: "repo.set",
-      channelId,
+      surfaceId: channelId,
       repoInput: repoSlug,
     });
     if (configured.type !== "repo.set") {
@@ -924,7 +906,7 @@ export async function handleMessage(
       }
       const result = await executeControlAction(context, {
         type: "skill.set-enabled",
-        channelId,
+        surfaceId: channelId,
         requestedSkill,
         enabled: sub === "enable",
       });
@@ -932,7 +914,7 @@ export async function handleMessage(
         throw new Error("Unexpected control action result for skill.set-enabled.");
       }
       if (!result.ok) {
-        await replyCard(message, "Skill update failed", result.message, "danger");
+        await replyCard(message, "Skill update failed", formatActionFailure(result.error), "danger");
         return { handled: true, threadId: null, input: null };
       }
       await replyCard(
@@ -948,7 +930,7 @@ export async function handleMessage(
   if (command === "!thread" && args.length === 0) {
     const result = await executeControlAction(context, {
       type: "thread.get-current",
-      channelId,
+      surfaceId: channelId,
     });
     if (result.type !== "thread.get-current") {
       throw new Error("Unexpected control action result for thread.get-current.");
@@ -972,7 +954,7 @@ export async function handleMessage(
 
     const result = await executeControlAction(context, {
       type: "thread.switch",
-      channelId,
+      surfaceId: channelId,
       threadId: requestedThreadId,
     });
     if (result.type !== "thread.switch") {
@@ -990,14 +972,14 @@ export async function handleMessage(
     }
     const result = await executeControlAction(context, {
       type: "thread.rename",
-      channelId,
+      surfaceId: channelId,
       name,
     });
     if (result.type !== "thread.rename") {
       throw new Error("Unexpected control action result for thread.rename.");
     }
     if (!result.ok) {
-      await replyCard(message, "Thread rename failed", result.message, "danger");
+      await replyCard(message, "Thread rename failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(message, "Thread renamed", `Thread renamed: ${result.name}`, "success");
@@ -1007,14 +989,14 @@ export async function handleMessage(
   if (command === "!threadread") {
     const result = await executeControlAction(context, {
       type: "thread.read",
-      channelId,
+      surfaceId: channelId,
       threadId: args[0],
     });
     if (result.type !== "thread.read") {
       throw new Error("Unexpected control action result for thread.read.");
     }
     if (!result.ok) {
-      await replyCard(message, "Thread unavailable", result.message, "warning");
+      await replyCard(message, "Thread unavailable", formatActionFailure(result.error), "warning");
       return { handled: true, threadId: null, input: null };
     }
     const threadId = result.threadId;
@@ -1032,14 +1014,14 @@ export async function handleMessage(
   if (command === "!fork") {
     const result = await executeControlAction(context, {
       type: "thread.fork",
-      channelId,
+      surfaceId: channelId,
       sourceThreadId: args[0],
     });
     if (result.type !== "thread.fork") {
       throw new Error("Unexpected control action result for thread.fork.");
     }
     if (!result.ok) {
-      await replyCard(message, "Thread fork failed", result.message, "danger");
+      await replyCard(message, "Thread fork failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(
@@ -1054,14 +1036,14 @@ export async function handleMessage(
   if (command === "!archive") {
     const result = await executeControlAction(context, {
       type: "thread.archive",
-      channelId,
+      surfaceId: channelId,
       threadId: args[0],
     });
     if (result.type !== "thread.archive") {
       throw new Error("Unexpected control action result for thread.archive.");
     }
     if (!result.ok) {
-      await replyCard(message, "Archive failed", result.message, "danger");
+      await replyCard(message, "Archive failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(message, "Thread archived", `Archived thread: ${result.threadId}`, "neutral");
@@ -1088,7 +1070,7 @@ export async function handleMessage(
   if (command === "!rollback") {
     const result = await executeControlAction(context, {
       type: "thread.rollback",
-      channelId,
+      surfaceId: channelId,
       numTurns: Number(args[0]),
       threadId: args[1],
     });
@@ -1096,7 +1078,7 @@ export async function handleMessage(
       throw new Error("Unexpected control action result for thread.rollback.");
     }
     if (!result.ok) {
-      await replyCard(message, "Rollback failed", result.message, "danger");
+      await replyCard(message, "Rollback failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(
@@ -1111,14 +1093,14 @@ export async function handleMessage(
   if (command === "!compact") {
     const result = await executeControlAction(context, {
       type: "thread.compact",
-      channelId,
+      surfaceId: channelId,
       threadId: args[0],
     });
     if (result.type !== "thread.compact") {
       throw new Error("Unexpected control action result for thread.compact.");
     }
     if (!result.ok) {
-      await replyCard(message, "Compaction failed", result.message, "danger");
+      await replyCard(message, "Compaction failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(
@@ -1137,13 +1119,13 @@ export async function handleMessage(
     }
     const result = await executeControlAction(context, {
       type: "turn.interrupt",
-      channelId,
+      surfaceId: channelId,
     });
     if (result.type !== "turn.interrupt") {
       throw new Error("Unexpected control action result for turn.interrupt.");
     }
     if (!result.ok) {
-      await replyCard(message, "Interrupt failed", result.message, "danger");
+      await replyCard(message, "Interrupt failed", formatActionFailure(result.error), "danger");
       return { handled: true, threadId: null, input: null };
     }
     await replyCard(

@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { rm } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -98,10 +97,6 @@ export class DeploymentService {
 
   isDeploymentInProgress(): boolean {
     return this.deploymentInProgress;
-  }
-
-  async removeLegacyState(): Promise<void> {
-    await rm(path.join(this.projectDir, ".git", "shepherd-deployment.json"), { force: true });
   }
 
   async readStatus(): Promise<DeploymentStatus> {

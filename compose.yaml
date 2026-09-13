@@ -5,7 +5,7 @@ services:
       context: .
       args:
         BUN_VERSION: "1.3.9"
-        CODEX_VERSION: "0.149.0"
+        CODEX_VERSION: "0.153.4"
     init: true
     restart: unless-stopped
     stop_grace_period: 30s
@@ -21,7 +21,7 @@ services:
       - github-config:/home/bun/.config/gh
       - agent-workspaces:/home/bun/.agent-workspaces
       - type: bind
-        source: ./.agents/skills
+        source: ${SHEPHERD_SKILLS_DIR:-${HOME}/.agents/skills}
         target: /home/bun/.agents/skills
         read_only: true
 

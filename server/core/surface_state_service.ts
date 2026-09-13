@@ -64,10 +64,14 @@ export class SurfaceStateService {
     return "paused";
   }
 
+  getResumeListeningMode(adapter: string, surfaceId: string): Exclude<SurfaceListeningMode, "paused"> {
+    const current = this.listeningStateBySurface.get(toSurfaceKey(adapter, surfaceId));
+    return current?.mode === "paused" ? current.resumeMode : current?.mode ?? "mention";
+  }
+
   resumeListening(adapter: string, surfaceId: string): SurfaceListeningMode {
     const key = toSurfaceKey(adapter, surfaceId);
-    const current = this.listeningStateBySurface.get(key);
-    const mode = current?.mode === "paused" ? current.resumeMode : current?.mode ?? "mention";
+    const mode = this.getResumeListeningMode(adapter, surfaceId);
     this.listeningStateBySurface.set(key, { mode, resumeMode: mode });
     return mode;
   }

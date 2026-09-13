@@ -10,11 +10,12 @@ RUN bun install --frozen-lockfile
 COPY server ./server
 COPY shared ./shared
 COPY tsconfig.server.json ./
+COPY tests/adapter_ports.typecheck.ts tests/tsconfig.contracts.json ./tests/
 RUN bun run check
 
 FROM oven/bun:${BUN_VERSION}-slim AS runtime
 
-ARG CODEX_VERSION=0.149.0
+ARG CODEX_VERSION=0.153.4
 
 ENV DEBIAN_FRONTEND=noninteractive
 

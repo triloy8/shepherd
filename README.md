@@ -42,14 +42,14 @@ Discord channel.
 - `server/adapters/discord`: Discord transport, parsing, rendering, delivery, and interactions
 - `server/adapters/webhook`: loopback HTTP signal ingress
 - `server/signals`: registered signal-kind definitions
-- `server/runtime`: shared process composition and lifecycle
+- `server/runtime`: shared surface assembly, signal composition, and process lifecycle
 - `server/config`: env loading
 - `envs`: local runtime config and example env files
 - `schemas`: generated protocol schemas
 
 The architectural split is intentional:
 
-- `server/core/*` owns reusable policy, action semantics, state, and orchestration
+- `server/core/*` owns reusable policy, normalized actions and failures, state, and orchestration
 - `server/adapters/discord/*` owns Discord-specific transport and presentation concerns
 
 > [!NOTE]
@@ -121,7 +121,7 @@ kernels.
 
 ## 🔧 Runtime Configuration
 
-Shepherd loads env files from `envs/` in this order:
+Shepherd loads env files only from `envs/` in this order:
 
 - `envs/common.env`
 - `envs/discord.env`
@@ -147,6 +147,8 @@ Supported keys:
 > Use it only when that trust boundary is acceptable.
 
 The committed `.example` files are the templates intended for public use.
+Older installations using `environment/` must move their configuration into
+`envs/`; there is no fallback to the retired directory.
 
 ## Local signal webhook
 
@@ -317,8 +319,8 @@ If validation fails, Shepherd restores the prior commit and dependencies and
 stays online. If validation succeeds, it posts the same recovery commands and
 gracefully restarts. Use `!deploy status` to inspect the current commit and any
 locally fetched `origin` refs that point to it; Shepherd stores no deployment
-provenance of its own. On the first startup after upgrading, it removes the
-legacy `.git/shepherd-deployment.json` record.
+provenance of its own. Old `.git/shepherd-deployment.json` records are ignored;
+startup no longer runs a migration cleanup.
 After testing a preview branch, run bare `!deploy` to return to stable
 `origin/main`. Deployment and restart refuse to proceed while a turn or approval
 is active. After Shepherd reconnects, copy the posted commands to resume the

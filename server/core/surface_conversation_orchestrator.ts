@@ -1,3 +1,4 @@
+import { ApplicationActionError } from "./action_error.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
 import { ConversationService } from "./conversation_service.js";
@@ -54,6 +55,9 @@ export class SurfaceConversationOrchestrator {
     surfaceId: string,
     mode: Exclude<SurfaceListeningMode, "paused">,
   ): SurfaceListeningMode {
+    if (mode === "open" && !this.getSurfaceThread(surfaceId)) {
+      throw new ApplicationActionError({ code: "thread_required" });
+    }
     return this.surfaceState.setListeningMode(this.adapter, surfaceId, mode);
   }
 
@@ -62,7 +66,8 @@ export class SurfaceConversationOrchestrator {
   }
 
   resumeSurfaceListening(surfaceId: string): SurfaceListeningMode {
-    return this.surfaceState.resumeListening(this.adapter, surfaceId);
+    const mode = this.surfaceState.getResumeListeningMode(this.adapter, surfaceId);
+    return this.setSurfaceListeningMode(surfaceId, mode);
   }
 
   async setSurfaceProject(surfaceId: string, rawValue: string): Promise<{ repoSlug: string }> {
@@ -130,6 +135,7 @@ export class SurfaceConversationOrchestrator {
     sourceThreadId: string,
     listener: (event: BridgeEvent) => void,
   ): Promise<string> {
+    this.getSurfaceProjectTarget(surfaceId);
     const forked = await this.conversation.forkThread(sourceThreadId, {
       ...(this.sandbox ? { sandbox: this.sandbox } : {}),
     });
@@ -178,7 +184,7 @@ export class SurfaceConversationOrchestrator {
   private getSurfaceProjectTarget(surfaceId: string) {
     const target = this.surfaceState.getProjectTarget(this.adapter, surfaceId);
     if (!target) {
-      throw new Error("No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.");
+      throw new ApplicationActionError({ code: "project_required" });
     }
     return target;
   }

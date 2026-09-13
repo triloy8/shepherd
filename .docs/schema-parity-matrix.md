@@ -9,7 +9,8 @@ Status legend:
 Generated baseline:
 
 - Codex version: `codex-cli 0.153.4`
-- Last refreshed: `2026-09-07`
+- Last refreshed: `2026-09-13`
+- Implementation notes reviewed: `2026-09-13`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -19,7 +20,11 @@ Generated baseline:
 
 Legacy note:
 
-- Rows marked as legacy reflect Shepherd wrappers that still exist in code but are no longer present in the current generated app-server schema and should be deprecated.
+- The legacy-named `execCommandApproval` and `applyPatchApproval` server requests
+  remain in the 0.153.4 generated schema and are supported directly. They are
+  not Shepherd compatibility shims. The three legacy client methods and two
+  legacy notification names listed below are inventory entries, not dedicated
+  wrappers or translations.
 
 ## Client Request Methods
 
@@ -168,7 +173,7 @@ Legacy note:
 | `turn/diff/updated` | Generic | Maybe Later |
 | `turn/plan/updated` | Generic | Maybe Later |
 | `hook/started` / `hook/completed` | Generic | Out of Scope (for now) |
-| `item/started` / `item/completed` | Internal phase tracking only; otherwise generic | Core |
+| `item/started` / `item/completed` | Tracks message phase and emits typed completed-message, generated-image, and tool-activity events; other items retain generic notifications | Core |
 | `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Generic | Maybe Later |
 | `autoApprovalReview/strictReviewRequired` | Generic | Maybe Later |
 | `rawResponseItem/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
@@ -220,4 +225,14 @@ Legacy note:
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, revert, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.153.4`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.153.4`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+
+
+## Deployment version
+
+Ubuntu setup, Docker, and Compose default to `codex-cli 0.153.4`, matching this
+inventory. Both schema generation commands were rerun with an isolated copy of
+that exact CLI. Operators can override `CODEX_VERSION` during installation, but
+that selects a different protocol baseline. Updating the checkout alone does
+not upgrade an already-installed host CLI; rerun `deploy/ubuntu/setup.sh` as the
+deployment user. No global CLI is modified by schema verification.

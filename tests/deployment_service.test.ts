@@ -1,7 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 
 import {
   DEFAULT_DEPLOYMENT_COMMAND_TIMEOUT_MS,
@@ -203,21 +200,4 @@ describe("DeploymentService", () => {
     ]);
   });
 
-  test("removes the legacy persisted deployment record", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "shepherd-deployment-"));
-    const gitDir = path.join(projectDir, ".git");
-    const legacyStatePath = path.join(gitDir, "shepherd-deployment.json");
-
-    try {
-      await mkdir(gitDir);
-      await writeFile(legacyStatePath, "{}\n");
-
-      const service = new DeploymentService({ projectDir });
-      await service.removeLegacyState();
-
-      await expect(access(legacyStatePath)).rejects.toMatchObject({ code: "ENOENT" });
-    } finally {
-      await rm(projectDir, { recursive: true, force: true });
-    }
-  });
 });

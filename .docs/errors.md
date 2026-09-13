@@ -56,3 +56,12 @@ creation.
 - Re-read nearby file contents before retrying a rejected patch.
 - Treat the tool result as authoritative: only report a change as applied after
   the patch tool returns success.
+
+## Deployment diagnostics missing after page 1
+
+The runtime progress reporter previously selected only the first rendered card,
+so a failure labeled `1/18` had no delivered continuation pages. It now edits
+the progress card and delivers every remaining page. Deployment errors retain
+both output streams without repeating stderr through the command exception,
+put recognized failure lines first, and are logged to the host console before
+Discord delivery. A failed continuation delivery is propagated as an error.

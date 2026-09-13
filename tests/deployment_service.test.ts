@@ -201,3 +201,22 @@ describe("DeploymentService", () => {
   });
 
 });
+
+test("deployment diagnostics prioritize failures and retain both streams without execFile duplication", async () => {
+  const runner = makeRunner();
+  const output = "(pass) fine\n\u001b[31m(fail) failing test\u001b[0m\nerror: timed out\n";
+  const service = new DeploymentService({ projectDir: "/srv/shepherd", runCommand: async (exe, args, options) => {
+    if (exe === "bun" && args[0] === "test") {
+      throw Object.assign(new Error(`Command failed: bun test\n${output}`), { stderr: output, stdout: "stdout-marker" });
+    }
+    return runner.runCommand(exe, args, options);
+  } });
+  let message = "";
+  try { await service.deploy(); } catch (error) { message = (error as Error).message; }
+  expect(message).toContain("restored");
+  expect(message).toContain("stdout-marker");
+  expect(message).not.toContain("\u001b");
+  expect(message.indexOf("(fail) failing test")).toBeLessThan(message.indexOf("(pass) fine"));
+  expect(message.match(/\(pass\) fine/g)).toHaveLength(1);
+  expect(runner.getCheckout()).toBe("1111111111111111111111111111111111111111");
+});

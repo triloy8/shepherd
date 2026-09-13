@@ -302,16 +302,20 @@ class RuntimeSurfaceReporter {
   constructor(private readonly message: Message) {}
 
   async show(options: { title: string; text: string; tone: SurfaceTone }): Promise<void> {
-    const page = buildCardPages(options)[0]!;
+    const pages = buildCardPages(options);
+    const page = pages[0]!;
     if (this.current) {
       await this.current.edit({
         flags: MessageFlags.IsComponentsV2,
         components: page.components,
         allowedMentions: { parse: [] },
       });
-      return;
+    } else {
+      this.current = await this.message.reply(componentsV2Payload(page));
     }
-    this.current = await this.message.reply(componentsV2Payload(page));
+    if (pages.length > 1) {
+      ensureDelivery(await replyDiscordPages(this.message, pages.slice(1)));
+    }
   }
 }
 

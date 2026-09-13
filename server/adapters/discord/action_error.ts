@@ -2,6 +2,8 @@ import { ApplicationActionError, type ActionFailure } from "../../core/action_er
 
 export function formatActionFailure(error: ActionFailure): string {
   switch (error.code) {
+    case "model_unavailable": return "The thread's model is not in the model catalog. Use !model set <id> first.";
+    case "unsupported_effort": return `Unsupported effort for ${error.model}: ${error.requested}. Available: ${error.available.join(", ") || "none"}.`;
     case "thread_required": return "No active thread in this channel. Use `!newthread` or `!thread <id>` first.";
     case "project_required": return "No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.";
     case "invalid_turn_count": return "Usage: !rollback <numTurns> [id]";

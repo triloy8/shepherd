@@ -1,4 +1,4 @@
-import type { ActionFailure } from "./action_error.js";
+import { ApplicationActionError, type ActionFailure } from "./action_error.js";
 import type {
   AccountRateLimitsResponse,
   ListModelsResponse,
@@ -117,10 +117,15 @@ export async function executeControlAction(
   if (request.type === "effort.get" || request.type === "effort.set") {
     const threadId = context.getSurfaceThreadId(request.surfaceId);
     if (!threadId) return { type: request.type, ok: false, error: { code: "thread_required" } };
-    const state = request.type === "effort.set"
-      ? await context.conversation.setThreadEffort(threadId, request.effort)
-      : await context.conversation.getThreadEffort(threadId);
-    return { type: request.type, ok: true, state };
+    try {
+      const state = request.type === "effort.set"
+        ? await context.conversation.setThreadEffort(threadId, request.effort)
+        : await context.conversation.getThreadEffort(threadId);
+      return { type: request.type, ok: true, state };
+    } catch (error) {
+      if (error instanceof ApplicationActionError) return { type: request.type, ok: false, error: error.failure };
+      throw error;
+    }
   }
 
   if (request.type === "repo.get") {

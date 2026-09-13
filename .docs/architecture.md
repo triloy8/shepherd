@@ -3,13 +3,17 @@
 This document describes the current ownership boundaries between Shepherd's
 Discord and webhook adapters, application core, and runtime core.
 
+Reviewed against the code on 2026-09-13.
+
 ## Boundary
 
 The adapter paths are split along this rule:
 
 - `server/adapters/discord/*` owns Discord transport, Discord event parsing, Discord rendering, and Discord delivery/runtime glue
-- `server/adapters/webhook/*` owns loopback HTTP parsing, authentication, limits, and response mapping
+- `server/adapters/webhook/*` owns loopback HTTP parsing, route validation, limits, and response mapping; callbacks are unauthenticated
 - `server/core/*` owns reusable policy, action semantics, state, and orchestration
+- `server/runtime/*` assembles shared services and owns process lifecycle; it may wire ingress adapters but must not depend on Discord
+- `shared/protocol/*` owns data contracts and validation, with no adapter dependencies
 
 ## Core Model
 
@@ -22,7 +26,7 @@ The core is easiest to understand as two layers:
   Owns session/runtime infrastructure such as conversation routing, session management,
   Codex/app-server bridging, approvals plumbing, and event fanout.
 
-This matters because the refactor primarily changed the `Application Core` boundary. It moved reusable product behavior out of the Discord adapter without trying to redesign the lower-level runtime plumbing.
+Application services build on the runtime infrastructure. Adapters use those services instead of reconstructing workflows or prerequisites.
 
 ### Application Core
 
@@ -37,7 +41,7 @@ Inside the application core, the main buckets are:
 - `orchestration`
   Coordinates multi-step workflows across services.
 
-The refactor did not just move code out of Discord. It moved real ownership of behavior into these four application-core roles.
+These roles describe ownership within core; they do not require separate directory layers.
 
 ## Core Modules
 
@@ -59,7 +63,11 @@ These are functional modules, not just abstractions. If they make the wrong deci
 These modules define what an operator action means after the adapter parses the surface syntax.
 
 - `server/core/control_actions_service.ts`
-  Owns command semantics for repo, model, skill, thread, limits, context, and related control actions.
+  Owns action semantics for repo, model, effort, skill, thread, limits, and context controls.
+- `server/core/surface_actions_service.ts`
+  Owns normalized listening and detach actions.
+- `server/core/action_error.ts`
+  Defines structured application failures, leaving surface instructions to adapters.
 
 This is the application command layer. Discord parses commands like `!repo` or `!model`, but this service decides what those commands actually do.
 
@@ -208,7 +216,7 @@ So the simplest mental model is:
 ### Surface runtime composition
 
 - `server/adapters/discord/surface_runtime.ts`
-  Composes the Discord surface runtime by wiring orchestrator/workspace/project behavior into a `CommandContext`.
+  Supplies the Discord adapter name to shared surface composition; `CommandContext` aliases the core `SurfaceApplicationContext`.
 
 ### Thread event runtime
 
@@ -280,9 +288,9 @@ So the simplest mental model is:
    in-process lifecycle lock that rejects concurrent deploy and restart requests
 4. The deploy branch delegates Git/Bun validation, command timeouts, and
    rollback to `deployment_service.ts`
-5. The orchestrator asks the lifecycle port in `bot.ts` to quiesce Discord ingress
+5. The orchestrator asks the lifecycle port in `ShepherdRuntime` to quiesce all ingress
 6. After a final activity check, the orchestrator awaits the Discord recovery announcement
-7. `bot.ts` gracefully stops Codex sessions and Discord, then exits for the external supervisor to restart
+7. `ShepherdRuntime` runs registered signal/adapter shutdown hooks, stops Codex sessions, then exits for the external supervisor to restart
 
 ## What Still Lives In `bot.ts`
 
@@ -297,11 +305,11 @@ What remains in `server/adapters/discord/bot.ts` is mostly legitimate adapter wo
 
 ## Practical Outcome
 
-The Discord adapter no longer owns:
+Core owns the following reusable behavior:
 
 - project target resolution
 - skill resolution
-- command semantics
+- normalized action semantics and prerequisites
 - workspace provisioning
 - thread orchestration policy
 - input routing policy
@@ -325,7 +333,8 @@ Control actions identify their target with `surfaceId` and return structured
 `ActionFailure` values for expected prerequisite and selection failures. Core
 orchestration throws `ApplicationActionError` when a prerequisite prevents a
 workflow from starting. Adapters render these codes and their data; Discord's
-`action_error.ts` owns command hints and Markdown. Unexpected infrastructure
+`action_error.ts` owns command hints and Markdown, including effort validation
+and unavailable-model guidance. Unexpected infrastructure
 errors still propagate to the adapter's error boundary.
 
 ## Surface action entry points
@@ -341,9 +350,10 @@ sink; no Discord types are involved in shared composition.
 - History and skills page services remain dedicated read APIs.
 - `RuntimeLifecycleOrchestrator` remains the process restart/deploy API.
 
-Opening a surface requires an attached thread. The application action rejects
+Explicitly selecting open listening requires an attached thread. The application action rejects
 missing bindings before mutation, and the orchestrator enforces the same rule
-for direct callers. Detach removes the binding and subscription and resets
+for direct callers, including resume when its saved mode is open. A lost binding
+leaves the paused state intact until a thread is attached. Detach removes the binding and subscription and resets
 listening state while retaining the project selection and Codex thread.
 Discord still maps mentions, direct messages, command syntax, and result data
 into its own interaction and presentation conventions.
@@ -359,3 +369,20 @@ The default registry contains the research signal; alternate compositions may
 supply their own registry. Surfaces supply a `beforeExecute` delivery hook.
 Discord uses that hook for its research notice and reply target, and retains
 its existing best-effort notice-delivery behavior.
+
+
+## Maintenance checks
+
+`tests/architecture_boundaries.test.ts` checks static imports, re-exports,
+import types, literal dynamic imports/requires, and command hints in core
+string literals. Core and protocol cannot
+import adapters or runtime composition; shared runtime cannot import Discord.
+Surface action tests exercise identical transitions through Discord and a
+synthetic terminal adapter, without connecting either transport. Keep those
+checks alongside behavior tests when adding application primitives.
+
+This is an internal TypeScript API, not a new network API. Transport parsing,
+caller authorization, and delivery remain adapter responsibilities. Existing
+runtime diagnostics and dedicated page reads can call their core services
+directly; identical behavior does not require routing every read through one
+dispatcher. Authentication policy remains proposed in `future-implementations.md`.

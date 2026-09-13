@@ -13,9 +13,10 @@ Unexpected line found in update hunk: '*** Update File: .../server/adapters/disc
 Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)
 ```
 
-The Discord message may also contain raw ANSI terminal sequences such as
-`ESC[31m` or `ESC[0m`. Those sequences add color in a terminal but are not
-currently stripped when Codex stderr is forwarded to Discord.
+The historical Discord message included raw ANSI terminal sequences such as
+`ESC[31m` or `ESC[0m`. As reviewed on 2026-09-13, Codex stderr is logged to the
+host console by `CodexSession.onServerStderr`; it is not forwarded to Discord.
+Structured app-server errors follow the separate event-delivery path.
 
 ### Meaning
 

@@ -1,4 +1,4 @@
-import type { ActionFailure } from "./action_error.js";
+import { ApplicationActionError, type ActionFailure } from "./action_error.js";
 import type { SurfaceListeningMode } from "./surface_state_service.js";
 
 export type SurfaceActionsContext = {
@@ -24,15 +24,28 @@ export function executeSurfaceAction(context: SurfaceActionsContext, request: Su
     return { ok: false, error: { code: "thread_required" } };
   }
   let mode: SurfaceListeningMode;
-  switch (request.type) {
-    case "listening.set": mode = context.setSurfaceListeningMode(request.surfaceId, request.mode); break;
-    case "listening.pause": mode = context.pauseSurfaceListening(request.surfaceId); break;
-    case "listening.resume": mode = context.resumeSurfaceListening(request.surfaceId); break;
-    case "surface.detach":
-      context.clearSurfaceThread(request.surfaceId);
-      mode = context.getSurfaceListeningMode(request.surfaceId);
-      break;
-    case "listening.get": mode = context.getSurfaceListeningMode(request.surfaceId); break;
+  try {
+    switch (request.type) {
+      case "listening.set":
+        mode = context.setSurfaceListeningMode(request.surfaceId, request.mode);
+        break;
+      case "listening.pause":
+        mode = context.pauseSurfaceListening(request.surfaceId);
+        break;
+      case "listening.resume":
+        mode = context.resumeSurfaceListening(request.surfaceId);
+        break;
+      case "surface.detach":
+        context.clearSurfaceThread(request.surfaceId);
+        mode = context.getSurfaceListeningMode(request.surfaceId);
+        break;
+      case "listening.get":
+        mode = context.getSurfaceListeningMode(request.surfaceId);
+        break;
+    }
+  } catch (error) {
+    if (error instanceof ApplicationActionError) return { ok: false, error: error.failure };
+    throw error;
   }
   return { ok: true, threadId, mode };
 }

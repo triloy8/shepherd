@@ -566,3 +566,18 @@ test("effort actions require a binding and return full core state", async () => 
   expect(await executeControlAction(context, { type: "effort.set", surfaceId: "terminal", effort: "high" }))
     .toMatchObject({ ok: true, state: { currentEffort: "medium", pendingEffort: "high" } });
 });
+
+test("effort action preserves structured failures and propagates infrastructure errors", async () => {
+  const { ApplicationActionError } = await import("../server/core/action_error.js");
+  const { context } = makeContext();
+  context.conversation.getThreadEffort = async () => { throw new ApplicationActionError({ code: "model_unavailable" }); };
+  expect(await executeControlAction(context, { type: "effort.get", surfaceId: "terminal" }))
+    .toEqual({ type: "effort.get", ok: false, error: { code: "model_unavailable" } });
+  context.conversation.setThreadEffort = async () => {
+    throw new ApplicationActionError({ code: "unsupported_effort", model: "model", requested: "ultra", available: ["low"] });
+  };
+  expect(await executeControlAction(context, { type: "effort.set", surfaceId: "terminal", effort: "ultra" }))
+    .toMatchObject({ ok: false, error: { code: "unsupported_effort", available: ["low"] } });
+  context.conversation.getThreadEffort = async () => { throw new Error("connection closed"); };
+  await expect(executeControlAction(context, { type: "effort.get", surfaceId: "terminal" })).rejects.toThrow("connection closed");
+});

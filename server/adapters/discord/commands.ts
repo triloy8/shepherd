@@ -5,14 +5,12 @@ import { loadSkillsPage } from "../../core/skills_page_service.js";
 import { MessageFlags, type Message, type MessageEditOptions } from "discord.js";
 
 import { executeControlAction } from "../../core/control_actions_service.js";
-import type { ConversationService } from "../../core/conversation_service.js";
 import {
   deploymentTargetLabel,
   type DeploymentStatus,
   type DeploymentTarget,
 } from "../../core/deployment_service.js";
 import type {
-  RuntimeLifecycleOrchestrator,
   RuntimeLifecycleResult,
 } from "../../core/runtime_lifecycle_orchestrator.js";
 import type { RuntimeActivity } from "../../core/session_manager.js";
@@ -526,7 +524,10 @@ export async function handleMessage(
       return { handled: true, threadId: null, input: null };
     }
     const result = executeSurfaceAction(context, { type: "listening.resume", surfaceId: channelId });
-    if (!result.ok) throw new Error("Unexpected listening failure.");
+    if (!result.ok) {
+      await replyCard(message, "Thread required", formatActionFailure(result.error), "warning");
+      return { handled: true, threadId: null, input: null };
+    }
     const { mode } = result;
     await replyCard(
       message,
@@ -723,7 +724,7 @@ export async function handleMessage(
         : { type: "effort.get", surfaceId: channelId });
       if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
       if (!result.ok) {
-        await replyCard(message, "Thread required", formatActionFailure(result.error), "warning");
+        await replyCard(message, result.error.code === "thread_required" ? "Thread required" : "Effort unavailable", formatActionFailure(result.error), "warning");
         return { handled: true, threadId: null, input: null };
       }
       const { state } = result;

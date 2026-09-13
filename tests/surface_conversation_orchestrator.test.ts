@@ -192,3 +192,17 @@ describe("SurfaceConversationOrchestrator", () => {
     expect(calls.unsubscribeSurfaceEvents).toEqual([{ adapter: "discord", surfaceId: "chan-1" }]);
   });
 });
+
+
+test("missing project rejects create and fork before conversation side effects", async () => {
+  const { orchestrator, calls } = makeHarness();
+  await expect(orchestrator.createAndBindSurfaceThread("unconfigured", () => {})).rejects.toMatchObject({
+    failure: { code: "project_required" },
+  });
+  await expect(orchestrator.forkSurfaceThread("unconfigured", "source", () => {})).rejects.toMatchObject({
+    failure: { code: "project_required" },
+  });
+  expect(calls.createSurfaceThread).toEqual([]);
+  expect(calls.forkThread).toEqual([]);
+  expect(calls.provisionWorkspace).toEqual([]);
+});

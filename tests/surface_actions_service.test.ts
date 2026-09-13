@@ -34,6 +34,10 @@ for (const adapter of ["discord", "terminal"]) {
     expect(run("listening.pause")).toMatchObject({ mode: "paused" });
     expect(run("listening.resume")).toMatchObject({ mode: "open" });
     run("listening.pause");
+    bindings.delete(key(adapter, "same-id"));
+    expect(run("listening.resume")).toEqual({ ok: false, error: { code: "thread_required" } });
+    expect(context.getSurfaceListeningMode("same-id")).toBe("paused");
+    bindings.set(key(adapter, "same-id"), "thread-1");
     expect(run("surface.detach")).toEqual({ ok: true, threadId: "thread-1", mode: "mention" });
     expect(run("listening.resume")).toEqual({ ok: true, threadId: null, mode: "mention" });
     expect(context.getSurfaceProject("same-id")).toBe("~");

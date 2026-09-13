@@ -66,7 +66,8 @@ export class SurfaceConversationOrchestrator {
   }
 
   resumeSurfaceListening(surfaceId: string): SurfaceListeningMode {
-    return this.surfaceState.resumeListening(this.adapter, surfaceId);
+    const mode = this.surfaceState.getResumeListeningMode(this.adapter, surfaceId);
+    return this.setSurfaceListeningMode(surfaceId, mode);
   }
 
   async setSurfaceProject(surfaceId: string, rawValue: string): Promise<{ repoSlug: string }> {
@@ -134,6 +135,7 @@ export class SurfaceConversationOrchestrator {
     sourceThreadId: string,
     listener: (event: BridgeEvent) => void,
   ): Promise<string> {
+    this.getSurfaceProjectTarget(surfaceId);
     const forked = await this.conversation.forkThread(sourceThreadId, {
       ...(this.sandbox ? { sandbox: this.sandbox } : {}),
     });

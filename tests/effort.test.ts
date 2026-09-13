@@ -33,7 +33,7 @@ test("effort applies on the next new turn and subsequent turns inherit it", asyn
   await manager.submitTurn("thread-1", { input: [] });
   expect(starts[1]?.[4]).toBeUndefined();
   expect((await manager.setThreadEffort("thread-1", "default")).pendingEffort).toBe("low");
-  await expect(manager.setThreadEffort("thread-1", "ultra")).rejects.toThrow("Available: low, high");
+  await expect(manager.setThreadEffort("thread-1", "ultra")).rejects.toMatchObject({ failure: { code: "unsupported_effort", available: ["low", "high"] } });
 });
 
 test("failed turn starts retain pending effort, and new selections survive an in-flight start", async () => {
@@ -57,7 +57,7 @@ test("effort resolves the pending model across catalog pages", async () => {
     ? { data: [{ ...model, model: "other", supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "" }] }], nextCursor: null }
     : { data: [model], nextCursor: "next" };
   expect((await manager.setThreadEffort("thread-1", "medium")).model).toBe("other");
-  await expect(manager.setThreadEffort("thread-1", "high")).rejects.toThrow("Available: medium");
+  await expect(manager.setThreadEffort("thread-1", "high")).rejects.toMatchObject({ failure: { code: "unsupported_effort", available: ["medium"] } });
 });
 
 test("Codex turn/start forwards effort and resume exposes the effective effort", async () => {

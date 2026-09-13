@@ -1,3 +1,4 @@
+import { ApplicationActionError } from "./action_error.js";
 import type {
   ApprovalDecisionRequest,
   ApprovalRecord,
@@ -375,14 +376,14 @@ export class SessionManager {
       seen.add(result.nextCursor);
       cursor = result.nextCursor;
     } while (true);
-    throw new Error("The thread's model is not in the model catalog. Use !model set <id> first.");
+    throw new ApplicationActionError({ code: "model_unavailable" });
   }
 
   async setThreadEffort(threadId: string, requested: string): Promise<ThreadEffortState> {
     const state = await this.getThreadEffort(threadId);
     const effort = requested === "default" ? state.defaultEffort : requested;
     if (!effort || !state.supportedEfforts.some((option) => option.reasoningEffort === effort)) {
-      throw new Error(`Unsupported effort for ${state.model}: ${requested}. Available: ${state.supportedEfforts.map((option) => option.reasoningEffort).join(", ") || "none"}.`);
+      throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested, available: state.supportedEfforts.map((option) => option.reasoningEffort) });
     }
     this.effortStateByThread.set(threadId, { current: state.currentEffort, pending: effort });
     return { ...state, pendingEffort: effort };

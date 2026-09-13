@@ -42,14 +42,14 @@ Discord channel.
 - `server/adapters/discord`: Discord transport, parsing, rendering, delivery, and interactions
 - `server/adapters/webhook`: loopback HTTP signal ingress
 - `server/signals`: registered signal-kind definitions
-- `server/runtime`: shared process composition and lifecycle
+- `server/runtime`: shared surface assembly, signal composition, and process lifecycle
 - `server/config`: env loading
 - `envs`: local runtime config and example env files
 - `schemas`: generated protocol schemas
 
 The architectural split is intentional:
 
-- `server/core/*` owns reusable policy, action semantics, state, and orchestration
+- `server/core/*` owns reusable policy, normalized actions and failures, state, and orchestration
 - `server/adapters/discord/*` owns Discord-specific transport and presentation concerns
 
 > [!NOTE]

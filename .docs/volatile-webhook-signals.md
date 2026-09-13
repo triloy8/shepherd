@@ -89,6 +89,13 @@ Correctness-critical research behavior such as budgets, monitoring, evidence,
 recovery, publication, and resource cleanup remains owned by the research
 service. It must remain correct if Shepherd never receives a callback.
 
+## Runtime ownership
+
+Shared composition lives in `server/runtime/signal_runtime.ts`, which registers
+its cleanup with `ShepherdRuntime`. Discord supplies the research-notice hook
+and starts the listener after its client connects. The callback contract and
+loopback-only trust boundary are unchanged by this extraction.
+
 ## Dynamic tool contract
 
 The [official Codex app-server documentation](https://learn.chatgpt.com/docs/app-server)
@@ -562,7 +569,7 @@ signal definition.
 
 - Set `initialize.params.capabilities.experimentalApi` to `true`.
 - Add the documented `dynamicTools` namespace to `thread/start`.
-- Verify experimental generated schemas separately from the checked-in baseline.
+- Verify experimental generated schemas separately from the documented baseline; `schemas/` is generated locally and ignored by Git.
 - Cover the documented `item/tool/call` response contract with transport tests;
   app-server owns the surrounding item lifecycle notifications.
 - Treat failures as an experimental-protocol compatibility error rather than

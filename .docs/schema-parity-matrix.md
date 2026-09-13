@@ -10,6 +10,7 @@ Generated baseline:
 
 - Codex version: `codex-cli 0.153.4`
 - Last refreshed: `2026-09-07`
+- Implementation notes reviewed: `2026-09-13` (no schema regeneration)
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -168,7 +169,7 @@ Legacy note:
 | `turn/diff/updated` | Generic | Maybe Later |
 | `turn/plan/updated` | Generic | Maybe Later |
 | `hook/started` / `hook/completed` | Generic | Out of Scope (for now) |
-| `item/started` / `item/completed` | Internal phase tracking only; otherwise generic | Core |
+| `item/started` / `item/completed` | Tracks message phase and emits typed completed-message, generated-image, and tool-activity events; other items retain generic notifications | Core |
 | `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Generic | Maybe Later |
 | `autoApprovalReview/strictReviewRequired` | Generic | Maybe Later |
 | `rawResponseItem/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
@@ -220,4 +221,15 @@ Legacy note:
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, revert, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | Runtime and matrix both target `codex-cli 0.153.4`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.153.4`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+
+
+## Deployment version distinction
+
+The generated inventory above describes `codex-cli 0.153.4`. The checked-in
+Ubuntu setup script, Dockerfile, and Compose build defaults still install
+`0.149.0`; an operator may override the installation version. A schema inventory
+is not evidence that the deployed CLI matches it or supports every inventoried
+method. The core-boundary cleanup did not upgrade Codex or regenerate schemas.
+Aligning deployment defaults and verifying the full API against that version
+remains separate compatibility work.

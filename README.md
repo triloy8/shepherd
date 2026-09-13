@@ -109,7 +109,9 @@ bun run dev
 
 `bun run dev` typechecks the server and then launches the Discord adapter. Use `bun run start`
 to launch without the typecheck step, `bun run check` for typechecking only, and `bun test`
-for the test suite.
+for the test suite. `bunfig.toml` sets a 30-second per-test timeout to tolerate
+phone/chroot scheduling delays; assertions and the deployment command timeout
+remain enforced.
 
 ## Rooted Android Deployment
 

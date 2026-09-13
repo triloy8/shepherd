@@ -16,18 +16,9 @@ import {
 import type { SandboxMode } from "../../../shared/protocol/requests.js";
 import { loadEnvironment, readApprovalPolicy, readBoolean } from "../../config/environment.js";
 import { readSignalRuntimeConfig } from "../../config/signal_environment.js";
-import { ConversationSignalExecutor } from "../../core/conversation_signal_executor.js";
 import { DeploymentService } from "../../core/deployment_service.js";
-import { SignalDispatcher } from "../../core/signal_dispatcher.js";
-import { SignalRegistry } from "../../core/signal_registry.js";
-import { SignalRouteRegistry } from "../../core/signal_route_registry.js";
-import { SignalRouteService } from "../../core/signal_route_service.js";
 import { ShepherdRuntime } from "../../runtime/shepherd_runtime.js";
-import { createResearchStateChangedDefinition } from "../../signals/research_state_changed.js";
-import {
-  startWebhookSignalServer,
-  type WebhookSignalServer,
-} from "../webhook/server.js";
+import { SignalRuntime } from "../../runtime/signal_runtime.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { presentDiscordSignalNotice } from "./signal_notice.js";
@@ -120,7 +111,6 @@ export async function startDiscordBot(): Promise<void> {
     partials: [Partials.Channel],
   });
   let disposeThreadEvents = (): void => {};
-  let webhookServer: WebhookSignalServer | null = null;
 
   const threadEvents = createDiscordThreadEventHandler(client, {
     streaming: discordStreaming,
@@ -140,43 +130,18 @@ export async function startDiscordBot(): Promise<void> {
     runtimeLifecycle: shepherd.lifecycle,
   });
 
-  const signalRegistry = new SignalRegistry();
-  signalRegistry.register(createResearchStateChangedDefinition());
-  const signalRoutes = new SignalRouteRegistry({
-    onEvent: (event) => {
-      console.info(
-        `signal route ${event.type}: ${event.routePrefix} (${event.kind}@${event.version})`,
-      );
+  const signals = new SignalRuntime(shepherd, {
+    config: signalConfig,
+    beforeExecute: async (signal) => {
+      try {
+        await presentDiscordSignalNotice({ client, signal, recordReplyTarget });
+      } catch (error) {
+        console.error("Discord signal notice delivery failed:", error);
+      }
     },
   });
-  const signalRouteService = new SignalRouteService({
-    routes: signalRoutes,
-    signals: signalRegistry,
-    conversation,
-    getWebhookBaseUrl: () => webhookServer?.url ?? null,
-  });
-  const unregisterSignalTool = signalConfig.enabled
-    ? conversation.registerDynamicTool(signalRouteService.registration())
-    : (): void => {};
-  const signalDispatcher = new SignalDispatcher(
-    new ConversationSignalExecutor(conversation),
-    {
-      capacity: signalConfig.queueCapacity,
-      beforeExecute: async (signal) => {
-        try {
-          await presentDiscordSignalNotice({ client, signal, recordReplyTarget });
-        } catch (error) {
-          console.error("Discord signal notice delivery failed:", error);
-        }
-      },
-    },
-  );
 
   shepherd.registerShutdownHook(async () => {
-    unregisterSignalTool();
-    signalRoutes.dispose();
-    signalDispatcher.dispose();
-    await webhookServer?.stop();
     disposeThreadEvents();
     await client.destroy();
   });
@@ -222,18 +187,8 @@ export async function startDiscordBot(): Promise<void> {
 
   try {
     await client.login(token);
-    if (signalConfig.enabled) {
-      webhookServer = startWebhookSignalServer({
-        registry: signalRegistry,
-        routes: signalRoutes,
-        dispatcher: signalDispatcher,
-        hostname: signalConfig.hostname,
-        port: signalConfig.port,
-        maxBodyBytes: signalConfig.maxBodyBytes,
-        isAvailable: () => !shepherd.isQuiescing(),
-      });
-      console.log(`signal webhook ready at ${webhookServer.url}`);
-    }
+    signals.start();
+    if (signals.url) console.log(`signal webhook ready at ${signals.url}`);
   } catch (error) {
     try {
       await shepherd.shutdown();

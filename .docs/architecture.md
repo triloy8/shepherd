@@ -347,3 +347,15 @@ for direct callers. Detach removes the binding and subscription and resets
 listening state while retaining the project selection and Codex thread.
 Discord still maps mentions, direct messages, command syntax, and result data
 into its own interaction and presentation conventions.
+
+## Signal runtime composition
+
+`server/runtime/signal_runtime.ts` owns signal registration, callback routes,
+dynamic-tool registration, dispatching, and the webhook listener lifecycle. It
+registers cleanup with `ShepherdRuntime`; repeated start/stop calls do not create
+additional listeners or repeat cleanup. Listener startup remains explicit so
+an application can connect its delivery surfaces before accepting callbacks.
+The default registry contains the research signal; alternate compositions may
+supply their own registry. Surfaces supply a `beforeExecute` delivery hook.
+Discord uses that hook for its research notice and reply target, and retains
+its existing best-effort notice-delivery behavior.

@@ -327,3 +327,23 @@ orchestration throws `ApplicationActionError` when a prerequisite prevents a
 workflow from starting. Adapters render these codes and their data; Discord's
 `action_error.ts` owns command hints and Markdown. Unexpected infrastructure
 errors still propagate to the adapter's error boundary.
+
+## Surface action entry points
+
+`server/runtime/surface_runtime.ts` assembles an adapter-scoped
+`SurfaceApplicationContext` from the same state service, workspace provisioner,
+and conversation orchestrator for every surface. The Discord wrapper supplies
+only its adapter name. Callers supply workspace infrastructure and an event
+sink; no Discord types are involved in shared composition.
+
+- `executeControlAction` handles repo, model, effort, skills, and thread controls.
+- `executeSurfaceAction` handles listening reads/transitions and detach.
+- History and skills page services remain dedicated read APIs.
+- `RuntimeLifecycleOrchestrator` remains the process restart/deploy API.
+
+Opening a surface requires an attached thread. The application action rejects
+missing bindings before mutation, and the orchestrator enforces the same rule
+for direct callers. Detach removes the binding and subscription and resets
+listening state while retaining the project selection and Codex thread.
+Discord still maps mentions, direct messages, command syntax, and result data
+into its own interaction and presentation conventions.

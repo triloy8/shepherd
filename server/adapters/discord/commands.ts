@@ -1,3 +1,5 @@
+import type { SurfaceApplicationContext } from "../../core/surface_application_context.js";
+import { executeSurfaceAction } from "../../core/surface_actions_service.js";
 import { formatActionFailure } from "./action_error.js";
 import { loadSkillsPage } from "../../core/skills_page_service.js";
 import { MessageFlags, type Message, type MessageEditOptions } from "discord.js";
@@ -43,26 +45,7 @@ import { initialHistoryRequest, loadHistoryPage } from "./history_pagination.js"
 type HandleResult = { handled: boolean; threadId: string | null; input: UserInput[] | null };
 const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
 
-export type CommandContext = {
-  conversation: ConversationService;
-  getSurfaceThreadId: (surfaceId: string) => string | null;
-  getSurfaceProject: (surfaceId: string) => string | null;
-  getSurfaceListeningMode: (surfaceId: string) => SurfaceListeningMode;
-  setSurfaceListeningMode: (
-    surfaceId: string,
-    mode: Exclude<SurfaceListeningMode, "paused">,
-  ) => SurfaceListeningMode;
-  pauseSurfaceListening: (surfaceId: string) => SurfaceListeningMode;
-  resumeSurfaceListening: (surfaceId: string) => SurfaceListeningMode;
-  setSurfaceProject: (surfaceId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
-  inheritSurfaceProject?: (surfaceId: string, parentSurfaceId: string) => string | null;
-  ensureSurfaceThread: (surfaceId: string) => Promise<string>;
-  createSurfaceThread: (surfaceId: string) => Promise<string>;
-  switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;
-  forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
-  clearSurfaceThread: (surfaceId: string) => void;
-  runtimeLifecycle?: Pick<RuntimeLifecycleOrchestrator, "restart" | "deploy" | "deploymentStatus">;
-};
+export type CommandContext = SurfaceApplicationContext;
 
 function formatTimestamp(seconds: number | null): string {
   if (!seconds) return "unknown";
@@ -502,19 +485,15 @@ export async function handleMessage(
       );
       return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
     }
-    if (requestedMode === "open" && !context.getSurfaceThreadId(channelId)) {
-      await replyCard(
-        message,
-        "Thread required",
-        "Start or attach a thread before opening this channel. Use `!newthread` or `!thread <id>`.",
-        "warning",
-      );
+    const result = executeSurfaceAction(context, {
+      type: "listening.set", surfaceId: channelId,
+      mode: requestedMode === "open" ? "open" : "mention",
+    });
+    if (!result.ok) {
+      await replyCard(message, "Thread required", formatActionFailure(result.error), "warning");
       return { handled: true, threadId: null, input: null };
     }
-    const mode = context.setSurfaceListeningMode(
-      channelId,
-      requestedMode === "open" ? "open" : "mention",
-    );
+    const { mode } = result;
     await replyCard(
       message,
       "Listening updated",
@@ -531,7 +510,7 @@ export async function handleMessage(
       await replyMarkdown(message, "Usage: !pause");
       return { handled: true, threadId: null, input: null };
     }
-    context.pauseSurfaceListening(channelId);
+    executeSurfaceAction(context, { type: "listening.pause", surfaceId: channelId });
     await replyCard(
       message,
       "Listening paused",
@@ -546,7 +525,9 @@ export async function handleMessage(
       await replyMarkdown(message, "Usage: !resume");
       return { handled: true, threadId: null, input: null };
     }
-    const mode = context.resumeSurfaceListening(channelId);
+    const result = executeSurfaceAction(context, { type: "listening.resume", surfaceId: channelId });
+    if (!result.ok) throw new Error("Unexpected listening failure.");
+    const { mode } = result;
     await replyCard(
       message,
       "Listening resumed",
@@ -561,12 +542,12 @@ export async function handleMessage(
       await replyMarkdown(message, "Usage: !detach");
       return { handled: true, threadId: null, input: null };
     }
-    const threadId = context.getSurfaceThreadId(channelId);
-    if (!threadId) {
-      await replyCard(message, "Thread unavailable", "No thread is attached to this channel.", "warning");
+    const result = executeSurfaceAction(context, { type: "surface.detach", surfaceId: channelId });
+    if (!result.ok) {
+      await replyCard(message, "Thread unavailable", formatActionFailure(result.error), "warning");
       return { handled: true, threadId: null, input: null };
     }
-    context.clearSurfaceThread(channelId);
+    const { threadId } = result;
     await replyCard(
       message,
       "Channel detached",
@@ -732,18 +713,20 @@ export async function handleMessage(
 
   if (command === "!effort") {
     const threadId = context.getSurfaceThreadId(channelId);
-    if (!threadId) {
-      await replyCard(message, "Thread required", "No active thread in this channel. Use `!newthread` or `!thread <id>` first.", "warning");
-      return { handled: true, threadId: null, input: null };
-    }
     if (args.length && (args.length !== 2 || args[0]?.toLowerCase() !== "set")) {
       await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level|default>");
       return { handled: true, threadId, input: null };
     }
     try {
-      const state = args.length
-        ? await context.conversation.setThreadEffort(threadId, args[1]!.toLowerCase())
-        : await context.conversation.getThreadEffort(threadId);
+      const result = await executeControlAction(context, args.length
+        ? { type: "effort.set", surfaceId: channelId, effort: args[1]!.toLowerCase() }
+        : { type: "effort.get", surfaceId: channelId });
+      if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
+      if (!result.ok) {
+        await replyCard(message, "Thread required", formatActionFailure(result.error), "warning");
+        return { handled: true, threadId: null, input: null };
+      }
+      const { state } = result;
       const lines = [
         `- Model: ${state.model}`,
         `- Current: ${state.currentEffort ?? "unknown"}`,

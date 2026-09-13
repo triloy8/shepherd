@@ -55,6 +55,9 @@ export class SurfaceConversationOrchestrator {
     surfaceId: string,
     mode: Exclude<SurfaceListeningMode, "paused">,
   ): SurfaceListeningMode {
+    if (mode === "open" && !this.getSurfaceThread(surfaceId)) {
+      throw new ApplicationActionError({ code: "thread_required" });
+    }
     return this.surfaceState.setListeningMode(this.adapter, surfaceId, mode);
   }
 

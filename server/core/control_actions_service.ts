@@ -9,10 +9,13 @@ import type {
   SkillsConfigWriteResponse,
   SkillsListResponse,
   ThreadModelState,
+  ThreadEffortState,
 } from "../../shared/protocol/requests.js";
 import { resolveSkillPathFromList } from "./skill_resolution_service.js";
 
 type ControlConversation = {
+  getThreadEffort: (threadId: string) => Promise<ThreadEffortState>;
+  setThreadEffort: (threadId: string, effort: string) => Promise<ThreadEffortState>;
   listSkills: (threadId: string, request: Record<string, never>) => Promise<SkillsListResponse>;
   writeSkillConfig: (
     threadId: string,
@@ -44,6 +47,8 @@ export type ControlActionsContext = {
 };
 
 export type ControlActionRequest =
+  | { type: "effort.get"; surfaceId: string }
+  | { type: "effort.set"; surfaceId: string; effort: string }
   | { type: "repo.get"; surfaceId: string }
   | { type: "repo.set"; surfaceId: string; repoInput: string }
   | { type: "limits.read" }
@@ -64,6 +69,8 @@ export type ControlActionRequest =
   | { type: "turn.interrupt"; surfaceId: string };
 
 export type ControlActionResult =
+  | { type: "effort.get" | "effort.set"; ok: true; state: ThreadEffortState }
+  | { type: "effort.get" | "effort.set"; ok: false; error: ActionFailure }
   | { type: "repo.get"; currentRepo: string | null }
   | { type: "repo.set"; repoSlug: string; activeThreadId: string | null }
   | { type: "limits.read"; rateLimits: unknown }
@@ -107,6 +114,15 @@ export async function executeControlAction(
   context: ControlActionsContext,
   request: ControlActionRequest,
 ): Promise<ControlActionResult> {
+  if (request.type === "effort.get" || request.type === "effort.set") {
+    const threadId = context.getSurfaceThreadId(request.surfaceId);
+    if (!threadId) return { type: request.type, ok: false, error: { code: "thread_required" } };
+    const state = request.type === "effort.set"
+      ? await context.conversation.setThreadEffort(threadId, request.effort)
+      : await context.conversation.getThreadEffort(threadId);
+    return { type: request.type, ok: true, state };
+  }
+
   if (request.type === "repo.get") {
     return {
       type: "repo.get",

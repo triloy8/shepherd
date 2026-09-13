@@ -50,6 +50,12 @@ function makeContext(overrides?: {
 
   const context: ControlActionsContext = {
     conversation: {
+      async getThreadEffort(threadId) {
+        return { threadId, model: "model", currentEffort: "medium", pendingEffort: null, defaultEffort: "medium", supportedEfforts: [] };
+      },
+      async setThreadEffort(threadId, effort) {
+        return { threadId, model: "model", currentEffort: "medium", pendingEffort: effort, defaultEffort: "medium", supportedEfforts: [] };
+      },
       async listSkills() {
         if (overrides?.listSkills) return overrides.listSkills();
         return {
@@ -545,4 +551,18 @@ describe("surface-independent failures", () => {
     }
     expect(rolledBackThreads).toEqual([]);
   });
+});
+
+test("effort actions require a binding and return full core state", async () => {
+  const missing = makeContext({ activeThreadId: null }).context;
+  let called = false;
+  missing.conversation.setThreadEffort = async () => { called = true; throw new Error("must not call"); };
+  expect(await executeControlAction(missing, { type: "effort.set", surfaceId: "terminal", effort: "high" }))
+    .toEqual({ type: "effort.set", ok: false, error: { code: "thread_required" } });
+  expect(called).toBe(false);
+  const { context } = makeContext();
+  expect(await executeControlAction(context, { type: "effort.get", surfaceId: "terminal" }))
+    .toMatchObject({ ok: true, state: { currentEffort: "medium", pendingEffort: null } });
+  expect(await executeControlAction(context, { type: "effort.set", surfaceId: "terminal", effort: "high" }))
+    .toMatchObject({ ok: true, state: { currentEffort: "medium", pendingEffort: "high" } });
 });

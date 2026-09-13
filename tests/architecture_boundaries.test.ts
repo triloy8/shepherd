@@ -17,8 +17,10 @@ async function sourceFiles(directory: string): Promise<string[]> {
 test("core and protocol cannot depend on adapters; shared runtime cannot depend on Discord", async () => {
   const violations: string[] = [];
   for (const directory of ["server/core", "shared/protocol", "server/runtime"]) {
-    for (const file of await sourceFiles(path.join(root, directory))) {
-      const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
+    const files = await sourceFiles(path.join(root, directory));
+    const contents = await Promise.all(files.map((file) => readFile(file, "utf8")));
+    for (const [index, file] of files.entries()) {
+      const source = ts.createSourceFile(file, contents[index]!, ts.ScriptTarget.Latest, true);
       const visit = (node: ts.Node) => {
         if (directory === "server/core" && ts.isStringLiteralLike(node) && /(?:^|[\s`])![a-z]+(?:[\s`]|$)/.test(node.text)) {
           violations.push(`${path.relative(root, file)} contains surface command instructions`);

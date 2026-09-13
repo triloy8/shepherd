@@ -9,8 +9,8 @@ Status legend:
 Generated baseline:
 
 - Codex version: `codex-cli 0.153.4`
-- Last refreshed: `2026-09-07`
-- Implementation notes reviewed: `2026-09-13` (no schema regeneration)
+- Last refreshed: `2026-09-13`
+- Implementation notes reviewed: `2026-09-13`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -20,7 +20,11 @@ Generated baseline:
 
 Legacy note:
 
-- Rows marked as legacy reflect Shepherd wrappers that still exist in code but are no longer present in the current generated app-server schema and should be deprecated.
+- The legacy-named `execCommandApproval` and `applyPatchApproval` server requests
+  remain in the 0.153.4 generated schema and are supported directly. They are
+  not Shepherd compatibility shims. The three legacy client methods and two
+  legacy notification names listed below are inventory entries, not dedicated
+  wrappers or translations.
 
 ## Client Request Methods
 
@@ -224,12 +228,11 @@ Legacy note:
 | Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.153.4`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
 
 
-## Deployment version distinction
+## Deployment version
 
-The generated inventory above describes `codex-cli 0.153.4`. The checked-in
-Ubuntu setup script, Dockerfile, and Compose build defaults still install
-`0.149.0`; an operator may override the installation version. A schema inventory
-is not evidence that the deployed CLI matches it or supports every inventoried
-method. The core-boundary cleanup did not upgrade Codex or regenerate schemas.
-Aligning deployment defaults and verifying the full API against that version
-remains separate compatibility work.
+Ubuntu setup, Docker, and Compose default to `codex-cli 0.153.4`, matching this
+inventory. Both schema generation commands were rerun with an isolated copy of
+that exact CLI. Operators can override `CODEX_VERSION` during installation, but
+that selects a different protocol baseline. Updating the checkout alone does
+not upgrade an already-installed host CLI; rerun `deploy/ubuntu/setup.sh` as the
+deployment user. No global CLI is modified by schema verification.

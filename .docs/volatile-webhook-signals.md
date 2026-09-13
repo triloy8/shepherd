@@ -101,7 +101,7 @@ loopback-only trust boundary are unchanged by this extraction.
 The [official Codex app-server documentation](https://learn.chatgpt.com/docs/app-server)
 defines `dynamicTools` on `thread/start` and the corresponding
 `item/tool/call` request/response flow as experimental APIs. Shepherd's pinned
-`codex-cli 0.149.0` exposes the same fields when schemas are generated with the
+`codex-cli 0.153.4` exposes the same fields when schemas are generated with the
 experimental surface included.
 
 ### Advertisement

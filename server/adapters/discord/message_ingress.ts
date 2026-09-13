@@ -2,7 +2,7 @@ import type { Attachment, Message } from "discord.js";
 
 import type { ApprovalPolicy } from "../../../shared/protocol/requests.js";
 import { toTextUserInput, type UserInput } from "../../../shared/protocol/user_input.js";
-import type { ConversationService } from "../../core/conversation_service.js";
+import type { TurnRoutingConversation } from "../../core/turn_routing_service.js";
 import {
   classifySurfaceInput,
   type SurfaceInputClassification,
@@ -21,7 +21,7 @@ import { replyDiscordCard } from "./stream_delivery.js";
 
 export type DiscordMessageIngressDeps = {
   botUserId: string;
-  conversation: ConversationService;
+  conversation: TurnRoutingConversation;
   commandContext: CommandContext;
   approvalPolicy: ApprovalPolicy;
   classifyInput?: typeof classifySurfaceInput;

@@ -1,10 +1,10 @@
-import type { ConversationService } from "./conversation_service.js";
+import type { ApplicationConversation } from "./conversation_ports.js";
 import type { SurfaceListeningMode } from "./surface_state_service.js";
 import type { RuntimeLifecycleOrchestrator } from "./runtime_lifecycle_orchestrator.js";
 
 /** Adapter-scoped application ports, assembled by createSurfaceRuntime. */
 export type SurfaceApplicationContext = {
-  conversation: ConversationService;
+  conversation: ApplicationConversation;
   getSurfaceThreadId: (surfaceId: string) => string | null;
   getSurfaceProject: (surfaceId: string) => string | null;
   getSurfaceListeningMode: (surfaceId: string) => SurfaceListeningMode;

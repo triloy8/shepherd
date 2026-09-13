@@ -405,3 +405,17 @@ presentation from the configured mode. Recovery plans contain ordered project,
 thread, and open-listening actions; they do not persist state or execute it.
 Paused surfaces retain the existing recovery behavior (no automatic open), and
 an unbound surface is never instructed to enable open listening.
+
+## Adapter capability interfaces
+
+`conversation_ports.ts` defines application reads/controls and the narrower
+list/approval interaction interface. Shared surface composition exposes a
+bound capability object rather than the entire `ConversationService` instance;
+process shutdown, tool registration, raw surface binding, and turn submission
+are absent from that object. Message ingress receives only the turn-routing
+interface. Runtime composition retains the complete service for assembly.
+
+`bun run check` compiles `tests/adapter_ports.typecheck.ts` as well as the server.
+Its negative type assertions detect accidental widening of these boundaries.
+Runtime tests verify method binding and omission of process-level capabilities.
+These interfaces guide implementation; they are not a security sandbox.

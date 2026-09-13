@@ -1,3 +1,4 @@
+import { createApplicationConversation } from "../core/conversation_ports.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
 import type { SurfaceApplicationContext } from "../core/surface_application_context.js";
@@ -62,7 +63,7 @@ export function createSurfaceRuntime(
 
   return {
     commandContext: {
-      conversation: options.conversation,
+      conversation: createApplicationConversation(options.conversation),
       getSurfaceThreadId: (surfaceId) => options.conversation.getSurfaceThread(options.adapter, surfaceId),
       getSurfaceProject: (surfaceId) => orchestrator.getSurfaceProjectDisplay(surfaceId),
       getSurfaceListeningMode: (surfaceId) => orchestrator.getSurfaceListeningMode(surfaceId),

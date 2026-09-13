@@ -15,7 +15,7 @@ export type TurnRoutingExecutionInput = {
   approvalPolicy: ApprovalPolicy;
 };
 
-type TurnRoutingConversation = {
+export type TurnRoutingConversation = {
   getThreadState: (threadId: string) => GetThreadStateResponse;
   submitTurn: (
     threadId: string,

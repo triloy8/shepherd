@@ -1,7 +1,7 @@
 import { loadSkillsPage } from "../../core/skills_page_service.js";
 import { MessageFlags, type ButtonInteraction } from "discord.js";
 
-import type { ConversationService } from "../../core/conversation_service.js";
+import type { InteractionConversation } from "../../core/conversation_ports.js";
 import {
   buildCardPages,
   buildMarkdownPages,
@@ -29,7 +29,7 @@ async function replyEphemeralText(interaction: ButtonInteraction, text: string):
 
 export async function handleInteraction(
   interaction: ButtonInteraction,
-  conversation: ConversationService,
+  conversation: InteractionConversation,
   surfaceContext?: { getSurfaceThreadId: (surfaceId: string) => string | null },
 ): Promise<void> {
   if (interaction.customId.startsWith("history|")) {

@@ -2,7 +2,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.server.json",
-    "check": "bun run build",
+    "check": "bun run build && tsc -p tests/tsconfig.contracts.json",
     "test": "bun test",
     "start": "bun run start:discord",
     "start:discord": "bun run server/adapters/discord/bot.ts",

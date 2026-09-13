@@ -395,3 +395,13 @@ is parsed by `server/config/runtime_environment.ts`; invalid sandbox names and
 nonpositive deployment timeouts fail before startup. Each adapter loads its
 own environment files and parses only its transport settings. GitHub execution
 uses argument arrays and the configured host checkout directory.
+
+## Status and recovery data
+
+`surface_snapshot_service.ts` provides binding and status snapshots without
+Markdown or command syntax. Status retains current and pending model values,
+configured listening mode, and active-turn identity. Discord derives its DM
+presentation from the configured mode. Recovery plans contain ordered project,
+thread, and open-listening actions; they do not persist state or execute it.
+Paused surfaces retain the existing recovery behavior (no automatic open), and
+an unbound surface is never instructed to enable open listening.

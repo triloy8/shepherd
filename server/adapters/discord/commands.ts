@@ -1,3 +1,4 @@
+import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery } from "../../core/surface_snapshot_service.js";
 import type { SurfaceApplicationContext } from "../../core/surface_application_context.js";
 import { executeSurfaceAction } from "../../core/surface_actions_service.js";
 import { formatActionFailure } from "./action_error.js";
@@ -79,34 +80,30 @@ function formatListeningStatus(message: Message, context: CommandContext): strin
 }
 
 function formatSurfaceStatus(message: Message, context: CommandContext): string {
-  const channelId = message.channelId;
-  const threadId = context.getSurfaceThreadId(channelId);
-  const project = context.getSurfaceProject(channelId);
+  const status = readSurfaceStatus(context, message.channelId);
+  const effectiveMode = message.guildId === null && status.listeningMode !== "paused" ? "open" : status.listeningMode;
   const lines = [
-    `- Listening: ${displayListeningMode(effectiveListeningMode(message, context))}`,
-    `- Repository: ${project ?? "not selected"}`,
-    `- Thread: ${threadId ?? "not attached"}`,
+    `- Listening: ${displayListeningMode(effectiveMode)}`,
+    `- Repository: ${status.project ?? "not selected"}`,
+    `- Thread: ${status.threadId ?? "not attached"}`,
   ];
-
-  if (threadId) {
-    const thread = context.conversation.getThreadState(threadId);
-    const model = context.conversation.getThreadModel(threadId);
-    lines.push(`- Turn: ${thread.activeTurnId ? `running (${thread.activeTurnId})` : "idle"}`);
-    lines.push(`- Model: ${model.pendingModel ?? model.currentModel ?? "default"}`);
+  if (status.model) {
+    lines.push(`- Turn: ${status.activeTurnId ? `running (${status.activeTurnId})` : "idle"}`);
+    lines.push(`- Model: ${status.model.pendingModel ?? status.model.currentModel ?? "default"}`);
   }
 
   return lines.join("\n");
 }
 
 function formatRecoveryInstructions(context: CommandContext, channelId: string): string {
-  const project = context.getSurfaceProject(channelId);
-  const threadId = context.getSurfaceThreadId(channelId);
-  const listeningMode = context.getSurfaceListeningMode(channelId);
-  const commands = [
-    ...(project ? [`!repo ${project}`] : []),
-    ...(threadId ? [`!thread ${threadId}`] : []),
-    ...(listeningMode === "open" ? ["!listen open"] : []),
-  ];
+  const actions = planSurfaceRecovery(readSurfaceBinding(context, channelId));
+  const commands = actions.map((action) => {
+    switch (action.type) {
+      case "repo.set": return `!repo ${action.repoInput}`;
+      case "thread.switch": return `!thread ${action.threadId}`;
+      case "listening.set": return "!listen open";
+    }
+  });
 
   if (commands.length === 0) {
     return "No channel binding needs to be restored after reconnect.";

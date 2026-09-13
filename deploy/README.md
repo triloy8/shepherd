@@ -261,3 +261,7 @@ Termux:Boot section.
 
 `Dockerfile`, `compose.yaml`, and `.dockerignore` are retained for a future
 deployment on a compatible Linux kernel. They are not used on this phone.
+
+Docker Compose mounts the host's shared skills at `~/.agents/skills`; set
+`SHEPHERD_SKILLS_DIR` in the Compose interpolation environment to use another
+host path. It no longer expects vendored `.agents/skills` in the checkout.

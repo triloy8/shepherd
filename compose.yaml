@@ -21,7 +21,7 @@ services:
       - github-config:/home/bun/.config/gh
       - agent-workspaces:/home/bun/.agent-workspaces
       - type: bind
-        source: ./.agents/skills
+        source: ${SHEPHERD_SKILLS_DIR:-${HOME}/.agents/skills}
         target: /home/bun/.agents/skills
         read_only: true
 

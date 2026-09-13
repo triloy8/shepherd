@@ -92,7 +92,6 @@ export async function startDiscordBot(): Promise<void> {
   const deployment = new DeploymentService({
     ...(deploymentCommandTimeoutMs ? { commandTimeoutMs: deploymentCommandTimeoutMs } : {}),
   });
-  await deployment.removeLegacyState();
 
   const shepherd = new ShepherdRuntime({
     approvalPolicy,

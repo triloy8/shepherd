@@ -8,9 +8,9 @@ Status legend:
 
 Generated baseline:
 
-- Codex version: `codex-cli 0.153.4`
-- Last refreshed: `2026-09-13`
-- Implementation notes reviewed: `2026-09-13`
+- Codex version: `codex-cli 0.154.0`
+- Last refreshed: `2026-09-16`
+- Implementation notes reviewed: `2026-09-16`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -21,7 +21,7 @@ Generated baseline:
 Legacy note:
 
 - The legacy-named `execCommandApproval` and `applyPatchApproval` server requests
-  remain in the 0.153.4 generated schema and are supported directly. They are
+  remain in the 0.154.0 generated schema and are supported directly. They are
   not Shepherd compatibility shims. The three legacy client methods and two
   legacy notification names listed below are inventory entries, not dedicated
   wrappers or translations.
@@ -48,7 +48,7 @@ Legacy note:
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
 | `thread/rollback` | Implemented | Core | Existing turn-count rollback flow; the generated surface now also provides turn-ID-based `thread/revert` |
 | `thread/revert` | Missing | Core | Modern persisted-history replacement by `beforeTurnId`; does not revert local file changes |
-| `thread/list` | Implemented | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors |
+| `thread/list` | Partial | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors; missing the hosted-only `originators` filter |
 | `threadSection/list` | Missing | Maybe Later | Useful if Shepherd adds section-based thread organization UX |
 | `threadSection/create` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
 | `threadSection/update` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
@@ -119,7 +119,7 @@ Legacy note:
 | `externalAgentConfig/import/recordHistory` | Missing | Out of Scope (for now) | Records results for an externally completed agent-config import |
 | `externalAgentConfig/import/readHistories` | Missing | Out of Scope (for now) | External-agent migration history is outside Shepherd's current Discord/admin surface |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
-| `account/rateLimits/read` | Implemented | Core | Exposed via Discord `!limits` |
+| `account/rateLimits/read` | Partial | Core | Exposed via Discord `!limits`; does not send the new `supportsLunaReserve` or `excludeResetCreditDetails` capabilities, and does not expose the top-level `ordinaryUsageAllowed` flag or per-limit `normalModelSlug` |
 | `account/rateLimitResetCredit/consume` | Missing | Out of Scope (for now) | Account quota mutation path |
 | `account/usage/read` | Missing | Maybe Later | Useful for account diagnostics if Shepherd adds admin reporting; generated params now optionally scope usage to a `threadId` |
 | `account/workspaceMessages/read` | Missing | Maybe Later | Useful for account/workspace diagnostics |
@@ -221,18 +221,18 @@ Legacy note:
 | Area | Status | Notes |
 |---|---|---|
 | Thread lifecycle DTOs | Good | Includes current list filters, pagination cursors, and generated approval-policy values |
-| Rich thread object typing | Partial | `ReadThreadResponse`/`RollbackThreadResponse` use `ThreadRecord`; newly generated project assignment and agent-message delivery fields remain only structurally preserved through the open record shape |
+| Rich thread object typing | Partial | `ReadThreadResponse`/`RollbackThreadResponse` use `ThreadRecord`; generated `originator`, project assignment, agent-message delivery, and environment fields remain only structurally preserved through the open record shape |
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, revert, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.153.4`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped |
+| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.154.0`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. The refreshed schema also adds application network requirements, MCP tool-discovery errors, and a `configuration_update` raw response item, which remain structurally preserved or generic |
 
 
 ## Deployment version
 
-Ubuntu setup, Docker, and Compose default to `codex-cli 0.153.4`, matching this
-inventory. Both schema generation commands were rerun with an isolated copy of
-that exact CLI. Operators can override `CODEX_VERSION` during installation, but
+Ubuntu setup, Docker, and Compose default to `codex-cli 0.154.0`, matching this
+inventory. Both schema generation commands were rerun with that exact CLI.
+Operators can override `CODEX_VERSION` during installation, but
 that selects a different protocol baseline. Updating the checkout alone does
 not upgrade an already-installed host CLI; rerun `deploy/ubuntu/setup.sh` as the
 deployment user. No global CLI is modified by schema verification.

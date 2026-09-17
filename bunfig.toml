@@ -1,4 +1,0 @@
-[test]
-# Phone/chroot runs can pause long enough to exceed Bun's 5-second default.
-# Keep a finite bound without skipping assertions or retrying failed tests.
-timeout = 30000

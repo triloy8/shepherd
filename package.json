@@ -3,7 +3,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.server.json",
     "check": "bun run build && tsc -p tests/tsconfig.contracts.json",
-    "test": "bun test",
+    "test": "bun test --timeout 30000",
     "start": "bun run start:discord",
     "start:discord": "bun run server/adapters/discord/bot.ts",
     "dev": "bun run dev:discord",

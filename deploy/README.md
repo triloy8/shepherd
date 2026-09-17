@@ -127,7 +127,7 @@ installation does not restart a running daemon. The checksum is fetched over
 HTTPS from the same official release source.
 
 Open the login link using your personal Tailscale account. Sign in to that
-same tailnet in the viewing phone's Tailscale app. Login is explicit and bounded
+same tailnet in the client’s Tailscale app. Login is explicit and bounded
 to 60 seconds; if it times out, complete authorization and check status, or
 rerun login. Login sets hostname `shepherd-host`, disables DNS management and
 route acceptance. Boot does not run login or change saved network preferences.
@@ -159,7 +159,7 @@ this cannot recover from Android killing the entire host environment.
 ./deploy/ubuntu/tailscale.sh stop     # temporary; next host start enables it again
 ./deploy/ubuntu/tailscale.sh start
 ./deploy/ubuntu/tailscale.sh disable  # stop and opt out; preserve device identity
-./deploy/ubuntu/tailscale.sh cli ping iphone-14-pro
+./deploy/ubuntu/tailscale.sh cli ping 'CLIENT_HOSTNAME'  # replace with a hostname from status
 ```
 
 To re-enable, rerun `install`, then `start`; existing authentication is retained.
@@ -169,7 +169,7 @@ log rotation is not currently configured.
 
 ### Adopt the manually installed host
 
-The installation paths and state match the initial manual phone setup. Run
+For an existing manual installation using the paths above, run
 `install`, then `stop` and `start` once to replace the temporary tmux session
 with the repository supervisor. This briefly interrupts private networking but
 does not log out or restart Shepherd. A daemon started outside this tmux session

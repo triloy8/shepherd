@@ -12,7 +12,7 @@ and assumes:
 - Shepherd checkout: `/home/nio/shepherd`
 - Termux home: `/data/data/com.termux/files/home`
 
-Only two repository-owned runtime scripts are active; the existing
+The repository owns the Ubuntu service launchers; the existing
 `~/nio_starter.sh` remains the device-specific chroot launcher. A separate
 setup script handles one-time provisioning:
 
@@ -20,6 +20,7 @@ setup script handles one-time provisioning:
   `~/nio_starter.sh` during boot.
 - `deploy/ubuntu/start-shepherd.sh` manages Shepherd in tmux as `nio`.
 - `deploy/ubuntu/setup.sh` installs and refreshes Ubuntu dependencies.
+- `deploy/ubuntu/tailscale.sh` optionally installs and supervises private host networking.
 
 > [!CAUTION]
 > Chroot mounts can remain active after leaving Ubuntu. Never delete or move
@@ -102,6 +103,84 @@ bun run start
 ```
 
 Wait for `discord bridge ready`, verify the bot in Discord, then press `Ctrl-C`.
+
+## Optional private networking with Tailscale
+
+Install Tailscale during provisioning with:
+
+```bash
+./deploy/ubuntu/setup.sh --with-tailscale
+```
+
+On an already provisioned host, install only Tailscale without sudo:
+
+```bash
+./deploy/ubuntu/tailscale.sh install
+./deploy/ubuntu/tailscale.sh login
+```
+
+The installer downloads the official Tailscale `1.102.4` static archive for
+ARM64 or AMD64, verifies its published SHA-256 checksum, and enables startup
+only after successful installation. Downloads happen only during explicit
+installation, never at boot. Existing version directories are reused; an
+installation does not restart a running daemon. The checksum is fetched over
+HTTPS from the same official release source.
+
+Open the login link using your personal Tailscale account. Sign in to that
+same tailnet in the viewing phone's Tailscale app. Login is explicit and bounded
+to 60 seconds; if it times out, complete authorization and check status, or
+rerun login. Login sets hostname `shepherd-host`, disables DNS management and
+route acceptance. Boot does not run login or change saved network preferences.
+
+The daemon runs as the Ubuntu user in userspace networking mode, without root,
+TUN configuration, or system routing changes. This mode provides the basis for
+future Tailscale Serve previews; it does not make arbitrary host applications
+or outbound connections automatically use Tailscale. This installation exposes
+no website and configures neither Serve nor Funnel.
+
+State and device identity live in `~/.local/state/tailscale` (mode 700), outside
+the checkout. Binaries live in `~/.local/lib/tailscale`. Preserve the state
+folder across updates and rollbacks; never commit it. Its `enabled` marker opts
+this host into automatic startup. Setup without `--with-tailscale` preserves
+that choice.
+
+The existing Termux → chroot → Ubuntu startup chain starts an independent
+`shepherd-tailscale` tmux supervisor before starting Shepherd. It retries daemon
+exits every five seconds. An unauthenticated or disconnected daemon remains
+running for recovery. Missing Tailscale binaries produce a warning but do not
+prevent Shepherd startup. Repeated startup is safe; stopping or redeploying
+Shepherd leaves Tailscale running. A lock prevents duplicate supervisors.
+Android must still allow Termux:Boot and the chroot to run in the background;
+this cannot recover from Android killing the entire host environment.
+
+```bash
+./deploy/ubuntu/tailscale.sh status
+./deploy/ubuntu/tailscale.sh logs
+./deploy/ubuntu/tailscale.sh stop     # temporary; next host start enables it again
+./deploy/ubuntu/tailscale.sh start
+./deploy/ubuntu/tailscale.sh disable  # stop and opt out; preserve device identity
+./deploy/ubuntu/tailscale.sh cli ping iphone-14-pro
+```
+
+To re-enable, rerun `install`, then `start`; existing authentication is retained.
+To inspect detailed health, use `cli status --json`. A running tmux session is
+not proof of tailnet connectivity. Logs are in `~/.local/state/tailscale/daemon.log`;
+log rotation is not currently configured.
+
+### Adopt the manually installed host
+
+The installation paths and state match the initial manual phone setup. Run
+`install`, then `stop` and `start` once to replace the temporary tmux session
+with the repository supervisor. This briefly interrupts private networking but
+does not log out or restart Shepherd. A daemon started outside this tmux session
+is left alone; stop it using its original launcher before handing supervision
+to this script. Do not run two daemons against the same state directory.
+
+After merging, run these commands from the updated host checkout. Normal
+`!deploy` does not install host binaries or restart this independent service.
+No change to the Android-side launcher is needed when it already invokes
+`deploy/ubuntu/start-shepherd.sh start`. Verify a real reboot from Termux before
+relying on unattended startup.
 
 ## 3. Start Shepherd inside Ubuntu
 

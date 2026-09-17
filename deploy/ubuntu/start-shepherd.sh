@@ -36,6 +36,10 @@ case "${ACTION}" in
     run_shepherd
     ;;
   start)
+    # Networking is optional and has an independent lifetime from the bot.
+    if ! "${SCRIPT_DIR}/tailscale.sh" start; then
+      echo "Tailscale startup failed; continuing Shepherd startup. Run ${SCRIPT_DIR}/tailscale.sh logs" >&2
+    fi
     for command_name in tmux bun codex gh; do
       if ! command -v "${command_name}" >/dev/null 2>&1; then
         echo "missing required command: ${command_name}" >&2

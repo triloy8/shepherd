@@ -5,6 +5,13 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SHEPHERD_PROJECT_DIR:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
 CODEX_VERSION="${CODEX_VERSION:-0.154.0}"
 
+WITH_TAILSCALE=false
+case "${1:-}" in
+  --with-tailscale) WITH_TAILSCALE=true ;;
+  "") ;;
+  *) echo "usage: $0 [--with-tailscale]" >&2; exit 2 ;;
+esac
+
 if [[ "${EUID}" -eq 0 ]]; then
   echo "run this setup as the Ubuntu user nio, not root" >&2
   exit 1
@@ -16,7 +23,7 @@ if ! command -v sudo >/dev/null 2>&1; then
 fi
 
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl git gh tmux unzip
+sudo apt-get install -y ca-certificates curl git gh tmux unzip util-linux
 
 if ! command -v bun >/dev/null 2>&1; then
   curl -fsSL https://bun.sh/install | bash
@@ -44,5 +51,9 @@ fi
 chmod 600 envs/common.env envs/discord.env
 
 echo
+if [[ "${WITH_TAILSCALE}" = true ]]; then
+  "${SCRIPT_DIR}/tailscale.sh" install
+fi
+
 echo "Ubuntu provisioning complete."
 echo "Next: configure envs/*.env, then run 'codex login' and 'gh auth login'."

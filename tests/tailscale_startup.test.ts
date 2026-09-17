@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+// Explicit bounds also support deployment from an older runner using bare bun test.
 const script = resolve("deploy/ubuntu/tailscale.sh");
 function fixture() {
   const home = mkdtempSync(join(tmpdir(), "shepherd-tailscale-"));
@@ -29,7 +30,7 @@ test("optional startup does nothing until enabled", () => {
     expect(f.run("start").exitCode).toBe(0);
     expect(existsSync(join(f.home, "tmux.calls"))).toBe(false);
   } finally { f.cleanup(); }
-});
+}, 30_000);
 test("enabled startup creates independent supervisor without changing network preferences", () => {
   const f = fixture(); try {
     writeFileSync(join(f.state, "enabled"), "");
@@ -37,7 +38,7 @@ test("enabled startup creates independent supervisor without changing network pr
     expect(readFileSync(join(f.home, "tmux.calls"), "utf8")).toContain("new-session -d -s shepherd-tailscale");
     expect(existsSync(join(f.home, "cli.calls"))).toBe(false);
   } finally { f.cleanup(); }
-});
+}, 30_000);
 test("repeated startup leaves existing session alone", () => {
   const f = fixture(); try {
     writeFileSync(join(f.state, "enabled"), "");
@@ -45,7 +46,7 @@ test("repeated startup leaves existing session alone", () => {
     expect(f.run("start").exitCode).toBe(0);
     expect(readFileSync(join(f.home, "tmux.calls"), "utf8")).not.toContain("new-session");
   } finally { f.cleanup(); }
-});
+}, 30_000);
 test("disable preserves identity and removes startup opt-in", () => {
   const f = fixture(); try {
     writeFileSync(join(f.state, "enabled"), "");
@@ -54,7 +55,7 @@ test("disable preserves identity and removes startup opt-in", () => {
     expect(existsSync(join(f.state, "enabled"))).toBe(false);
     expect(readFileSync(join(f.state, "tailscaled.state"), "utf8")).toBe("saved identity");
   } finally { f.cleanup(); }
-});
+}, 30_000);
 test("checksum failure cannot enable installation or overwrite existing identity", () => {
   const f = fixture(); try {
     f.executable(join(f.bin, "curl"), 'if [[ "$*" == *sha256 ]]; then printf "%064d" 0; else while [[ "$1" != -o ]]; do shift; done; echo corrupt > "$2"; fi');
@@ -63,7 +64,7 @@ test("checksum failure cannot enable installation or overwrite existing identity
     expect(existsSync(join(f.state, "enabled"))).toBe(false);
     expect(readFileSync(join(f.state, "tailscaled.state"), "utf8")).toBe("saved identity");
   } finally { f.cleanup(); }
-});
+}, 30_000);
 test("explicit login uses the private socket and disables DNS and route acceptance", () => {
   const f = fixture(); try {
     writeFileSync(join(f.state, "enabled"), "");
@@ -71,7 +72,7 @@ test("explicit login uses the private socket and disables DNS and route acceptan
     const calls = readFileSync(join(f.home, "cli.calls"), "utf8");
     expect(calls).toContain(`--socket=${f.state}/tailscaled.sock up --hostname=shepherd-host --accept-dns=false --accept-routes=false --timeout=60s`);
   } finally { f.cleanup(); }
-});
+}, 30_000);
 test("supervisor restarts a failed daemon and exits when disabled", () => {
   const f = fixture(); try {
     writeFileSync(join(f.state, "enabled"), "");
@@ -84,7 +85,7 @@ test("supervisor restarts a failed daemon and exits when disabled", () => {
     expect(calls[0]).toContain("--tun=userspace-networking");
     expect(calls[0]).toContain(`--statedir=${f.state}`);
   } finally { f.cleanup(); }
-});
+}, 30_000);
 test("supervisor does not replace a reachable daemon even before login", () => {
   const f = fixture(); try {
     writeFileSync(join(f.state, "enabled"), "");
@@ -93,4 +94,4 @@ test("supervisor does not replace a reachable daemon even before login", () => {
     expect(f.run("run").exitCode).toBe(0);
     expect(existsSync(join(f.home, "unexpected-daemon"))).toBe(false);
   } finally { f.cleanup(); }
-});
+}, 30_000);

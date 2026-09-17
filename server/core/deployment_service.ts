@@ -174,7 +174,7 @@ export class DeploymentService {
     try {
       await this.run("bun", ["install", "--frozen-lockfile"]);
       await this.run("bun", ["run", "check"]);
-      await this.run("bun", ["test"]);
+      await this.run("bun", ["test", "--timeout", "30000"]);
     } catch (error) {
       if (!changed) {
         throw new Error(`Deployment validation failed; the current commit was not changed.\n${formatCommandError(error)}`);

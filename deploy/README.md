@@ -315,8 +315,13 @@ preview testing. Run `!deploy status` to inspect the current commit and matching
 locally fetched remote refs, and run bare `!deploy` after preview testing to
 return to stable main. Shepherd stores no separate deployment state. On success,
 it exits and the tmux supervisor starts the updated checkout. On validation
-failure, it restores the previous commit and stays online. Each deployment
-subprocess has a 30-minute timeout by default. Set
+failure, it restores the previous commit and stays online. Deployment validation and `bun run test` pass `--timeout 30000` explicitly,
+keeping a finite 30-second default per test. Bun 1.3.14 does not apply the
+`test.timeout` TOML setting. The Tailscale subprocess tests also specify their
+timeout directly so deployment from an older runner using bare `bun test` can
+validate this update. No tests are skipped or automatically retried.
+
+Each deployment subprocess has a 30-minute timeout by default. Set
 `SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS` in `envs/common.env` to a positive number
 of milliseconds if this deployment needs a different limit.
 

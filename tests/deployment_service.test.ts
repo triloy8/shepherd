@@ -78,7 +78,7 @@ describe("DeploymentService", () => {
       "git checkout --quiet --detach 2222222222222222222222222222222222222222",
       "bun install --frozen-lockfile",
       "bun run check",
-      "bun test",
+      "bun test --timeout 30000",
     ]);
     expect(new Set(runner.timeoutValues)).toEqual(
       new Set([DEFAULT_DEPLOYMENT_COMMAND_TIMEOUT_MS]),
@@ -112,7 +112,7 @@ describe("DeploymentService", () => {
     expect(runner.calls.slice(-3)).toEqual([
       "bun install --frozen-lockfile",
       "bun run check",
-      "bun test",
+      "bun test --timeout 30000",
     ]);
   });
 

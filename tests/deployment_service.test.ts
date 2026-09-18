@@ -78,6 +78,7 @@ describe("DeploymentService", () => {
       "git checkout --quiet --detach 2222222222222222222222222222222222222222",
       "bun install --frozen-lockfile",
       "bun run check",
+      "bun run check:config",
       "bun test --timeout 30000",
     ]);
     expect(new Set(runner.timeoutValues)).toEqual(
@@ -109,9 +110,10 @@ describe("DeploymentService", () => {
       target: { kind: "main" },
     });
     expect(runner.calls).not.toContain(`git checkout --quiet --detach ${commit}`);
-    expect(runner.calls.slice(-3)).toEqual([
+    expect(runner.calls.slice(-4)).toEqual([
       "bun install --frozen-lockfile",
       "bun run check",
+      "bun run check:config",
       "bun test --timeout 30000",
     ]);
   });
@@ -219,4 +221,12 @@ test("deployment diagnostics prioritize failures and retain both streams without
   expect(message.indexOf("(fail) failing test")).toBeLessThan(message.indexOf("(pass) fine"));
   expect(message.match(/\(pass\) fine/g)).toHaveLength(1);
   expect(runner.getCheckout()).toBe("1111111111111111111111111111111111111111");
+});
+
+test("invalid selected surface configuration rolls back before tests or restart", async () => {
+  const runner = makeRunner({ failCommand: "bun run check:config" });
+  const service = new DeploymentService({ runCommand: runner.runCommand });
+  await expect(service.deploy()).rejects.toThrow("restored 1111111111111111111111111111111111111111");
+  expect(runner.getCheckout()).toBe("1111111111111111111111111111111111111111");
+  expect(runner.calls).not.toContain("bun test --timeout 30000");
 });

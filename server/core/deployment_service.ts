@@ -174,6 +174,7 @@ export class DeploymentService {
     try {
       await this.run("bun", ["install", "--frozen-lockfile"]);
       await this.run("bun", ["run", "check"]);
+      await this.run("bun", ["run", "check:config"]);
       await this.run("bun", ["test", "--timeout", "30000"]);
     } catch (error) {
       if (!changed) {

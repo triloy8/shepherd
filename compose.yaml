@@ -1,6 +1,6 @@
 services:
   shepherd:
-    image: shepherd-discord:local
+    image: shepherd:local
     build:
       context: .
       args:
@@ -9,14 +9,12 @@ services:
     init: true
     restart: unless-stopped
     stop_grace_period: 30s
-    env_file:
-      - envs/common.env
-      - envs/discord.env
     environment:
       HOME: /home/bun
       CODEX_HOME: /home/bun/.agents
       SHEPHERD_SKILLS_DIR: /home/bun/.agents/skills
     volumes:
+      - ./envs:/app/envs:ro
       - codex-home:/home/bun/.agents
       - github-config:/home/bun/.config/gh
       - agent-workspaces:/home/bun/.agent-workspaces

@@ -4,11 +4,10 @@
     "build": "tsc -p tsconfig.server.json",
     "check": "bun run build && tsc -p tests/tsconfig.contracts.json",
     "test": "bun test --timeout 30000",
-    "start": "bun run start:discord",
-    "start:discord": "bun run server/adapters/discord/bot.ts",
-    "dev": "bun run dev:discord",
-    "dev:discord": "bun run build && bun run start:discord",
-    "build:bin": "bun build --compile server/adapters/discord/bot.ts --outfile release/shepherd-discord"
+    "start": "bun run server/main.ts",
+    "dev": "bun run build && bun run start",
+    "build:bin": "bun build --compile server/main.ts --outfile release/shepherd",
+    "check:config": "bun run server/main.ts --check-config"
   },
   "dependencies": {
     "discord.js": "^14.22.1"

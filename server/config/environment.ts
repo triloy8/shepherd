@@ -37,10 +37,23 @@ function loadEnvFile(filePath: string): void {
   }
 }
 
-export function loadEnvironment(scope: "discord" | "all"): void {
-  const envDir = path.resolve(process.cwd(), "envs");
-  loadEnvFile(path.join(envDir, "common.env"));
-  loadEnvFile(path.join(envDir, `${scope}.env`));
+export function loadCommonEnvironment(): void {
+  loadEnvFile(path.resolve(process.cwd(), "envs/common.env"));
+}
+
+/** Isolated scope: one adapter's file must not supply another's credentials. */
+export function readSurfaceEnvironment(
+  scope: string,
+  environment: Record<string, string | undefined> = process.env,
+  projectDir = process.cwd(),
+): Record<string, string | undefined> {
+  if (!/^[a-z][a-z0-9-]*$/.test(scope)) throw new Error("Invalid surface environment scope.");
+  const file = path.resolve(projectDir, "envs", `${scope}.env`);
+  const values = fs.existsSync(file) ? parseEnvFile(fs.readFileSync(file, "utf8")) : {};
+  for (const [key, value] of Object.entries(environment)) {
+    if (value !== undefined) values[key] = value;
+  }
+  return values;
 }
 
 export function readApprovalPolicy(value: string | undefined): ApprovalPolicy {

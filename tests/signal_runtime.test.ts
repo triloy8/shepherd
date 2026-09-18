@@ -18,11 +18,16 @@ function harness() {
   runtime.conversation.registerDynamicTool = (tool) => { tools.push(tool); return () => { unregisters++; }; };
   return { runtime, tools, unregisters: () => unregisters };
 }
+function makeSignals(h: ReturnType<typeof harness>, options: ConstructorParameters<typeof SignalRuntime>[1]) {
+  const signals = new SignalRuntime(h.runtime, options);
+  h.runtime.registerShutdownHook(() => signals.stop());
+  return signals;
+}
 const config = { enabled: true, hostname: "127.0.0.1", port: 0, maxBodyBytes: 65536, queueCapacity: 10 };
 
 test("disabled signal composition registers no tool or listener", async () => {
   const h = harness();
-  const signals = new SignalRuntime(h.runtime, {
+  const signals = makeSignals(h, {
     config: { ...config, enabled: false },
     startServer() { throw new Error("must not listen"); },
   });
@@ -38,7 +43,7 @@ test("shared signal listener starts once and follows process quiescing and shutd
   let starts = 0;
   let stops = 0;
   let options!: WebhookSignalServerOptions;
-  const signals = new SignalRuntime(h.runtime, {
+  const signals = makeSignals(h, {
     config,
     startServer(value) {
       starts++;
@@ -64,7 +69,7 @@ test("shared signal listener starts once and follows process quiescing and shutd
 test("failed listener startup remains cleanable without skipping other adapters", async () => {
   const h = harness();
   let adapterStopped = false;
-  const signals = new SignalRuntime(h.runtime, {
+  const signals = makeSignals(h, {
     config,
     startServer() { throw new Error("address in use"); },
   });
@@ -77,7 +82,7 @@ test("failed listener startup remains cleanable without skipping other adapters"
 
 test("shared composition serves loopback health without starting Discord", async () => {
   const h = harness();
-  const signals = new SignalRuntime(h.runtime, { config });
+  const signals = makeSignals(h, { config });
   try {
     signals.start();
     const response = await fetch(`${signals.url}/health`);

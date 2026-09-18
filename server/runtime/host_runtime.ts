@@ -28,7 +28,7 @@ export function createGithubWorkspacePorts(cwd: string, run: GithubCommandRunner
   };
 }
 
-/** Shared host defaults; callers load their surface's environment files first. */
+/** Shared host defaults; the launcher loads common configuration first. */
 export function createHostRuntime(options: { config?: RuntimeConfig; projectDir?: string; runGithub?: GithubCommandRunner } = {}) {
   const config = options.config ?? readRuntimeConfig();
   const projectDir = options.projectDir ?? process.cwd();

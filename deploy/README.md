@@ -68,7 +68,10 @@ identifies `@openai/codex` as the official package.
 
 ## 2. Configure Shepherd inside Ubuntu
 
-Set `DISCORD_BOT_TOKEN` in `envs/discord.env`. For the initial deployment,
+Select surfaces with `SHEPHERD_SURFACES=discord` in `envs/common.env`.
+An unset selection also defaults to Discord; an empty value is an error.
+Only Discord is implemented today. Set its `DISCORD_BOT_TOKEN` in
+`envs/discord.env` or the process environment. For the initial deployment,
 keep these settings in `envs/common.env`:
 
 ```env
@@ -98,7 +101,8 @@ Verify Shepherd:
 
 ```bash
 bun run check
-bun test
+bun run check:config
+bun run test
 bun run start
 ```
 
@@ -188,6 +192,11 @@ relying on unattended startup.
 cd /home/nio/shepherd
 ./deploy/ubuntu/start-shepherd.sh start
 ```
+
+The launcher validates selected adapter configuration before creating a session.
+It no longer requires a Discord env file when credentials come from the process
+environment. Shared runtime values belong in common.env, and each adapter reads
+only its own configuration.
 
 The script creates a detached tmux session named `shepherd`, restarts the bot
 five seconds after an unexpected exit, and logs to `logs/shepherd.log`.
@@ -308,6 +317,10 @@ develop in an isolated workspace
 → copy the posted !repo and !thread recovery commands
 ```
 
+Deployment validation includes `bun run check:config`, which opens no clients
+or listeners and checks only enabled surfaces. The next restart reuses the
+saved selection; no surface menu appears at boot.
+
 Bare `!deploy` fetches and validates the latest `origin/main` while the current
 bot remains online. `!deploy branch <branch-name>` applies the same clean-checkout,
 validation, rollback, and restart flow to an exact remote branch commit for
@@ -349,3 +362,11 @@ deployment on a compatible Linux kernel. They are not used on this phone.
 Docker Compose mounts the host's shared skills at `~/.agents/skills`; set
 `SHEPHERD_SKILLS_DIR` in the Compose interpolation environment to use another
 host path. It no longer expects vendored `.agents/skills` in the checkout.
+
+Compose mounts `./envs` read-only at `/app/envs` so the common launcher chooses
+which adapter files to read. It does not inject Discord configuration into the
+shared environment. The image name is `shepherd:local`; source and compiled
+launchers both use `server/main.ts` (binary output: `release/shepherd`). The old
+`start:discord`, `dev:discord`, and `release/shepherd-discord` entrypoints are
+retired. Standard host installs already use `bun run start` and need no launcher
+change. Custom launch commands must migrate to the common entrypoint.

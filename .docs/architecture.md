@@ -297,11 +297,10 @@ So the simplest mental model is:
 What remains in `server/adapters/discord/bot.ts` is mostly legitimate adapter work:
 
 - Discord client construction
-- environment/bootstrap
+- Discord configuration validation
 - supported-channel filtering
 - event listener registration
-- runtime composition
-- shutdown wiring
+- adapter health and resource cleanup
 
 ## Practical Outcome
 
@@ -322,7 +321,7 @@ The adapter still owns:
 - Discord SDK interaction
 - Discord-specific parsing/rendering
 - Discord delivery mechanics
-- Discord runtime composition
+- Discord adapter lifecycle
 
 That is the intended end state from the historical
 [adapter-to-core refactor map](archive/adapter-to-core-refactor-map.md).
@@ -341,8 +340,8 @@ errors still propagate to the adapter's error boundary.
 
 `server/runtime/surface_runtime.ts` assembles an adapter-scoped
 `SurfaceApplicationContext` from the same state service, workspace provisioner,
-and conversation orchestrator for every surface. The Discord wrapper supplies
-only its adapter name. Callers supply workspace infrastructure and an event
+and conversation orchestrator for every surface. The shared host supplies
+the selected adapter name. Callers supply workspace infrastructure and an event
 sink; no Discord types are involved in shared composition.
 
 - `executeControlAction` handles repo, model, effort, skills, and thread controls.
@@ -362,7 +361,7 @@ into its own interaction and presentation conventions.
 
 `server/runtime/signal_runtime.ts` owns signal registration, callback routes,
 dynamic-tool registration, dispatching, and the webhook listener lifecycle. It
-registers cleanup with `ShepherdRuntime`; repeated start/stop calls do not create
+is registered for cleanup by the host; repeated start/stop calls do not create
 additional listeners or repeat cleanup. Listener startup remains explicit so
 an application can connect its delivery surfaces before accepting callbacks.
 The default registry contains the research signal; alternate compositions may
@@ -392,8 +391,8 @@ dispatcher. Authentication policy remains proposed in `future-implementations.md
 `createHostRuntime` in `server/runtime/host_runtime.ts` assembles the process
 runtime, deployment service, and GitHub workspace ports. Shared runtime config
 is parsed by `server/config/runtime_environment.ts`; invalid sandbox names and
-nonpositive deployment timeouts fail before startup. Each adapter loads its
-own environment files and parses only its transport settings. GitHub execution
+nonpositive deployment timeouts fail before startup. The launcher loads isolated
+configuration for each selected adapter, which parses only its transport settings. GitHub execution
 uses argument arrays and the configured host checkout directory.
 
 ## Status and recovery data
@@ -419,3 +418,21 @@ interface. Runtime composition retains the complete service for assembly.
 Its negative type assertions detect accidental widening of these boundaries.
 Runtime tests verify method binding and omission of process-level capabilities.
 These interfaces guide implementation; they are not a security sandbox.
+
+
+## Selected surface startup
+
+`server/main.ts` is the sole process entrypoint. It loads shared configuration,
+prepares selected surface definitions, and creates one `surface_host.ts` host.
+That host owns one Shepherd runtime and signal runtime, adapter-scoped application
+contexts, health reporting, and orderly cleanup. Adapters receive bound ingress,
+interaction and application capabilities rather than the raw runtime. Process
+signals live in `process_lifecycle.ts`; adapters never install exit handlers.
+
+The root registry in `server/surface_definitions.ts` imports only selected
+transports. Shared runtime selection validates those definitions without importing
+Discord itself. Signal
+presentation is dispatched to its target adapter; a delivery error does not
+cancel signal execution. Exclusive thread binding remains enabled, so multiple
+adapters running does not imply simultaneous attachment to the same thread.
+See [surface launch](surface-launch.md) for the operational contract.

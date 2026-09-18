@@ -101,17 +101,28 @@ rejects a V2 payload. Generated-image delivery requires `Attach Files`.
    [shared skills installation guide](.docs/shared-skills-location.md). Existing
    installations should follow its migration steps before removing vendored skills.
 
-6. Start the Discord adapter:
+6. Start the selected surfaces:
 
 ```bash
 bun run dev
 ```
 
-`bun run dev` typechecks the server and then launches the Discord adapter. Use `bun run start`
-to launch without the typecheck step, `bun run check` for typechecking only, and `bun test`
-for the test suite. `bunfig.toml` sets a 30-second per-test timeout to tolerate
-phone/chroot scheduling delays; assertions and the deployment command timeout
-remain enforced.
+`bun run dev` typechecks the server and then launches the common Shepherd host.
+Use `bun run start` to launch without typechecking, `bun run check` for typechecking,
+`bun run check:config` to validate selected surfaces without connecting, and
+`bun run test` for the test suite with its explicit 30-second per-test timeout.
+`bun run build:bin` builds the same launcher as `release/shepherd`.
+
+Surface selection is stored in `envs/common.env`:
+
+```env
+SHEPHERD_SURFACES=discord
+```
+
+Discord is the only implemented surface. The launcher supports multiple
+registered adapters, but selecting `web` today fails with an unavailable-surface
+error. See [surface launch and lifecycle](.docs/surface-launch.md) for ownership,
+configuration, failure behavior, and the future web boundary.
 
 ## Rooted Android Deployment
 
@@ -123,14 +134,17 @@ kernels.
 
 ## 🔧 Runtime Configuration
 
-Shepherd loads env files only from `envs/` in this order:
-
-- `envs/common.env`
-- `envs/discord.env`
+Shepherd reads `envs/common.env` first, then only the selected adapters' files
+(e.g. `envs/discord.env`). Existing process variables take precedence over common
+values; common values take precedence over an adapter's file. Adapter files are
+isolated configuration objects and do not mutate the process environment. Put
+shared runtime settings such as `CODEX_MODEL` in common.env or the process
+environment, not in an adapter's file.
 
 Supported keys:
 
-- `DISCORD_BOT_TOKEN`: required
+- `SHEPHERD_SURFACES`: comma-separated adapter selection; defaults to `discord` when unset. Empty, duplicate, and unavailable selections fail validation.
+- `DISCORD_BOT_TOKEN`: required when Discord is selected
 - `SHEPHERD_DISCORD_STREAMING`: optional boolean, default `false`. Discord
   provides live typing, tool activity, and completed commentary, then sends
   the final answer once. Enabling this adds one editable final-answer preview.

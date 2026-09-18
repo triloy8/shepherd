@@ -51,10 +51,6 @@ case "${ACTION}" in
       echo "missing ${PROJECT_DIR}/envs/common.env" >&2
       exit 1
     fi
-    if [[ ! -f "${PROJECT_DIR}/envs/discord.env" ]]; then
-      echo "missing ${PROJECT_DIR}/envs/discord.env" >&2
-      exit 1
-    fi
     if [[ ! -d "${PROJECT_DIR}/node_modules" ]]; then
       echo "dependencies are missing; run 'bun install' in ${PROJECT_DIR}" >&2
       exit 1
@@ -64,6 +60,9 @@ case "${ACTION}" in
       echo "Shepherd is already running in tmux session: ${SESSION_NAME}"
       exit 0
     fi
+
+    # Validate selected adapters before creating a restart loop; no clients start.
+    (cd "${PROJECT_DIR}" && bun run check:config)
 
     mkdir -p "${LOG_DIR}"
     printf -v run_command \

@@ -8,7 +8,7 @@ const modulePath = path.resolve(import.meta.dir, "../server/config/environment.t
 test("configuration uses only envs and preserves process/common/scope precedence", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "shepherd-env-"));
   const readConfig = async () => {
-    const proc = Bun.spawn([process.execPath, "-e", `import { loadEnvironment } from ${JSON.stringify(modulePath)}; loadEnvironment("discord"); console.log(JSON.stringify([process.env.SHEPHERD_TEST_A, process.env.SHEPHERD_TEST_B, process.env.SHEPHERD_TEST_C]));`], {
+    const proc = Bun.spawn([process.execPath, "-e", `import { loadCommonEnvironment, readSurfaceEnvironment } from ${JSON.stringify(modulePath)}; loadCommonEnvironment(); const env = readSurfaceEnvironment("discord"); console.log(JSON.stringify([env.SHEPHERD_TEST_A, env.SHEPHERD_TEST_B, env.SHEPHERD_TEST_C]));`], {
       cwd: directory,
       env: { ...process.env, SHEPHERD_TEST_A: "process", SHEPHERD_TEST_B: undefined, SHEPHERD_TEST_C: undefined },
       stdout: "pipe", stderr: "pipe",

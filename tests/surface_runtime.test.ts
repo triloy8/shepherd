@@ -3,7 +3,7 @@ import path from "node:path";
 import { homedir } from "node:os";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
-import { createDiscordSurfaceRuntime } from "../server/adapters/discord/surface_runtime.js";
+import { createSurfaceRuntime } from "../server/runtime/surface_runtime.js";
 
 function makeConversation() {
   const boundThreads: Array<{ adapter: string; surfaceId: string; threadId: string }> = [];
@@ -77,7 +77,8 @@ describe("Discord surface runtime", () => {
       },
     };
 
-    const runtime = createDiscordSurfaceRuntime({
+    const runtime = createSurfaceRuntime({
+      adapter: "discord",
       conversation: conversation as never,
       approvalPolicy: "on-request",
       defaultSandbox: "workspace-write",
@@ -110,7 +111,8 @@ describe("Discord surface runtime", () => {
     const { conversation, createdThreads, threadCwds } = makeConversation();
     const events: Array<{ surfaceId: string; event: BridgeEvent }> = [];
 
-    const runtime = createDiscordSurfaceRuntime({
+    const runtime = createSurfaceRuntime({
+      adapter: "discord",
       conversation: conversation as never,
       approvalPolicy: "on-request",
       defaultSandbox: "workspace-write",

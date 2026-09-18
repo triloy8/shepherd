@@ -17,3 +17,14 @@ function assertBoundaries(context: SurfaceApplicationContext, interaction: Inter
   ingress.conversation.archiveThread("thread");
 }
 void assertBoundaries;
+
+import type { SurfaceAdapterContext } from "../server/runtime/surface_adapter.js";
+function assertLauncherBoundary(adapter: SurfaceAdapterContext) {
+  // @ts-expect-error Only the host can stop the process runtime.
+  adapter.shepherd.shutdown();
+  // @ts-expect-error Ingress cannot stop all conversations.
+  adapter.ingress.stopAll();
+  // @ts-expect-error Approval handling cannot create raw sessions.
+  adapter.interactions.createThread({});
+}
+void assertLauncherBoundary;

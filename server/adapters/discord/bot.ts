@@ -1,6 +1,4 @@
 import { formatApplicationError } from "./action_error.js";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import {
   ChannelType,
@@ -11,13 +9,11 @@ import {
   type TextBasedChannel,
 } from "discord.js";
 
-import { loadEnvironment, readBoolean } from "../../config/environment.js";
-import { createHostRuntime } from "../../runtime/host_runtime.js";
-import { SignalRuntime } from "../../runtime/signal_runtime.js";
+import { readBoolean } from "../../config/environment.js";
+import type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition } from "../../runtime/surface_adapter.js";
 import { handleInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { presentDiscordSignalNotice } from "./signal_notice.js";
-import { createDiscordSurfaceRuntime } from "./surface_runtime.js";
 import { createDiscordThreadEventHandler } from "./thread_event_handler.js";
 import { replyDiscordCard } from "./stream_delivery.js";
 
@@ -30,23 +26,19 @@ function isSupportedChannel(channel: Message["channel"]): channel is TextBasedCh
   );
 }
 
-export async function startDiscordBot(): Promise<void> {
-  loadEnvironment("discord");
-  const token = process.env.DISCORD_BOT_TOKEN;
-  if (!token) {
-    throw new Error("Missing DISCORD_BOT_TOKEN.");
-  }
+export const discordSurface: SurfaceDefinition = {
+  configure(environment) {
+    const token = environment.DISCORD_BOT_TOKEN;
+    if (!token?.trim()) throw new Error("Missing DISCORD_BOT_TOKEN for selected surface discord.");
+    const streaming = readBoolean(environment.SHEPHERD_DISCORD_STREAMING, "SHEPHERD_DISCORD_STREAMING", false);
+    return (context) => createDiscordAdapter(context, { token, streaming });
+  },
+};
 
-  const { config, shepherd, workspace } = createHostRuntime();
-  const { approvalPolicy, defaultSandbox } = config;
-  const discordStreaming = readBoolean(
-    process.env.SHEPHERD_DISCORD_STREAMING,
-    "SHEPHERD_DISCORD_STREAMING",
-    false,
-  );
-  const { conversation } = shepherd;
-
-  const client = new Client({
+export function createDiscordAdapter(
+  context: SurfaceAdapterContext,
+  options: { token: string; streaming: boolean },
+  client: Client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
@@ -54,45 +46,35 @@ export async function startDiscordBot(): Promise<void> {
       GatewayIntentBits.MessageContent,
     ],
     partials: [Partials.Channel],
-  });
-  let disposeThreadEvents = (): void => {};
+  }),
+): SurfaceAdapter {
+  const { approvalPolicy } = context;
 
   const threadEvents = createDiscordThreadEventHandler(client, {
-    streaming: discordStreaming,
+    streaming: options.streaming,
   });
   const { handleThreadEvent, recordReplyTarget } = threadEvents;
-  disposeThreadEvents = threadEvents.dispose;
-  const runtime = createDiscordSurfaceRuntime({
-    conversation,
-    approvalPolicy,
-    defaultSandbox,
-    onThreadEvent: handleThreadEvent,
-    ...workspace,
-    runtimeLifecycle: shepherd.lifecycle,
-  });
-
-  const signals = new SignalRuntime(shepherd, {
-    config: config.signals,
-    beforeExecute: async (signal) => {
-      try {
-        await presentDiscordSignalNotice({ client, signal, recordReplyTarget });
-      } catch (error) {
-        console.error("Discord signal notice delivery failed:", error);
-      }
-    },
-  });
-
-  shepherd.registerShutdownHook(async () => {
-    disposeThreadEvents();
-    await client.destroy();
-  });
+  const commandContext = context.createApplication(handleThreadEvent);
+  let stopping = false;
+  let stopPromise: Promise<void> | undefined;
+  const report = (state: "ready" | "degraded", detail?: string) => {
+    if (!stopping) context.reportHealth({ state, detail });
+  };
+  client.on("shardDisconnect", (_event, shardId) => report("degraded", `shard ${shardId} disconnected`));
+  client.on("shardReconnecting", (shardId) => report("degraded", `shard ${shardId} reconnecting`));
+  client.on("shardResume", () => { if (client.isReady()) report("ready"); });
+  client.on("shardReady", () => { if (client.isReady()) report("ready"); });
+  client.on("error", (error) => { report("degraded", "client error"); console.error("Discord client error:", error); });
+  client.on("shardError", (error) => { report("degraded", "gateway error"); console.error("Discord gateway error:", error); });
+  client.on("invalidated", () => report("degraded", "session invalidated; restart required"));
 
   client.once("clientReady", () => {
+    report("ready");
     console.log(`discord bridge ready as ${client.user?.tag ?? "unknown"}`);
   });
 
   client.on("messageCreate", async (message) => {
-    if (shepherd.isQuiescing()) return;
+    if (context.isQuiescing() || stopping) return;
     if (message.author.bot) return;
     if (!isSupportedChannel(message.channel)) return;
     if (!client.user) return;
@@ -101,8 +83,8 @@ export async function startDiscordBot(): Promise<void> {
       recordReplyTarget(message.channelId, message.id);
       await processDiscordMessage(message, {
         botUserId: client.user.id,
-        conversation,
-        commandContext: runtime.commandContext,
+        conversation: context.ingress,
+        commandContext,
         approvalPolicy,
       });
     } catch (error) {
@@ -121,38 +103,28 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on("interactionCreate", async (interaction) => {
-    if (shepherd.isQuiescing()) return;
+    if (context.isQuiescing() || stopping) return;
     if (!interaction.isButton()) return;
-    await handleInteraction(interaction, conversation, runtime.commandContext);
+    try { await handleInteraction(interaction, context.interactions, commandContext); }
+    catch (error) { console.error("Discord interaction failed:", error); }
   });
 
-  try {
-    await client.login(token);
-    signals.start();
-    if (signals.url) console.log(`signal webhook ready at ${signals.url}`);
-  } catch (error) {
-    try {
-      await shepherd.shutdown();
-    } catch (shutdownError) {
-      console.error("Shepherd startup cleanup failed:", shutdownError);
-    }
-    throw error;
-  }
-
-  process.on("SIGINT", () => {
-    void shepherd.shutdown().finally(() => process.exit(0));
-  });
-  process.on("SIGTERM", () => {
-    void shepherd.shutdown().finally(() => process.exit(0));
-  });
-}
-
-const __filename = fileURLToPath(import.meta.url);
-const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
-
-if (isDirectRun) {
-  void startDiscordBot().catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
-    process.exit(1);
-  });
+  return {
+    async start() {
+      if (stopping) throw new Error("Discord adapter is stopping.");
+      await client.login(options.token);
+      if (stopping || context.signal.aborted) {
+        await client.destroy();
+        throw new Error("Discord adapter stopped during login.");
+      }
+    },
+    stop() {
+      return stopPromise ??= Promise.resolve().then(async () => {
+        stopping = true;
+        try { threadEvents.dispose(); }
+        finally { await client.destroy(); }
+      });
+    },
+    presentSignal: (signal) => presentDiscordSignalNotice({ client, signal, recordReplyTarget }),
+  };
 }

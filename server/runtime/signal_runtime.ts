@@ -43,7 +43,6 @@ export class SignalRuntime {
     this.unregisterTool = options.config.enabled
       ? shepherd.conversation.registerDynamicTool(routeService.registration())
       : () => {};
-    shepherd.registerShutdownHook(() => this.stop());
   }
 
   get url(): string | null {

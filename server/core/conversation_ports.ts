@@ -1,3 +1,4 @@
+import type { TurnRoutingConversation } from "./turn_routing_service.js";
 import type { ConversationService } from "./conversation_service.js";
 
 const readMethods = [
@@ -27,4 +28,15 @@ function bindMethods<T extends object, K extends keyof T>(source: T, keys: reado
 
 export function createApplicationConversation(source: ApplicationConversation): ApplicationConversation {
   return bindMethods(source, [...readMethods, ...controlMethods]);
+}
+
+export function createIngressConversation(source: TurnRoutingConversation): TurnRoutingConversation {
+  return bindMethods(source, ["getThreadState", "submitTurn", "steerTurn"]);
+}
+
+export function createInteractionConversation(source: InteractionConversation): InteractionConversation {
+  return bindMethods(source, [
+    "listStoredThreads", "listLoadedThreads", "listModels", "getThreadModel",
+    "listSkills", "listThreadTurns", "listThreadItems", "applyApprovalDecision",
+  ]);
 }

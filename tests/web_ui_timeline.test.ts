@@ -109,3 +109,19 @@ test("stale turn completion and activity cannot clear a newer active turn", () =
     expect(state.activeTurnId).toBe("new"); expect(state.messages).toHaveLength(0); expect(state.error).toBeNull();
   }
 });
+
+test("tool lifecycle updates one entry and keeps failures outside collapsed work", () => {
+  let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
+  state = reduceBridge(state, event("tool1", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "started" }));
+  state = reduceBridge(state, event("tool2", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "failed" }));
+  expect(state.messages).toHaveLength(1);
+  state.activeTurnId = null; state.turns.turn = { status: "completed", durationMs: 1 };
+  expect(render(state)).toContain("Failed"); expect(render(state)).not.toContain("progress-disclosure");
+});
+
+test("tool history survives reload and is not mistaken for a final answer", () => {
+  const history = turn(); history.items.splice(2, 0, { id: "tool", type: "commandExecution", webActivity: { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "completed" } });
+  const state = mergeHistory(emptyChat(), [history]);
+  expect(state.messages.find((m) => m.id === "tool")?.activity?.status).toBe("completed");
+  expect(timelineGroups(state).flatMap((g) => g.finalIds)).toEqual(["answer"]);
+});

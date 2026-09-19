@@ -1,3 +1,4 @@
+import { mapTurnActivity } from "../../core/codex_rpc_mapper.js";
 import { randomUUID } from "node:crypto";
 import { WEB_API_PREFIX, WEB_API_VERSION, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
@@ -122,7 +123,11 @@ export class WebSurfaceApi {
         return new Response(stream, { headers });
       }
       if (action === "turns" && request.method === "GET") {
-        return json(200, await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full", sortDirection: "desc" }));
+        const history = await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full", sortDirection: "desc" });
+        return json(200, { ...history, data: history.data.map((turn) => ({ ...turn, items: turn.items.map((item) => {
+          const activity = mapTurnActivity({ turnId: turn.id, item }, item.status === "inProgress" ? "started" : "completed");
+          return activity ? { ...item, webActivity: activity } : item;
+        }) })) });
       }
       if (action === "approvals" && !match[3] && request.method === "GET") return json(200, { approvals: this.context.approvals.listApprovals(threadId) });
       if (action === "messages" && request.method === "POST") {

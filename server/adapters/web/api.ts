@@ -122,7 +122,7 @@ export class WebSurfaceApi {
         return new Response(stream, { headers });
       }
       if (action === "turns" && request.method === "GET") {
-        return json(200, await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full" }));
+        return json(200, await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full", sortDirection: "desc" }));
       }
       if (action === "approvals" && !match[3] && request.method === "GET") return json(200, { approvals: this.context.approvals.listApprovals(threadId) });
       if (action === "messages" && request.method === "POST") {

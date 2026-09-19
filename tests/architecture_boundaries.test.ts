@@ -45,3 +45,26 @@ test("core and protocol cannot depend on adapters; shared runtime cannot depend 
   }
   expect(violations).toEqual([]);
 });
+
+test("browser source imports shared protocol rather than server implementation", async () => {
+  const violations: string[] = [];
+  async function check(directory: string) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) { await check(file); continue; }
+      if (!/\.tsx?$/.test(file)) continue;
+      const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
+      const visit = (node: ts.Node) => {
+        if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+          const specifier = node.moduleSpecifier.text;
+          const target = specifier.startsWith(".") ? path.resolve(path.dirname(file), specifier) : specifier;
+          if (target.includes("/server/") || target.startsWith("node:")) violations.push(`${file}: ${specifier}`);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+  }
+  await check(path.join(root, "ui/src"));
+  expect(violations).toEqual([]);
+});

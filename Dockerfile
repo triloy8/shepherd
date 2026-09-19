@@ -9,6 +9,7 @@ RUN bun install --frozen-lockfile
 
 COPY server ./server
 COPY shared ./shared
+COPY ui ./ui
 COPY tsconfig.server.json ./
 COPY tests/adapter_ports.typecheck.ts tests/tsconfig.contracts.json ./tests/
 RUN bun run check
@@ -43,5 +44,6 @@ RUN bun install --frozen-lockfile --production
 COPY --chown=bun:bun server ./server
 COPY --chown=bun:bun shared ./shared
 COPY --from=build --chown=bun:bun /app/dist ./dist
+COPY --from=build --chown=bun:bun /app/ui/dist ./ui/dist
 
 CMD ["bun", "run", "start"]

@@ -118,7 +118,7 @@ describe("DeploymentService", () => {
     ]);
   });
 
-  test("restores the previous commit and dependencies when validation fails", async () => {
+  test("restores source, dependencies and generated assets when validation fails", async () => {
     const runner = makeRunner({ failCommand: "bun run check" });
     const service = new DeploymentService({
       runCommand: runner.runCommand,
@@ -128,9 +128,10 @@ describe("DeploymentService", () => {
       "restored 1111111111111111111111111111111111111111",
     );
     expect(runner.getCheckout()).toBe("1111111111111111111111111111111111111111");
-    expect(runner.calls.slice(-2)).toEqual([
+    expect(runner.calls.slice(-3)).toEqual([
       "git checkout --quiet --detach 1111111111111111111111111111111111111111",
       "bun install --frozen-lockfile",
+      "bun run build",
     ]);
   });
 
@@ -229,4 +230,13 @@ test("invalid selected surface configuration rolls back before tests or restart"
   await expect(service.deploy()).rejects.toThrow("restored 1111111111111111111111111111111111111111");
   expect(runner.getCheckout()).toBe("1111111111111111111111111111111111111111");
   expect(runner.calls).not.toContain("bun test --timeout 30000");
+});
+
+test("rollback reports artifact rebuild failure instead of claiming restoration succeeded", async () => {
+  const runner = makeRunner({ failCommand: "bun run check" });
+  const service = new DeploymentService({ runCommand: async (command, args, options) => {
+    if (command === "bun" && args.join(" ") === "run build") throw new Error("asset rebuild failed");
+    return runner.runCommand(command, args, options);
+  } });
+  await expect(service.deploy()).rejects.toThrow("Automatic rollback");
 });

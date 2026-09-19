@@ -69,7 +69,7 @@ identifies `@openai/codex` as the official package.
 ## 2. Configure Shepherd inside Ubuntu
 
 Select surfaces with `SHEPHERD_SURFACES=discord` in `envs/common.env`.
-The opt-in `web` surface can run alongside Discord; configure its browser origins
+The opt-in `web` surface serves the built-in UI and can run alongside Discord; configure its browser origins
 and private access using [the web API guide](../.docs/web-api.md).
 Deployment preserves the selection and does not enable web or Tailscale Serve.
 An unset selection also defaults to Discord; an empty value is an error.
@@ -373,3 +373,14 @@ launchers both use `server/main.ts` (binary output: `release/shepherd`). The old
 `start:discord`, `dev:discord`, and `release/shepherd-discord` entrypoints are
 retired. Standard host installs already use `bun run start` and need no launcher
 change. Custom launch commands must migrate to the common entrypoint.
+
+
+## Web UI artifacts
+
+`bun run check` builds the UI with Vite before validating the server, so normal
+deployment prepares both together. A failed deployment rebuilds the restored
+revision after restoring its dependencies. The running web listener keeps its
+previous assets in memory until restart. `bun run build:bin` embeds UI assets;
+Docker copies the same build output into the runtime image. For a manual source
+startup after installation, run `bun run build` first. See the
+[web UI guide](../.docs/web-ui.md) for private access and frontend development.

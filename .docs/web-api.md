@@ -1,11 +1,10 @@
 # Web API v1
 
-The `web` surface provides the conversation backend for a future shepherd-ui
-client. It runs alone or beside Discord against the same application core.
-It does not provide a browser UI, static hosting, arbitrary Codex RPC, or full
-Discord command parity. Text prompts, history, events, interruption and approvals
-are the initial scope; attachments and model/skill/deploy controls are not HTTP
-routes in v1.
+The `web` surface provides the conversation API and [built-in web UI](web-ui.md).
+It runs alone or beside Discord against the same application core. It does not
+provide arbitrary Codex RPC or full Discord command parity. Text prompts,
+history, events, interruption and approvals are the initial scope; attachments
+and model/skill/deploy controls are not HTTP routes in v1.
 
 ## Enable explicitly
 
@@ -17,7 +16,8 @@ SHEPHERD_WEB_ORIGINS=
 ```
 
 Set `SHEPHERD_SURFACES=discord,web` in `envs/common.env` (or `web` without Discord).
-Run `bun run check:config`, then restart through the normal deployment flow.
+Run `bun run build` and `bun run check:config`, then restart through the normal
+deployment flow.
 Configuration validation does not connect or open a listener. Disabled web
 configuration is not loaded. Invalid selected configuration or a port collision
 fails host startup and cleans up all initialized adapters.
@@ -25,9 +25,10 @@ fails host startup and cleans up all initialized adapters.
 The listener is always `127.0.0.1`; there is no public bind option. Origins are a
 comma-separated list of exact browser origins, including scheme and any port,
 with no trailing slash or path. HTTPS is required except for loopback development
-origins such as `http://localhost:3000`. Wildcards are rejected. Blank origins
-permit clients that send no Origin header; browsers must have an explicitly
-allowed origin, including when same-origin. CORS is not authentication.
+origins such as `http://localhost:3000`. Wildcards are rejected. The listener’s
+actual loopback origins are automatically allowed for local UI use. Remote browser origins must be explicitly configured, including when
+same-origin. Request Host must match a local or configured origin’s host;
+forwarded headers do not override this. CORS is not authentication.
 
 ## Private access and trust
 

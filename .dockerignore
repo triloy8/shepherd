@@ -13,3 +13,5 @@ envs/*.env
 
 .agents/skills/**/*.env
 !.agents/skills/**/*.env.example
+
+ui/dist

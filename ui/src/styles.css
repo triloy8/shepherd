@@ -1,0 +1,72 @@
+@import "tailwindcss";
+@theme {
+  --color-canvas: #111412;
+  --color-panel: #171b18;
+  --color-raised: #232a25;
+  --color-line: #2c342e;
+  --color-ink: #e9eee8;
+  --color-muted: #a0aba1;
+  --color-dim: #77857b;
+  --color-accent: #bad6a2;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+@layer base {
+  * { scrollbar-width: thin; scrollbar-color: #344137 transparent; }
+  body { @apply m-0 bg-canvas font-sans text-ink antialiased; }
+  button, a, input, textarea, summary { -webkit-tap-highlight-color: transparent; }
+  button { @apply cursor-pointer transition-colors; }
+  button:disabled { @apply cursor-not-allowed opacity-40; }
+  :focus-visible { @apply outline-2 outline-offset-4 outline-accent; }
+  ::selection { background: #4b6248; color: white; }
+}
+@layer components {
+  .app-shell { @apply flex h-dvh min-h-0 overflow-hidden; }
+  .sidebar { @apply fixed inset-y-0 left-0 z-30 flex w-72 -translate-x-full flex-col border-r border-line bg-panel transition-transform lg:static lg:z-auto lg:w-68 lg:translate-x-0; }
+  .sidebar-open { @apply translate-x-0; }
+  .drawer-backdrop { @apply fixed inset-0 z-20 bg-black/60 lg:hidden; }
+  .main-pane { @apply flex min-w-0 flex-1 flex-col; }
+  .main-header { @apply flex h-20 shrink-0 items-center gap-3 border-b border-line/70 px-4 sm:px-8; }
+  .icon-button { @apply inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-raised hover:text-ink; }
+  .new-conversation { @apply flex w-full items-center gap-3 rounded-xl border border-line bg-raised/50 px-3.5 py-3 text-sm text-ink hover:border-accent/50 hover:bg-raised; }
+  .thread-button { @apply mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[13px] text-muted hover:bg-raised/60 hover:text-ink; }
+  .thread-selected { @apply bg-raised text-ink; }
+  .thread-selected > svg { @apply text-accent; }
+  .sidebar-footer { @apply flex shrink-0 items-center gap-2 border-t border-line px-5 py-5 text-xs text-muted; padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
+  .status-dot { @apply inline-block size-1.5 shrink-0 rounded-full bg-accent; }
+  .status-dot-muted { @apply bg-dim; }
+  .empty-screen { @apply relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 pb-24 text-center; }
+  .welcome-mark { @apply flex size-20 items-center justify-center rounded-3xl border border-accent/15 bg-accent/5 text-accent; }
+  .welcome-footnote { @apply absolute bottom-8 flex items-center gap-2 text-xs text-dim; }
+  .button-primary { @apply inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-canvas hover:bg-[#cde5b9]; }
+  .button-secondary { @apply inline-flex items-center gap-2 rounded-lg border border-line bg-raised px-3 py-2 text-xs font-medium text-ink hover:border-accent/50; }
+  .chat-scroll { @apply min-h-0 flex-1 overflow-y-auto overscroll-contain; }
+  .chat-width { @apply mx-auto w-full max-w-3xl px-5 sm:px-10; }
+  .message-user { @apply rounded-2xl border border-line/70 bg-panel px-5 py-4; }
+  .message-assistant { @apply px-1; }
+  .prose-chat { @apply break-words text-[15px] leading-7; overflow-wrap: anywhere; }
+  .prose-chat p { @apply my-3; }
+  .prose-chat p:first-child { @apply mt-0; }
+  .prose-chat p:last-child { @apply mb-0; }
+  .prose-chat h1, .prose-chat h2, .prose-chat h3 { @apply mb-3 mt-6 text-lg font-semibold; }
+  .prose-chat ul { @apply my-3 list-disc space-y-1 pl-6; }
+  .prose-chat ol { @apply my-3 list-decimal space-y-1 pl-6; }
+  .prose-chat li > p { @apply my-1; }
+  .prose-chat a { @apply text-accent underline underline-offset-4; }
+  .prose-chat pre { @apply my-4 max-w-full overflow-x-auto rounded-xl border border-line bg-panel p-4 text-xs leading-6; }
+  .prose-chat code { @apply rounded bg-raised px-1 py-0.5 text-[.85em]; }
+  .prose-chat pre code { @apply bg-transparent p-0; }
+  .prose-chat blockquote { @apply my-3 border-l-2 border-accent/50 pl-4 text-muted; }
+  .prose-chat hr { @apply my-5 border-line; }
+  .composer-area { @apply shrink-0 bg-canvas pb-3 pt-3; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
+  .composer { @apply overflow-hidden rounded-2xl border border-line bg-panel shadow-lg shadow-black/10 focus-within:border-accent/45; }
+  .composer textarea { @apply block max-h-52 min-h-20 w-full resize-y bg-transparent px-4 pb-2 pt-4 text-base leading-6 text-ink outline-none placeholder:text-dim; }
+  .send-button { @apply flex size-9 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-[#cde5b9]; }
+  .composer-caption { @apply mt-3 hidden text-center text-[10px] tracking-wide text-dim sm:block; }
+  .notice { @apply rounded-xl border border-amber-300/20 bg-amber-200/5 px-4 py-3 text-xs leading-6 text-amber-100; }
+  .approval-card { @apply rounded-2xl border border-accent/30 bg-accent/5 p-5; }
+  .project-dialog { @apply fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-line bg-panel p-6 text-ink shadow-2xl; }
+  .project-dialog::backdrop { @apply bg-black/70; }
+  .project-dialog input { @apply w-full rounded-lg border border-line bg-canvas px-3 py-3 text-base outline-none focus:border-accent; }
+  .working-dot { @apply size-1.5 rounded-full bg-accent motion-safe:animate-pulse; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }

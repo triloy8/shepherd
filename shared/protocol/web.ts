@@ -1,6 +1,6 @@
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { BridgeEvent, TurnActivityEvent, TurnImageGeneratedEvent } from "./events.js";
-import type { GetThreadStateResponse, HistoryItem, HistoryTurn, ListStoredThreadsResponse, ListThreadTurnsResponse } from "./requests.js";
+import type { ThreadModelState, ThreadEffortState, ListModelsResponse, ReadThreadTokenUsageResponse, GetThreadStateResponse, HistoryItem, HistoryTurn, ListStoredThreadsResponse, ListThreadTurnsResponse } from "./requests.js";
 import type { SignalEnvelope } from "./signals.js";
 
 /** Versioned browser contract, independent of adapter implementation. */
@@ -30,3 +30,10 @@ export type WebEventData = {
   signal: SignalEnvelope;
   reset: { reason: "event_too_large" };
 };
+
+export type WebSettingsResponse = { model: ThreadModelState; effort: ThreadEffortState };
+export type WebModelsResponse = ListModelsResponse;
+export type WebContextResponse = ReadThreadTokenUsageResponse;
+export type WebLimitsResponse = { rateLimits: unknown };
+export type WebModelRequest = { model: string };
+export type WebEffortRequest = { effort: string };

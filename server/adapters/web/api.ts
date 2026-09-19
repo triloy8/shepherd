@@ -1,3 +1,4 @@
+import { webControl } from "./controls.js";
 import { WebImages } from "./images.js";
 import { mapTurnActivity, extractGeneratedImageArtifact } from "../../core/codex_rpc_mapper.js";
 import { randomUUID } from "node:crypto";
@@ -102,6 +103,11 @@ export class WebSurfaceApi {
     this.requests++;
     try {
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true, apiVersion: WEB_API_VERSION });
+      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
+        const result = await webControl(this.application, { type: "limits.read" });
+        if (result.type !== "limits.read") throw new Error("Unexpected limits response.");
+        return json(200, { rateLimits: result.rateLimits });
+      }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/threads`) {
         return json(200, await this.application.conversation.listStoredThreads(pagination(url)));
       }
@@ -112,7 +118,7 @@ export class WebSurfaceApi {
           return json(201, await this.create(requiredString(data, "project"), optionalString(data, "threadId", 256)));
         }
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
@@ -122,6 +128,30 @@ export class WebSurfaceApi {
       if (!action && request.method === "GET") return json(200, { ...this.summary(entry), state: this.context.ingress.getThreadState(threadId) });
       if (!action && request.method === "DELETE") {
         await this.mutate(entry, async () => this.remove(entry));
+        return json(200, { ok: true });
+      }
+      if (action === "settings" && request.method === "GET") {
+        const model = this.application.conversation.getThreadModel(threadId);
+        const result = await webControl(this.application, { type: "effort.get", surfaceId: entry.id });
+        if (result.type !== "effort.get" || !result.ok) throw new Error("Unexpected effort response.");
+        return json(200, { model, effort: result.state });
+      }
+      if (action === "models" && request.method === "GET") {
+        const result = await webControl(this.application, { type: "models.list", surfaceId: entry.id, ...pagination(url) });
+        if (result.type !== "models.list") throw new Error("Unexpected models response.");
+        return json(200, result.models);
+      }
+      if (action === "context" && request.method === "GET") {
+        const result = await webControl(this.application, { type: "context.read", surfaceId: entry.id });
+        if (result.type !== "context.read" || !result.ok) throw new Error("Unexpected context response.");
+        return json(200, { threadId: result.threadId, tokenUsage: result.tokenUsage });
+      }
+      if ((action === "model" || action === "effort") && request.method === "POST") {
+        const data = await body(request, [action]);
+        const value = requiredString(data, action, 256);
+        await this.mutate(entry, () => webControl(this.application, action === "model"
+          ? { type: "model.set", surfaceId: entry.id, requestedModel: value }
+          : { type: "effort.set", surfaceId: entry.id, effort: value }));
         return json(200, { ok: true });
       }
       if (action === "images" && match[3] && request.method === "GET") return await entry.images.response(match[3], headers);

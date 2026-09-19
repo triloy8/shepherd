@@ -60,7 +60,14 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   if (state.seen.includes(event.id)) return state;
   const payload = record(event.payload);
   const next = { ...state, seen: [...state.seen.slice(-1023), event.id] };
-  if (event.type === "turn.started") return { ...next, activeTurnId: text(payload.turnId) || state.activeTurnId, activity: "Thinking", error: null };
+  const turnId = text(payload.turnId);
+  const known = state.turns[turnId];
+  const ended = known && known.status !== "inProgress";
+  // A superseded turn may still deliver queued events. They must not change
+  // the current turn, append post-completion deltas or replace its activity.
+  if (event.type.startsWith("turn.") && ((state.activeTurnId && turnId && turnId !== state.activeTurnId && event.type !== "turn.started") ||
+    (ended && ["turn.started", "turn.stream.delta", "turn.activity", "turn.completed", "turn.failed"].includes(event.type)))) return next;
+  if (event.type === "turn.started") return { ...next, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "inProgress", durationMs: null } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
   if (["turn.completed", "turn.failed"].includes(event.type)) return { ...next, messages: next.messages.map((message) => message.turnId === payload.turnId ? { ...message, complete: true } : message), activeTurnId: null, activity: null, error: event.type === "turn.failed" ? text(payload.message) || "The turn failed." : state.error };
   if (event.type === "session.error" || event.type === "session.limit.context") return { ...next, error: text(payload.message) || "The session needs attention." };
   if (event.type === "turn.activity") return { ...next, activity: payload.status === "started" ? text(payload.label) || "Working" : "Thinking" };

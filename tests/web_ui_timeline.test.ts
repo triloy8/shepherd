@@ -18,7 +18,7 @@ const render = (state: ReturnType<typeof emptyChat>) => renderToStaticMarkup(cre
 
 test("completed history folds commentary with only the final answer copyable", () => {
   const state = mergeHistory(emptyChat(), [turn()]);
-  expect(timelineGroups(state)[1]).toMatchObject({ finalId: "answer", settled: true, label: "Worked for 3s" });
+  expect(timelineGroups(state)[1]).toMatchObject({ finalIds: ["answer"], settled: true, label: "Worked for 3s" });
   const html = render(state);
   expect(html).toContain("<details");
   expect(html).not.toContain(" open=");
@@ -53,10 +53,10 @@ test("failed and interrupted history stays visible after reload", () => {
 test("unphased legacy history uses the last message; commentary-only turns have no final", () => {
   const legacy = turn();
   for (const item of legacy.items) delete item.phase;
-  expect(timelineGroups(mergeHistory(emptyChat(), [legacy]))[1]!.finalId).toBe("answer");
+  expect(timelineGroups(mergeHistory(emptyChat(), [legacy]))[1]!.finalIds).toEqual(["answer"]);
   const commentary = turn(); commentary.items.pop();
   const state = mergeHistory(emptyChat(), [commentary]);
-  expect(timelineGroups(state)[1]!.finalId).toBeUndefined();
+  expect(timelineGroups(state)[1]!.finalIds).toEqual([]);
   expect(render(state)).not.toContain('aria-label="Copy response"');
 });
 
@@ -78,7 +78,7 @@ test("legacy follow-ups never promote an earlier update to another final answer"
   for (const item of history.items) delete item.phase;
   history.items.splice(2, 0, { id: "followup", type: "userMessage", content: [{ type: "text", text: "Also this" }] });
   const groups = timelineGroups(mergeHistory(emptyChat(), [history]));
-  expect(groups.filter((g) => g.finalId).map((g) => g.finalId)).toEqual(["answer"]);
+  expect(groups.flatMap((g) => g.finalIds)).toEqual(["answer"]);
 });
 
 test("activity after an explicit final answer retains its position", () => {
@@ -93,4 +93,19 @@ test("history without phase metadata preserves known streamed phase", () => {
   const state = reduceBridge(emptyChat(), event("delta", "turn.message.completed", { itemId: "progress", turnId: "turn", phase: "commentary", text: "Checking the project" }));
   const history = turn(); delete history.items[1]!.phase;
   expect(mergeHistory(state, [history]).messages.find((m) => m.id === "progress")?.phase).toBe("commentary");
+});
+
+test("all explicit final messages remain visible and copyable", () => {
+  const history = turn(); history.items.push({ id: "answer2", type: "agentMessage", phase: "final_answer", text: "Second answer part" });
+  const state = mergeHistory(emptyChat(), [history]);
+  expect(timelineGroups(state).flatMap((g) => g.finalIds)).toEqual(["answer", "answer2"]);
+  expect(render(state).match(/aria-label="Copy response"/g)).toHaveLength(2);
+});
+
+test("stale turn completion and activity cannot clear a newer active turn", () => {
+  let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "new" }));
+  for (const type of ["turn.completed", "turn.failed", "turn.activity", "turn.stream.delta"] as const) {
+    state = reduceBridge(state, event(type, type, { turnId: "old", itemId: "late", method: "item/agentMessage/delta", textDelta: "Late", status: "started", label: "Old command" }));
+    expect(state.activeTurnId).toBe("new"); expect(state.messages).toHaveLength(0); expect(state.error).toBeNull();
+  }
 });

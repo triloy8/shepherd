@@ -119,3 +119,19 @@ mock messages are never imported by the production host.
 
 The interface uses a neutral dark palette with text-only Shepherd branding.
 Warning notices retain amber coloring to distinguish errors from ordinary content.
+
+Assistant updates are grouped by turn. Commentary stays visible while work is
+running, then folds into an expandable work summary after confirmed completion.
+All explicitly marked final-answer parts stay visible with Copy buttons. Failed or
+interrupted turns keep their partial work expanded. History reloads restore the
+same grouping; elapsed time is shown only when supplied by stored turn history.
+Tool activity is retained by item ID, with expandable details and lifecycle status.
+Failed tools remain visible even when the turn completes. Activity is reconstructed
+from stored items on reload using the same normalization as Discord. Provider
+reasoning and full command output are not rendered; activity details are bounded.
+
+Generated images remain visible outside folded progress and can be opened in a new
+tab. Only conversation-scoped API image URLs are loaded; Markdown cannot load
+arbitrary remote images. Missing, unsupported or removed files display an unavailable
+notice. Reload history to retry. Older turn events cannot clear the active turn or
+restart a completed turn. These rules also apply during event replay.

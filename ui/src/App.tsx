@@ -4,7 +4,7 @@ import type { WebConversation } from "../../shared/protocol/web";
 import { api, explainError } from "./api";
 import { useConversation } from "./use-conversation";
 import { Icon } from "./components/Icon";
-import { Message } from "./components/Message";
+import { Timeline } from "./components/Timeline";
 import { Composer } from "./components/Composer";
 import { Approvals } from "./components/Approvals";
 
@@ -151,7 +151,7 @@ export default function App() {
           <div className="chat-width pb-6 pt-6 sm:pt-10">
             {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
             {!controller.chat.messages.length && <div className="py-14 text-center"><h2 className="text-xl font-medium">A new thread of thought</h2><p className="mt-3 text-sm text-muted">Tell Shepherd what you have in mind.</p></div>}
-            <div className="space-y-8">{controller.chat.messages.map((message) => <Message key={message.id} message={message} />)}</div>
+            <Timeline chat={controller.chat} />
             {active && <div role="status" className="mt-7 flex items-center gap-2 text-xs text-muted"><span className="working-dot" />{controller.chat.activity || "Working"}</div>}
             {controller.chat.error && <p role="alert" className="notice mt-5">{controller.chat.error}</p>}
             <div className="mt-6"><Approvals approvals={controller.approvals} busy={controller.busy || controller.connection !== "online"} decide={(id, choice) => { void controller.decide(id, choice); }} /></div>

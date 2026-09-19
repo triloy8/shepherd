@@ -12,7 +12,7 @@ SHEPHERD_SURFACES=discord
 An unset value defaults to Discord for existing installations. An explicitly
 empty value, malformed name, duplicate, or unregistered surface is an error.
 Registered surfaces are `discord` and `web`. Select either alone or both with
-`discord,web`. The web surface is an authenticated loopback HTTP/SSE API;
+`discord,web`. The web surface is a private loopback HTTP/SSE API;
 see [web API](web-api.md) for configuration. Website hosting is not included.
 
 `bun run check:config` validates configuration without creating a runtime,
@@ -32,8 +32,8 @@ imported; adapter files cannot leak values into another adapter's configuration.
 Runtime settings (including model, sandbox, signal listener and deployment
 configuration) belong in common.env or the process environment. Adapter files
 hold adapter settings only. Discord credentials are required only if Discord is
-selected. Web requires `SHEPHERD_WEB_TOKEN` only when selected. There is no
-interactive menu during unattended startup.
+selected. Web has no application authentication; restrict its network access.
+There is no interactive menu during unattended startup.
 
 ## Runtime ownership
 
@@ -45,7 +45,7 @@ adapter and surface ID; navigation/listening state remains separate.
 Existing exclusive thread binding is preserved: attempting to attach a thread
 already active on another surface still fails. This change does not implement
 shared-thread browsing or simultaneous cross-surface approvals. The web API
-exposes these application operations through a versioned, bearer-authenticated
+exposes these application operations through a versioned, private-network
 HTTP/event contract. Detach a thread before attaching it through another surface.
 
 The host owns process signals, global restart/deploy, quiescing and final session
@@ -69,7 +69,7 @@ required. These are in-process isolation guarantees, not separate-process crash
 isolation. There is no generic automatic adapter restart loop in this change.
 
 Health transitions appear in host logs; the host also exposes a health snapshot
-for integrations/tests. Web adds an authenticated `/api/v1/health` availability
+for integrations/tests. Web adds a `/api/v1/health` availability
 endpoint, not a full host-health snapshot. Discord commands are unchanged.
 Signal notices go only to the adapter named by their delivery target. Presentation
 failure is logged without discarding the underlying signal execution.

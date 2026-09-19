@@ -6,7 +6,6 @@ import type { SurfaceAdapterContext } from "../../server/runtime/surface_adapter
 import type { SurfaceApplicationContext } from "../../server/core/surface_application_context.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
-export const WEB_TEST_TOKEN = "a".repeat(64);
 export function webHarness() {
   const calls: string[] = [];
   const bindings = new Map<string, string>();
@@ -50,10 +49,10 @@ export function webHarness() {
       async applyApprovalDecision(threadId, id, decision) { approvals.markDecided(threadId, id, decision); approvals.markApplied(threadId, id); calls.push("approval"); },
     },
   };
-  const config = readWebConfig({ SHEPHERD_WEB_TOKEN: WEB_TEST_TOKEN, SHEPHERD_WEB_ORIGINS: "https://ui.example.test" });
+  const config = readWebConfig({ SHEPHERD_WEB_ORIGINS: "https://ui.example.test" });
   const api = new WebSurfaceApi(context, config);
   const request = (path: string, method = "GET", data?: unknown, headers: Record<string, string> = {}) => api.fetch(new Request(`http://127.0.0.1/api/v1${path}`, {
-    method, headers: { authorization: `Bearer ${WEB_TEST_TOKEN}`, ...(data !== undefined ? { "content-type": "application/json" } : {}), ...headers },
+    method, headers: { ...(data !== undefined ? { "content-type": "application/json" } : {}), ...headers },
     ...(data !== undefined ? { body: JSON.stringify(data) } : {}),
   }));
   const create = async (data: unknown = { project: "~" }) => {

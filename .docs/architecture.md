@@ -10,7 +10,7 @@ Reviewed against the code on 2026-09-13.
 The adapter paths are split along this rule:
 
 - `server/adapters/discord/*` owns Discord transport, Discord event parsing, Discord rendering, and Discord delivery/runtime glue
-- `server/adapters/web/*` owns bearer authentication, browser origins, versioned HTTP routing and bounded SSE replay. It uses shared application, ingress and approval ports.
+- `server/adapters/web/*` owns browser-origin checks, versioned HTTP routing and bounded SSE replay. It uses shared application, ingress and approval ports.
 - `server/adapters/http/*` owns reusable bounded body parsing.
 - `server/adapters/webhook/*` owns loopback HTTP parsing, route validation, limits, and response mapping; callbacks are unauthenticated
 - `server/core/*` owns reusable policy, action semantics, state, and orchestration

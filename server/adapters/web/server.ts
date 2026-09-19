@@ -40,7 +40,7 @@ export function createWebAdapter(context: SurfaceAdapterContext, config: WebConf
         hostname: config.hostname, port: config.port, maxRequestBodySize: WEB_MAX_BODY_BYTES, idleTimeout: 30,
         async fetch(request, listener) {
           const response = await api.fetch(request);
-          // Disable the idle timer only for authenticated, accepted SSE streams.
+          // Disable the idle timer only for accepted SSE streams.
           if (response.headers.get("content-type") === "text/event-stream") listener.timeout(request, 0);
           return response;
         },

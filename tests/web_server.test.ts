@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { createWebAdapter } from "../server/adapters/web/server.js";
-import { webHarness, WEB_TEST_TOKEN } from "./helpers/web_harness.js";
+import { webHarness } from "./helpers/web_harness.js";
 import { createSurfaceHost } from "../server/runtime/surface_host.js";
 import { createHostRuntime } from "../server/runtime/host_runtime.js";
 import { readRuntimeConfig } from "../server/config/runtime_environment.js";
 import type { SurfaceAdapterContext } from "../server/runtime/surface_adapter.js";
 
-const headers = { authorization: `Bearer ${WEB_TEST_TOKEN}`, "content-type": "application/json" };
+const headers = { "content-type": "application/json" };
 
-test("real loopback HTTP server authenticates, streams, and closes resources on stop", async () => {
+test("real loopback HTTP server checks origins, streams, and closes resources on stop", async () => {
   const h = webHarness();
   const adapter = createWebAdapter(h.context, { ...h.config, port: 0 });
   const abort = new AbortController();
@@ -16,7 +16,7 @@ test("real loopback HTTP server authenticates, streams, and closes resources on 
     await adapter.start(); await adapter.start();
     const url = adapter.url()!;
     expect(url).toStartWith("http://127.0.0.1:");
-    expect((await fetch(`${url}/api/v1/health`)).status).toBe(401);
+    expect((await fetch(`${url}/api/v1/health`, { headers: { origin: "https://untrusted.test" } })).status).toBe(403);
     expect((await fetch(`${url}/api/v1/health`, { headers })).status).toBe(200);
     const c = await (await fetch(`${url}/api/v1/conversations`, { method: "POST", headers, body: JSON.stringify({ project: "~" }) })).json();
     const stream = await fetch(`${url}/api/v1/conversations/${c.id}/events`, { headers, signal: abort.signal });

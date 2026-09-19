@@ -9,11 +9,9 @@ routes in v1.
 
 ## Enable explicitly
 
-Copy `envs/web.env.example` to `envs/web.env` and keep that file private. Generate
-a token with the command in the example. Configure:
+Copy `envs/web.env.example` to `envs/web.env` and configure:
 
 ```env
-SHEPHERD_WEB_TOKEN=<random 32-byte hex secret>
 SHEPHERD_WEB_PORT=8788
 SHEPHERD_WEB_ORIGINS=
 ```
@@ -33,15 +31,18 @@ allowed origin, including when same-origin. CORS is not authentication.
 
 ## Private access and trust
 
-The token represents a single trusted host operator. It permits listing stored
-threads, selecting host workspace paths or repositories, submitting agent work
-under the host's configured policy, and answering approvals. All token holders
-share the same navigation state. There is no per-user authorization or isolation.
-Use a generated secret, never a memorable password. Store it outside source
-control and frontend bundles. A client should request it from the operator and
-keep it in memory; do not put it in URLs, cookies or browser persistent storage.
-Every data endpoint, including health and SSE, requires `Authorization: Bearer
-<token>`. Allowed-origin preflight is the only unauthenticated response.
+There is no application authentication or token. Network reachability grants full
+operator access: listing stored threads, choosing workspaces, submitting agent
+work under host policy, and answering approvals. Local processes on the host and
+all clients allowed to reach the endpoint share this access and navigation state.
+There is no per-user authorization or isolation.
+
+Tailscale and its access policy are the remote access boundary. Restrict access
+to the intended operator clients and expose the API only with private Serve,
+never Funnel or a public reverse proxy. Shepherd does not verify Tailscale identity
+headers or enforce tailnet policy itself. Browser origin checks reject disallowed
+origins before any operation, but non-browser clients can omit or forge Origin;
+these checks do not replace network access control.
 
 For remote access, use an already authenticated Tailscale host and client. From
 the host checkout, the managed Tailscale CLI can proxy the loopback API privately:
@@ -52,7 +53,7 @@ the host checkout, the managed Tailscale CLI can proxy the loopback API privatel
 ```
 
 Use the HTTPS URL printed by Serve, and allow access only to the intended tailnet
-members through tailnet policy. The bearer token is still required. Serve may
+members through tailnet policy. No API token is needed. Serve may
 prompt to enable HTTPS for the tailnet. This is an explicit operator step:
 Shepherd startup and `!deploy` do not configure Serve. Check existing Serve
 configuration before assigning its root route. Do not enable Funnel for this API.
@@ -62,9 +63,8 @@ See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and
 [CLI syntax](https://tailscale.com/docs/reference/tailscale-cli/serve).
 
 A merge or redeploy alone leaves the existing Discord-only selection intact.
-Changing the token requires a host restart and disconnects existing streams;
-clients must authenticate with the replacement token. Tailscale authentication
-and daemon supervision remain independent of Shepherd's lifecycle.
+Tailscale authentication and daemon supervision remain independent of Shepherd's
+lifecycle. Origin configuration changes take effect at the next host restart.
 
 ## HTTP contract
 
@@ -86,7 +86,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | GET | `/conversations/:id/turns?cursor=...&limit=20` | Full persisted turns and pagination cursors |
 | GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices and status |
 | POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason? }`; `{ ok: true }` |
-| GET | `/conversations/:id/events` | Authenticated SSE stream; optional `Last-Event-ID` |
+| GET | `/conversations/:id/events` | SSE stream; optional `Last-Event-ID` |
 
 `project` accepts the shared project-target syntax (a GitHub `owner/repo`, `~/path`,
 or `~`). Provisioning uses existing core workspace rules. A resumed loaded
@@ -109,8 +109,8 @@ to the handle's thread.
 
 ## Event and restart recovery
 
-Use streaming `fetch` with the Authorization header; native browser EventSource
-cannot set that header. SSE has `id`, `event` and JSON `data` fields. Events are:
+Use streaming `fetch` to supply a saved `Last-Event-ID` explicitly, or native
+EventSource for its automatic reconnection. Neither needs credentials. SSE has `id`, `event` and JSON `data` fields. Events are:
 
 - `bridge`: the shared `BridgeEvent` union, including agent deltas, completion,
   errors and approval notifications.
@@ -146,11 +146,11 @@ Pagination limits are 1–100. Limit exhaustion returns 429, shutdown returns 50
 and unclassified backend failures return a sanitized 502 with details in host
 logs. Oversized requests may be rejected by Bun before application routing and
 therefore are not guaranteed a JSON error body. All application responses use
-`Cache-Control: no-store`; the API does not log bearer tokens.
+`Cache-Control: no-store`.
 
 Shutdown quiesces ingress, closes streams/listener and lets the shared host stop
 all sessions, including sessions still initializing. A web adapter never stops
-the other adapters itself. Tests cover authentication/origin checks, route
+the other adapters itself. Tests cover browser-origin checks, route
 validation, concurrent mutations, replay/backpressure, real loopback sockets,
 shared host operation and pending-session cleanup. Live Codex credentials and a
 remote tailnet connection are not required by these automated tests.

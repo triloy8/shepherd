@@ -1,28 +1,25 @@
 import { expect, test } from "bun:test";
-import { webHarness, WEB_TEST_TOKEN } from "./helpers/web_harness.js";
+import { webHarness } from "./helpers/web_harness.js";
 import { readWebConfig } from "../server/adapters/web/config.js";
 
-test("web configuration requires a token, exact safe origins and a valid port", () => {
-  for (const token of [undefined, "short", "a b".repeat(20), "a".repeat(257)]) {
-    expect(() => readWebConfig({ SHEPHERD_WEB_TOKEN: token })).toThrow("TOKEN");
-  }
+test("web configuration requires exact safe origins and a valid port", () => {
   for (const origin of ["*", "null", "http://remote.test", "https://site.test/path", "https://user:pass@site.test", "https://*.test"]) {
-    expect(() => readWebConfig({ SHEPHERD_WEB_TOKEN: WEB_TEST_TOKEN, SHEPHERD_WEB_ORIGINS: origin })).toThrow("ORIGINS");
+    expect(() => readWebConfig({ SHEPHERD_WEB_ORIGINS: origin })).toThrow("ORIGINS");
   }
-  for (const port of ["0", "65536", "no", "1.5"]) expect(() => readWebConfig({ SHEPHERD_WEB_TOKEN: WEB_TEST_TOKEN, SHEPHERD_WEB_PORT: port })).toThrow("PORT");
-  expect(readWebConfig({ SHEPHERD_WEB_TOKEN: WEB_TEST_TOKEN, SHEPHERD_WEB_ORIGINS: "http://localhost:3000" })).toMatchObject({ hostname: "127.0.0.1", port: 8788 });
+  for (const port of ["0", "65536", "no", "1.5"]) expect(() => readWebConfig({ SHEPHERD_WEB_PORT: port })).toThrow("PORT");
+  expect(readWebConfig({ SHEPHERD_WEB_ORIGINS: "http://localhost:3000" })).toMatchObject({ hostname: "127.0.0.1", port: 8788 });
 });
 
-test("all data and health routes require header authentication, never query/cookie tokens", async () => {
+test("private network clients can use the API without credentials", async () => {
   const h = webHarness();
   try {
-    for (const path of ["/health", "/threads", "/conversations", `/health?token=${WEB_TEST_TOKEN}`]) {
-      const r = await h.request(path, "GET", undefined, { authorization: "", cookie: `token=${WEB_TEST_TOKEN}` });
-      expect(r.status).toBe(401); expect(r.headers.get("cache-control")).toBe("no-store");
+    for (const path of ["/health", "/threads", "/conversations"]) {
+      const response = await h.request(path);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.has("www-authenticate")).toBe(false);
     }
-    expect((await h.request("/conversations", "POST", { project: "~" }, { authorization: "Bearer wrong" })).status).toBe(401);
-    expect(h.calls).toEqual([]);
-    expect(await (await h.request("/health")).json()).toEqual({ ok: true, apiVersion: 1 });
+    expect((await h.request("/conversations", "POST", { project: "~" })).status).toBe(201);
   } finally { h.api.dispose(); }
 });
 
@@ -30,10 +27,13 @@ test("browser origin and preflight rules reject unapproved cross-origin access",
   const h = webHarness();
   try {
     expect((await h.request("/health", "GET", undefined, { origin: "https://evil.test" })).status).toBe(403);
+    expect((await h.request("/conversations", "POST", { project: "~" }, { origin: "https://evil.test" })).status).toBe(403);
+    expect((await h.request("/health", "GET", undefined, { origin: "null" })).status).toBe(403);
+    expect(h.calls).toEqual([]);
     const allowed = await h.request("/health", "GET", undefined, { origin: "https://ui.example.test" });
     expect(allowed.headers.get("access-control-allow-origin")).toBe("https://ui.example.test");
     expect(allowed.headers.has("access-control-allow-credentials")).toBe(false);
-    const preflight = await h.request("/conversations", "OPTIONS", undefined, { authorization: "", origin: "https://ui.example.test", "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type" });
+    const preflight = await h.request("/conversations", "OPTIONS", undefined, { origin: "https://ui.example.test", "access-control-request-method": "POST", "access-control-request-headers": "content-type" });
     expect(preflight.status).toBe(204);
     expect((await h.request("/conversations", "OPTIONS", undefined, { origin: "https://ui.example.test", "access-control-request-method": "POST", "access-control-request-headers": "x-unsupported" })).status).toBe(403);
   } finally { h.api.dispose(); }
@@ -93,7 +93,7 @@ test("malformed requests and oversized bodies never invoke conversation creation
     }
     expect((await h.request("/conversations", "POST", { project: "~" }, { "content-type": "text/plain" })).status).toBe(415);
     expect((await h.request("/conversations", "POST", { project: "x".repeat(70_000) })).status).toBe(413);
-    const invalid = await h.api.fetch(new Request("http://localhost/api/v1/conversations", { method: "POST", headers: { authorization: `Bearer ${WEB_TEST_TOKEN}`, "content-type": "application/json" }, body: "{" }));
+    const invalid = await h.api.fetch(new Request("http://localhost/api/v1/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: "{" }));
     expect(invalid.status).toBe(400);
     expect(h.calls).toEqual([]);
     expect((await h.request("/threads?limit=101")).status).toBe(400);

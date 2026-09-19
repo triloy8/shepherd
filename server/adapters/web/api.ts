@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { WEB_API_PREFIX, WEB_API_VERSION, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 import { ApplicationActionError } from "../../core/action_error.js";
@@ -17,7 +17,6 @@ export const WEB_MAX_BODY_BYTES = 64 * 1024;
 const MAX_CONVERSATIONS = 32;
 const MAX_REQUESTS = 32;
 type Entry = { id: string; threadId: string | null; project: string; busy: boolean; feed: WebEventFeed };
-const hash = (value: string) => createHash("sha256").update(value).digest();
 
 function requiredString(object: Record<string, unknown>, key: string, max = 4096): string {
   const value = object[key];
@@ -61,12 +60,10 @@ export class WebSurfaceApi {
   private readonly application: SurfaceApplicationContext;
   private readonly entries = new Map<string, Entry>();
   private readonly resuming = new Set<string>();
-  private readonly tokenHash: Buffer;
   private stopping = false;
   private requests = 0;
 
   constructor(private readonly context: SurfaceAdapterContext, private readonly config: WebConfig) {
-    this.tokenHash = hash(config.token);
     this.application = context.createApplication((id, event) => this.entries.get(id)?.feed.publish("bridge", event));
   }
 
@@ -83,18 +80,13 @@ export class WebSurfaceApi {
       if (!allowedOrigin || !url.pathname.startsWith(`${WEB_API_PREFIX}/`)) return fail(403, "origin_denied", "Preflight is not allowed.");
       const method = request.headers.get("access-control-request-method");
       const requestedHeaders = (request.headers.get("access-control-request-headers") ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
-      if (!method || !["GET", "POST", "DELETE"].includes(method) || requestedHeaders.some((s) => !["authorization", "content-type", "last-event-id"].includes(s))) {
+      if (!method || !["GET", "POST", "DELETE"].includes(method) || requestedHeaders.some((s) => !["content-type", "last-event-id"].includes(s))) {
         return fail(403, "preflight_denied", "Requested method or headers are not allowed.");
       }
       headers.set("access-control-allow-methods", "GET, POST, DELETE");
-      headers.set("access-control-allow-headers", "Authorization, Content-Type, Last-Event-ID");
+      headers.set("access-control-allow-headers", "Content-Type, Last-Event-ID");
       headers.set("access-control-max-age", "600");
       return new Response(null, { status: 204, headers });
-    }
-    const authorization = request.headers.get("authorization") ?? "";
-    if (!authorization.startsWith("Bearer ") || !timingSafeEqual(hash(authorization.slice(7)), this.tokenHash)) {
-      headers.set("www-authenticate", "Bearer");
-      return fail(401, "unauthorized", "A valid bearer token is required.");
     }
     if (this.stopping || this.context.isQuiescing()) return fail(503, "unavailable", "Shepherd is stopping.");
     if (this.requests >= MAX_REQUESTS) return fail(429, "request_limit", "Too many in-flight requests.");

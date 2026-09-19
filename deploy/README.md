@@ -69,6 +69,9 @@ identifies `@openai/codex` as the official package.
 ## 2. Configure Shepherd inside Ubuntu
 
 Select surfaces with `SHEPHERD_SURFACES=discord` in `envs/common.env`.
+The opt-in `web` surface can run alongside Discord; configure its bearer token
+and private access using [the web API guide](../.docs/web-api.md).
+Deployment preserves the selection and does not enable web or Tailscale Serve.
 An unset selection also defaults to Discord; an empty value is an error.
 Only Discord is implemented today. Set its `DISCORD_BOT_TOKEN` in
 `envs/discord.env` or the process environment. For the initial deployment,

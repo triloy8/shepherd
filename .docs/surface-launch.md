@@ -11,9 +11,9 @@ SHEPHERD_SURFACES=discord
 
 An unset value defaults to Discord for existing installations. An explicitly
 empty value, malformed name, duplicate, or unregistered surface is an error.
-Only `discord` is registered today. The selection format can represent multiple
-adapters; `discord,web` becomes valid only after a real web adapter is registered.
-No placeholder web implementation or website hosting is included.
+Registered surfaces are `discord` and `web`. Select either alone or both with
+`discord,web`. The web surface is an authenticated loopback HTTP/SSE API;
+see [web API](web-api.md) for configuration. Website hosting is not included.
 
 `bun run check:config` validates configuration without creating a runtime,
 logging in, starting Codex, or opening a listener. It checks credential presence
@@ -32,7 +32,8 @@ imported; adapter files cannot leak values into another adapter's configuration.
 Runtime settings (including model, sandbox, signal listener and deployment
 configuration) belong in common.env or the process environment. Adapter files
 hold adapter settings only. Discord credentials are required only if Discord is
-selected. There is no interactive menu during unattended startup.
+selected. Web requires `SHEPHERD_WEB_TOKEN` only when selected. There is no
+interactive menu during unattended startup.
 
 ## Runtime ownership
 
@@ -43,9 +44,9 @@ adapter and surface ID; navigation/listening state remains separate.
 
 Existing exclusive thread binding is preserved: attempting to attach a thread
 already active on another surface still fails. This change does not implement
-shared-thread browsing or simultaneous cross-surface approvals. The future web
-client will need a defined HTTP/event contract and access control over these
-same application operations.
+shared-thread browsing or simultaneous cross-surface approvals. The web API
+exposes these application operations through a versioned, bearer-authenticated
+HTTP/event contract. Detach a thread before attaching it through another surface.
 
 The host owns process signals, global restart/deploy, quiescing and final session
 shutdown. An adapter exposes start, stop, and optional signal presentation; it
@@ -68,7 +69,8 @@ required. These are in-process isolation guarantees, not separate-process crash
 isolation. There is no generic automatic adapter restart loop in this change.
 
 Health transitions appear in host logs; the host also exposes a health snapshot
-for integrations/tests. There is no new status endpoint or Discord command.
+for integrations/tests. Web adds an authenticated `/api/v1/health` availability
+endpoint, not a full host-health snapshot. Discord commands are unchanged.
 Signal notices go only to the adapter named by their delivery target. Presentation
 failure is logged without discarding the underlying signal execution.
 
@@ -82,9 +84,9 @@ restart. Tailscale remains independently supervised.
 
 Tests exercise two synthetic adapters with shared runtime identity and separate
 surface state, invalid configuration, partial startup failure, signal routing,
-degraded/recovered health, and shutdown during pending login. The only production
-transport remains Discord. Compiled and source entrypoints are the same launcher.
+degraded/recovered health, and shutdown during pending login. Additional tests exercise real loopback HTTP/SSE and web beside another surface
+in one host. Compiled and source entrypoints are the same launcher.
 
 Merge and deploy through the normal Shepherd flow. Existing installations with
-no selection configured continue using Discord. Do not configure `web` until
-its adapter exists. No changes to shepherd-ui are required for this foundation.
+no selection configured continue using Discord. Web requires explicit selection
+and configuration. No changes to shepherd-ui are required for this backend.

@@ -119,3 +119,10 @@ mock messages are never imported by the production host.
 
 The interface uses a neutral dark palette with text-only Shepherd branding.
 Warning notices retain amber coloring to distinguish errors from ordinary content.
+
+Assistant updates are grouped by turn. Commentary stays visible while work is
+running, then folds into an expandable work summary after confirmed completion.
+The final answer stays visible and alone receives a Copy button. Failed or
+interrupted turns keep their partial work expanded. History reloads restore the
+same grouping; elapsed time is shown only when supplied by stored turn history.
+Provider reasoning and tool output are not rendered as conversation messages.

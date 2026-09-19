@@ -23,6 +23,7 @@ function finish(threadId: string) {
   const history = histories.get(threadId)!;
   const turn = history.at(-1)!;
   turn.status = "completed";
+  turn.durationMs = 1000;
   h.active.set(threadId, null);
   publish(threadId, "turn.completed", { turnId: turn.id });
 }
@@ -33,12 +34,15 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   const turn: HistoryTurn = { id: turnId, status: "inProgress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: `user-${sequence}`, type: "userMessage", content: [{ type: "text", text }] }] };
   histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
   h.active.set(threadId, turnId); publish(threadId, "turn.started", { turnId });
+  const progress = { id: `progress-${sequence}`, type: "agentMessage", phase: "commentary", text: "I’ll check the project first." };
+  turn.items.push(progress);
+  publish(threadId, "turn.message.completed", { itemId: progress.id, turnId, phase: progress.phase, text: progress.text });
   const response = "Let’s make it happen.\n\nI’ll keep the UI connected to the same shared core, with a clear path back to your conversation if the connection drops.\n\n```ts\nconst surface = \"web\";\n```";
-  later(120, () => { if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { method: "item/agentMessage/delta", itemId, turnId, textDelta: "Let’s make it happen." }); });
+  later(120, () => { if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { method: "item/agentMessage/delta", itemId, turnId, phase: "final_answer", textDelta: "Let’s make it happen." }); });
   later(650, () => {
     if (!h.active.get(threadId)) return;
-    turn.items.push({ id: itemId, type: "agentMessage", text: response });
-    publish(threadId, "turn.message.completed", { itemId, turnId, text: response });
+    turn.items.push({ id: itemId, type: "agentMessage", phase: "final_answer", text: response });
+    publish(threadId, "turn.message.completed", { itemId, turnId, phase: "final_answer", text: response });
     if (text.includes("approval")) {
       const approval = { approvalId: `approval-${sequence}`, method: "test", prompt: "Allow Shepherd to run the project’s test suite?", choices: [{ value: "accept", label: "Allow once" }, { value: "decline", label: "Decline" }], params: { command: "bun test", cwd: "~/project" } };
       h.approvals.create(approval, { threadId, sessionId: "fixture" });

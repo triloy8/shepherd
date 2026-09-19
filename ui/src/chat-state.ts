@@ -1,10 +1,12 @@
 import type { BridgeEvent } from "../../shared/protocol/events";
 import type { HistoryTurn } from "../../shared/protocol/requests";
 
-export type ChatMessage = { id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; streamText?: string; snapshotText?: string };
-export type ChatState = { messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
-export const emptyChat = (): ChatState => ({ messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
+export type ChatMessage = { id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; phase?: "commentary" | "final_answer"; streamText?: string; snapshotText?: string };
+export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
+export type ChatState = { turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
+export const emptyChat = (): ChatState => ({ turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
+const phase = (value: unknown) => value === "commentary" || value === "final_answer" ? value : undefined;
 const text = (value: unknown) => typeof value === "string" ? value : "";
 
 export function historyMessages(turns: HistoryTurn[]): ChatMessage[] {
@@ -15,7 +17,7 @@ export function historyMessages(turns: HistoryTurn[]): ChatMessage[] {
       const value = record(part);
       return value.type === "text" ? text(value.text) : value.type === "image" || value.type === "localImage" ? "[Image attachment]" : "";
     }).filter(Boolean).join("\n") : text(item.text);
-    return [{ id: item.id, turnId: turn.id, role: item.type === "userMessage" ? "user" : "assistant", text: content, complete: item.type === "userMessage" || turn.status !== "inProgress" }];
+    return [{ id: item.id, turnId: turn.id, role: item.type === "userMessage" ? "user" : "assistant", text: content, phase: phase(item.phase), complete: item.type === "userMessage" || turn.status !== "inProgress" }];
   }));
 }
 
@@ -25,6 +27,7 @@ export function mergeHistory(state: ChatState, turns: HistoryTurn[], older = fal
   const existing = new Map(retained.map((message) => [message.id, message]));
   for (const message of incoming) {
     const previous = existing.get(message.id);
+    message.phase ??= previous?.phase;
     // History may be ahead of a queued delta. Keep its text separate from the
     // accumulated stream so reconnect replay cannot append the same text twice.
     existing.set(message.id, message.complete ? message : {
@@ -41,7 +44,7 @@ export function mergeHistory(state: ChatState, turns: HistoryTurn[], older = fal
   const prefixIds = new Set(prefix.map((message) => message.id));
   const order = [...prefix, ...incoming, ...retained.filter((message) => !incomingIds.has(message.id) && !prefixIds.has(message.id))];
   const ids = [...new Set(order.map((message) => message.id))];
-  return { ...state, messages: ids.map((id) => existing.get(id)!) };
+  return { ...state, turns: { ...state.turns, ...Object.fromEntries(turns.map((turn) => [turn.id, { status: turn.status, durationMs: turn.durationMs }])) }, messages: ids.map((id) => existing.get(id)!) };
 }
 
 function reconcileText(snapshot: string, stream: string): string {
@@ -70,7 +73,7 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   const previous = state.messages[index];
   if (event.type === "turn.stream.delta" && previous?.complete) return next;
   const message: ChatMessage = {
-    id, turnId: text(payload.turnId), role: "assistant",
+    id, turnId: text(payload.turnId), role: "assistant", phase: phase(payload.phase) ?? previous?.phase,
     text: event.type === "turn.message.completed" ? text(payload.text) : reconcileText(previous?.snapshotText ?? "", (previous?.streamText ?? "") + text(payload.textDelta)),
     streamText: event.type === "turn.stream.delta" ? (previous?.streamText ?? "") + text(payload.textDelta) : undefined,
     snapshotText: previous?.snapshotText,

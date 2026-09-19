@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // Local browser-test fixture. Never imported by production entrypoints.
 import { createWebAdapter } from "../../server/adapters/web/server.js";
 import { webHarness } from "../helpers/web_harness.js";
@@ -5,6 +8,9 @@ import type { HistoryTurn, StoredThreadSummary } from "../../shared/protocol/req
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
 const h = webHarness();
+const imageDir = await mkdtemp(join(tmpdir(), "shepherd-ui-fixture-"));
+const imagePath = join(imageDir, "generated.png");
+await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64"));
 const histories = new Map<string, HistoryTurn[]>([["stored", [{ id: "past", status: "completed", itemsView: "full", error: null, startedAt: 1, completedAt: 2, durationMs: 1000, items: [
   { id: "question", type: "userMessage", content: [{ type: "text", text: "Where did we leave off?" }] },
   { id: "answer", type: "agentMessage", text: "The shared API is ready. Next, we’re building a **private workspace** for conversations, live responses, and approvals.\n\nEverything runs in the same Shepherd host." },
@@ -19,10 +25,10 @@ const publish = (threadId: string, type: BridgeEvent["type"], payload: unknown) 
   if (id) h.publish(id, { id: `fixture-${++sequence}`, type, threadId, sessionId: "fixture", ts: new Date().toISOString(), payload });
 };
 function later(ms: number, run: () => void) { const timer = setTimeout(() => { timers.delete(timer); run(); }, ms); timers.add(timer); }
-function finish(threadId: string) {
+function finish(threadId: string, status: "completed" | "interrupted" = "completed") {
   const history = histories.get(threadId)!;
   const turn = history.at(-1)!;
-  turn.status = "completed";
+  turn.status = status;
   turn.durationMs = 1000;
   h.active.set(threadId, null);
   publish(threadId, "turn.completed", { turnId: turn.id });
@@ -43,6 +49,17 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     if (!h.active.get(threadId)) return;
     turn.items.push({ id: itemId, type: "agentMessage", phase: "final_answer", text: response });
     publish(threadId, "turn.message.completed", { itemId, turnId, phase: "final_answer", text: response });
+    if (text.includes("parity")) {
+      const tool = { id: `tool-${sequence}`, type: "commandExecution", command: "bun test", status: "failed" };
+      turn.items.push(tool);
+      publish(threadId, "turn.activity", { itemId: tool.id, turnId, kind: "command", label: "Running command", detail: tool.command, status: "failed" });
+      const image = { id: `image-${sequence}`, type: "imageGeneration", status: "completed", savedPath: imagePath, revisedPrompt: "Fixture image" };
+      turn.items.push(image);
+      publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: imagePath, revisedPrompt: image.revisedPrompt });
+      const final = { id: `final-${sequence}`, type: "agentMessage", phase: "final_answer", text: "Second final answer part." };
+      turn.items.push(final);
+      publish(threadId, "turn.message.completed", { itemId: final.id, turnId, phase: final.phase, text: final.text });
+    }
     if (text.includes("approval")) {
       const approval = { approvalId: `approval-${sequence}`, method: "test", prompt: "Allow Shepherd to run the project’s test suite?", choices: [{ value: "accept", label: "Allow once" }, { value: "decline", label: "Decline" }], params: { command: "bun test", cwd: "~/project" } };
       h.approvals.create(approval, { threadId, sessionId: "fixture" });
@@ -51,7 +68,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   });
   return { ok: true, turnId };
 };
-h.application.conversation.interruptTurn = async (threadId) => finish(threadId);
+h.application.conversation.interruptTurn = async (threadId) => finish(threadId, "interrupted");
 h.context.approvals.applyApprovalDecision = async (threadId, id, decision) => {
   h.approvals.markDecided(threadId, id, decision); h.approvals.markApplied(threadId, id);
   publish(threadId, "approval.applied", { approvalId: id }); finish(threadId);
@@ -61,5 +78,5 @@ await adapter.start();
 console.log(adapter.url());
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, async () => {
   for (const timer of timers) clearTimeout(timer);
-  await adapter.stop(); h.api.dispose(); process.exit(0);
+  await adapter.stop(); h.api.dispose(); await rm(imageDir, { recursive: true, force: true }); process.exit(0);
 });

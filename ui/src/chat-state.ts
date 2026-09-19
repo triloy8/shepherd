@@ -1,19 +1,21 @@
 import type { BridgeEvent, TurnActivityEvent } from "../../shared/protocol/events";
+import type { WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryTurn } from "../../shared/protocol/requests";
 
-export type ChatMessage = { id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; activity?: TurnActivityEvent["payload"]; phase?: "commentary" | "final_answer"; streamText?: string; snapshotText?: string };
+export type ChatMessage = { id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "commentary" | "final_answer"; streamText?: string; snapshotText?: string };
 export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
-export type ChatState = { turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
-export const emptyChat = (): ChatState => ({ turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
+export type ChatState = { endedTurns: string[]; turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
+export const emptyChat = (): ChatState => ({ endedTurns: [], turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const phase = (value: unknown) => value === "commentary" || value === "final_answer" ? value : undefined;
 const text = (value: unknown) => typeof value === "string" ? value : "";
 
-export function historyMessages(turns: HistoryTurn[]): ChatMessage[] {
+export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
   // API pages are newest first; display each page chronologically.
   return [...turns].reverse().flatMap((turn) => turn.items.flatMap((item): ChatMessage[] => {
+    if (item.webImage) return [{ id: item.id, turnId: turn.id, role: "assistant", text: "", complete: true, image: item.webImage }];
     if (item.webActivity) {
-      const activity = item.webActivity as TurnActivityEvent["payload"];
+      const activity = item.webActivity;
       return [{ id: item.id, turnId: turn.id, role: "assistant", text: "", complete: activity.status !== "started", activity }];
     }
     if (item.type !== "userMessage" && item.type !== "agentMessage") return [];
@@ -25,13 +27,19 @@ export function historyMessages(turns: HistoryTurn[]): ChatMessage[] {
   }));
 }
 
-export function mergeHistory(state: ChatState, turns: HistoryTurn[], older = false): ChatState {
+export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = false): ChatState {
   const incoming = historyMessages(turns);
   const retained = state.messages.filter((message) => !message.id.startsWith("local:") || !incoming.some((item) => item.role === "user" && item.turnId === message.turnId && item.text === message.text));
   const existing = new Map(retained.map((message) => [message.id, message]));
   for (const message of incoming) {
     const previous = existing.get(message.id);
     message.phase ??= previous?.phase;
+    // A snapshot begun before a lifecycle event must not regress a finished
+    // tool to Running or replace an already delivered image with its activity.
+    if (previous?.image && message.activity) { existing.set(message.id, previous); continue; }
+    if (previous?.activity && previous.activity.status !== "started" && message.activity?.status === "started") {
+      existing.set(message.id, previous); continue;
+    }
     // History may be ahead of a queued delta. Keep its text separate from the
     // accumulated stream so reconnect replay cannot append the same text twice.
     existing.set(message.id, message.complete ? message : {
@@ -66,18 +74,26 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   const next = { ...state, seen: [...state.seen.slice(-1023), event.id] };
   const turnId = text(payload.turnId);
   const known = state.turns[turnId];
-  const ended = known && known.status !== "inProgress";
+  const ended = state.endedTurns.includes(turnId) || (known && known.status !== "inProgress");
   // A superseded turn may still deliver queued events. They must not change
   // the current turn, append post-completion deltas or replace its activity.
-  if (event.type.startsWith("turn.") && ((state.activeTurnId && turnId && turnId !== state.activeTurnId && event.type !== "turn.started") ||
+  if (event.type.startsWith("turn.") && ((state.activeTurnId && (!turnId || turnId !== state.activeTurnId) && event.type !== "turn.started") ||
     (ended && ["turn.started", "turn.stream.delta", "turn.activity", "turn.completed", "turn.failed"].includes(event.type)))) return next;
-  if (event.type === "turn.started") return { ...next, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "inProgress", durationMs: null } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
-  if (["turn.completed", "turn.failed"].includes(event.type)) return { ...next, messages: next.messages.map((message) => message.turnId === payload.turnId ? { ...message, complete: true } : message), activeTurnId: null, activity: null, error: event.type === "turn.failed" ? text(payload.message) || "The turn failed." : state.error };
+  if (event.type === "turn.started") return { ...next, endedTurns: state.activeTurnId && state.activeTurnId !== turnId ? [...new Set([...state.endedTurns, state.activeTurnId])] : state.endedTurns, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "inProgress", durationMs: null } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
+  if (["turn.completed", "turn.failed"].includes(event.type)) return { ...next, endedTurns: turnId ? [...new Set([...state.endedTurns, turnId])] : state.endedTurns, messages: next.messages.map((message) => message.turnId === payload.turnId ? { ...message, complete: true } : message), activeTurnId: null, activity: null, error: event.type === "turn.failed" ? text(payload.message) || "The turn failed." : state.error };
   if (event.type === "session.error" || event.type === "session.limit.context") return { ...next, error: text(payload.message) || "The session needs attention." };
+  if (event.type === "turn.image.generated") {
+    const id = text(payload.itemId);
+    if (!id || !text(payload.url)) return next;
+    const message: ChatMessage = { id, turnId, role: "assistant", text: "", complete: true, image: { url: text(payload.url), prompt: text(payload.revisedPrompt) || null } };
+    const previous = state.messages.find((m) => m.id === id && m.turnId === turnId);
+    return { ...next, messages: previous ? state.messages.map((m) => m === previous ? message : m) : [...state.messages, message] };
+  }
   if (event.type === "turn.activity") {
     const activity = event.payload as TurnActivityEvent["payload"];
     const id = activity.itemId || event.id;
     const previous = state.messages.find((m) => m.id === id && m.turnId === turnId);
+    if (previous?.image) return next;
     if (previous?.activity && previous.activity.status !== "started" && activity.status === "started") return next;
     const message: ChatMessage = { id, turnId, role: "assistant", text: "", complete: activity.status !== "started", activity };
     return { ...next, messages: previous ? state.messages.map((m) => m === previous ? message : m) : [...state.messages, message], activity: activity.status === "started" ? activity.label || "Working" : "Thinking" };

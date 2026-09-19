@@ -113,7 +113,7 @@ export function useConversation(conversation: WebConversation | null) {
     const successful = await action(async (id) => {
       const response = await api.send(id, text);
       if (identity.current !== id) return;
-      setChat((current) => ({ ...current, activeTurnId: response.turnId, messages: [...current.messages, {
+      setChat((current) => ({ ...current, activeTurnId: response.turnId && !current.endedTurns.includes(response.turnId) ? response.turnId : current.activeTurnId, messages: [...current.messages, {
         id: `local:${crypto.randomUUID()}`, turnId: response.turnId ?? "", role: "user", text, complete: true,
       }] }));
     });

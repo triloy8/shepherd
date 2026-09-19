@@ -1,4 +1,5 @@
-import { mapTurnActivity } from "../../core/codex_rpc_mapper.js";
+import { WebImages } from "./images.js";
+import { mapTurnActivity, extractGeneratedImageArtifact } from "../../core/codex_rpc_mapper.js";
 import { randomUUID } from "node:crypto";
 import { WEB_API_PREFIX, WEB_API_VERSION, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
@@ -17,7 +18,7 @@ import { WebEventFeed } from "./event_feed.js";
 export const WEB_MAX_BODY_BYTES = 64 * 1024;
 const MAX_CONVERSATIONS = 32;
 const MAX_REQUESTS = 32;
-type Entry = { id: string; threadId: string | null; project: string; busy: boolean; feed: WebEventFeed };
+type Entry = { id: string; threadId: string | null; project: string; busy: boolean; feed: WebEventFeed; images: WebImages };
 
 function requiredString(object: Record<string, unknown>, key: string, max = 4096): string {
   const value = object[key];
@@ -65,7 +66,14 @@ export class WebSurfaceApi {
   private requests = 0;
 
   constructor(private readonly context: SurfaceAdapterContext, private readonly config: WebConfig) {
-    this.application = context.createApplication((id, event) => this.entries.get(id)?.feed.publish("bridge", event));
+    this.application = context.createApplication((id, event) => {
+      const entry = this.entries.get(id);
+      if (!entry) return;
+      if (event.type === "turn.image.generated") {
+        const image = event.payload as import("../../../shared/protocol/events.js").TurnImageGeneratedEvent["payload"];
+        entry.feed.publish("bridge", { ...event, payload: { ...image, url: entry.images.register(image.turnId, image.itemId, image.path) } });
+      } else entry.feed.publish("bridge", event);
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -104,18 +112,19 @@ export class WebSurfaceApi {
           return json(201, await this.create(requiredString(data, "project"), optionalString(data, "threadId", 256)));
         }
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
       const threadId = entry.threadId;
       const action = match[2];
-      if (match[3] && action !== "approvals") return fail(404, "not_found", "Route not found.");
+      if (match[3] && action !== "approvals" && action !== "images") return fail(404, "not_found", "Route not found.");
       if (!action && request.method === "GET") return json(200, { ...this.summary(entry), state: this.context.ingress.getThreadState(threadId) });
       if (!action && request.method === "DELETE") {
         await this.mutate(entry, async () => this.remove(entry));
         return json(200, { ok: true });
       }
+      if (action === "images" && match[3] && request.method === "GET") return await entry.images.response(match[3], headers);
       if (action === "events" && request.method === "GET") {
         const stream = entry.feed.open(request.headers.get("last-event-id"), request.signal);
         headers.set("content-type", "text/event-stream");
@@ -125,6 +134,8 @@ export class WebSurfaceApi {
       if (action === "turns" && request.method === "GET") {
         const history = await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full", sortDirection: "desc" });
         return json(200, { ...history, data: history.data.map((turn) => ({ ...turn, items: turn.items.map((item) => {
+          const image = extractGeneratedImageArtifact({ turnId: turn.id, item });
+          if (image) return { ...item, webImage: { url: entry.images.register(turn.id, image.itemId, image.path), prompt: image.revisedPrompt } };
           const activity = mapTurnActivity({ turnId: turn.id, item }, item.status === "inProgress" ? "started" : "completed");
           return activity ? { ...item, webActivity: activity } : item;
         }) })) });
@@ -198,7 +209,8 @@ export class WebSurfaceApi {
     }
     if (this.entries.size >= MAX_CONVERSATIONS) throw new WebRequestError(429, "conversation_limit", "Detach an existing conversation before opening another.");
     if (threadId && this.resuming.has(threadId)) throw new WebRequestError(409, "thread_in_use", "Thread resume is already in progress.");
-    const entry: Entry = { id: randomUUID(), threadId: null, project, busy: false, feed: new WebEventFeed() };
+    const id = randomUUID();
+    const entry: Entry = { id, images: new WebImages(id), threadId: null, project, busy: false, feed: new WebEventFeed() };
     this.entries.set(entry.id, entry);
     if (threadId) this.resuming.add(threadId);
     try {

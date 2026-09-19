@@ -125,3 +125,34 @@ test("tool history survives reload and is not mistaken for a final answer", () =
   expect(state.messages.find((m) => m.id === "tool")?.activity?.status).toBe("completed");
   expect(timelineGroups(state).flatMap((g) => g.finalIds)).toEqual(["answer"]);
 });
+
+test("generated images stay visible, use only scoped URLs and deduplicate by item", () => {
+  const imageEvent = event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: "/api/v1/conversations/abc/images/def", revisedPrompt: "A picture" });
+  let state = reduceBridge(emptyChat(), imageEvent);
+  state = reduceBridge(state, { ...imageEvent, id: "replay" });
+  expect(state.messages).toHaveLength(1);
+  state.turns.turn = { status: "completed", durationMs: 1 };
+  expect(render(state)).toContain('<img'); expect(render(state)).not.toContain("progress-disclosure");
+  state.messages[0]!.image!.url = "https://tracking.test/image.png";
+  expect(render(state)).not.toContain('<img'); expect(render(state)).toContain("unavailable");
+});
+
+test("superseded and completed turns cannot restart from late events", () => {
+  let state = reduceBridge(emptyChat(), event("start1", "turn.started", { turnId: "old" }));
+  state = reduceBridge(state, event("start2", "turn.started", { turnId: "new" }));
+  state = reduceBridge(state, event("late", "turn.started", { turnId: "old" }));
+  expect(state.activeTurnId).toBe("new");
+  state = reduceBridge(state, event("null", "turn.completed", { turnId: null }));
+  expect(state.activeTurnId).toBe("new");
+  state = reduceBridge(state, event("end", "turn.completed", { turnId: "new" }));
+  state = reduceBridge(state, event("late2", "turn.stream.delta", { turnId: "new", itemId: "ghost", method: "item/agentMessage/delta", textDelta: "Late" }));
+  expect(state.messages).toHaveLength(0);
+});
+
+test("a stale history snapshot cannot regress finished tool activity", () => {
+  let state = reduceBridge(emptyChat(), event("tool", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "failed" }));
+  const history = turn("inProgress");
+  history.items.push({ id: "tool", type: "commandExecution", webActivity: { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "started" } });
+  state = mergeHistory(state, [history]);
+  expect(state.messages.find((m) => m.id === "tool")?.activity?.status).toBe("failed");
+});

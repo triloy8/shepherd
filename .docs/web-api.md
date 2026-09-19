@@ -3,8 +3,8 @@
 The `web` surface provides the conversation API and [built-in web UI](web-ui.md).
 It runs alone or beside Discord against the same application core. It does not
 provide arbitrary Codex RPC or full Discord command parity. Text prompts,
-history, events, interruption and approvals are the initial scope; attachments
-and model/skill/deploy controls are not HTTP routes in v1.
+history, events, interruption and approvals are the initial scope. Attachment
+uploads and model/skill/deploy controls are not HTTP routes in v1; generated image output is supported.
 
 ## Enable explicitly
 
@@ -160,3 +160,20 @@ the other adapters itself. Tests cover browser-origin checks, route
 validation, concurrent mutations, replay/backpressure, real loopback sockets,
 shared host operation and pending-session cleanup. Live Codex credentials and a
 remote tailnet connection are not required by these automated tests.
+
+## Turn activity and generated images
+
+History items may include `webActivity` (the shared normalized activity payload)
+or `webImage: { url, prompt }`. Generated-image SSE events include the same scoped
+asset URL as `payload.url`. The browser uses these fields for the work timeline
+and image previews; it does not request files by filesystem path.
+
+`GET /conversations/:id/images/:assetId` serves only an artifact registered from a
+provider image event or that conversation's stored history. IDs are opaque and
+scoped to the attached conversation. Origin/host checks and the private network
+boundary apply to images too. Responses are non-cacheable, with verified raster
+MIME types and nosniff. PNG, JPEG, GIF and WebP files up to 10 MiB are supported by
+the shared loader used for Discord. No SVG/HTML or arbitrary file endpoint exists.
+Each handle retains at most 256 image references; detach/restart discards them.
+Reloading the relevant history registers images again. Unknown references return
+404; missing, oversized or unsupported files return sanitized 422 errors.

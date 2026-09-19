@@ -1,6 +1,6 @@
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
-import type { BridgeEvent } from "./events.js";
-import type { GetThreadStateResponse, ListStoredThreadsResponse, ListThreadTurnsResponse } from "./requests.js";
+import type { BridgeEvent, TurnActivityEvent, TurnImageGeneratedEvent } from "./events.js";
+import type { GetThreadStateResponse, HistoryItem, HistoryTurn, ListStoredThreadsResponse, ListThreadTurnsResponse } from "./requests.js";
 import type { SignalEnvelope } from "./signals.js";
 
 /** Versioned browser contract, independent of adapter implementation. */
@@ -18,7 +18,11 @@ export type WebConversationState = WebConversation & { state: GetThreadStateResp
 export type WebConversationsResponse = { conversations: WebConversation[] };
 export type WebApprovalsResponse = { approvals: ApprovalRecord[] };
 export type WebThreadsResponse = ListStoredThreadsResponse;
-export type WebHistoryResponse = ListThreadTurnsResponse;
+export type WebImage = { url: string; prompt: string | null };
+export type WebHistoryItem = HistoryItem & { webActivity?: TurnActivityEvent["payload"]; webImage?: WebImage };
+export type WebHistoryTurn = Omit<HistoryTurn, "items"> & { items: WebHistoryItem[] };
+export type WebHistoryResponse = Omit<ListThreadTurnsResponse, "data"> & { data: WebHistoryTurn[] };
+export type WebGeneratedImagePayload = TurnImageGeneratedEvent["payload"] & { url: string };
 export type WebError = { error: { code: string; message: string } };
 /** SSE event names and their JSON data. SSE IDs are opaque replay cursors. */
 export type WebEventData = {

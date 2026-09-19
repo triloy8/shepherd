@@ -1,9 +1,11 @@
 import type { ChatState } from "../chat-state";
 import { timelineGroups } from "../timeline";
+import { GeneratedImage } from "./GeneratedImage";
 import { Message } from "./Message";
 
 export function Timeline({ chat }: { chat: ChatState }) {
   return <div className="space-y-8">{timelineGroups(chat).map((group) => {
+    if (group.messages[0]!.image) return <GeneratedImage key={group.id} image={group.messages[0]!.image!} />;
     if (group.messages[0]!.role === "user") return <Message key={group.id} message={group.messages[0]!} />;
     const progress = group.messages.filter((message) => !group.finalIds.includes(message.id));
     const finals = group.messages.filter((message) => group.finalIds.includes(message.id));
@@ -12,7 +14,7 @@ export function Timeline({ chat }: { chat: ChatState }) {
       {message.activity.detail && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{message.activity.detail.slice(0, 16384)}</pre>}
     </details> : <Message key={message.id} message={message} progress showCopy={false} />)}</div>;
     return <section key={group.id} className="space-y-5" aria-label="Assistant turn">
-      {progress.length > 0 && (group.settled ?
+      {progress.length > 0 && (group.settled && !progress.some((message) => message.activity?.status === "failed") ?
         <details className="progress-disclosure"><summary className="cursor-pointer text-xs text-muted hover:text-ink">{group.label}</summary><div className="mt-4">{updates}</div></details> :
         <div><p className="mb-3 text-xs text-muted">{group.label}</p>{updates}</div>)}
       {finals.map((message) => <Message key={message.id} message={message} showCopy={group.settled} />)}

@@ -435,7 +435,18 @@ export class CodexSession {
 
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
     await this.initialize();
-    return this.sendRequest("thread/turns/list", { ...request, threadId }) as Promise<ListThreadTurnsResponse>;
+    try {
+      return await this.sendRequest("thread/turns/list", { ...request, threadId }) as ListThreadTurnsResponse;
+    } catch (error) {
+      // Codex does not persist a newly created thread until its first user message.
+      // Only this explicit first-page condition means empty history; never hide
+      // missing threads, bad cursors, transport failures or other backend errors.
+      if (!request.cursor && error instanceof Error && error.message ===
+        `thread ${threadId} is not materialized yet; thread/turns/list is unavailable before first user message`) {
+        return { data: [], nextCursor: null, backwardsCursor: null };
+      }
+      throw error;
+    }
   }
 
   async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {

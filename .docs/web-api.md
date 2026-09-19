@@ -108,6 +108,11 @@ from a pending approval. Invalid choices return 400 without consuming it; missin
 approvals return 404; already-decided approvals return 409. Approvals must belong
 to the handle's thread.
 
+Before the first user message, a newly created thread has no persisted history.
+Its first turns page returns 200 with empty `data` and null pagination cursors.
+This applies only to Codex's explicit not-yet-materialized thread response;
+missing threads, invalid cursors and other backend failures remain errors.
+
 ## Event and restart recovery
 
 Use streaming `fetch` to supply a saved `Last-Event-ID` explicitly, or native

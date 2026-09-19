@@ -184,6 +184,8 @@ export class DeploymentService {
       try {
         await this.git(["checkout", "--quiet", "--detach", previousCommit]);
         await this.run("bun", ["install", "--frozen-lockfile"]);
+        // Restore generated artifacts (including UI assets) with the restored source.
+        await this.run("bun", ["run", "build"]);
       } catch (rollbackError) {
         throw new Error(
           [

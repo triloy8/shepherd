@@ -19,10 +19,10 @@ test("source launcher checks selected configuration without connecting and repor
     const valid = await exec(process.execPath, [main, "--check-config"], { cwd, env, timeout: 15_000 });
     expect(valid.stdout).toContain("Selected surfaces: discord");
     expect(valid.stdout).not.toContain("bridge ready");
-    await writeFile(join(cwd, "envs/common.env"), "SHEPHERD_SURFACES=web\n");
+    await writeFile(join(cwd, "envs/common.env"), "SHEPHERD_SURFACES=unknown\n");
     const unknown = await exec(process.execPath, [main], { cwd, env, timeout: 15_000 }).catch((error) => error);
     expect(unknown.code).toBe(1);
-    expect(unknown.stderr).toContain("Surface 'web' is not available");
+    expect(unknown.stderr).toContain("Surface 'unknown' is not available");
     await writeFile(join(cwd, "envs/common.env"), "SHEPHERD_SURFACES=discord\n");
     await rm(join(cwd, "envs/discord.env"));
     const missing = await exec(process.execPath, [main, "--check-config"], { cwd, env, timeout: 15_000 }).catch((error) => error);

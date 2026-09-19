@@ -1,3 +1,4 @@
+import { BodyTooLargeError, readBoundedJson } from "../http/body.js";
 import type { SignalDispatchResult } from "../../core/signal_dispatcher.js";
 import {
   SignalRouteRateLimitError,
@@ -67,7 +68,6 @@ export type WebhookSignalServer = {
   stop: () => Promise<void>;
 };
 
-class BodyTooLargeError extends Error {}
 
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return Response.json(body, {
@@ -78,40 +78,6 @@ function jsonResponse(status: number, body: Record<string, unknown>): Response {
   });
 }
 
-async function readBoundedJson(request: Request, maxBodyBytes: number): Promise<unknown> {
-  const declaredLength = request.headers.get("content-length");
-  if (declaredLength !== null) {
-    const parsedLength = Number(declaredLength);
-    if (Number.isFinite(parsedLength) && parsedLength > maxBodyBytes) {
-      throw new BodyTooLargeError("Signal body is too large.");
-    }
-  }
-
-  if (!request.body) throw new SyntaxError("Signal body is required.");
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBodyBytes) {
-      await reader.cancel();
-      throw new BodyTooLargeError("Signal body is too large.");
-    }
-    chunks.push(value);
-  }
-
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  const text = new TextDecoder().decode(bytes);
-  if (!text.trim()) throw new SyntaxError("Signal body is required.");
-  return JSON.parse(text) as unknown;
-}
 
 function responseForDispatch(result: SignalDispatchResult): Response {
   switch (result.type) {

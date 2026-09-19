@@ -1,7 +1,7 @@
 # Architecture
 
 This document describes the current ownership boundaries between Shepherd's
-Discord and webhook adapters, application core, and runtime core.
+Discord, web API and webhook adapters, application core, and runtime core.
 
 Reviewed against the code on 2026-09-13.
 
@@ -10,6 +10,8 @@ Reviewed against the code on 2026-09-13.
 The adapter paths are split along this rule:
 
 - `server/adapters/discord/*` owns Discord transport, Discord event parsing, Discord rendering, and Discord delivery/runtime glue
+- `server/adapters/web/*` owns browser-origin checks, versioned HTTP routing and bounded SSE replay. It uses shared application, ingress and approval ports.
+- `server/adapters/http/*` owns reusable bounded body parsing.
 - `server/adapters/webhook/*` owns loopback HTTP parsing, route validation, limits, and response mapping; callbacks are unauthenticated
 - `server/core/*` owns reusable policy, action semantics, state, and orchestration
 - `server/runtime/*` assembles shared services and owns process lifecycle; it may wire ingress adapters but must not depend on Discord
@@ -431,8 +433,33 @@ signals live in `process_lifecycle.ts`; adapters never install exit handlers.
 
 The root registry in `server/surface_definitions.ts` imports only selected
 transports. Shared runtime selection validates those definitions without importing
-Discord itself. Signal
+Discord or web themselves. Signal
 presentation is dispatched to its target adapter; a delivery error does not
 cancel signal execution. Exclusive thread binding remains enabled, so multiple
 adapters running does not imply simultaneous attachment to the same thread.
 See [surface launch](surface-launch.md) for the operational contract.
+
+
+## Web conversation API
+
+The optional `web` surface exposes `/api/v1` on loopback. Transport contracts live
+in `shared/protocol/web.ts`; the adapter keeps only navigation handles, request
+serialization and bounded event feeds. Project targeting and thread orchestration
+use `SurfaceApplicationContext`, messages use `executeTurnRouting`, and approval
+decisions use a bound `ApprovalConversation` port. Core decision validation rejects
+values outside the advertised choices before consuming a pending approval.
+Neither adapter owns process shutdown or duplicates agent policy.
+
+A web conversation handle maps to an exclusive core surface binding. Detaching
+releases subscriptions, routing and navigation state without terminating the
+underlying session. Handles and replay buffers are volatile; stored thread
+history is the recovery source. Browser reconnects do not submit prompts again.
+
+SessionManager owns sessions from allocation, including pending bootstrap, and
+rejects late startup completion after shutdown. Concurrent catalog requests share
+control-session initialization; concurrent resumes of the same thread share a
+bootstrap. Failed startup releases the allocated session. An explicitly stopped
+CodexSession cannot spawn again.
+
+See [web API setup and contract](web-api.md) for the operator trust boundary,
+request shapes, event recovery, limits and private network access.

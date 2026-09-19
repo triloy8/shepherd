@@ -120,63 +120,55 @@ export class SessionManager {
   private effortStateByThread = new Map<string, { current: string | null; pending: string | null }>();
   private modelStateByThread = new Map<string, ManagedModelState>();
   private controlSession: CodexSession | null = null;
+  private controlSessionStarting: Promise<CodexSession> | null = null;
+  private readonly ownedSessions = new Set<CodexSession>();
+  private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
+  private stopped = false;
 
-  constructor(private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry()) {}
+  constructor(
+    private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
+    private readonly sessionFactory = (policy: ApprovalPolicy, tools: DynamicToolRegistry) => new CodexSession(policy, tools),
+  ) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
-    const approvalPolicy = request.approvalPolicy ?? "on-request";
-    const managed = await this.createManagedSession(approvalPolicy);
-    const created = await managed.session.startThread(request);
-    this.sessionsByThread.set(created.threadId, managed);
-    if (request.cwd) {
-      this.cwdByThread.set(created.threadId, request.cwd);
-    }
-    this.effortStateByThread.set(created.threadId, { current: created.reasoningEffort, pending: null });
-    this.modelStateByThread.set(created.threadId, {
-      currentModel: created.model,
-      modelProvider: created.modelProvider,
-      pendingModel: null,
-    });
-    return { threadId: created.threadId, sessionId: managed.session.sessionId };
+    return this.bootstrap(request, (session) => session.startThread(request));
   }
 
   async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ResumeThreadResponse> {
+    this.assertRunning();
     const existing = this.sessionsByThread.get(threadId);
-    if (existing) {
-      return { threadId, sessionId: existing.session.sessionId };
-    }
-
-    const approvalPolicy = request.approvalPolicy ?? "on-request";
-    const managed = await this.createManagedSession(approvalPolicy);
-    const resumed = await managed.session.resumeThread(threadId, request);
-    this.sessionsByThread.set(resumed.threadId, managed);
-    if (request.cwd) {
-      this.cwdByThread.set(resumed.threadId, request.cwd);
-    }
-    this.effortStateByThread.set(resumed.threadId, { current: resumed.reasoningEffort, pending: null });
-    this.modelStateByThread.set(resumed.threadId, {
-      currentModel: resumed.model,
-      modelProvider: resumed.modelProvider,
-      pendingModel: null,
-    });
-    return { threadId: resumed.threadId, sessionId: managed.session.sessionId };
+    if (existing) return { threadId, sessionId: existing.session.sessionId };
+    const pending = this.resuming.get(threadId);
+    if (pending) return pending;
+    const operation = this.bootstrap(request, (session) => session.resumeThread(threadId, request));
+    this.resuming.set(threadId, operation);
+    try { return await operation; }
+    finally { this.resuming.delete(threadId); }
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
-    const approvalPolicy = request.approvalPolicy ?? "on-request";
-    const managed = await this.createManagedSession(approvalPolicy);
-    const forked = await managed.session.forkThread(threadId, request);
-    this.sessionsByThread.set(forked.threadId, managed);
-    if (request.cwd) {
-      this.cwdByThread.set(forked.threadId, request.cwd);
+    return this.bootstrap(request, (session) => session.forkThread(threadId, request));
+  }
+
+  private async bootstrap(
+    request: { approvalPolicy?: ApprovalPolicy; cwd?: string },
+    start: (session: CodexSession) => ReturnType<CodexSession["startThread"]>,
+  ): Promise<CreateThreadResponse> {
+    const session = this.allocateSession(request.approvalPolicy ?? "on-request");
+    try {
+      const created = await start(session);
+      this.assertRunning();
+      this.sessionsByThread.set(created.threadId, { session, createdAt: new Date().toISOString() });
+      if (request.cwd) this.cwdByThread.set(created.threadId, request.cwd);
+      this.effortStateByThread.set(created.threadId, { current: created.reasoningEffort, pending: null });
+      this.modelStateByThread.set(created.threadId, {
+        currentModel: created.model, modelProvider: created.modelProvider, pendingModel: null,
+      });
+      return { threadId: created.threadId, sessionId: session.sessionId };
+    } catch (error) {
+      this.releaseSession(session);
+      throw error;
     }
-    this.effortStateByThread.set(forked.threadId, { current: forked.reasoningEffort, pending: null });
-    this.modelStateByThread.set(forked.threadId, {
-      currentModel: forked.model,
-      modelProvider: forked.modelProvider,
-      pendingModel: null,
-    });
-    return { threadId: forked.threadId, sessionId: managed.session.sessionId };
   }
 
   listThreads(): ListThreadsResponse {
@@ -514,25 +506,30 @@ export class SessionManager {
   }
 
   stopAll(): void {
-    for (const managed of this.sessionsByThread.values()) {
-      managed.session.stop();
-    }
+    this.stopped = true;
+    for (const session of this.ownedSessions) this.releaseSession(session);
     this.sessionsByThread.clear();
     this.tokenUsageByThread.clear();
     this.cwdByThread.clear();
     this.modelStateByThread.clear();
     this.effortStateByThread.clear();
-    this.controlSession?.stop();
     this.controlSession = null;
   }
 
-  private async createManagedSession(approvalPolicy: ApprovalPolicy): Promise<ManagedSession> {
-    const session = new CodexSession(approvalPolicy, this.dynamicTools);
+  private assertRunning(): void {
+    if (this.stopped) throw new Error("Session manager is stopped.");
+  }
+
+  private allocateSession(approvalPolicy: ApprovalPolicy): CodexSession {
+    this.assertRunning();
+    const session = this.sessionFactory(approvalPolicy, this.dynamicTools);
+    this.ownedSessions.add(session);
     this.attachSessionSubscriptions(session);
-    return {
-      session,
-      createdAt: new Date().toISOString(),
-    };
+    return session;
+  }
+
+  private releaseSession(session: CodexSession): void {
+    if (this.ownedSessions.delete(session)) session.stop();
   }
 
   private attachSessionSubscriptions(session: CodexSession): void {
@@ -554,12 +551,24 @@ export class SessionManager {
   }
 
   private async getControlSession(): Promise<CodexSession> {
+    this.assertRunning();
     if (this.controlSession) return this.controlSession;
-    const session = new CodexSession("on-request", this.dynamicTools);
-    this.attachSessionSubscriptions(session);
-    await session.initialize();
-    this.controlSession = session;
-    return session;
+    if (this.controlSessionStarting) return this.controlSessionStarting;
+    const session = this.allocateSession("on-request");
+    const starting = (async () => {
+      try {
+        await session.initialize();
+        this.assertRunning();
+        this.controlSession = session;
+        return session;
+      } catch (error) {
+        this.releaseSession(session);
+        throw error;
+      }
+    })();
+    this.controlSessionStarting = starting;
+    try { return await starting; }
+    finally { this.controlSessionStarting = null; }
   }
 
   private mustGet(threadId: string): ManagedSession {

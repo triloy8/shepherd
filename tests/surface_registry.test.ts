@@ -61,8 +61,8 @@ test("all selected configuration is validated before any client is created", asy
   expect(creates).toBe(0);
 });
 
-test("production registry rejects web and validates Discord without login", async () => {
-  await expect(prepareSurfaces({ SHEPHERD_SURFACES: "web" }, surfaceRegistry)).rejects.toThrow("not available");
+test("production registry validates web independently of Discord", async () => {
+  expect((await prepareSurfaces({ SHEPHERD_SURFACES: "web" }, surfaceRegistry)).map(({ id }) => id)).toEqual(["web"]);
   await expect(prepareSurfaces({ DISCORD_BOT_TOKEN: " " }, surfaceRegistry)).rejects.toThrow("Missing DISCORD_BOT_TOKEN");
   await expect(prepareSurfaces({ DISCORD_BOT_TOKEN: "test", SHEPHERD_DISCORD_STREAMING: "invalid" }, surfaceRegistry)).rejects.toThrow("must be true or false");
   expect((await prepareSurfaces({ DISCORD_BOT_TOKEN: "test" }, surfaceRegistry)).map(({ id }) => id)).toEqual(["discord"]);

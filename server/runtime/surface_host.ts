@@ -1,5 +1,5 @@
 import type { RuntimeConfig } from "../config/runtime_environment.js";
-import { createIngressConversation, createInteractionConversation } from "../core/conversation_ports.js";
+import { createApprovalConversation, createIngressConversation, createInteractionConversation } from "../core/conversation_ports.js";
 import { createHostRuntime } from "./host_runtime.js";
 import { SignalRuntime } from "./signal_runtime.js";
 import { createSurfaceRuntime } from "./surface_runtime.js";
@@ -65,6 +65,7 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
           approvalPolicy: config.approvalPolicy,
           ingress: createIngressConversation(shepherd.conversation),
           interactions: createInteractionConversation(shepherd.conversation),
+          approvals: createApprovalConversation(shepherd.conversation),
           isQuiescing: () => shepherd.isQuiescing(),
           reportHealth: (value) => report(prepared.id, value),
           createApplication: (onThreadEvent) => createSurfaceRuntime({

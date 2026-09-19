@@ -96,6 +96,12 @@ export class SurfaceConversationOrchestrator {
     this.surfaceState.resetListeningMode(this.adapter, surfaceId);
   }
 
+  disposeSurface(surfaceId: string): void {
+    this.conversation.releaseSurface(this.adapter, surfaceId);
+    this.surfaceState.clearProjectTarget(this.adapter, surfaceId);
+    this.surfaceState.resetListeningMode(this.adapter, surfaceId);
+  }
+
   async createAndBindSurfaceThread(
     surfaceId: string,
     listener: (event: BridgeEvent) => void,
@@ -149,14 +155,14 @@ export class SurfaceConversationOrchestrator {
     requestedThreadId: string,
     listener: (event: BridgeEvent) => void,
   ): Promise<string> {
-    let resolvedThreadId = requestedThreadId;
     try {
       this.conversation.getThreadState(requestedThreadId);
-      await this.bindSurfaceToThread(surfaceId, requestedThreadId, listener);
     } catch {
-      resolvedThreadId = await this.resumeSurfaceThread(surfaceId, requestedThreadId, listener);
+      return this.resumeSurfaceThread(surfaceId, requestedThreadId, listener);
     }
-    return resolvedThreadId;
+    // A binding conflict is not a missing thread: never resume or change its cwd.
+    await this.bindSurfaceToThread(surfaceId, requestedThreadId, listener);
+    return requestedThreadId;
   }
 
   async ensureSurfaceThread(

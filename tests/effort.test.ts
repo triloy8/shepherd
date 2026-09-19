@@ -4,13 +4,11 @@ import { CodexSession } from "../server/core/codex_session.js";
 import { handleMessage } from "../server/adapters/discord/commands.js";
 
 async function setup() {
-  const manager = new SessionManager();
   const starts: unknown[][] = [];
-  const session = {
-    async startThread() { return { threadId: "thread-1", model: "test-model", reasoningEffort: "low" }; },
-    async startTurn(...args: unknown[]) { starts.push(args); return "turn-1"; },
-  };
-  (manager as any).createManagedSession = async () => ({ session });
+  const session = new CodexSession("on-request");
+  session.startThread = async () => ({ threadId: "thread-1", model: "test-model", modelProvider: null, reasoningEffort: "low" });
+  session.startTurn = async (...args) => { starts.push(args); return "turn-1"; };
+  const manager = new SessionManager(undefined, () => session);
   const model = {
     id: "test-model", model: "test-model", displayName: "Test", description: "",
     hidden: false, isDefault: true, supportsPersonality: false,

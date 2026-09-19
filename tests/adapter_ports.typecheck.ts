@@ -26,5 +26,9 @@ function assertLauncherBoundary(adapter: SurfaceAdapterContext) {
   adapter.ingress.stopAll();
   // @ts-expect-error Approval handling cannot create raw sessions.
   adapter.interactions.createThread({});
+  // @ts-expect-error The approval port cannot create sessions.
+  adapter.approvals.createThread({});
+  // @ts-expect-error The approval port cannot stop shared runtime.
+  adapter.approvals.stopAll();
 }
 void assertLauncherBoundary;

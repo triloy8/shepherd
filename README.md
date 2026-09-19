@@ -10,7 +10,7 @@ It packages the parts that sit above the raw app-server bridge: surface lifecycl
 
 The goal is a reusable core that can back multiple surfaces and local ingress adapters. Discord is the current canary in the coal mine: the first serious surface proving that architecture under real constraints. Other adapters may be added later, but the core application flow is intended to stay the same.
 
-Today, Shepherd ships a Discord surface and an opt-in localhost signal webhook.
+Today, Shepherd ships Discord and opt-in private web API surfaces, plus a separate localhost signal webhook.
 
 ## 🎯 What It Does
 
@@ -40,6 +40,8 @@ Discord channel.
 - `shared/protocol`: request, event, approval, and user-input contracts
 - `server/core`: the application and runtime core around `codex app-server`
 - `server/adapters/discord`: Discord transport, parsing, rendering, delivery, and interactions
+- `server/adapters/web`: private HTTP conversation API and SSE events
+- `server/adapters/http`: bounded request-body parsing shared by HTTP adapters
 - `server/adapters/webhook`: loopback HTTP signal ingress
 - `server/signals`: registered signal-kind definitions
 - `server/runtime`: shared surface assembly, signal composition, and process lifecycle
@@ -119,10 +121,12 @@ Surface selection is stored in `envs/common.env`:
 SHEPHERD_SURFACES=discord
 ```
 
-Discord is the only implemented surface. The launcher supports multiple
-registered adapters, but selecting `web` today fails with an unavailable-surface
-error. See [surface launch and lifecycle](.docs/surface-launch.md) for ownership,
-configuration, failure behavior, and the future web boundary.
+Discord remains the default. Select `discord,web` to run both, or `web` alone
+without Discord credentials. Web relies on private network access and always binds
+to loopback. See [web API setup and contract](.docs/web-api.md) before enabling it,
+and [surface launch and lifecycle](.docs/surface-launch.md) for shared ownership
+and failure behavior. This provides the backend for a future shepherd-ui rebuild;
+it does not serve a website.
 
 ## Rooted Android Deployment
 

@@ -14,7 +14,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
   return nested.flat();
 }
 
-test("core and protocol cannot depend on adapters; shared runtime cannot depend on Discord", async () => {
+test("core and protocol cannot depend on adapters; shared runtime cannot depend on surface transports", async () => {
   const violations: string[] = [];
   for (const directory of ["server/core", "shared/protocol", "server/runtime"]) {
     const files = await sourceFiles(path.join(root, directory));
@@ -32,7 +32,7 @@ test("core and protocol cannot depend on adapters; shared runtime cannot depend 
         if (specifier && ts.isStringLiteralLike(specifier)) {
           const target = specifier.text.startsWith(".") ? path.resolve(path.dirname(file), specifier.text) : specifier.text;
           const forbidden = directory === "server/runtime"
-            ? target.includes("/adapters/discord/")
+            ? (target.includes("/adapters/discord/") || target.includes("/adapters/web/"))
             : target.includes("/adapters/") || target.includes("/server/runtime/");
           if (target === "discord.js" || target.startsWith("discord.js/") || forbidden) {
             violations.push(`${path.relative(root, file)} -> ${specifier.text}`);

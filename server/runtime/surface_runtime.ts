@@ -78,6 +78,7 @@ export function createSurfaceRuntime(
       createSurfaceThread,
       switchSurfaceThread,
       forkSurfaceThread,
+      disposeSurface: (surfaceId) => orchestrator.disposeSurface(surfaceId),
       clearSurfaceThread: (surfaceId) => {
         orchestrator.clearSurfaceThread(surfaceId);
       },

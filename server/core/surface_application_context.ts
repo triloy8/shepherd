@@ -20,6 +20,7 @@ export type SurfaceApplicationContext = {
   createSurfaceThread: (surfaceId: string) => Promise<string>;
   switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;
   forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
+  disposeSurface: (surfaceId: string) => void;
   clearSurfaceThread: (surfaceId: string) => void;
   runtimeLifecycle?: Pick<RuntimeLifecycleOrchestrator, "restart" | "deploy" | "deploymentStatus">;
 };

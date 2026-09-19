@@ -40,3 +40,8 @@ export function createInteractionConversation(source: InteractionConversation): 
     "listSkills", "listThreadTurns", "listThreadItems", "applyApprovalDecision",
   ]);
 }
+
+export type ApprovalConversation = Pick<ConversationService, "listApprovals" | "applyApprovalDecision">;
+export function createApprovalConversation(source: ApprovalConversation): ApprovalConversation {
+  return bindMethods(source, ["listApprovals", "applyApprovalDecision"]);
+}

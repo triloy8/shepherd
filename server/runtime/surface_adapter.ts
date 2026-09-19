@@ -1,7 +1,7 @@
 import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { SurfaceApplicationContext } from "../core/surface_application_context.js";
-import type { InteractionConversation } from "../core/conversation_ports.js";
+import type { ApprovalConversation, InteractionConversation } from "../core/conversation_ports.js";
 import type { TurnRoutingConversation } from "../core/turn_routing_service.js";
 import type { RegisteredSignal } from "../core/signal_registry.js";
 
@@ -16,6 +16,7 @@ export type SurfaceAdapterContext = {
   approvalPolicy: ApprovalPolicy;
   ingress: TurnRoutingConversation;
   interactions: InteractionConversation;
+  approvals: ApprovalConversation;
   createApplication: (onThreadEvent: (surfaceId: string, event: BridgeEvent) => void) => SurfaceApplicationContext;
   isQuiescing: () => boolean;
   reportHealth: (health: SurfaceHealth) => void;

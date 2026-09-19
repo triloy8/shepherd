@@ -83,7 +83,7 @@ function makeHarness(options: { provisioningFailures?: number } = {}) {
     { adapter: "discord", approvalPolicy: "on-request", sandbox: "workspace-write" },
   );
 
-  return { orchestrator, surfaceState, calls };
+  return { orchestrator, surfaceState, calls, conversation };
 }
 
 describe("SurfaceConversationOrchestrator", () => {
@@ -205,4 +205,15 @@ test("missing project rejects create and fork before conversation side effects",
   expect(calls.createSurfaceThread).toEqual([]);
   expect(calls.forkThread).toEqual([]);
   expect(calls.provisionWorkspace).toEqual([]);
+});
+
+
+test("a loaded thread binding conflict never resumes or changes the thread workspace", async () => {
+  const h = makeHarness();
+  h.conversation.bindSurfaceToThread = async () => { throw new Error("already active on another surface"); };
+  await h.orchestrator.setSurfaceProject("surface", "~");
+  await expect(h.orchestrator.switchSurfaceThread("surface", "loaded", () => {})).rejects.toThrow("already active");
+  expect(h.calls.resumeThread).toEqual([]);
+  expect(h.calls.provisionWorkspace).toEqual([]);
+  expect(h.calls.setThreadCwd).toEqual([]);
 });

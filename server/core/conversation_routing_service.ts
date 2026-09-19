@@ -5,6 +5,12 @@ import type {
 } from "../../shared/protocol/requests.js";
 import type { SessionManager } from "./session_manager.js";
 
+export class ThreadBindingConflictError extends Error {
+  constructor(readonly threadId: string) {
+    super(`Thread ${threadId} is already active on another surface.`);
+  }
+}
+
 type SurfaceKey = string;
 
 type SurfaceState = {
@@ -104,6 +110,11 @@ export class ConversationRoutingService {
     return canonicalThreadId;
   }
 
+  releaseSurface(adapter: string, surfaceId: string): void {
+    this.clearDefaultThread(adapter, surfaceId);
+    this.surfaces.delete(this.toSurfaceKey(adapter, surfaceId));
+  }
+
   clearDefaultThread(adapter: string, surfaceId: string): void {
     const surface = this.getSurface(adapter, surfaceId);
     if (!surface) return;
@@ -183,7 +194,7 @@ export class ConversationRoutingService {
     const current = this.surfaceByThread.get(threadId);
     const target = this.toSurfaceKey(surface.adapter, surface.surfaceId);
     if (current && current !== target) {
-      throw new Error(`Thread ${threadId} is already active on another surface.`);
+      throw new ThreadBindingConflictError(threadId);
     }
   }
 

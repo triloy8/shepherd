@@ -5,6 +5,12 @@ import type {
   ApprovalState,
 } from "../../shared/protocol/approvals.js";
 
+export class ApprovalDecisionError extends Error {
+  constructor(readonly code: "approval_not_found" | "approval_decided" | "invalid_decision", message: string) {
+    super(message);
+  }
+}
+
 interface StoredApproval extends ApprovalRecord {
   internalId: string;
 }
@@ -51,9 +57,12 @@ export class ApprovalsStore {
   ): { approval: ApprovalRecord } {
     const approval = this.getStoredApproval(threadId, approvalId);
     if (approval.status !== "pending") {
-      throw new Error(`Approval ${approvalId} is already ${approval.status}.`);
+      throw new ApprovalDecisionError("approval_decided", `Approval ${approvalId} is already ${approval.status}.`);
     }
 
+    if (!approval.choices.some((choice) => choice.value === payload.decision)) {
+      throw new ApprovalDecisionError("invalid_decision", "Decision must match one of the approval choices.");
+    }
     approval.status = this.stateFromDecision(payload.decision);
     approval.updatedAt = new Date().toISOString();
     approval.decisionReason = payload.reason;
@@ -89,7 +98,7 @@ export class ApprovalsStore {
   private getStoredApproval(threadId: string, approvalId: string): StoredApproval {
     const approval = this.approvals.get(approvalId);
     if (!approval || approval.threadId !== threadId) {
-      throw new Error(`Approval ${approvalId} not found for thread ${threadId}.`);
+      throw new ApprovalDecisionError("approval_not_found", `Approval ${approvalId} not found for thread ${threadId}.`);
     }
     return approval;
   }

@@ -120,6 +120,11 @@ export class ConversationService {
     subscription.threadId = null;
   }
 
+  releaseSurface(adapter: string, surfaceId: string): void {
+    this.unsubscribeSurfaceEvents(adapter, surfaceId);
+    this.routing.releaseSurface(adapter, surfaceId);
+  }
+
   subscribeSurfaceEvents(
     adapter: string,
     surfaceId: string,

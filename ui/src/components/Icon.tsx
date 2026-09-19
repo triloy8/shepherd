@@ -11,6 +11,3 @@ const paths = {
 export function Icon({ name, className = "", style }: { name: keyof typeof paths; className?: string; style?: CSSProperties }) {
   return <svg className={`size-4 shrink-0 ${className}`} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }
-export function Mark({ className = "" }: { className?: string }) {
-  return <svg viewBox="0 0 32 32" className={className} fill="none" aria-hidden="true"><path d="M9 11a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6l3 2-3 4v3a7 7 0 0 1-14 0v-3l-3-4 3-2Z" fill="currentColor" opacity=".16"/><path d="M10 14c-5-4-6 2-2 4m14-4c5-4 6 2 2 4M10 12c-2-5 4-7 6-4 2-3 8-1 6 4m-12 5v3a6 6 0 0 0 12 0v-3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/><circle cx="13" cy="17" r="1" fill="currentColor"/><circle cx="19" cy="17" r="1" fill="currentColor"/><path d="m14 21 2 1 2-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
-}

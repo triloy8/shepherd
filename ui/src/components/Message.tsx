@@ -1,14 +1,14 @@
 import { useState } from "react";
 import Markdown from "react-markdown";
 import type { ChatMessage } from "../chat-state";
-import { Icon, Mark } from "./Icon";
+import { Icon } from "./Icon";
 
 export function Message({ message }: { message: ChatMessage }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   return <article className={`message ${message.role === "user" ? "message-user" : "message-assistant"}`}>
     <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
-      {message.role === "assistant" ? <Mark className="size-6 text-accent" /> : <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
+      {message.role === "user" && <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
       <span>{message.role === "user" ? "You" : "Shepherd"}</span>
       {!message.complete && <span className="ml-1 text-dim">Writing…</span>}
     </div>

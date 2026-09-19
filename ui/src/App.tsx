@@ -3,7 +3,7 @@ import type { StoredThreadSummary } from "../../shared/protocol/requests";
 import type { WebConversation } from "../../shared/protocol/web";
 import { api, explainError } from "./api";
 import { useConversation } from "./use-conversation";
-import { Icon, Mark } from "./components/Icon";
+import { Icon } from "./components/Icon";
 import { Message } from "./components/Message";
 import { Composer } from "./components/Composer";
 import { Approvals } from "./components/Approvals";
@@ -118,7 +118,7 @@ export default function App() {
     {drawer && <button className="drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)} />}
     <aside inert={!desktop && !drawer} role={desktop ? "complementary" : "dialog"} aria-modal={!desktop && drawer ? true : undefined} ref={sidebarRef} className={`sidebar ${drawer ? "sidebar-open" : ""}`} aria-label="Conversations">
       <div className="flex h-20 shrink-0 items-center justify-between px-5">
-        <a href="/" className="flex items-center gap-2.5 font-semibold tracking-tight"><Mark className="size-8 text-accent" /><span className="text-lg">shepherd<span className="text-accent">.</span></span></a>
+        <a href="/" className="flex items-center gap-2.5 font-semibold tracking-tight"><span className="text-lg">shepherd<span className="text-accent">.</span></span></a>
         <button className="icon-button lg:hidden" aria-label="Close conversations" onClick={() => setDrawer(false)}><Icon name="close" /></button>
       </div>
       <div className="px-4"><button className="new-conversation" onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); setDrawer(false); }}><Icon name="plus" /><span>New conversation</span></button></div>
@@ -140,7 +140,6 @@ export default function App() {
       </header>
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}
       {!selected ? <section className="empty-screen">
-        <div className="welcome-mark"><Mark className="size-12" /></div>
         <p className="mb-3 mt-7 text-[11px] font-medium uppercase tracking-[.2em] text-accent">A little direction. A lot of possibility.</p>
         <h2 className="max-w-lg text-balance text-3xl font-medium leading-tight tracking-tight sm:text-4xl">What shall we work on?</h2>
         <p className="mt-4 max-w-md text-balance text-sm leading-7 text-muted">A space to build, explore, and pick up where you left off. Choose a conversation or start something new.</p>
@@ -151,7 +150,7 @@ export default function App() {
         <div className="chat-scroll" ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}>
           <div className="chat-width pb-6 pt-6 sm:pt-10">
             {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
-            {!controller.chat.messages.length && <div className="py-14 text-center"><Mark className="mx-auto mb-5 size-10 text-accent" /><h2 className="text-xl font-medium">A new thread of thought</h2><p className="mt-3 text-sm text-muted">Tell Shepherd what you have in mind.</p></div>}
+            {!controller.chat.messages.length && <div className="py-14 text-center"><h2 className="text-xl font-medium">A new thread of thought</h2><p className="mt-3 text-sm text-muted">Tell Shepherd what you have in mind.</p></div>}
             <div className="space-y-8">{controller.chat.messages.map((message) => <Message key={message.id} message={message} />)}</div>
             {active && <div role="status" className="mt-7 flex items-center gap-2 text-xs text-muted"><span className="working-dot" />{controller.chat.activity || "Working"}</div>}
             {controller.chat.error && <p role="alert" className="notice mt-5">{controller.chat.error}</p>}

@@ -463,3 +463,20 @@ CodexSession cannot spawn again.
 
 See [web API setup and contract](web-api.md) for the operator trust boundary,
 request shapes, event recovery, limits and private network access.
+
+
+## Built-in browser interface
+
+`ui/` is a React + TypeScript client styled with Tailwind and built by Vite. It
+imports shared protocol types, never the server core or transport implementations.
+The API client handles typed HTTP errors and bounded SSE framing; the conversation
+hook owns reconnect, request state and history refresh; the pure chat reducer
+reconciles history, live deltas and canonical completion. Components render that
+state without making core policy decisions.
+
+The existing web adapter serves known assets and `/api/v1` from one loopback
+listener. Source startup snapshots `ui/dist` into memory; the compiled binary
+embeds the same assets. Host and Origin checks use only explicit configuration
+and actual loopback listener addresses, never reflected request headers.
+Deployment validation builds both sides and rollback rebuilds the restored
+revision. See [web UI](web-ui.md) for lifecycle and validation details.

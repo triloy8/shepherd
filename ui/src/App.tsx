@@ -1,3 +1,4 @@
+import { ConversationSettings } from "./components/ConversationSettings";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StoredThreadSummary } from "../../shared/protocol/requests";
 import type { WebConversation } from "../../shared/protocol/web";
@@ -136,7 +137,7 @@ export default function App() {
       <header className="main-header">
         <button className="icon-button lg:hidden" aria-label="Open conversations" aria-expanded={drawer} onClick={() => setDrawer(true)}><Icon name="menu" /></button>
         <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">{selected ? title : "Workspace"}</h1>{selected && <p className="mt-1 flex items-center gap-1.5 text-xs text-dim"><Icon name="folder" className="size-3" /><span className="truncate">{selected.project}</span></p>}</div>
-        {selected && <><div role="status" className="flex items-center gap-2 text-xs text-muted"><span className={`status-dot ${controller.connection !== "online" ? "status-dot-muted" : ""}`} />{status}</div><button className="icon-button ml-1" aria-label="Detach conversation" title="Detach without stopping agent work" disabled={detaching || controller.busy} onClick={() => void detach()}><Icon name="detach" /></button></>}
+        {selected && <><ConversationSettings key={selected.id} id={selected.id} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} /><div role="status" className="flex items-center gap-2 text-xs text-muted"><span className={`status-dot ${controller.connection !== "online" ? "status-dot-muted" : ""}`} />{status}</div><button className="icon-button ml-1" aria-label="Detach conversation" title="Detach without stopping agent work" disabled={detaching || controller.busy} onClick={() => void detach()}><Icon name="detach" /></button></>}
       </header>
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}
       {!selected ? <section className="empty-screen">

@@ -4,7 +4,8 @@ The `web` surface provides the conversation API and [built-in web UI](web-ui.md)
 It runs alone or beside Discord against the same application core. It does not
 provide arbitrary Codex RPC or full Discord command parity. Text prompts,
 history, events, interruption and approvals are the initial scope. Attachment
-uploads and model/skill/deploy controls are not HTTP routes in v1; generated image output is supported.
+uploads and skill/deploy controls are not HTTP routes in v1. Generated images,
+model/effort settings, context telemetry and account limits are supported.
 
 ## Enable explicitly
 
@@ -77,6 +78,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | Method | Path | Body or result |
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
+| GET | `/limits` | `{ rateLimits }`; provider account limits, shared across conversations |
 | GET | `/threads?cursor=...&limit=20` | Stored thread summaries and pagination cursors |
 | GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
 | POST | `/conversations` | `{ project, threadId? }`; creates a thread or resumes the supplied one; 201 with `{ id, threadId, project }` |
@@ -85,6 +87,11 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | POST | `/conversations/:id/messages` | `{ text }`; returns `{ type: "submit" or "steer", threadId, turnId }` |
 | POST | `/conversations/:id/interrupt` | `{ turnId? }`; `{ ok: true }` |
 | GET | `/conversations/:id/turns?cursor=...&limit=20` | Full persisted turns and pagination cursors |
+| GET | `/conversations/:id/settings` | `{ model, effort }`; current/pending settings and supported effort levels |
+| GET | `/conversations/:id/models?cursor=...&limit=20` | Available model page with `data` and `nextCursor` |
+| POST | `/conversations/:id/model` | `{ model }`; resolve model ID/name through shared controls; `{ ok: true }` |
+| POST | `/conversations/:id/effort` | `{ effort }`; supported level or `default`; `{ ok: true }` |
+| GET | `/conversations/:id/context` | `{ threadId, tokenUsage }`; telemetry may be null |
 | GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices and status |
 | POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason? }`; `{ ok: true }` |
 | GET | `/conversations/:id/events` | SSE stream; optional `Last-Event-ID` |
@@ -177,3 +184,23 @@ the shared loader used for Discord. No SVG/HTML or arbitrary file endpoint exist
 Each handle retains at most 256 image references; detach/restart discards them.
 Reloading the relevant history registers images again. Unknown references return
 404; missing, oversized or unsupported files return sanitized 422 errors.
+
+## Conversation settings
+
+Model and effort routes delegate to the same control service as Discord. They
+queue changes for the next new turn and subsequent turns; steering an active
+turn does not apply them. `settings` distinguishes current and pending values.
+Effort choices/default belong to the pending model when present, otherwise the
+current/default model. Changing the model does not silently rewrite an existing
+effort override; select a compatible effort if necessary. `default` resolves to
+the model's advertised default, matching Discord.
+
+Unknown models and unsupported effort return 400 with stable error codes;
+unavailable model metadata returns 409. Writes share the conversation mutation
+lock with sending, interrupting and detaching (409 when busy). Malformed bodies
+and extra fields are rejected. Unexpected backend failures remain sanitized 502
+responses. A failed usage read does not prevent unrelated settings requests.
+
+Model/effort overrides follow existing loaded-session lifetime rules; the web
+surface adds no persistence or global defaults. Account limits are provider data
+and may be incomplete/unavailable. Context telemetry can be null before a turn.

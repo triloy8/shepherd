@@ -1,3 +1,4 @@
+import { installWebSettings } from "../helpers/web_settings_harness";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import type { HistoryTurn, StoredThreadSummary } from "../../shared/protocol/req
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
 const h = webHarness();
+installWebSettings(h);
 const imageDir = await mkdtemp(join(tmpdir(), "shepherd-ui-fixture-"));
 const imagePath = join(imageDir, "generated.png");
 await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64"));

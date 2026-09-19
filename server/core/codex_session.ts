@@ -264,7 +264,10 @@ export class CodexSession {
     this.approvalPolicy = approvalPolicy;
   }
 
+  private stopped = false;
+
   async start(): Promise<void> {
+    if (this.stopped) throw new Error("Codex session is stopped.");
     if (this.child) return;
 
     this.child = spawn("codex", ["app-server"], {
@@ -290,6 +293,7 @@ export class CodexSession {
   }
 
   async initialize(): Promise<void> {
+    if (this.stopped) throw new Error("Codex session is stopped.");
     if (this.initialized) return;
     if (this.initPromise) return this.initPromise;
 
@@ -550,6 +554,7 @@ export class CodexSession {
   }
 
   stop(): void {
+    this.stopped = true;
     this.cleanup();
   }
 

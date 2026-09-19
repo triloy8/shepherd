@@ -1,23 +1,24 @@
 @import "tailwindcss";
 @theme {
-  --color-canvas: #111412;
-  --color-panel: #171b18;
-  --color-raised: #232a25;
-  --color-line: #2c342e;
-  --color-ink: #e9eee8;
-  --color-muted: #a0aba1;
-  --color-dim: #77857b;
-  --color-accent: #bad6a2;
+  --color-canvas: #121212;
+  --color-panel: #1a1a1a;
+  --color-raised: #262626;
+  --color-line: #363636;
+  --color-ink: #ededed;
+  --color-muted: #ababab;
+  --color-dim: #858585;
+  --color-accent: #e0e0e0;
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 @layer base {
-  * { scrollbar-width: thin; scrollbar-color: #344137 transparent; }
+  :root { color-scheme: dark; }
+  * { scrollbar-width: thin; scrollbar-color: #444444 transparent; }
   body { @apply m-0 bg-canvas font-sans text-ink antialiased; }
   button, a, input, textarea, summary { -webkit-tap-highlight-color: transparent; }
   button { @apply cursor-pointer transition-colors; }
   button:disabled { @apply cursor-not-allowed opacity-40; }
   :focus-visible { @apply outline-2 outline-offset-4 outline-accent; }
-  ::selection { background: #4b6248; color: white; }
+  ::selection { background: #525252; color: white; }
 }
 @layer components {
   .app-shell { @apply flex h-dvh min-h-0 overflow-hidden; }
@@ -35,9 +36,8 @@
   .status-dot { @apply inline-block size-1.5 shrink-0 rounded-full bg-accent; }
   .status-dot-muted { @apply bg-dim; }
   .empty-screen { @apply relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 pb-24 text-center; }
-  .welcome-mark { @apply flex size-20 items-center justify-center rounded-3xl border border-accent/15 bg-accent/5 text-accent; }
   .welcome-footnote { @apply absolute bottom-8 flex items-center gap-2 text-xs text-dim; }
-  .button-primary { @apply inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-canvas hover:bg-[#cde5b9]; }
+  .button-primary { @apply inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-canvas hover:bg-white; }
   .button-secondary { @apply inline-flex items-center gap-2 rounded-lg border border-line bg-raised px-3 py-2 text-xs font-medium text-ink hover:border-accent/50; }
   .chat-scroll { @apply min-h-0 flex-1 overflow-y-auto overscroll-contain; }
   .chat-width { @apply mx-auto w-full max-w-3xl px-5 sm:px-10; }
@@ -60,7 +60,7 @@
   .composer-area { @apply shrink-0 bg-canvas pb-3 pt-3; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
   .composer { @apply overflow-hidden rounded-2xl border border-line bg-panel shadow-lg shadow-black/10 focus-within:border-accent/45; }
   .composer textarea { @apply block max-h-52 min-h-20 w-full resize-y bg-transparent px-4 pb-2 pt-4 text-base leading-6 text-ink outline-none placeholder:text-dim; }
-  .send-button { @apply flex size-9 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-[#cde5b9]; }
+  .send-button { @apply flex size-9 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-white; }
   .composer-caption { @apply mt-3 hidden text-center text-[10px] tracking-wide text-dim sm:block; }
   .notice { @apply rounded-xl border border-amber-300/20 bg-amber-200/5 px-4 py-3 text-xs leading-6 text-amber-100; }
   .approval-card { @apply rounded-2xl border border-accent/30 bg-accent/5 p-5; }

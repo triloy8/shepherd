@@ -116,3 +116,6 @@ Run the function in `tests/browser/web-ui-flow.js` with Playwright CLI's
 resume, history, live replies, approvals, failed-send drafts, interruption,
 reload recovery, conversation creation and narrow layouts. Fixture routes and
 mock messages are never imported by the production host.
+
+The interface uses a neutral dark palette with text-only Shepherd branding.
+Warning notices retain amber coloring to distinguish errors from ordinary content.

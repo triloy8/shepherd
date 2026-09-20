@@ -3,6 +3,7 @@ import type { WebSettingsResponse, WebContextResponse, WebLimitsResponse } from 
 import type { ModelSummary } from "../../../shared/protocol/requests";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
+import { ConversationSkills } from "./ConversationSkills";
 import { AccountLimits, ContextUsage } from "./Usage";
 
 export function ConversationSettings({ id, activeTurnId, disabled }: { id: string; activeTurnId: string | null; disabled: boolean }) {
@@ -104,6 +105,7 @@ export function ConversationSettings({ id, activeTurnId, disabled }: { id: strin
         {!supported.length && !loading && <p className="text-xs text-muted">No effort controls available for this model.</p>}
         <button className="button-secondary" disabled={blocked || !settings || !supported.length || model !== effectiveModel || !(effort === "default" ? defaultSupported : supported.some((option) => option.reasoningEffort === effort))} onClick={() => void save("effort")}>Use effort</button>
       </section>
+      <details className="mt-6 border-t border-line pt-4"><summary className="cursor-pointer text-sm">Skills</summary>{open && <ConversationSkills key={id} id={id} disabled={disabled || saving} />}</details>
       <details className="mt-6 border-t border-line pt-4"><summary className="cursor-pointer text-sm">Usage and account limits</summary><div className="mt-4 space-y-5">
         <section><h3 className="mb-2 text-sm">Conversation context</h3>{errors.context ? <p role="alert" className="notice">{errors.context}</p> : context ? <ContextUsage usage={context.tokenUsage} /> : <p className="text-xs text-muted">Loading context…</p>}</section>
         <section><h3 className="mb-2 text-sm">Account limits · shared across conversations</h3>{errors.limits ? <p role="alert" className="notice">{errors.limits}</p> : limits ? <AccountLimits value={limits.rateLimits} /> : <p className="text-xs text-muted">Loading limits…</p>}</section>

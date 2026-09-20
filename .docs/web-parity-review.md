@@ -1,7 +1,8 @@
 # Web and Discord surface review
 
-Reviewed 2026-09-20, alongside the history browser. This inventories implemented
-surface controls; it is not a claim that every provider capability is exposed.
+Reviewed 2026-09-20 after removing the separate web history inspector. This
+inventories implemented surface controls; it is not a claim that every provider
+capability is exposed.
 
 | Capability | Web coverage |
 | --- | --- |
@@ -11,7 +12,7 @@ surface controls; it is not a claim that every provider capability is exposed.
 | Skills discovery, reload, enable/disable | Skills panel |
 | New, resume, rename, fork, archive, restore, detach | Conversation navigation and actions |
 | Compact and rollback | Conversation actions with history revision recovery |
-| Turn and item history | Browse history, with separate paged turn inspection |
+| Conversation history | Per-conversation transcript with Load earlier messages; Discord retains explicit turn/item inspection |
 | Restart, deploy, deployment status | Host controls and operation status |
 | Image input and generated images | Composer attachments and scoped image rendering |
 | Discord listen/mentions, pause/resume routing | Transport-specific; web uses an explicit composer |
@@ -37,11 +38,10 @@ surface controls; it is not a claim that every provider capability is exposed.
 ## Recovery coverage and limits
 
 Existing tests cover replay/deduplication and expired event cursors, approval
-reconciliation, history reads crossing rollback, rejected stale history pages,
+reconciliation, transcript history reads crossing rollback,
 image-send failures retaining the draft, and host operation status recovery.
-The history browser adds abortable reads, return navigation and first-page
-recovery after a revision conflict. It does not freeze an actively growing
-conversation; Refresh requests current history.
+Web history belongs in the conversation transcript. A separate technical turn/item
+inspector is intentionally omitted rather than mirroring every Discord command.
 
 A web-initiated host action records pending recovery in session storage. This is
 not a durable host operation journal. An unrelated restart may require manually

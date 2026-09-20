@@ -79,11 +79,15 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
 | GET | `/limits` | `{ rateLimits }`; provider account limits, shared across conversations |
-| GET | `/threads?cursor=...&limit=20` | Stored thread summaries and pagination cursors |
+| GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
 | GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
 | POST | `/conversations` | `{ project, threadId? }`; creates a thread or resumes the supplied one; 201 with `{ id, threadId, project }` |
 | GET | `/conversations/:id` | Handle summary plus `state` with active-turn/session state |
 | DELETE | `/conversations/:id` | Detaches the handle and closes streams; `{ ok: true }` |
+| POST | `/conversations/:id/rename` | `{ name }`; rename through shared controls, `{ ok: true }` |
+| POST | `/conversations/:id/archive` | `{}`; archive and detach the web handle, `{ ok: true }` |
+| POST | `/conversations/:id/fork` | `{}`; 201 with a new `WebConversation`; source remains attached |
+| POST | `/threads/:threadId/unarchive` | `{}`; restore a stored conversation without attaching it |
 | POST | `/conversations/:id/messages` | `{ text }`; returns `{ type: "submit" or "steer", threadId, turnId }` |
 | POST | `/conversations/:id/interrupt` | `{ turnId? }`; `{ ok: true }` |
 | GET | `/conversations/:id/turns?cursor=...&limit=20` | Full persisted turns and pagination cursors |
@@ -204,3 +208,22 @@ responses. A failed usage read does not prevent unrelated settings requests.
 Model/effort overrides follow existing loaded-session lifetime rules; the web
 surface adds no persistence or global defaults. Account limits are provider data
 and may be incomplete/unavailable. Context telemetry can be null before a turn.
+
+## Conversation management
+
+Rename accepts a non-empty trimmed name of at most 200 characters. Archive
+uses the shared archive operation, then closes the handle's streams and removes
+its web navigation state. It does not delete stored history. Restore uses the
+opaque stored thread ID and does not require creating a web handle first.
+
+Fork creates a new handle using the source handle's selected project and the
+shared fork operation. It returns the new handle without detaching or changing
+the source. Provisional handles are cleaned up on failure, and the normal
+32-handle limit applies. The source's conversation mutation lock covers the fork.
+Archive and fork return `409 conversation_active` while a turn or approval is
+active; stop/resolve it first. Rename remains available during a turn. Restore
+shares an existing handle's mutation lock when the thread is attached.
+
+`archived` accepts only `true` or `false`; pagination remains independent for each
+list view. There is no idempotency key for fork: after losing an HTTP response,
+refresh the conversation list before retrying to avoid duplicate forks.

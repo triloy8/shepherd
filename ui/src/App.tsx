@@ -1,3 +1,4 @@
+import { ConversationActions } from "./components/ConversationActions";
 import { ConversationSettings } from "./components/ConversationSettings";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StoredThreadSummary } from "../../shared/protocol/requests";
@@ -19,6 +20,12 @@ const savedSelection = (): WebConversation | null => {
 
 export default function App() {
   const [conversations, setConversations] = useState<WebConversation[]>([]);
+  const [archived, setArchived] = useState(false);
+  const archivedRef = useRef(false);
+  const listGeneration = useRef(0);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const restoreLock = useRef(false);
   const [threads, setThreads] = useState<StoredThreadSummary[]>([]);
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<WebConversation | null>(null);
@@ -40,11 +47,16 @@ export default function App() {
   const initialSelection = useRef(true);
   const controller = useConversation(selected);
   const thread = threads.find((item) => item.threadId === selected?.threadId);
-  const title = thread ? label(thread) : selected ? "New conversation" : "Your workspace, in conversation";
+  const title = thread ? label(thread) : selected ? names[selected.threadId] ?? "New conversation" : "Your workspace, in conversation";
 
   const refreshList = useCallback(async () => {
+    const generation = ++listGeneration.current;
+    setLoadingThreads(false);
+    const view = archivedRef.current;
     try {
-      const [handles, stored] = await Promise.all([api.conversations(), api.threads()]);
+      const [handles, stored] = await Promise.all([api.conversations(), api.threads(undefined, undefined, view)]);
+      if (generation !== listGeneration.current || view !== archivedRef.current) return;
+      setNames((current) => ({ ...current, ...Object.fromEntries(stored.threads.map((item) => [item.threadId, label(item)])) }));
       setConversations(handles.conversations); setThreads(stored.threads); setThreadsCursor(stored.nextCursor); setError(null);
       if (initialSelection.current) {
         initialSelection.current = false;
@@ -52,8 +64,8 @@ export default function App() {
         const handle = handles.conversations.find((item) => item.threadId === previous?.threadId);
         if (handle) { setSelected(handle); setSaved(null); }
       }
-    } catch (error) { setError(explainError(error)); }
-    finally { setLoading(false); }
+    } catch (error) { if (generation === listGeneration.current) setError(explainError(error)); }
+    finally { if (generation === listGeneration.current) setLoading(false); }
   }, []);
   useEffect(() => { void refreshList(); const onOnline = () => { void refreshList(); }; window.addEventListener("online", onOnline); return () => window.removeEventListener("online", onOnline); }, [refreshList]);
   useEffect(() => {
@@ -94,14 +106,27 @@ export default function App() {
     } catch (error) { setError(`${explainError(error)} Refresh the conversation list before retrying if the connection dropped.`); }
     finally { setCreating(false); }
   }
+  function changeView(value: boolean) {
+    archivedRef.current = value; setArchived(value); setThreads([]); setThreadsCursor(null); setLoading(true); setLoadingThreads(false); void refreshList();
+  }
+  async function restore(threadId: string) {
+    if (restoreLock.current) return;
+    restoreLock.current = true; setRestoring(threadId); setError(null);
+    try { await api.restore(threadId); changeView(false); }
+    catch (error) { setError(explainError(error)); }
+    finally { restoreLock.current = false; setRestoring(null); }
+  }
   async function loadThreads() {
     if (!threadsCursor || loadingThreads) return;
     setLoadingThreads(true);
+    const generation = listGeneration.current; const view = archivedRef.current;
     try {
-      const page = await api.threads(threadsCursor);
+      const page = await api.threads(threadsCursor, undefined, view);
+      if (generation !== listGeneration.current || view !== archivedRef.current) return;
+      setNames((current) => ({ ...current, ...Object.fromEntries(page.threads.map((item) => [item.threadId, label(item)])) }));
       setThreads((items) => [...items, ...page.threads.filter((item) => !items.some((existing) => existing.threadId === item.threadId))]); setThreadsCursor(page.nextCursor);
-    } catch (error) { setError(explainError(error)); }
-    finally { setLoadingThreads(false); }
+    } catch (error) { if (generation === listGeneration.current) setError(explainError(error)); }
+    finally { if (generation === listGeneration.current) setLoadingThreads(false); }
   }
   async function detach() {
     if (!selected || detaching) return;
@@ -114,7 +139,7 @@ export default function App() {
 
   const active = Boolean(controller.chat.activeTurnId);
   const status = controller.connection === "online" ? active ? "Working" : "Connected" : controller.connection === "detached" ? "Needs attention" : controller.connection === "reconnecting" ? "Reconnecting" : "Connecting";
-  const visibleHandles = conversations.filter((item) => !threads.some((thread) => thread.threadId === item.threadId));
+  const visibleHandles = (archived ? [] : conversations).filter((item) => !threads.some((thread) => thread.threadId === item.threadId));
   return <div className="app-shell">
     {drawer && <button className="drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)} />}
     <aside inert={!desktop && !drawer} role={desktop ? "complementary" : "dialog"} aria-modal={!desktop && drawer ? true : undefined} ref={sidebarRef} className={`sidebar ${drawer ? "sidebar-open" : ""}`} aria-label="Conversations">
@@ -124,11 +149,12 @@ export default function App() {
       </div>
       <div className="px-4"><button className="new-conversation" onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); setDrawer(false); }}><Icon name="plus" /><span>New conversation</span></button></div>
       <div className="mb-2 mt-7 flex items-center justify-between px-5 text-[10px] font-semibold uppercase tracking-[.16em] text-dim"><span>Conversations</span><button className="icon-button size-7!" aria-label="Refresh conversations" onClick={() => void refreshList()}><Icon name="refresh" className="size-3.5" /></button></div>
+      <div className="mb-3 flex gap-2 px-4" aria-label="Conversation filter"><button className="button-secondary flex-1 justify-center" aria-pressed={!archived} onClick={() => changeView(false)}>Active</button><button className="button-secondary flex-1 justify-center" aria-pressed={archived} onClick={() => changeView(true)}>Archived</button></div>
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
         {loading && <p className="px-3 py-4 text-sm text-muted">Loading conversations…</p>}
-        {!loading && !threads.length && !conversations.length && <p className="px-3 py-4 text-sm leading-6 text-dim">A fresh start.<br />Your conversations will appear here.</p>}
+        {!loading && !threads.length && !visibleHandles.length && <p className="px-3 py-4 text-sm leading-6 text-dim">{archived ? "No archived conversations." : "Your conversations will appear here."}</p>}
         {visibleHandles.map((item) => <button className={`thread-button ${selected?.id === item.id ? "thread-selected" : ""}`} key={item.id} onClick={() => select(item)}><Icon name="chat" /><span className="truncate">New conversation</span><span className="status-dot ml-auto" /></button>)}
-        {threads.map((item) => <button title={label(item)} className={`thread-button ${selected?.threadId === item.threadId ? "thread-selected" : ""}`} key={item.threadId} onClick={() => openThread(item.threadId, label(item))}><Icon name="chat" /><span className="truncate">{label(item)}</span>{conversations.some((c) => c.threadId === item.threadId) && <span className="status-dot ml-auto" />}</button>)}
+        {threads.map((item) => archived ? <div key={item.threadId} className="mb-2 flex items-center gap-2 px-3 py-2"><span className="min-w-0 flex-1 truncate text-sm text-muted" title={label(item)}>{label(item)}</span><button className="button-secondary" aria-label={`Restore ${label(item)}`} disabled={restoring !== null} onClick={() => void restore(item.threadId)}>{restoring === item.threadId ? "Restoring…" : "Restore"}</button></div> : <button title={label(item)} className={`thread-button ${selected?.threadId === item.threadId ? "thread-selected" : ""}`} key={item.threadId} onClick={() => openThread(item.threadId, label(item))}><Icon name="chat" /><span className="truncate">{label(item)}</span>{conversations.some((c) => c.threadId === item.threadId) && <span className="status-dot ml-auto" />}</button>)}
         {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
       <div className="sidebar-footer"><span className="status-dot" /><span>Private workspace</span><span className="ml-auto text-dim">Web</span></div>
@@ -137,7 +163,11 @@ export default function App() {
       <header className="main-header">
         <button className="icon-button lg:hidden" aria-label="Open conversations" aria-expanded={drawer} onClick={() => setDrawer(true)}><Icon name="menu" /></button>
         <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">{selected ? title : "Workspace"}</h1>{selected && <p className="mt-1 flex items-center gap-1.5 text-xs text-dim"><Icon name="folder" className="size-3" /><span className="truncate">{selected.project}</span></p>}</div>
-        {selected && <><ConversationSettings key={selected.id} id={selected.id} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} /><div role="status" className="flex items-center gap-2 text-xs text-muted"><span className={`status-dot ${controller.connection !== "online" ? "status-dot-muted" : ""}`} />{status}</div><button className="icon-button ml-1" aria-label="Detach conversation" title="Detach without stopping agent work" disabled={detaching || controller.busy} onClick={() => void detach()}><Icon name="detach" /></button></>}
+        {selected && <><ConversationActions key={`actions-${selected.id}`} conversation={selected} title={title} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0}
+          onRename={(name) => { setNames((current) => ({ ...current, [selected.threadId]: name })); setThreads((items) => items.map((item) => item.threadId === selected.threadId ? { ...item, name } : item)); void refreshList(); }}
+          onArchive={() => { setSelected(null); setSaved(null); setConversations((items) => items.filter((item) => item.id !== selected.id)); try { localStorage.removeItem("shepherd.selection"); } catch {} void refreshList(); }}
+          onFork={(conversation) => { setConversations((items) => [...items, conversation]); select(conversation); changeView(false); }}
+        /><ConversationSettings key={selected.id} id={selected.id} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} /><div role="status" aria-label={status} className="flex items-center gap-2 text-xs text-muted"><span className={`status-dot ${controller.connection !== "online" ? "status-dot-muted" : ""}`} />{status}</div><button className="icon-button ml-1" aria-label="Detach conversation" title="Detach without stopping agent work" disabled={detaching || controller.busy} onClick={() => void detach()}><Icon name="detach" /></button></>}
       </header>
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}
       {!selected ? <section className="empty-screen">

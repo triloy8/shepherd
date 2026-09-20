@@ -17,10 +17,26 @@ const histories = new Map<string, HistoryTurn[]>([["stored", [{ id: "past", stat
   { id: "question", type: "userMessage", content: [{ type: "text", text: "Where did we leave off?" }] },
   { id: "answer", type: "agentMessage", text: "The shared API is ready. Next, we’re building a **private workspace** for conversations, live responses, and approvals.\n\nEverything runs in the same Shepherd host." },
 ] }]]]);
-const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: threadId === "stored" ? "A new home for Shepherd" : null, preview: String((turns[0]?.items[0]?.content as Array<{ text: string }> | undefined)?.[0]?.text ?? "New conversation"), archived: false, cwd: "~", createdAt: 1, updatedAt: 2, source: "appServer" }));
-h.application.conversation.listStoredThreads = async () => ({ threads: stored(), nextCursor: null, backwardsCursor: null });
+const names = new Map<string, string>();
+const archivedIds = new Set<string>();
+const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: String((turns[0]?.items[0]?.content as Array<{ text: string }> | undefined)?.[0]?.text ?? "New conversation"), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2, source: "appServer" }));
+h.application.conversation.listStoredThreads = async (request) => ({ threads: stored().filter((thread) => thread.archived === Boolean((request as { archived?: boolean }).archived)), nextCursor: null, backwardsCursor: null });
 h.application.conversation.listThreadTurns = async (threadId) => ({ data: [...(histories.get(threadId) ?? [])].reverse(), nextCursor: null, backwardsCursor: null });
 let sequence = 0;
+Object.assign(h.application, {
+  clearSurfaceThread: (id: string) => h.bindings.delete(id),
+  async forkSurfaceThread(id: string, source: string) {
+    const threadId = `fork-${++sequence}`;
+    histories.set(threadId, structuredClone(histories.get(source) ?? []));
+    names.set(threadId, "Fork copy"); h.bindings.set(id, threadId); h.active.set(threadId, null);
+    return threadId;
+  },
+});
+Object.assign(h.application.conversation, {
+  async setThreadName(threadId: string, { name }: { name: string }) { names.set(threadId, name); return { ok: true }; },
+  async archiveThread(threadId: string) { archivedIds.add(threadId); return { ok: true }; },
+  async unarchiveThread(threadId: string) { archivedIds.delete(threadId); return { ok: true }; },
+});
 const timers = new Set<ReturnType<typeof setTimeout>>();
 const publish = (threadId: string, type: BridgeEvent["type"], payload: unknown) => {
   const id = [...h.bindings].find(([, thread]) => thread === threadId)?.[0];

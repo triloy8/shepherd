@@ -65,3 +65,14 @@ the progress card and delivers every remaining page. Deployment errors retain
 both output streams without repeating stderr through the command exception,
 put recognized failure lines first, and are logged to the host console before
 Discord delivery. A failed continuation delivery is propagated as an error.
+
+Deployment validation summaries prioritize Bun's `(fail)` records when present.
+Expected `error:` logs from passing failure-path tests remain in the complete output,
+but are not listed as additional test failures. Build/command failures without test
+failure records still summarize error and timeout lines.
+
+The package timeout regression runs a fast child test and verifies the executed
+`bun test --timeout 30000` command. It does not sleep beyond Bun's default timeout:
+wall-clock probes can fail under host load independently of application behavior.
+Its subprocess watchdog is 60 seconds, with a 90-second outer cleanup budget; these
+are test-harness limits, not changes to deployment or normal test timeouts.

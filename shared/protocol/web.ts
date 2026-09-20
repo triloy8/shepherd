@@ -21,14 +21,14 @@ export type WebThreadsResponse = ListStoredThreadsResponse;
 export type WebImage = { url: string; prompt: string | null };
 export type WebHistoryItem = HistoryItem & { webActivity?: TurnActivityEvent["payload"]; webImage?: WebImage };
 export type WebHistoryTurn = Omit<HistoryTurn, "items"> & { items: WebHistoryItem[] };
-export type WebHistoryResponse = Omit<ListThreadTurnsResponse, "data"> & { data: WebHistoryTurn[] };
+export type WebHistoryResponse = Omit<ListThreadTurnsResponse, "data"> & { data: WebHistoryTurn[]; revision: number };
 export type WebGeneratedImagePayload = TurnImageGeneratedEvent["payload"] & { url: string };
 export type WebError = { error: { code: string; message: string } };
 /** SSE event names and their JSON data. SSE IDs are opaque replay cursors. */
 export type WebEventData = {
   bridge: BridgeEvent;
   signal: SignalEnvelope;
-  reset: { reason: "event_too_large" };
+  reset: { reason: "event_too_large" | "history_changed" };
 };
 
 export type WebSettingsResponse = { model: ThreadModelState; effort: ThreadEffortState };
@@ -43,3 +43,5 @@ export type WebRenameRequest = { name: string };
 export type WebSkillsResponse = import("./requests.js").SkillsListResponse;
 export type WebSkillRequest = { path: string; enabled: boolean };
 export type WebSkillResponse = import("./requests.js").SkillsConfigWriteResponse;
+
+export type WebRollbackRequest = { numTurns: number };

@@ -37,3 +37,5 @@ export type WebContextResponse = ReadThreadTokenUsageResponse;
 export type WebLimitsResponse = { rateLimits: unknown };
 export type WebModelRequest = { model: string };
 export type WebEffortRequest = { effort: string };
+
+export type WebRenameRequest = { name: string };

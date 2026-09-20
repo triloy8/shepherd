@@ -319,18 +319,3 @@ created. Images are stored as part of provider conversation history.
 
 User-message history preserves bounded valid inline images for previews. Unsupported
 or remote image URLs become an unavailable-image placeholder, never a browser fetch.
-
-### History browser
-
-`GET /api/v1/conversations/:id/history?limit=10&cursor=...` returns a `view: "turns"`
-page with newest-first turn summaries. Add `turnId` to receive a `view: "items"` page
-of oldest-first turn items through the shared conversation history ports. Both views
-return `data`, `nextCursor`, and `revision`. The existing `/turns` endpoint continues
-to serve full chat history.
-
-Clients retain forward cursors for Previous/Next navigation and may include the
-previously received `revision`. A stale revision, or rollback overlapping a read,
-returns 409 `history_changed`; restart navigation from the first page. Limits remain
-1–100, and turn IDs are non-empty strings up to 256 characters. History item image
-and activity presentation is shared with the chat endpoint. Host/origin and attached
-conversation boundaries apply to every page.

@@ -22,11 +22,6 @@ async function request<T>(path: string, method = "GET", body?: unknown, signal?:
 const conversationPath = (id: string) => `/conversations/${encodeURIComponent(id)}`;
 const page = (cursor?: string) => `?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
 export const api = {
-  historyPage: (id: string, options: { cursor?: string; turnId?: string; revision?: number }, signal?: AbortSignal) => {
-    const query = new URLSearchParams({ limit: "10" });
-    for (const [key, value] of Object.entries(options)) if (value !== undefined) query.set(key, String(value));
-    return request<import("../../shared/protocol/web").WebHistoryPage>(`${conversationPath(id)}/history?${query}`, "GET", undefined, signal);
-  },
   host: (signal?: AbortSignal) => request<WebHostStatus>("/host", "GET", undefined, signal),
   hostAction: (input: WebHostAction) => request<WebHostOperation>("/host/actions", "POST", input),
   compact: (id: string) => request(`${conversationPath(id)}/compact`, "POST", {}),

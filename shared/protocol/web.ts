@@ -45,8 +45,3 @@ export type WebSkillRequest = { path: string; enabled: boolean };
 export type WebSkillResponse = import("./requests.js").SkillsConfigWriteResponse;
 
 export type WebRollbackRequest = { numTurns: number };
-
-export type WebHistoryPage = { revision: number; nextCursor: string | null } & (
-  | { view: "turns"; data: WebHistoryTurn[] }
-  | { view: "items"; data: Array<{ turnId: string; item: WebHistoryItem }> }
-);

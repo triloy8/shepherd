@@ -53,6 +53,7 @@ export type RuntimeDeploymentPort = {
 
 export type RuntimeLifecycleOrchestratorOptions = {
   readActivity: () => RuntimeActivity;
+  runningCommit?: Promise<string | null>;
   deployment: RuntimeDeploymentPort;
   lifecycle: RuntimeLifecyclePort;
 };
@@ -78,6 +79,10 @@ export class RuntimeLifecycleOrchestrator {
   private deploymentOperationInProgress = false;
 
   constructor(private readonly options: RuntimeLifecycleOrchestratorOptions) {}
+
+  runningCommit(): Promise<string | null> {
+    return this.options.runningCommit ?? Promise.resolve(null);
+  }
 
   deploymentStatus(): Promise<DeploymentStatus> {
     return this.options.deployment.readStatus();

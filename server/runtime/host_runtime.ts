@@ -33,6 +33,7 @@ export function createHostRuntime(options: { config?: RuntimeConfig; projectDir?
   const config = options.config ?? readRuntimeConfig();
   const projectDir = options.projectDir ?? process.cwd();
   const deployment = new DeploymentService({ projectDir, commandTimeoutMs: config.deploymentCommandTimeoutMs });
-  const shepherd = new ShepherdRuntime({ approvalPolicy: config.approvalPolicy, defaultSandbox: config.defaultSandbox, deployment });
+  const runningCommit = execFileAsync("git", ["rev-parse", "HEAD"], { cwd: projectDir, timeout: 5000 }).then(({ stdout }) => stdout.trim(), () => null);
+  const shepherd = new ShepherdRuntime({ runningCommit, approvalPolicy: config.approvalPolicy, defaultSandbox: config.defaultSandbox, deployment });
   return { config, shepherd, workspace: createGithubWorkspacePorts(projectDir, options.runGithub) };
 }

@@ -268,6 +268,7 @@ function makeContext(overrides?: {
       resumeMode = "mention";
     },
     runtimeLifecycle: {
+      runningCommit: async () => null,
       async restart(options) {
         if (overrides?.restart) return overrides.restart(options);
         await options.announce({ action: "restart" });

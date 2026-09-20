@@ -1,7 +1,6 @@
 // Run against the isolated web-ui-host fixture using playwright-cli run-code.
 async (page) => {
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
-  await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Conversation settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Conversation settings', exact: true });

@@ -3,7 +3,6 @@ async (page) => {
   const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=';
   const file = name => `/tmp/shepherd-image-input-fixtures/${name}`;
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
-  await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();
   await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
   const picker = page.getByLabel('Choose images', { exact: true });
   const composer = page.getByRole('textbox', { name: 'Message Shepherd', exact: true });

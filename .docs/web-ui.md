@@ -81,7 +81,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | GET | `/limits` | `{ rateLimits }`; provider account limits, shared across conversations |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
 | GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
-| POST | `/conversations` | `{ project, threadId? }`; creates a thread or resumes the supplied one; 201 with `{ id, threadId, project }` |
+| POST | `/conversations` | `{ project }` creates a thread; `{ threadId }` resumes its saved workspace; 201 with `{ id, threadId, project }` |
 | GET | `/conversations/:id` | Handle summary plus `state` with active-turn/session state |
 | DELETE | `/conversations/:id` | Detaches the handle and closes streams; `{ ok: true }` |
 | POST | `/conversations/:id/rename` | `{ name }`; rename through shared controls, `{ ok: true }` |
@@ -100,12 +100,15 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason? }`; `{ ok: true }` |
 | GET | `/conversations/:id/events` | SSE stream; optional `Last-Event-ID` |
 
-`project` accepts the shared project-target syntax (a GitHub `owner/repo`, `~/path`,
-or `~`). Provisioning uses existing core workspace rules. A resumed loaded
-thread retains its current workspace. The returned `project` is the handle's
-selected target, not a guarantee of the loaded thread's cwd. Thread IDs must contain only letters, digits, hyphens or underscores. A thread already
-bound to Discord or a different web handle returns `409 thread_in_use`. Detach
-there first. Several browsers may share one web handle and its streams.
+`project` is required only for new conversations and accepts the shared project-target
+syntax (`owner/repo`, `~/path`, or `~`). Resume takes `threadId` and uses the saved
+absolute working directory; a legacy `project` field on resume is ignored. Loaded
+threads retain their current cwd. Cold resume validates the saved directory without
+creating or cloning a replacement; missing/invalid directories return 409
+`workspace_unavailable`. The resumed handle's `project` displays its restored cwd.
+The selector and expired-handle recovery resume directly without a project dialog.
+Fork inherits the source handle's project target internally, including restored
+absolute local workspace targets.
 
 Messages follow the same submit/steer policy as Discord: a message during an
 active turn steers it. HTTP completion acknowledges routing, not completion of

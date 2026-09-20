@@ -1,7 +1,6 @@
 // Run against the isolated web-ui-host fixture with playwright-cli run-code.
 async (page) => {
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
-  await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
   const actions = page.getByRole('dialog', { name: 'Conversation actions', exact: true });
   await page.getByRole('button', { name: 'Conversation actions', exact: true }).click();
@@ -24,7 +23,6 @@ async (page) => {
   await page.getByRole('button', { name: 'Archived', exact: true }).click();
   await page.getByRole('button', { name: 'Restore Fork copy', exact: true }).click();
   await page.getByRole('button', { name: 'Fork copy', exact: true }).click();
-  await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
   await page.reload();
   await page.getByRole('heading', { name: 'Fork copy', exact: true }).waitFor();

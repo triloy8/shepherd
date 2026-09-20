@@ -16,13 +16,13 @@ method or generated schema alone does not count as UI support.
 | Feature | Discord | Web | Scope / distinction |
 | --- | --- | --- | --- |
 | Create conversation | Yes — `!newthread`; ordinary input can ensure a thread | Yes — New conversation | Shared conversation core |
-| Select project/repository/local workspace | Yes — `!repo <owner/repo>`, `~`, `~/path` | Yes — project dialog | Shared project resolution |
+| Select project/repository/local workspace | Yes — `!repo <owner/repo>`, `~`, `~/path` | Yes — project dialog for new conversations | Shared project resolution |
 | Read selected project | Yes — `!repo`, `!status` | Yes — header | Presentation differs |
-| Change binding for future conversations | Yes — `!repo` | Partial — choose when opening a conversation | Discord change does not move the current session's cwd |
+| Change binding for future conversations | Yes — `!repo` | Partial — choose when creating a conversation | Discord change does not move the current session's cwd |
 | List stored conversations | Yes — `!threads` | Yes — sidebar | Paged in both |
 | List archived conversations | Yes — `!threads archived` | Yes — Archived filter | Separate from active/stored view |
 | List host-loaded conversations | Yes — `!threads loaded` | No | Web attachment dots are not a host-loaded list |
-| Switch/resume stored conversation | Yes — `!thread <id>` | Yes — select conversation and resume | Normal workflow covered in both |
+| Switch/resume stored conversation | Yes — `!thread <id>` | Yes — select conversation; saved workspace resumes directly | Normal workflow covered in both |
 | Paste an arbitrary conversation ID | Yes — `!thread <id>` | No UI; API accepts `threadId` on create | Optional navigation difference |
 | Read current conversation ID | Yes — `!thread`, `!status` | No dedicated UI | ID exists in API state |
 | Inspect ID/name/update time/preview together | Yes — `!threadread [id]` | Partial — names/previews in navigation | No dedicated web metadata panel |

@@ -28,13 +28,14 @@ export default function App() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [restoring, setRestoring] = useState<string | null>(null);
   const restoreLock = useRef(false);
+  const resumeLock = useRef(false);
   const [threads, setThreads] = useState<StoredThreadSummary[]>([]);
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<WebConversation | null>(null);
   const [saved, setSaved] = useState<WebConversation | null>(savedSelection);
   const [drawer, setDrawer] = useState(false);
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
-  const [dialog, setDialog] = useState<{ threadId?: string; title: string } | null>(null);
+  const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [project, setProject] = useState("~");
   const [imageDrafts, setImageDrafts] = useState<Record<string, DraftImage[]>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -94,16 +95,23 @@ export default function App() {
   }, [drawer]);
 
   function select(conversation: WebConversation) { setSelected(conversation); setSaved(null); setDrawer(false); }
-  function openThread(threadId: string, title: string) {
+  async function openThread(threadId: string, force = false) {
+    if (resumeLock.current || creating) return;
     const existing = conversations.find((item) => item.threadId === threadId);
-    if (existing) select(existing);
-    else { setProject(saved?.threadId === threadId ? saved.project : "~"); setDialog({ threadId, title }); setDrawer(false); }
+    if (existing && !force) { select(existing); return; }
+    resumeLock.current = true; setCreating(true); setError(null); setDrawer(false);
+    try {
+      const conversation = await api.create({ threadId });
+      setConversations((items) => [...items.filter((item) => item.id !== conversation.id), conversation]);
+      select(conversation); void refreshList();
+    } catch (error) { setError(explainError(error)); }
+    finally { resumeLock.current = false; setCreating(false); }
   }
   async function createConversation() {
     if (creating || !project.trim() || !dialog) return;
     setCreating(true); setError(null);
     try {
-      const conversation = await api.create({ project: project.trim(), ...(dialog.threadId ? { threadId: dialog.threadId } : {}) });
+      const conversation = await api.create({ project: project.trim() });
       setConversations((items) => [...items.filter((item) => item.id !== conversation.id), conversation]);
       select(conversation); setDialog(null); void refreshList();
     } catch (error) { setError(`${explainError(error)} Refresh the conversation list before retrying if the connection dropped.`); }
@@ -150,14 +158,14 @@ export default function App() {
         <a href="/" className="flex items-center gap-2.5 font-semibold tracking-tight"><span className="text-lg">shepherd<span className="text-accent">.</span></span></a>
         <button className="icon-button lg:hidden" aria-label="Close conversations" onClick={() => setDrawer(false)}><Icon name="close" /></button>
       </div>
-      <div className="px-4"><button className="new-conversation" onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); setDrawer(false); }}><Icon name="plus" /><span>New conversation</span></button></div>
+      <div className="px-4"><button className="new-conversation" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); setDrawer(false); }}><Icon name="plus" /><span>New conversation</span></button></div>
       <div className="mb-2 mt-7 flex items-center justify-between px-5 text-[10px] font-semibold uppercase tracking-[.16em] text-dim"><span>Conversations</span><button className="icon-button size-7!" aria-label="Refresh conversations" onClick={() => void refreshList()}><Icon name="refresh" className="size-3.5" /></button></div>
       <div className="mb-3 flex gap-2 px-4" aria-label="Conversation filter"><button className="button-secondary flex-1 justify-center" aria-pressed={!archived} onClick={() => changeView(false)}>Active</button><button className="button-secondary flex-1 justify-center" aria-pressed={archived} onClick={() => changeView(true)}>Archived</button></div>
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
         {loading && <p className="px-3 py-4 text-sm text-muted">Loading conversations…</p>}
         {!loading && !threads.length && !visibleHandles.length && <p className="px-3 py-4 text-sm leading-6 text-dim">{archived ? "No archived conversations." : "Your conversations will appear here."}</p>}
         {visibleHandles.map((item) => <button className={`thread-button ${selected?.id === item.id ? "thread-selected" : ""}`} key={item.id} onClick={() => select(item)}><Icon name="chat" /><span className="truncate">New conversation</span><span className="status-dot ml-auto" /></button>)}
-        {threads.map((item) => archived ? <div key={item.threadId} className="mb-2 flex items-center gap-2 px-3 py-2"><span className="min-w-0 flex-1 truncate text-sm text-muted" title={label(item)}>{label(item)}</span><button className="button-secondary" aria-label={`Restore ${label(item)}`} disabled={restoring !== null} onClick={() => void restore(item.threadId)}>{restoring === item.threadId ? "Restoring…" : "Restore"}</button></div> : <button title={label(item)} className={`thread-button ${selected?.threadId === item.threadId ? "thread-selected" : ""}`} key={item.threadId} onClick={() => openThread(item.threadId, label(item))}><Icon name="chat" /><span className="truncate">{label(item)}</span>{conversations.some((c) => c.threadId === item.threadId) && <span className="status-dot ml-auto" />}</button>)}
+        {threads.map((item) => archived ? <div key={item.threadId} className="mb-2 flex items-center gap-2 px-3 py-2"><span className="min-w-0 flex-1 truncate text-sm text-muted" title={label(item)}>{label(item)}</span><button className="button-secondary" aria-label={`Restore ${label(item)}`} disabled={restoring !== null} onClick={() => void restore(item.threadId)}>{restoring === item.threadId ? "Restoring…" : "Restore"}</button></div> : <button title={label(item)} className={`thread-button ${selected?.threadId === item.threadId ? "thread-selected" : ""}`} key={item.threadId} onClick={() => openThread(item.threadId)}><Icon name="chat" /><span className="truncate">{label(item)}</span>{conversations.some((c) => c.threadId === item.threadId) && <span className="status-dot ml-auto" />}</button>)}
         {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
       <div className="sidebar-footer"><span className="status-dot" /><span>Private workspace</span><span className="ml-auto text-dim">Web</span></div>
@@ -170,7 +178,7 @@ export default function App() {
           const handles = await api.conversations();
           if (previous) {
             const next = handles.conversations.find((item) => item.threadId === previous.threadId)
-              ?? await api.create({ project: previous.project, threadId: previous.threadId });
+              ?? await api.create({ threadId: previous.threadId });
             select(next); setSaved(null);
           }
           await refreshList();
@@ -184,13 +192,14 @@ export default function App() {
           onFork={(conversation) => { setConversations((items) => [...items, conversation]); select(conversation); changeView(false); }}
         /><ConversationSettings key={selected.id} id={selected.id} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} /><div role="status" aria-label={status} className="flex items-center gap-2 text-xs text-muted"><span className={`status-dot ${controller.connection !== "online" ? "status-dot-muted" : ""}`} />{status}</div><button className="icon-button ml-1" aria-label="Detach conversation" title="Detach without stopping agent work" disabled={detaching || controller.busy} onClick={() => void detach()}><Icon name="detach" /></button></>}
       </header>
+      {creating && !dialog && <p role="status" className="notice mx-5 mt-4">Resuming conversation…</p>}
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}
       {!selected ? <section className="empty-screen">
         <p className="mb-3 mt-7 text-[11px] font-medium uppercase tracking-[.2em] text-accent">A little direction. A lot of possibility.</p>
         <h2 className="max-w-lg text-balance text-3xl font-medium leading-tight tracking-tight sm:text-4xl">What shall we work on?</h2>
         <p className="mt-4 max-w-md text-balance text-sm leading-7 text-muted">A space to build, explore, and pick up where you left off. Choose a conversation or start something new.</p>
-        <button className="button-primary mt-7" onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>
-        {saved && <button className="mt-5 text-sm text-muted underline decoration-line underline-offset-4" onClick={() => openThread(saved.threadId, "Resume last conversation")}>Resume your last conversation</button>}
+        <button className="button-primary mt-7" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>
+        {saved && <button className="mt-5 text-sm text-muted underline decoration-line underline-offset-4" onClick={() => openThread(saved.threadId)}>Resume your last conversation</button>}
         <div className="welcome-footnote"><Icon name="folder" /><span>Your projects. Your conversations. One place.</span></div>
       </section> : <>
         <div className="chat-scroll" ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}>
@@ -205,7 +214,7 @@ export default function App() {
         </div>
         <div className="composer-area"><div className="chat-width">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
-          {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); setProject(selected.project); setDialog({ threadId: selected.threadId, title: "Resume conversation" }); }}>Resume conversation</button>}
+          {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); void openThread(selected.threadId, true); }}>Resume conversation</button>}
           <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))} draft={drafts[selected.threadId] ?? ""} onDraft={(value) => setDrafts((all) => ({ ...all, [selected.threadId]: value }))} send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
           <p className="composer-caption">{active ? "You can leave this page. Shepherd will keep working." : "Enter to send · Shift + Enter for a new line"}</p>
         </div></div>
@@ -213,13 +222,12 @@ export default function App() {
     </main>
     <dialog ref={dialogRef} className="project-dialog" onCancel={(event) => { if (creating) event.preventDefault(); else setDialog(null); }} onClose={() => { if (!creating) setDialog(null); }}>
       <form onSubmit={(event) => { event.preventDefault(); void createConversation(); }}>
-        <div className="mb-6 flex items-center justify-between"><h2 className="text-lg font-medium">{dialog?.threadId ? "Resume conversation" : "New conversation"}</h2><button type="button" className="icon-button" aria-label="Close" disabled={creating} onClick={() => setDialog(null)}><Icon name="close" /></button></div>
-        {dialog?.threadId && <p className="mb-5 truncate text-sm text-muted">{dialog.title}</p>}
+        <div className="mb-6 flex items-center justify-between"><h2 className="text-lg font-medium">{dialog?.title ?? "New conversation"}</h2><button type="button" className="icon-button" aria-label="Close" disabled={creating} onClick={() => setDialog(null)}><Icon name="close" /></button></div>
         <label htmlFor="project" className="mb-2 block text-sm font-medium">Project</label>
         <input id="project" autoFocus value={project} onChange={(event) => setProject(event.target.value)} placeholder="owner/repo or ~/project" required maxLength={4096} disabled={creating} />
-        <p className="mt-3 text-xs leading-6 text-muted">Use a GitHub repository, a path starting with ~/ or ~ for a new local workspace.{dialog?.threadId ? " Choose the original project when resuming." : ""}</p>
+        <p className="mt-3 text-xs leading-6 text-muted">Use a GitHub repository, a path starting with ~/ or ~ for a new local workspace.</p>
         {error && <p className="notice mt-4" role="alert">{error}</p>}
-        <button className="button-primary mt-6 w-full justify-center" disabled={creating || !project.trim()}>{creating ? "Preparing workspace…" : dialog?.threadId ? "Resume conversation" : "Create conversation"}<Icon name="chevron" /></button>
+        <button className="button-primary mt-6 w-full justify-center" disabled={creating || !project.trim()}>{creating ? "Preparing workspace…" : "Create conversation"}<Icon name="chevron" /></button>
       </form>
     </dialog>
   </div>;

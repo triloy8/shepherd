@@ -1,7 +1,6 @@
 // Run with playwright-cli run-code against the isolated web-ui-host fixture.
 async (page) => {
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
-  await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
   await page.getByRole('textbox', { name: 'Message Shepherd' }).fill('parity approval');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();

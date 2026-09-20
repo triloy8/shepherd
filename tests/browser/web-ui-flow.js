@@ -3,7 +3,6 @@ async (page) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
-  await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
   await page.getByText('Where did we leave off?', { exact: true }).waitFor();
   await page.getByRole('textbox', { name: 'Message Shepherd' }).fill('Please request approval');
@@ -54,7 +53,6 @@ async (page) => {
   });
   await page.getByText('Needs attention', { exact: true }).waitFor({ timeout: 15000 });
   await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Resume conversation', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
   if (await page.getByRole('textbox', { name: 'Message Shepherd' }).inputValue() !== 'Draft across disconnect') throw new Error('Resume draft lost');
   if (errors.length) throw new Error(errors.join('\n'));

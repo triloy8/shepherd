@@ -131,7 +131,7 @@ export class WebSurfaceApi {
         if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });
         if (request.method === "POST") {
           const data = await body(request, ["project", "threadId"]);
-          return json(201, await this.create(requiredString(data, "project"), optionalString(data, "threadId", 256)));
+          return json(201, await this.create(optionalString(data, "project", 4096), optionalString(data, "threadId", 256)));
         }
       }
       const restore = /^\/api\/v1\/threads\/([A-Za-z0-9_-]{1,256})\/unarchive$/.exec(url.pathname);
@@ -161,7 +161,7 @@ export class WebSurfaceApi {
           if (action !== "rename" && (this.context.ingress.getThreadState(threadId).activeTurnId || this.context.approvals.listApprovals(threadId).some((approval) => approval.status === "pending"))) {
             throw new WebRequestError(409, "conversation_active", "Stop the current turn and resolve pending approvals before archiving or forking.");
           }
-          if (action === "fork") return json(201, await this.create(entry.project, undefined, threadId));
+          if (action === "fork") return json(201, await this.create(entry.project, undefined, threadId, entry.id));
           await webControl(this.application, action === "rename"
             ? { type: "thread.rename", surfaceId: entry.id, name }
             : { type: "thread.archive", surfaceId: entry.id });
@@ -289,6 +289,7 @@ export class WebSurfaceApi {
       if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");
       if (error instanceof ThreadBindingConflictError) return fail(409, "thread_in_use", error.message);
       if (error instanceof ApprovalDecisionError) return fail(error.code === "approval_not_found" ? 404 : error.code === "invalid_decision" ? 400 : 409, error.code, error.message);
+      if (error instanceof ApplicationActionError && error.failure.code === "workspace_unavailable") return fail(409, "workspace_unavailable", "The conversation’s saved workspace is missing or unavailable. Restore its original directory before resuming.");
       if (error instanceof ApplicationActionError) return fail(409, error.failure.code, "An application prerequisite is not satisfied.");
       console.error("Web API operation failed:", error);
       return fail(502, "operation_failed", "The backend operation failed. Check host logs.");
@@ -319,20 +320,28 @@ export class WebSurfaceApi {
     this.entries.delete(entry.id);
     this.application.disposeSurface(entry.id);
   }
-  private async create(project: string, threadId?: string, sourceThreadId?: string): Promise<WebConversation> {
+  private async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string): Promise<WebConversation> {
     this.available();
+    if (!threadId && !project) throw new WebRequestError(400, "invalid_request", "A project is required for a new conversation.");
     if (threadId && !/^[A-Za-z0-9_-]+$/.test(threadId)) {
       throw new WebRequestError(400, "invalid_request", "threadId must be an opaque thread identifier, not a path.");
     }
     if (this.entries.size >= MAX_CONVERSATIONS) throw new WebRequestError(429, "conversation_limit", "Detach an existing conversation before opening another.");
     if (threadId && this.resuming.has(threadId)) throw new WebRequestError(409, "thread_in_use", "Thread resume is already in progress.");
     const id = randomUUID();
-    const entry: Entry = { id, images: new WebImages(id), threadId: null, project, busy: false, historyRevision: 0, feed: new WebEventFeed() };
+    const entry: Entry = { id, images: new WebImages(id), threadId: null, project: project ?? "", busy: false, historyRevision: 0, feed: new WebEventFeed() };
     this.entries.set(entry.id, entry);
     if (threadId) this.resuming.add(threadId);
     try {
-      const selected = await this.application.setSurfaceProject(entry.id, project);
-      entry.project = selected.repoSlug;
+      // Resume derives the workspace from the thread; legacy project input cannot override it.
+      if (sourceSurfaceId) {
+        const inherited = this.application.inheritSurfaceProject?.(entry.id, sourceSurfaceId);
+        if (!inherited) throw new Error("Fork project binding is unavailable.");
+        entry.project = inherited;
+      } else if (!threadId) {
+        const selected = await this.application.setSurfaceProject(entry.id, project!);
+        entry.project = selected.repoSlug;
+      }
       this.available();
       if (sourceThreadId) {
         const fork = await webControl(this.application, { type: "thread.fork", surfaceId: entry.id, sourceThreadId });
@@ -342,6 +351,7 @@ export class WebSurfaceApi {
         ? await this.application.switchSurfaceThread(entry.id, threadId)
         : await this.application.createSurfaceThread(entry.id);
       this.available();
+      if (threadId) entry.project = this.application.getSurfaceProject(entry.id) ?? "";
       return this.summary(entry);
     } catch (error) { this.remove(entry); throw error; }
     finally { if (threadId) this.resuming.delete(threadId); }

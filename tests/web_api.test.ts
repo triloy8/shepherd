@@ -1,3 +1,4 @@
+import { ApplicationActionError } from "../server/core/action_error.js";
 import { expect, test } from "bun:test";
 import { webHarness } from "./helpers/web_harness.js";
 import { readWebConfig } from "../server/adapters/web/config.js";
@@ -153,4 +154,30 @@ test("cleanup attempts every conversation even when one binding release fails", 
   expect(released).toEqual([first.id, second.id]);
   expect(h.bindings.size).toBe(0);
   h.api.dispose();
+});
+
+
+test("resume needs only a thread ID and ignores legacy project overrides", async () => {
+  const h = webHarness();
+  try {
+    const resumed = await h.create({ threadId: "stored", project: "owner/wrong-project" });
+    expect(resumed.project).toBe("/saved/workspace");
+    expect(h.calls.some((call) => call.startsWith("project:"))).toBe(false);
+    await h.request(`/conversations/${resumed.id}`, "DELETE");
+    expect((await h.create({ threadId: "stored" })).threadId).toBe("stored");
+    expect((await h.request("/conversations", "POST", {})).status).toBe(400);
+  } finally { h.api.dispose(); }
+});
+
+
+test("missing saved workspace returns a recoverable error and releases the web handle", async () => {
+  const h = webHarness();
+  h.application.switchSurfaceThread = async () => { throw new ApplicationActionError({ code: "workspace_unavailable" }); };
+  try {
+    const response = await h.request("/conversations", "POST", { threadId: "stored" });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("workspace_unavailable");
+    expect((await (await h.request("/conversations")).json()).conversations).toEqual([]);
+    expect(h.calls.some((call) => call.startsWith("dispose:"))).toBe(true);
+  } finally { h.api.dispose(); }
 });

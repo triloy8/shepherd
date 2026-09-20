@@ -247,3 +247,18 @@ will need to refresh and restore/resume it before sending again.
 After an uncertain fork response, refresh the conversation list before retrying.
 The UI does not automatically retry management writes. These controls use the
 shared core thread operations; they add no separate conversation storage.
+
+### Skills controls
+
+Conversation settings includes a collapsible **Skills** section. It lists workspace
+skills with descriptions, scope, effective enabled state, and expandable paths.
+Filter by name, description, scope, or path; discovery errors remain visible even
+when filtering. Enable/disable uses the exact listed path, so duplicate names in
+different scopes remain distinct. Changes use the shared Discord control action and
+can affect other conversations through shared Codex configuration.
+
+**Reload skills** refreshes discovery after installation or file changes. The UI
+reports effective-state overrides, distinguishes empty discovery from failure, and
+requires reloading after a failed update before offering another toggle. Requests
+from a closed settings panel cannot overwrite a newly opened panel. This adds no
+skill installation, file editing, or per-conversation configuration semantics.

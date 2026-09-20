@@ -1,4 +1,4 @@
-import type { WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse } from "../../shared/protocol/web";
+import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse } from "../../shared/protocol/web";
 import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
 
 export class ApiError extends Error {
@@ -21,6 +21,9 @@ async function request<T>(path: string, method = "GET", body?: unknown, signal?:
 const conversationPath = (id: string) => `/conversations/${encodeURIComponent(id)}`;
 const page = (cursor?: string) => `?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
 export const api = {
+  skills: (id: string, signal?: AbortSignal) => request<WebSkillsResponse>(`${conversationPath(id)}/skills`, "GET", undefined, signal),
+  reloadSkills: (id: string) => request<WebSkillsResponse>(`${conversationPath(id)}/skills-reload`, "POST", {}),
+  setSkill: (id: string, path: string, enabled: boolean) => request<WebSkillResponse>(`${conversationPath(id)}/skills`, "POST", { path, enabled }),
   settings: (id: string, signal?: AbortSignal) => request<WebSettingsResponse>(`${conversationPath(id)}/settings`, "GET", undefined, signal),
   models: (id: string, cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`${conversationPath(id)}/models${page(cursor)}`, "GET", undefined, signal),
   context: (id: string, signal?: AbortSignal) => request<WebContextResponse>(`${conversationPath(id)}/context`, "GET", undefined, signal),

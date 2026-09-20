@@ -70,3 +70,10 @@
   .working-dot { @apply size-1.5 rounded-full bg-accent motion-safe:animate-pulse; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
+
+@layer components {
+  .settings-dialog { @apply max-h-[85dvh] overflow-y-auto; }
+  .settings-dialog select { @apply mt-2 block w-full rounded-lg border border-line bg-canvas p-3 text-sm text-ink; }
+  .settings-facts { @apply grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted; }
+  .settings-facts dd { @apply min-w-0 break-words text-right text-ink; }
+}

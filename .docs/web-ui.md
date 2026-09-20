@@ -55,8 +55,9 @@ On a keyboard with a precise pointer, Enter sends and Shift+Enter inserts a new
 line. On touch layouts, Enter inserts a new line and the send button submits.
 The sidebar becomes a conversation drawer on narrow screens. Messages support
 Markdown and code blocks; raw HTML and remote image fetching are disabled.
-Attachments, generated-image delivery, model/skill/deploy controls and full
-Discord command parity are outside this first UI version.
+Input attachments, skill/deploy controls and full Discord command parity remain
+outside the web UI. Generated images and conversation model/effort controls are
+supported.
 
 ## Recovery and browser state
 
@@ -135,3 +136,26 @@ tab. Only conversation-scoped API image URLs are loaded; Markdown cannot load
 arbitrary remote images. Missing, unsupported or removed files display an unavailable
 notice. Reload history to retry. Older turn events cannot clear the active turn or
 restart a completed turn. These rules also apply during event replay.
+
+## Model, effort and usage
+
+Open Conversation settings from an attached conversation's header. Model and
+reasoning-effort controls display Current and Next turn values. Use More models
+to page through the catalog, select a model, and choose Use model. Effort choices
+then reflect that model's supported levels; Use effort queues the chosen level.
+Model default uses the provider's advertised default. If an existing pending
+effort is incompatible with a new model, the panel asks you to select a supported
+level. Changing settings never interrupts or steers the current response.
+
+Usage and account limits expands within the panel. It shows reported context
+window/token counts and account-wide usage windows, reset times, plan and credit
+information when available. Missing telemetry is shown as unavailable, not zero.
+Each usage read has its own error state so a failed limits read does not disable
+model/effort controls. Data refreshes when the panel opens, the active turn
+changes, or Refresh settings and usage is selected. It is not a continuous usage
+monitor. Changing conversations cancels outstanding reads and resets the panel.
+
+The dialog supports keyboard Escape, native focus containment and scrolling on
+narrow layouts. Settings use the same core rules and session lifetime as Discord;
+reloading the page re-reads them, but no new persistence across host restarts is
+introduced.

@@ -319,3 +319,21 @@ before retrying an uncertain request. Successful sends clear only submitted
 attachments. Draft images are in memory and do not survive a full page reload;
 sent attachments are read back from provider history. Image URLs in agent Markdown
 remain non-fetching placeholders.
+
+### History navigation
+
+**Browse history** opens a separate panel with newest-first turn summaries (ten per
+page). **Inspect turn** opens oldest-first item pages, including command/file/tool
+activity and generated images. Previous/Next uses visited forward cursors, and
+**Back to turns** restores the parent page and its scroll position. The live chat and
+composer remain mounted while browsing, so closing the panel preserves the draft
+and chat position.
+
+Item details are plain text, limited to 24,000 characters per item. Inline image
+payloads are replaced with a label in the detail text; generated images use the
+existing scoped viewer. Raw reasoning items are not displayed. This is an operator
+history inspector, not a Markdown renderer or a global search feature.
+
+Refresh updates the current page. After rollback invalidates a page, Refresh starts
+again from the first page. Requests aborted by closing/switching cannot replace a
+new view. Repeated backend cursors stop forward navigation instead of looping.

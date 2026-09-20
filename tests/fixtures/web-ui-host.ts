@@ -24,11 +24,26 @@ const histories = new Map<string, HistoryTurn[]>([["stored", [{ id: "past", stat
   { id: "question", type: "userMessage", content: [{ type: "text", text: "Where did we leave off?" }] },
   { id: "answer", type: "agentMessage", text: "The shared API is ready. Next, we’re building a **private workspace** for conversations, live responses, and approvals.\n\nEverything runs in the same Shepherd host." },
 ] }]]]);
+if (process.env.UI_HISTORY_FIXTURE === "1") {
+  histories.set("stored", [...Array.from({ length: 22 }, (_, index): HistoryTurn => ({
+    id: `older-${index}`, status: "completed", itemsView: "full", error: null, startedAt: index + 1, completedAt: index + 2, durationMs: 1000,
+    items: Array.from({ length: 15 }, (_, item) => ({ id: `history-${index}-${item}`, type: "commandExecution", command: `echo activity-${item}`, status: "completed", aggregatedOutput: `Output ${item}` })),
+  })), ...histories.get("stored")!]);
+}
 const names = new Map<string, string>();
 const archivedIds = new Set<string>();
 const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: String((turns[0]?.items[0]?.content as Array<{ text: string }> | undefined)?.[0]?.text ?? "New conversation"), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2, source: "appServer" }));
 h.application.conversation.listStoredThreads = async (request) => ({ threads: stored().filter((thread) => thread.archived === Boolean((request as { archived?: boolean }).archived)), nextCursor: null, backwardsCursor: null });
-h.application.conversation.listThreadTurns = async (threadId) => ({ data: [...(histories.get(threadId) ?? [])].reverse(), nextCursor: null, backwardsCursor: null });
+h.application.conversation.listThreadTurns = async (threadId, raw) => {
+  const request = raw as { cursor?: string; limit?: number; itemsView?: string };
+  const all = [...(histories.get(threadId) ?? [])].reverse(); const start = Number(request.cursor ?? 0); const end = start + (request.limit ?? 30);
+  return { data: all.slice(start, end).map((turn) => request.itemsView === "summary" ? { ...turn, items: turn.items.slice(0, 1) } : turn), nextCursor: end < all.length ? String(end) : null, backwardsCursor: null };
+};
+Object.assign(h.application.conversation, { async listThreadItems(threadId: string, request: { turnId?: string; cursor?: string; limit?: number }) {
+  const all = (histories.get(threadId) ?? []).filter((turn) => !request.turnId || turn.id === request.turnId).flatMap((turn) => turn.items.map((item) => ({ turnId: turn.id, item })));
+  const start = Number(request.cursor ?? 0); const end = start + (request.limit ?? 10);
+  return { data: all.slice(start, end), nextCursor: end < all.length ? String(end) : null, backwardsCursor: null };
+} });
 let sequence = 0;
 Object.assign(h.application, {
   clearSurfaceThread: (id: string) => h.bindings.delete(id),

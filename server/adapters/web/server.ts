@@ -1,6 +1,7 @@
+import { WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition } from "../../runtime/surface_adapter.js";
 import { readWebConfig, type WebConfig } from "./config.js";
-import { WebSurfaceApi, WEB_MAX_BODY_BYTES } from "./api.js";
+import { WebSurfaceApi } from "./api.js";
 import { loadUiAssets, serveUiAsset, type UiAssets } from "./ui_assets.js";
 
 type HttpServer = {
@@ -45,7 +46,7 @@ export function createWebAdapter(context: SurfaceAdapterContext, config: WebConf
         const assets = await assetsLoader();
         if (stopped || context.signal.aborted) throw new Error("Web adapter is stopping.");
         server = listen({
-          hostname: config.hostname, port: config.port, maxRequestBodySize: WEB_MAX_BODY_BYTES, idleTimeout: 30,
+          hostname: config.hostname, port: config.port, maxRequestBodySize: WEB_MESSAGE_MAX_BODY_BYTES, idleTimeout: 30,
           async fetch(request, listener) {
             const url = new URL(request.url);
             const origin = request.headers.get("origin");

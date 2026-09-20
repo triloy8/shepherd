@@ -6,8 +6,8 @@ archive when historical reasoning is useful.
 
 ## Maintained references
 
-- [Web parity review](web-parity-review.md) — current Discord control coverage,
-  recovery limits and remaining web controls.
+- [Surface parity matrix](surface-parity-matrix.md) — feature-by-feature Discord
+  and web support, interaction differences and recovery limits.
 
 - [Surface launch and lifecycle](surface-launch.md) — selection, shared host ownership, adapter health, and startup/shutdown behavior.
 

@@ -1,8 +1,8 @@
-import { readImageInputs, validImageData, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
+import { presentHistoryItem } from "./history.js";
+import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import { WebHostControls } from "./host_controls.js";
 import { webControl } from "./controls.js";
 import { WebImages } from "./images.js";
-import { mapTurnActivity, extractGeneratedImageArtifact } from "../../core/codex_rpc_mapper.js";
 import { randomUUID } from "node:crypto";
 import { WEB_API_PREFIX, WEB_API_VERSION, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
@@ -142,7 +142,7 @@ export class WebSurfaceApi {
         if (attached) await this.mutate(attached, operation); else await operation();
         return json(200, { ok: true });
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|rollback)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|history|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|rollback)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
@@ -242,25 +242,28 @@ export class WebSurfaceApi {
         headers.set("x-accel-buffering", "no");
         return new Response(stream, { headers });
       }
+      if (action === "history" && request.method === "GET") {
+        const page = pagination(url, ["turnId", "revision"]);
+        const turnId = url.searchParams.get("turnId");
+        if (turnId !== null && (!turnId.trim() || turnId.length > 256)) throw new WebRequestError(400, "invalid_query", "Invalid turn ID.");
+        const revision = entry.historyRevision;
+        const expected = url.searchParams.get("revision");
+        if (expected !== null && (!/^\d+$/.test(expected) || !Number.isSafeInteger(Number(expected)))) throw new WebRequestError(400, "invalid_query", "Invalid history revision.");
+        if (expected !== null && Number(expected) !== revision) throw new WebRequestError(409, "history_changed", "History changed. Reload from the first page.");
+        const result = turnId
+          ? await this.application.conversation.listThreadItems(threadId, { ...page, turnId, sortDirection: "asc" })
+          : await this.application.conversation.listThreadTurns(threadId, { ...page, sortDirection: "desc", itemsView: "summary" });
+        if (revision !== entry.historyRevision) throw new WebRequestError(409, "history_changed", "History changed. Reload from the first page.");
+        return json(200, turnId
+          ? { view: "items", revision, nextCursor: result.nextCursor, data: (result as import("../../../shared/protocol/requests.js").ListThreadItemsResponse).data.map((row) => ({ ...row, item: presentHistoryItem(row.item, row.turnId, entry.images) })) }
+          : { view: "turns", revision, nextCursor: result.nextCursor, data: (result as import("../../../shared/protocol/requests.js").ListThreadTurnsResponse).data.map((turn) => ({ ...turn, items: turn.items.map((item) => presentHistoryItem(item, turn.id, entry.images)) })) });
+      }
       if (action === "turns" && request.method === "GET") {
         const historyRevision = entry.historyRevision;
         const history = await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full", sortDirection: "desc" });
         if (historyRevision !== entry.historyRevision) throw new WebRequestError(409, "history_changed", "History changed. Reload conversation history.");
         return json(200, { ...history, revision: historyRevision, data: history.data.map((turn) => ({ ...turn, items: turn.items.map((item) => {
-          if (item.type === "userMessage" && Array.isArray(item.content)) {
-            // Never turn provider history into arbitrary remote browser fetches.
-            let bytes = 0; let count = 0;
-            return { ...item, content: item.content.map((part: unknown) => {
-              const value = part && typeof part === "object" ? part as Record<string, unknown> : {};
-              if (value.type !== "image") return part;
-              const allowed = count++ < 4 && validImageData(value.url) && (bytes += value.url.length) <= WEB_MESSAGE_MAX_BODY_BYTES;
-              return allowed ? { type: "image", url: value.url } : { type: "image" };
-            }) };
-          }
-          const image = extractGeneratedImageArtifact({ turnId: turn.id, item });
-          if (image) return { ...item, webImage: { url: entry.images.register(turn.id, image.itemId, image.path), prompt: image.revisedPrompt } };
-          const activity = mapTurnActivity({ turnId: turn.id, item }, item.status === "inProgress" ? "started" : "completed");
-          return activity ? { ...item, webActivity: activity } : item;
+          return presentHistoryItem(item, turn.id, entry.images);
         }) })) });
       }
       if (action === "approvals" && !match[3] && request.method === "GET") return json(200, { approvals: this.context.approvals.listApprovals(threadId) });

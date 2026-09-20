@@ -21,6 +21,8 @@ async function request<T>(path: string, method = "GET", body?: unknown, signal?:
 const conversationPath = (id: string) => `/conversations/${encodeURIComponent(id)}`;
 const page = (cursor?: string) => `?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
 export const api = {
+  compact: (id: string) => request(`${conversationPath(id)}/compact`, "POST", {}),
+  rollback: (id: string, numTurns: number) => request(`${conversationPath(id)}/rollback`, "POST", { numTurns }),
   skills: (id: string, signal?: AbortSignal) => request<WebSkillsResponse>(`${conversationPath(id)}/skills`, "GET", undefined, signal),
   reloadSkills: (id: string) => request<WebSkillsResponse>(`${conversationPath(id)}/skills-reload`, "POST", {}),
   setSkill: (id: string, path: string, enabled: boolean) => request<WebSkillResponse>(`${conversationPath(id)}/skills`, "POST", { path, enabled }),

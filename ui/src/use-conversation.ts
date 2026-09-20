@@ -24,9 +24,12 @@ export function useConversation(conversation: WebConversation | null) {
   const identity = useRef(conversation?.id);
   identity.current = conversation?.id;
   const actionRef = useRef(false);
+  const historyEpoch = useRef(0);
+  const historyRevision = useRef<number | null>(null);
   const historyExpanded = useRef(false);
 
   useEffect(() => {
+    historyEpoch.current++; historyRevision.current = null;
     setChat(emptyChat()); setApprovals([]); setError(null); setHistoryCursor(null);
     setConnection("connecting"); setBusy(false); actionRef.current = false;
     setLoadingHistory(false); historyExpanded.current = false;
@@ -51,16 +54,24 @@ export function useConversation(conversation: WebConversation | null) {
       if (snapshot) { refreshAgain = true; return snapshot; }
       return snapshot = (async () => {
         const revision = turnRevision;
+        const epoch = historyEpoch.current;
         try {
           const [state, history, pending] = await Promise.all([
             api.state(id, abort.signal), api.history(id, undefined, abort.signal), api.approvals(id, abort.signal),
           ]);
           if (abort.signal.aborted) return;
-          setChat((current) => ({ ...mergeHistory(current, history.data), activeTurnId: revision === turnRevision ? state.state.activeTurnId : current.activeTurnId }));
+          if (epoch !== historyEpoch.current) { refreshAgain = true; return; }
+          const replaced = historyRevision.current !== null && historyRevision.current !== history.revision;
+          if (replaced) { historyEpoch.current++; historyExpanded.current = false; setLoadingHistory(false); }
+          historyRevision.current = history.revision;
+          setChat((current) => ({ ...mergeHistory(replaced ? emptyChat() : current, history.data), activeTurnId: revision === turnRevision ? state.state.activeTurnId : current.activeTurnId }));
           setApprovals(pending.approvals.filter((approval) => approval.status === "pending"));
           if (!historyExpanded.current) setHistoryCursor(history.nextCursor);
         } catch (error) {
-          if (!abort.signal.aborted && !missing(error)) setError(explainError(error));
+          if (!abort.signal.aborted) {
+            if (error instanceof ApiError && error.code === "history_changed") refreshAgain = true;
+            else if (!missing(error)) setError(explainError(error));
+          }
         } finally {
           snapshot = null;
           if (refreshAgain && !abort.signal.aborted) { refreshAgain = false; void refresh(); }
@@ -86,7 +97,13 @@ export function useConversation(conversation: WebConversation | null) {
               if (["turn.started", "turn.completed", "turn.failed"].includes(event.data.type)) turnRevision++;
               setChat((current) => reduceBridge(current, event.data));
               if (event.data.type.startsWith("approval.") || ["turn.started", "turn.completed", "turn.failed", "turn.message.completed"].includes(event.data.type)) soon();
-            } else soon();
+            } else {
+              if (event.type === "reset" && event.data.reason === "history_changed") {
+                historyEpoch.current++; historyRevision.current = null; historyExpanded.current = false;
+                setChat(emptyChat()); setHistoryCursor(null); setLoadingHistory(false);
+              }
+              soon();
+            }
           });
         } catch (error) {
           if (abort.signal.aborted || missing(error)) break;
@@ -123,13 +140,15 @@ export function useConversation(conversation: WebConversation | null) {
   async function loadOlder() {
     const id = conversation?.id;
     if (!id || !historyCursor || loadingHistory) return;
+    const epoch = historyEpoch.current;
     setLoadingHistory(true); historyExpanded.current = true;
     try {
       const history = await api.history(id, historyCursor);
-      if (identity.current !== id) return;
+      if (identity.current !== id || epoch !== historyEpoch.current) return;
+      if (historyRevision.current !== history.revision) { await refreshRef.current(); return; }
       setChat((current) => mergeHistory(current, history.data, true)); setHistoryCursor(history.nextCursor);
-    } catch (error) { if (identity.current === id) setError(explainError(error)); }
-    finally { if (identity.current === id) setLoadingHistory(false); }
+    } catch (error) { if (identity.current === id && epoch === historyEpoch.current) setError(explainError(error)); }
+    finally { if (identity.current === id && epoch === historyEpoch.current) setLoadingHistory(false); }
   }
   return { chat, approvals, connection, error, busy, historyCursor, loadingHistory, send, loadOlder,
     interrupt: () => action((id) => api.interrupt(id)),

@@ -31,9 +31,9 @@ function requiredString(object: Record<string, unknown>, key: string, max = 4096
 function optionalString(object: Record<string, unknown>, key: string, max = 4096): string | undefined {
   return object[key] === undefined ? undefined : requiredString(object, key, max);
 }
-function pagination(url: URL) {
-  if ([...url.searchParams.keys()].some((key) => !["cursor", "limit"].includes(key))) {
-    throw new WebRequestError(400, "invalid_query", "Only cursor and limit are supported.");
+function pagination(url: URL, extra: string[] = []) {
+  if ([...url.searchParams.keys()].some((key) => !["cursor", "limit", ...extra].includes(key))) {
+    throw new WebRequestError(400, "invalid_query", `Only ${["cursor", "limit", ...extra].join(", ")} are supported.`);
   }
   const limit = Number(url.searchParams.get("limit") ?? 20);
   const cursor = url.searchParams.get("cursor") ?? undefined;
@@ -109,7 +109,9 @@ export class WebSurfaceApi {
         return json(200, { rateLimits: result.rateLimits });
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/threads`) {
-        return json(200, await this.application.conversation.listStoredThreads(pagination(url)));
+        const archived = url.searchParams.get("archived");
+        if (archived !== null && archived !== "true" && archived !== "false") throw new WebRequestError(400, "invalid_query", "archived must be true or false.");
+        return json(200, await this.application.conversation.listStoredThreads({ ...pagination(url, ["archived"]), archived: archived === "true" }));
       }
       if (url.pathname === `${WEB_API_PREFIX}/conversations`) {
         if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });
@@ -118,7 +120,15 @@ export class WebSurfaceApi {
           return json(201, await this.create(requiredString(data, "project"), optionalString(data, "threadId", 256)));
         }
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const restore = /^\/api\/v1\/threads\/([A-Za-z0-9_-]{1,256})\/unarchive$/.exec(url.pathname);
+      if (restore && request.method === "POST") {
+        await body(request, []);
+        const attached = [...this.entries.values()].find((entry) => entry.threadId === restore[1]);
+        const operation = () => webControl(this.application, { type: "thread.unarchive", threadId: restore[1]! });
+        if (attached) await this.mutate(attached, operation); else await operation();
+        return json(200, { ok: true });
+      }
+      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|rename|archive|fork)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
@@ -129,6 +139,21 @@ export class WebSurfaceApi {
       if (!action && request.method === "DELETE") {
         await this.mutate(entry, async () => this.remove(entry));
         return json(200, { ok: true });
+      }
+      if ((action === "rename" || action === "archive" || action === "fork") && request.method === "POST") {
+        const data = await body(request, action === "rename" ? ["name"] : []);
+        const name = action === "rename" ? requiredString(data, "name", 200).trim() : "";
+        return await this.mutate(entry, async () => {
+          if (action !== "rename" && (this.context.ingress.getThreadState(threadId).activeTurnId || this.context.approvals.listApprovals(threadId).some((approval) => approval.status === "pending"))) {
+            throw new WebRequestError(409, "conversation_active", "Stop the current turn and resolve pending approvals before archiving or forking.");
+          }
+          if (action === "fork") return json(201, await this.create(entry.project, undefined, threadId));
+          await webControl(this.application, action === "rename"
+            ? { type: "thread.rename", surfaceId: entry.id, name }
+            : { type: "thread.archive", surfaceId: entry.id });
+          if (action === "archive") this.remove(entry);
+          return json(200, { ok: true });
+        });
       }
       if (action === "settings" && request.method === "GET") {
         const model = this.application.conversation.getThreadModel(threadId);
@@ -232,7 +257,7 @@ export class WebSurfaceApi {
     this.entries.delete(entry.id);
     this.application.disposeSurface(entry.id);
   }
-  private async create(project: string, threadId?: string): Promise<WebConversation> {
+  private async create(project: string, threadId?: string, sourceThreadId?: string): Promise<WebConversation> {
     this.available();
     if (threadId && !/^[A-Za-z0-9_-]+$/.test(threadId)) {
       throw new WebRequestError(400, "invalid_request", "threadId must be an opaque thread identifier, not a path.");
@@ -247,7 +272,11 @@ export class WebSurfaceApi {
       const selected = await this.application.setSurfaceProject(entry.id, project);
       entry.project = selected.repoSlug;
       this.available();
-      entry.threadId = threadId
+      if (sourceThreadId) {
+        const fork = await webControl(this.application, { type: "thread.fork", surfaceId: entry.id, sourceThreadId });
+        if (fork.type !== "thread.fork" || !fork.ok) throw new Error("Unexpected fork response.");
+        entry.threadId = fork.threadId;
+      } else entry.threadId = threadId
         ? await this.application.switchSurfaceThread(entry.id, threadId)
         : await this.application.createSurfaceThread(entry.id);
       this.available();

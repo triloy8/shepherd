@@ -28,7 +28,7 @@ export const api = {
   setModel: (id: string, model: string) => request(`${conversationPath(id)}/model`, "POST", { model }),
   setEffort: (id: string, effort: string) => request(`${conversationPath(id)}/effort`, "POST", { effort }),
   conversations: (signal?: AbortSignal) => request<WebConversationsResponse>("/conversations", "GET", undefined, signal),
-  threads: (cursor?: string, signal?: AbortSignal) => request<WebThreadsResponse>(`/threads${page(cursor)}`, "GET", undefined, signal),
+  threads: (cursor?: string, signal?: AbortSignal, archived = false) => request<WebThreadsResponse>(`/threads${page(cursor)}&archived=${archived}`, "GET", undefined, signal),
   create: (input: WebCreateConversation) => request<WebConversation>("/conversations", "POST", input),
   state: (id: string, signal?: AbortSignal) => request<WebConversationState>(conversationPath(id), "GET", undefined, signal),
   history: (id: string, cursor?: string, signal?: AbortSignal) => request<WebHistoryResponse>(`${conversationPath(id)}/turns${page(cursor)}`, "GET", undefined, signal),
@@ -36,6 +36,10 @@ export const api = {
   send: (id: string, text: string) => request<WebMessageResponse>(`${conversationPath(id)}/messages`, "POST", { text }),
   interrupt: (id: string) => request(`${conversationPath(id)}/interrupt`, "POST", {}),
   decide: (id: string, approvalId: string, decision: string) => request(`${conversationPath(id)}/approvals/${encodeURIComponent(approvalId)}`, "POST", { decision }),
+  rename: (id: string, name: string) => request(`${conversationPath(id)}/rename`, "POST", { name }),
+  archive: (id: string) => request(`${conversationPath(id)}/archive`, "POST", {}),
+  fork: (id: string) => request<WebConversation>(`${conversationPath(id)}/fork`, "POST", {}),
+  restore: (threadId: string) => request(`/threads/${encodeURIComponent(threadId)}/unarchive`, "POST", {}),
   detach: (id: string) => request(conversationPath(id), "DELETE"),
 };
 

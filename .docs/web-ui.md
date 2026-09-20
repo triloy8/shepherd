@@ -1,161 +1,249 @@
-# Built-in web UI
+# Web API v1
 
-Shepherd includes a React + TypeScript interface styled with Tailwind and built
-with Vite. It lives in `ui/` in this repository. The web adapter serves the built
-interface at `/` and the conversation API at `/api/v1` on the same listener.
-There is no separate UI repository, production frontend process, login screen,
-or bearer token.
+The `web` surface provides the conversation API and [built-in web UI](web-ui.md).
+It runs alone or beside Discord against the same application core. It does not
+provide arbitrary Codex RPC or full Discord command parity. Text prompts,
+history, events, interruption and approvals are the initial scope. Attachment
+uploads and skill/deploy controls are not HTTP routes in v1. Generated images,
+model/effort settings, context telemetry and account limits are supported.
 
-## Launch and private access
+## Enable explicitly
 
-Run `bun install --frozen-lockfile` followed by `bun run build`. Select
-`SHEPHERD_SURFACES=discord,web` (or `web`) in `envs/common.env`, validate with
-`bun run check:config`, then restart through the normal deployment flow.
-`bun run check` also builds the UI, so the existing deployment validation builds
-both sides together. Missing UI assets cause web startup to fail with build
-instructions. Disabled web does not load assets or open a listener.
-
-For local use, open `http://127.0.0.1:8788`. The actual listener port's loopback
-origins (`127.0.0.1` and `localhost`) are allowed automatically. For private remote
-access, put the exact HTTPS origin printed by Tailscale Serve in `envs/web.env`:
+Copy `envs/web.env.example` to `envs/web.env` and configure:
 
 ```env
 SHEPHERD_WEB_PORT=8788
-SHEPHERD_WEB_ORIGINS=https://HOST.TAILNET.ts.net
+SHEPHERD_WEB_ORIGINS=
 ```
 
-Replace that example with the actual origin, without a path or trailing slash.
-Follow [the web API private-access instructions](web-api.md#private-access-and-trust)
-to configure private Serve. The same URL serves the UI and API. Neither startup
-nor deployment configures Serve or changes tailnet policy. Keep access restricted
-to intended operator clients; anyone who can reach the endpoint has operator
-access. Never publish it with Funnel or another public proxy.
+Set `SHEPHERD_SURFACES=discord,web` in `envs/common.env` (or `web` without Discord).
+Run `bun run build` and `bun run check:config`, then restart through the normal
+deployment flow.
+Configuration validation does not connect or open a listener. Disabled web
+configuration is not loaded. Invalid selected configuration or a port collision
+fails host startup and cleans up all initialized adapters.
 
-The listener validates both request Host and browser Origin against its local
-addresses and configured origins. It does not trust forwarded-host headers to
-invent allowed origins. This prevents a hostile browser hostname from using
-loopback DNS rebinding. It is not user authentication: local processes and allowed
-network clients remain trusted operators.
+The listener is always `127.0.0.1`; there is no public bind option. Origins are a
+comma-separated list of exact browser origins, including scheme and any port,
+with no trailing slash or path. HTTPS is required except for loopback development
+origins such as `http://localhost:3000`. Wildcards are rejected. The listener’s
+actual loopback origins are automatically allowed for local UI use. Remote browser origins must be explicitly configured, including when
+same-origin. Request Host must match a local or configured origin’s host;
+forwarded headers do not override this. CORS is not authentication.
 
-## First workflow
+## Private access and trust
 
-Choose **New conversation**, enter `owner/repo`, `~/path`, or `~`, and create a
-conversation. Selecting a stored conversation opens the same project prompt when
-it needs resuming. Choose its original project. Threads attached to another
-surface must be detached there first; an existing web handle can be shared by
-several browsers.
+There is no application authentication or token. Network reachability grants full
+operator access: listing stored threads, choosing workspaces, submitting agent
+work under host policy, and answering approvals. Local processes on the host and
+all clients allowed to reach the endpoint share this access and navigation state.
+There is no per-user authorization or isolation.
 
-The conversation view shows stored messages, live agent text, activity status,
-and pending approvals. Send a follow-up during an active turn to steer it. The
-stop button interrupts the turn. Approval controls use the exact choices supplied
-by the backend; request details can be expanded before deciding. Detach releases
-the web handle without stopping agent work.
+Tailscale and its access policy are the remote access boundary. Restrict access
+to the intended operator clients and expose the API only with private Serve,
+never Funnel or a public reverse proxy. Shepherd does not verify Tailscale identity
+headers or enforce tailnet policy itself. Browser origin checks reject disallowed
+origins before any operation, but non-browser clients can omit or forge Origin;
+these checks do not replace network access control.
 
-On a keyboard with a precise pointer, Enter sends and Shift+Enter inserts a new
-line. On touch layouts, Enter inserts a new line and the send button submits.
-The sidebar becomes a conversation drawer on narrow screens. Messages support
-Markdown and code blocks; raw HTML and remote image fetching are disabled.
-Input attachments, skill/deploy controls and full Discord command parity remain
-outside the web UI. Generated images and conversation model/effort controls are
-supported.
-
-## Recovery and browser state
-
-SSE reconnects with the last processed event cursor and a bounded retry delay.
-Expired cursors trigger a fresh stream and history/state/approval reconciliation.
-Canonical completed messages replace streamed text, and event IDs deduplicate
-replay. Recent history is refreshed on meaningful events and periodically to
-catch changes from another browser. Earlier history can be loaded separately.
-
-A network failure never automatically resubmits a prompt. The draft remains in
-memory, and the UI asks you to inspect the conversation before retrying. Drafts
-survive switching conversations and connection loss in the same page, but not a
-page reload. The last selected handle, thread and project are stored in browser
-local storage (no messages or secrets). Reloads reuse an existing handle. After
-a host restart or detach, choose **Resume conversation** to create a new handle
-for the stored thread. The UI never silently resumes or creates an agent session
-as part of retrying a failed message.
-
-## Development and build boundaries
-
-`bun run build:ui` typechecks browser code and writes Vite output to `ui/dist`.
-`bun run build` builds the UI and typechecks the server. `bun run check` also
-checks adapter capability contracts. Built assets are ignored by Git. Source
-startup loads assets once into memory, so an in-progress deployment cannot change
-the files served by the running host. Rollback rebuilds the restored revision's
-artifacts. Docker copies the UI build into its runtime image.
-
-`bun run build:bin` embeds the same UI assets in `release/shepherd`; the binary
-serves them even when launched outside the checkout. No runtime filesystem paths
-are accepted from HTTP requests: only the known built assets are served. HTML is
-not cached; hashed assets have immutable caching. Unknown paths return 404 and
-API errors never fall back to HTML. Production assets carry a restrictive CSP.
-
-For local frontend development:
-
-1. Start a test Shepherd host with `web` enabled on port 8788.
-2. Add `http://127.0.0.1:5173` to its `SHEPHERD_WEB_ORIGINS` before starting it.
-3. Run `bun run dev:ui`, then open `http://127.0.0.1:5173`.
-
-The loopback-only Vite development server proxies `/api` to port 8788. It is a
-development tool, not a second production service. Frontend modules import only
-the shared protocol and UI modules; all agent work goes through HTTP ports.
-
-## Validation
-
-`bun run test` includes HTTP/static-host checks, deployment rollback, SSE framing,
-replay deduplication, canonical response handling, and history reconciliation.
-For browser validation without live Codex calls, build the UI and run:
+For remote access, use an already authenticated Tailscale host and client. From
+the host checkout, the managed Tailscale CLI can proxy the loopback API privately:
 
 ```bash
-bun tests/fixtures/web-ui-host.ts
+./deploy/ubuntu/tailscale.sh cli serve --bg http://127.0.0.1:8788
+./deploy/ubuntu/tailscale.sh cli serve status
 ```
 
-This test-only fixture listens on `127.0.0.1:8799` and uses in-memory conversations.
-Run the function in `tests/browser/web-ui-flow.js` with Playwright CLI's
-`run-code` after opening that address in a fresh browser session. It covers
-resume, history, live replies, approvals, failed-send drafts, interruption,
-reload recovery, conversation creation and narrow layouts. Fixture routes and
-mock messages are never imported by the production host.
+Use the HTTPS URL printed by Serve, and allow access only to the intended tailnet
+members through tailnet policy. No API token is needed. Serve may
+prompt to enable HTTPS for the tailnet. This is an explicit operator step:
+Shepherd startup and `!deploy` do not configure Serve. Check existing Serve
+configuration before assigning its root route. Do not enable Funnel for this API.
+To remove this HTTPS listener, use `./deploy/ubuntu/tailscale.sh cli serve
+--https=443 off` after checking status and ensuring no other route depends on it.
+See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and
+[CLI syntax](https://tailscale.com/docs/reference/tailscale-cli/serve).
 
-The interface uses a neutral dark palette with text-only Shepherd branding.
-Warning notices retain amber coloring to distinguish errors from ordinary content.
+A merge or redeploy alone leaves the existing Discord-only selection intact.
+Tailscale authentication and daemon supervision remain independent of Shepherd's
+lifecycle. Origin configuration changes take effect at the next host restart.
 
-Assistant updates are grouped by turn. Commentary stays visible while work is
-running, then folds into an expandable work summary after confirmed completion.
-All explicitly marked final-answer parts stay visible with Copy buttons. Failed or
-interrupted turns keep their partial work expanded. History reloads restore the
-same grouping; elapsed time is shown only when supplied by stored turn history.
-Tool activity is retained by item ID, with expandable details and lifecycle status.
-Failed tools remain visible even when the turn completes. Activity is reconstructed
-from stored items on reload using the same normalization as Discord. Provider
-reasoning and full command output are not rendered; activity details are bounded.
+## HTTP contract
 
-Generated images remain visible outside folded progress and can be opened in a new
-tab. Only conversation-scoped API image URLs are loaded; Markdown cannot load
-arbitrary remote images. Missing, unsupported or removed files display an unavailable
-notice. Reload history to retry. Older turn events cannot clear the active turn or
-restart a completed turn. These rules also apply during event replay.
+All paths below are relative to `/api/v1`. JSON request bodies require
+`Content-Type: application/json`. Unknown body fields are rejected. Shared
+TypeScript response/event types are in `shared/protocol/web.ts` and its imported
+protocol files. Error responses are `{ "error": { "code": "...", "message": "..." } }`.
 
-## Model, effort and usage
+| Method | Path | Body or result |
+| --- | --- | --- |
+| GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
+| GET | `/limits` | `{ rateLimits }`; provider account limits, shared across conversations |
+| GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
+| GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
+| POST | `/conversations` | `{ project, threadId? }`; creates a thread or resumes the supplied one; 201 with `{ id, threadId, project }` |
+| GET | `/conversations/:id` | Handle summary plus `state` with active-turn/session state |
+| DELETE | `/conversations/:id` | Detaches the handle and closes streams; `{ ok: true }` |
+| POST | `/conversations/:id/rename` | `{ name }`; rename through shared controls, `{ ok: true }` |
+| POST | `/conversations/:id/archive` | `{}`; archive and detach the web handle, `{ ok: true }` |
+| POST | `/conversations/:id/fork` | `{}`; 201 with a new `WebConversation`; source remains attached |
+| POST | `/threads/:threadId/unarchive` | `{}`; restore a stored conversation without attaching it |
+| POST | `/conversations/:id/messages` | `{ text }`; returns `{ type: "submit" or "steer", threadId, turnId }` |
+| POST | `/conversations/:id/interrupt` | `{ turnId? }`; `{ ok: true }` |
+| GET | `/conversations/:id/turns?cursor=...&limit=20` | Full persisted turns and pagination cursors |
+| GET | `/conversations/:id/settings` | `{ model, effort }`; current/pending settings and supported effort levels |
+| GET | `/conversations/:id/models?cursor=...&limit=20` | Available model page with `data` and `nextCursor` |
+| POST | `/conversations/:id/model` | `{ model }`; resolve model ID/name through shared controls; `{ ok: true }` |
+| POST | `/conversations/:id/effort` | `{ effort }`; supported level or `default`; `{ ok: true }` |
+| GET | `/conversations/:id/context` | `{ threadId, tokenUsage }`; telemetry may be null |
+| GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices and status |
+| POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason? }`; `{ ok: true }` |
+| GET | `/conversations/:id/events` | SSE stream; optional `Last-Event-ID` |
 
-Open Conversation settings from an attached conversation's header. Model and
-reasoning-effort controls display Current and Next turn values. Use More models
-to page through the catalog, select a model, and choose Use model. Effort choices
-then reflect that model's supported levels; Use effort queues the chosen level.
-Model default uses the provider's advertised default. If an existing pending
-effort is incompatible with a new model, the panel asks you to select a supported
-level. Changing settings never interrupts or steers the current response.
+`project` accepts the shared project-target syntax (a GitHub `owner/repo`, `~/path`,
+or `~`). Provisioning uses existing core workspace rules. A resumed loaded
+thread retains its current workspace. The returned `project` is the handle's
+selected target, not a guarantee of the loaded thread's cwd. Thread IDs must contain only letters, digits, hyphens or underscores. A thread already
+bound to Discord or a different web handle returns `409 thread_in_use`. Detach
+there first. Several browsers may share one web handle and its streams.
 
-Usage and account limits expands within the panel. It shows reported context
-window/token counts and account-wide usage windows, reset times, plan and credit
-information when available. Missing telemetry is shown as unavailable, not zero.
-Each usage read has its own error state so a failed limits read does not disable
-model/effort controls. Data refreshes when the panel opens, the active turn
-changes, or Refresh settings and usage is selected. It is not a continuous usage
-monitor. Changing conversations cancels outstanding reads and resets the panel.
+Messages follow the same submit/steer policy as Discord: a message during an
+active turn steers it. HTTP completion acknowledges routing, not completion of
+the agent's response. Use events/history to follow the result. There is no
+idempotency key in v1: do not blindly retry a message after losing its HTTP
+response; inspect state/history first. Competing mutations on one handle return
+`409 conversation_busy`.
 
-The dialog supports keyboard Escape, native focus containment and scrolling on
-narrow layouts. Settings use the same core rules and session lifetime as Discord;
-reloading the page re-reads them, but no new persistence across host restarts is
-introduced.
+Approval IDs are URL-encoded path components. Send an exact `choices[].value`
+from a pending approval. Invalid choices return 400 without consuming it; missing
+approvals return 404; already-decided approvals return 409. Approvals must belong
+to the handle's thread.
+
+Before the first user message, a newly created thread has no persisted history.
+Its first turns page returns 200 with empty `data` and null pagination cursors.
+This applies only to Codex's explicit not-yet-materialized thread response;
+missing threads, invalid cursors and other backend failures remain errors.
+
+## Event and restart recovery
+
+Use streaming `fetch` to supply a saved `Last-Event-ID` explicitly, or native
+EventSource for its automatic reconnection. Neither needs credentials. SSE has `id`, `event` and JSON `data` fields. Events are:
+
+- `bridge`: the shared `BridgeEvent` union, including agent deltas, completion,
+  errors and approval notifications.
+- `signal`: a shared `SignalEnvelope` delivered to this surface.
+- `reset`: `{ reason: "event_too_large" }`; reload state, history and approvals.
+
+The server sends comment heartbeats every 15 seconds. Save the last processed
+SSE ID and send it in `Last-Event-ID` on reconnect. IDs are opaque and scoped to
+one conversation. A fresh stream replays retained events. Deduplicate bridge
+messages by their event identity when combining them with an existing view.
+An unknown/expired replay cursor returns `409 event_cursor_expired`: reconnect
+without the cursor, refresh state/history/approvals and reconcile streamed events.
+Open the stream before fetching the snapshot so intervening events can be buffered.
+The stream is not a durable event log; history is the recovery source.
+
+Browser disconnection does not interrupt agent work. Detaching a handle releases
+its bindings, subscriptions and replay buffer; it does not archive, cancel or
+stop the underlying Codex session. Interrupt first if that is intended. A host
+restart discards all handles and replay cursors. List stored threads and POST a
+new handle using the desired thread ID after restart.
+
+## Limits and failure handling
+
+Request bodies are capped at 64 KiB and prompts at 32,768 characters. There are
+at most 32 concurrent requests and 32 attached/provisional handles. Each handle
+supports four SSE clients and retains up to 256 events or 128 KiB, whichever is
+reached first. An event larger than that buffer becomes a reset notification.
+Each stream has a bounded 256 KiB application queue; slow readers are disconnected
+and can reconnect. Detached underlying sessions remain owned by the host until
+shutdown, so handle limits are not a total session budget.
+
+Pagination limits are 1–100. Limit exhaustion returns 429, shutdown returns 503,
+and unclassified backend failures return a sanitized 502 with details in host
+logs. Oversized requests may be rejected by Bun before application routing and
+therefore are not guaranteed a JSON error body. All application responses use
+`Cache-Control: no-store`.
+
+Shutdown quiesces ingress, closes streams/listener and lets the shared host stop
+all sessions, including sessions still initializing. A web adapter never stops
+the other adapters itself. Tests cover browser-origin checks, route
+validation, concurrent mutations, replay/backpressure, real loopback sockets,
+shared host operation and pending-session cleanup. Live Codex credentials and a
+remote tailnet connection are not required by these automated tests.
+
+## Turn activity and generated images
+
+History items may include `webActivity` (the shared normalized activity payload)
+or `webImage: { url, prompt }`. Generated-image SSE events include the same scoped
+asset URL as `payload.url`. The browser uses these fields for the work timeline
+and image previews; it does not request files by filesystem path.
+
+`GET /conversations/:id/images/:assetId` serves only an artifact registered from a
+provider image event or that conversation's stored history. IDs are opaque and
+scoped to the attached conversation. Origin/host checks and the private network
+boundary apply to images too. Responses are non-cacheable, with verified raster
+MIME types and nosniff. PNG, JPEG, GIF and WebP files up to 10 MiB are supported by
+the shared loader used for Discord. No SVG/HTML or arbitrary file endpoint exists.
+Each handle retains at most 256 image references; detach/restart discards them.
+Reloading the relevant history registers images again. Unknown references return
+404; missing, oversized or unsupported files return sanitized 422 errors.
+
+## Conversation settings
+
+Model and effort routes delegate to the same control service as Discord. They
+queue changes for the next new turn and subsequent turns; steering an active
+turn does not apply them. `settings` distinguishes current and pending values.
+Effort choices/default belong to the pending model when present, otherwise the
+current/default model. Changing the model does not silently rewrite an existing
+effort override; select a compatible effort if necessary. `default` resolves to
+the model's advertised default, matching Discord.
+
+Unknown models and unsupported effort return 400 with stable error codes;
+unavailable model metadata returns 409. Writes share the conversation mutation
+lock with sending, interrupting and detaching (409 when busy). Malformed bodies
+and extra fields are rejected. Unexpected backend failures remain sanitized 502
+responses. A failed usage read does not prevent unrelated settings requests.
+
+Model/effort overrides follow existing loaded-session lifetime rules; the web
+surface adds no persistence or global defaults. Account limits are provider data
+and may be incomplete/unavailable. Context telemetry can be null before a turn.
+
+## Conversation management
+
+Rename accepts a non-empty trimmed name of at most 200 characters. Archive
+uses the shared archive operation, then closes the handle's streams and removes
+its web navigation state. It does not delete stored history. Restore uses the
+opaque stored thread ID and does not require creating a web handle first.
+
+Fork creates a new handle using the source handle's selected project and the
+shared fork operation. It returns the new handle without detaching or changing
+the source. Provisional handles are cleaned up on failure, and the normal
+32-handle limit applies. The source's conversation mutation lock covers the fork.
+Archive and fork return `409 conversation_active` while a turn or approval is
+active; stop/resolve it first. Rename remains available during a turn. Restore
+shares an existing handle's mutation lock when the thread is attached.
+
+`archived` accepts only `true` or `false`; pagination remains independent for each
+list view. There is no idempotency key for fork: after losing an HTTP response,
+refresh the conversation list before retrying to avoid duplicate forks.
+
+## Conversation management
+
+The conversation header's actions menu provides Rename, Fork conversation and
+Archive conversation. Renaming updates the title and list. Forking selects the
+new conversation while preserving the source, its handle and its draft. Archive
+asks for confirmation, clears the local selection and detaches the web handle;
+it does not delete history. Archive and fork are disabled during active work or
+pending approvals, with the same check enforced by the API.
+
+The sidebar has Active and Archived views. Archived rows offer Restore; restoring
+returns to Active without automatically attaching the restored thread. Select it
+to resume normally. Pagination and delayed responses are scoped to the chosen
+view so switching filters cannot mix lists. The currently open conversation keeps
+its title while browsing the other view. Other clients sharing an archived handle
+will need to refresh and restore/resume it before sending again.
+
+After an uncertain fork response, refresh the conversation list before retrying.
+The UI does not automatically retry management writes. These controls use the
+shared core thread operations; they add no separate conversation storage.

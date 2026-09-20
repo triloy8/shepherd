@@ -207,7 +207,7 @@ describe("DeploymentService", () => {
 
 test("deployment diagnostics prioritize failures and retain both streams without execFile duplication", async () => {
   const runner = makeRunner();
-  const output = "(pass) fine\n\u001b[31m(fail) failing test\u001b[0m\nerror: timed out\n";
+  const output = "error: expected fixture failure\n(pass) fine\n\u001b[31m(fail) failing test\u001b[0m\nerror: timed out\n";
   const service = new DeploymentService({ projectDir: "/srv/shepherd", runCommand: async (exe, args, options) => {
     if (exe === "bun" && args[0] === "test") {
       throw Object.assign(new Error(`Command failed: bun test\n${output}`), { stderr: output, stdout: "stdout-marker" });
@@ -218,6 +218,10 @@ test("deployment diagnostics prioritize failures and retain both streams without
   try { await service.deploy(); } catch (error) { message = (error as Error).message; }
   expect(message).toContain("restored");
   expect(message).toContain("stdout-marker");
+  const summary = message.split("Failure summary:")[1]!.split("Command output:")[0]!;
+  expect(summary).toContain("(fail) failing test");
+  expect(summary).not.toContain("expected fixture failure");
+  expect(message).toContain("error: expected fixture failure");
   expect(message).not.toContain("\u001b");
   expect(message.indexOf("(fail) failing test")).toBeLessThan(message.indexOf("(pass) fine"));
   expect(message.match(/\(pass\) fine/g)).toHaveLength(1);

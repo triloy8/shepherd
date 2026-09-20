@@ -65,8 +65,12 @@ function formatCommandError(error: unknown): string {
   // once, then both output streams, with actionable failure lines first.
   const heading = error.message.split("\n", 1)[0];
   const cleanOutput = stripVTControlCharacters(output);
-  const failures = [...new Set(cleanOutput.split("\n").filter((line) =>
-    /\(fail\)|^\s*error:|timed out/i.test(line),
+  const lines = cleanOutput.split("\n");
+  const failedTests = lines.filter((line) => /^\s*\(fail\)/.test(line));
+  // Passing failure-path tests may intentionally log "error:". Prefer the
+  // runner's failure records; retain all diagnostics in the full output below.
+  const failures = [...new Set(failedTests.length ? failedTests : lines.filter((line) =>
+    /^\s*error:|timed out/i.test(line),
   ))].slice(0, 12);
   return [heading, ...(failures.length ? ["Failure summary:", ...failures, "", "Command output:"] : []), cleanOutput].join("\n");
 }

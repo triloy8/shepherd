@@ -86,7 +86,16 @@ export class SurfaceConversationOrchestrator {
     threadId: string,
     listener: (event: BridgeEvent) => void,
   ): Promise<void> {
+    const needsProject = !this.surfaceState.getProjectTarget(this.adapter, surfaceId);
+    const cwd = needsProject ? await this.conversation.resolveThreadCwd(threadId) : null;
     await this.conversation.bindSurfaceToThread(this.adapter, surfaceId, threadId);
+    // Restore a default project binding for surfaces opened without a project.
+    // An explicitly configured Discord binding remains the target for future work.
+    if (cwd) {
+      this.surfaceState.setProjectTarget(this.adapter, surfaceId, {
+        kind: "local", rootPath: cwd, display: cwd, appendWorkspaceId: false,
+      });
+    }
     this.conversation.subscribeSurfaceEvents(this.adapter, surfaceId, listener, { replay: false });
   }
 
@@ -126,12 +135,13 @@ export class SurfaceConversationOrchestrator {
     threadId: string,
     listener: (event: BridgeEvent) => void,
   ): Promise<string> {
-    const workspace = await this.createWorkspaceForThread(surfaceId, threadId);
+    const cwd = await this.conversation.resolveThreadCwd(threadId);
+    await this.workspaceProvisioner.requireExistingWorkspace(cwd);
     const resumed = await this.conversation.resumeThread(threadId, {
-      cwd: workspace.cwd,
+      cwd,
       ...(this.sandbox ? { sandbox: this.sandbox } : {}),
     });
-    this.conversation.setThreadCwd(resumed.threadId, workspace.cwd);
+    this.conversation.setThreadCwd(resumed.threadId, cwd);
     await this.bindSurfaceToThread(surfaceId, resumed.threadId, listener);
     return resumed.threadId;
   }

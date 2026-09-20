@@ -113,3 +113,22 @@ test("explicitly stopped Codex sessions cannot spawn a new process", async () =>
   await expect(session.start()).rejects.toThrow("stopped");
   await expect(session.initialize()).rejects.toThrow("stopped");
 });
+
+
+test("saved cwd can be read before loading a thread without resuming it", async () => {
+  let resumes = 0;
+  const manager = new SessionManager(undefined, (policy, tools) => {
+    const session = new CodexSession(policy, tools);
+    session.initialize = async () => {};
+    session.readThread = async (id) => ({ thread: { id, cwd: id === "missing" ? null : "/original/checkout" } });
+    session.resumeThread = async () => { resumes++; return started; };
+    session.stop = () => {};
+    return session;
+  });
+  try {
+    expect(await manager.resolveThreadCwd("stored")).toBe("/original/checkout");
+    expect(manager.listThreads().threads).toEqual([]);
+    expect(resumes).toBe(0);
+    await expect(manager.resolveThreadCwd("missing")).rejects.toMatchObject({ failure: { code: "workspace_unavailable" } });
+  } finally { manager.stopAll(); }
+});

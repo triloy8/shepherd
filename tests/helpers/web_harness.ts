@@ -8,6 +8,7 @@ import type { BridgeEvent } from "../../shared/protocol/events.js";
 
 export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtimeLifecycle"]) {
   const calls: string[] = [];
+  const projects = new Map<string, string>();
   const bindings = new Map<string, string>();
   const active = new Map<string, string | null>();
   const approvals = new ApprovalsStore();
@@ -16,7 +17,9 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
   let sequence = 0;
   const application = {
     runtimeLifecycle,
-    async setSurfaceProject(id: string, project: string) { calls.push(`project:${id}`); return { repoSlug: project }; },
+    getSurfaceProject: (id: string) => projects.get(id) ?? "/saved/workspace",
+    inheritSurfaceProject: (id: string, source: string) => { const project = projects.get(source) ?? "/saved/workspace"; projects.set(id, project); return project; },
+    async setSurfaceProject(id: string, project: string) { calls.push(`project:${id}`); projects.set(id, project); return { repoSlug: project }; },
     async createSurfaceThread(id: string) { const threadId = `thread-${++sequence}`; bindings.set(id, threadId); active.set(threadId, null); calls.push("create"); return threadId; },
     async switchSurfaceThread(id: string, threadId: string) {
       if (threadId === "discord-thread" || [...bindings.values()].includes(threadId)) throw new ThreadBindingConflictError(threadId);

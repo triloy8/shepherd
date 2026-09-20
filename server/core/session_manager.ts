@@ -579,18 +579,19 @@ export class SessionManager {
     return managed;
   }
 
-  private async resolveThreadCwd(threadId: string): Promise<string> {
+  async resolveThreadCwd(threadId: string): Promise<string> {
+    this.assertRunning();
     const cached = this.cwdByThread.get(threadId);
     if (cached) return cached;
 
-    const session = this.mustGet(threadId).session;
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession();
     const raw = asRecord(await session.readThread(threadId, false));
     const thread = asRecord(raw.thread);
     const cwd = asString(thread.cwd);
     if (!cwd) {
-      throw new Error(`Thread ${threadId} is missing cwd.`);
+      throw new ApplicationActionError({ code: "workspace_unavailable" });
     }
-    this.cwdByThread.set(threadId, cwd);
+    if (this.sessionsByThread.has(threadId)) this.cwdByThread.set(threadId, cwd);
     return cwd;
   }
 }

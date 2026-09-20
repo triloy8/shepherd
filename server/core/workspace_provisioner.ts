@@ -1,3 +1,4 @@
+import { ApplicationActionError } from "./action_error.js";
 import path from "node:path";
 import { homedir } from "node:os";
 import { promises as fs } from "node:fs";
@@ -32,6 +33,14 @@ export class WorkspaceProvisioner {
         throw new Error("GitHub workspace cloning is not configured.");
       });
     this.homedirPath = options.homedirPath ?? homedir();
+  }
+
+  async requireExistingWorkspace(cwd: string): Promise<void> {
+    try {
+      if (!path.isAbsolute(cwd) || !(await this.fsImpl.stat(cwd)).isDirectory()) throw new Error("Invalid directory");
+    } catch {
+      throw new ApplicationActionError({ code: "workspace_unavailable" });
+    }
   }
 
   async provisionWorkspace(

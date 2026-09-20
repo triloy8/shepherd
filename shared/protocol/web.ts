@@ -7,7 +7,7 @@ import type { SignalEnvelope } from "./signals.js";
 export const WEB_API_VERSION = 1;
 export const WEB_API_PREFIX = "/api/v1";
 export type WebConversation = { id: string; threadId: string; project: string };
-export type WebCreateConversation = { project: string; threadId?: string };
+export type WebCreateConversation = { project: string; threadId?: never } | { threadId: string; project?: string };
 export type WebMessageRequest = { text: string; images?: string[] };
 export type WebInterruptRequest = { turnId?: string };
 export type WebApprovalRequest = ApprovalDecisionRequest;

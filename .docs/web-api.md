@@ -322,3 +322,12 @@ created. Images are stored as part of provider conversation history.
 
 User-message history preserves bounded valid inline images for previews. Unsupported
 or remote image URLs become an unavailable-image placeholder, never a browser fetch.
+
+### Conversation list freshness
+
+Stored conversation pages explicitly use `updated_at` descending, matching Discord
+`!threads`, including archived and later pages. Active means not archived, not
+currently running. The web list refreshes after selected-turn activity, when the
+page regains focus/visibility, and every 30 seconds while visible. Refresh shows a
+busy indicator. Automatic refresh pauses after loading more conversations to avoid
+collapsing older pages; manual Refresh returns to the newest page and resumes it.

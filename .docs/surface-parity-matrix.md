@@ -19,7 +19,7 @@ method or generated schema alone does not count as UI support.
 | Select project/repository/local workspace | Yes — `!repo <owner/repo>`, `~`, `~/path` | Yes — project dialog for new conversations | Shared project resolution |
 | Read selected project | Yes — `!repo`, `!status` | Yes — header | Presentation differs |
 | Change binding for future conversations | Yes — `!repo` | Partial — choose when creating a conversation | Discord change does not move the current session's cwd |
-| List stored conversations | Yes — `!threads` | Yes — sidebar | Paged in both |
+| List stored conversations | Yes — `!threads` | Yes — sidebar | Most recently updated first; paged in both |
 | List archived conversations | Yes — `!threads archived` | Yes — Archived filter | Separate from active/stored view |
 | List host-loaded conversations | Yes — `!threads loaded` | No | Web attachment dots are not a host-loaded list |
 | Switch/resume stored conversation | Yes — `!thread <id>` | Yes — select conversation; saved workspace resumes directly | Normal workflow covered in both |

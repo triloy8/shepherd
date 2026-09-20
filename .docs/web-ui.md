@@ -328,3 +328,12 @@ remain non-fetching placeholders.
 Each conversation has its own transcript. Use **Load earlier messages** to read
 older turns in that transcript. There is no separate turn/item inspector in web;
 Discord retains its history commands for navigating conversations within a channel.
+
+### Conversation list freshness
+
+Stored conversation pages explicitly use `updated_at` descending, matching Discord
+`!threads`, including archived and later pages. Active means not archived, not
+currently running. The web list refreshes after selected-turn activity, when the
+page regains focus/visibility, and every 30 seconds while visible. Refresh shows a
+busy indicator. Automatic refresh pauses after loading more conversations to avoid
+collapsing older pages; manual Refresh returns to the newest page and resumes it.

@@ -181,3 +181,17 @@ test("missing saved workspace returns a recoverable error and releases the web h
     expect(h.calls.some((call) => call.startsWith("dispose:"))).toBe(true);
   } finally { h.api.dispose(); }
 });
+
+
+test("stored conversation pages explicitly use most recently updated first", async () => {
+  const h = webHarness(); const requests: unknown[] = [];
+  h.application.conversation.listStoredThreads = async (request) => { requests.push(request); return { threads: [], nextCursor: null, backwardsCursor: null }; };
+  try {
+    expect((await h.request("/threads?limit=30&archived=false")).status).toBe(200);
+    expect((await h.request("/threads?limit=30&cursor=next&archived=true")).status).toBe(200);
+    expect(requests).toEqual([
+      { limit: 30, archived: false, sortKey: "updated_at", sortDirection: "desc" },
+      { limit: 30, cursor: "next", archived: true, sortKey: "updated_at", sortDirection: "desc" },
+    ]);
+  } finally { h.api.dispose(); }
+});

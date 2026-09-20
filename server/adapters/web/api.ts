@@ -125,7 +125,7 @@ export class WebSurfaceApi {
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/threads`) {
         const archived = url.searchParams.get("archived");
         if (archived !== null && archived !== "true" && archived !== "false") throw new WebRequestError(400, "invalid_query", "archived must be true or false.");
-        return json(200, await this.application.conversation.listStoredThreads({ ...pagination(url, ["archived"]), archived: archived === "true" }));
+        return json(200, await this.application.conversation.listStoredThreads({ ...pagination(url, ["archived"]), archived: archived === "true", sortKey: "updated_at", sortDirection: "desc" }));
       }
       if (url.pathname === `${WEB_API_PREFIX}/conversations`) {
         if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });

@@ -44,6 +44,9 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [detaching, setDetaching] = useState(false);
   const [loadingThreads, setLoadingThreads] = useState(false);
+  const [refreshingThreads, setRefreshingThreads] = useState(false);
+  const expandedList = useRef(false);
+  const refreshPending = useRef(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -55,6 +58,7 @@ export default function App() {
 
   const refreshList = useCallback(async () => {
     const generation = ++listGeneration.current;
+    refreshPending.current = true; setRefreshingThreads(true); expandedList.current = false;
     setLoadingThreads(false);
     const view = archivedRef.current;
     try {
@@ -69,9 +73,24 @@ export default function App() {
         if (handle) { setSelected(handle); setSaved(null); }
       }
     } catch (error) { if (generation === listGeneration.current) setError(explainError(error)); }
-    finally { if (generation === listGeneration.current) setLoading(false); }
+    finally { if (generation === listGeneration.current) { setLoading(false); setRefreshingThreads(false); refreshPending.current = false; } }
   }, []);
   useEffect(() => { void refreshList(); const onOnline = () => { void refreshList(); }; window.addEventListener("online", onOnline); return () => window.removeEventListener("online", onOnline); }, [refreshList]);
+  // Refresh recent conversations without collapsing an intentionally expanded list.
+  const refreshRecent = useCallback(() => {
+    if (document.visibilityState === "visible" && !expandedList.current && !refreshPending.current) void refreshList();
+  }, [refreshList]);
+  useEffect(() => {
+    const timer = setInterval(refreshRecent, 30_000);
+    window.addEventListener("focus", refreshRecent);
+    document.addEventListener("visibilitychange", refreshRecent);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refreshRecent); document.removeEventListener("visibilitychange", refreshRecent); };
+  }, [refreshRecent]);
+  useEffect(() => {
+    if (!selected) return;
+    const timer = setTimeout(refreshRecent, 500);
+    return () => clearTimeout(timer);
+  }, [selected?.id, controller.chat.activeTurnId, controller.chat.endedTurns.length, refreshRecent]);
   useEffect(() => {
     if (dialog && !dialogRef.current?.open) dialogRef.current?.showModal();
     else if (!dialog && dialogRef.current?.open) dialogRef.current.close();
@@ -129,7 +148,7 @@ export default function App() {
   }
   async function loadThreads() {
     if (!threadsCursor || loadingThreads) return;
-    setLoadingThreads(true);
+    expandedList.current = true; setLoadingThreads(true);
     const generation = listGeneration.current; const view = archivedRef.current;
     try {
       const page = await api.threads(threadsCursor, undefined, view);
@@ -159,14 +178,15 @@ export default function App() {
         <button className="icon-button lg:hidden" aria-label="Close conversations" onClick={() => setDrawer(false)}><Icon name="close" /></button>
       </div>
       <div className="px-4"><button className="new-conversation" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); setDrawer(false); }}><Icon name="plus" /><span>New conversation</span></button></div>
-      <div className="mb-2 mt-7 flex items-center justify-between px-5 text-[10px] font-semibold uppercase tracking-[.16em] text-dim"><span>Conversations</span><button className="icon-button size-7!" aria-label="Refresh conversations" onClick={() => void refreshList()}><Icon name="refresh" className="size-3.5" /></button></div>
+      <div className="mb-2 mt-7 flex items-center justify-between px-5 text-[10px] font-semibold uppercase tracking-[.16em] text-dim"><span>Conversations</span><button className="icon-button size-7!" aria-label="Refresh conversations" disabled={refreshingThreads} aria-busy={refreshingThreads} onClick={() => void refreshList()}><Icon name="refresh" className="size-3.5" /></button></div>
       <div className="mb-3 flex gap-2 px-4" aria-label="Conversation filter"><button className="button-secondary flex-1 justify-center" aria-pressed={!archived} onClick={() => changeView(false)}>Active</button><button className="button-secondary flex-1 justify-center" aria-pressed={archived} onClick={() => changeView(true)}>Archived</button></div>
+      {refreshingThreads && !loading && <p role="status" className="px-5 pb-2 text-xs text-muted">Refreshing conversations…</p>}
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
         {loading && <p className="px-3 py-4 text-sm text-muted">Loading conversations…</p>}
         {!loading && !threads.length && !visibleHandles.length && <p className="px-3 py-4 text-sm leading-6 text-dim">{archived ? "No archived conversations." : "Your conversations will appear here."}</p>}
         {visibleHandles.map((item) => <button className={`thread-button ${selected?.id === item.id ? "thread-selected" : ""}`} key={item.id} onClick={() => select(item)}><Icon name="chat" /><span className="truncate">New conversation</span><span className="status-dot ml-auto" /></button>)}
         {threads.map((item) => archived ? <div key={item.threadId} className="mb-2 flex items-center gap-2 px-3 py-2"><span className="min-w-0 flex-1 truncate text-sm text-muted" title={label(item)}>{label(item)}</span><button className="button-secondary" aria-label={`Restore ${label(item)}`} disabled={restoring !== null} onClick={() => void restore(item.threadId)}>{restoring === item.threadId ? "Restoring…" : "Restore"}</button></div> : <button title={label(item)} className={`thread-button ${selected?.threadId === item.threadId ? "thread-selected" : ""}`} key={item.threadId} onClick={() => openThread(item.threadId)}><Icon name="chat" /><span className="truncate">{label(item)}</span>{conversations.some((c) => c.threadId === item.threadId) && <span className="status-dot ml-auto" />}</button>)}
-        {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
+        {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads || refreshingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
       <div className="sidebar-footer"><span className="status-dot" /><span>Private workspace</span><span className="ml-auto text-dim">Web</span></div>
     </aside>

@@ -63,7 +63,7 @@ test("management rejects malformed requests and disallowed origins", async () =>
     expect((await h.request("/threads?archived=true&surprise=1")).status).toBe(400);
     let received: unknown;
     h.application.conversation.listStoredThreads = async (request) => { received = request; return { threads: [], nextCursor: null, backwardsCursor: null }; };
-    await h.request("/threads?archived=true&cursor=next&limit=3"); expect(received).toEqual({ archived: true, cursor: "next", limit: 3 });
+    await h.request("/threads?archived=true&cursor=next&limit=3"); expect(received).toEqual({ archived: true, cursor: "next", limit: 3, sortKey: "updated_at", sortDirection: "desc" });
   } finally { h.api.dispose(); }
 });
 

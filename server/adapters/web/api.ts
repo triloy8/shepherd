@@ -19,7 +19,7 @@ import { WebEventFeed } from "./event_feed.js";
 export const WEB_MAX_BODY_BYTES = 64 * 1024;
 const MAX_CONVERSATIONS = 32;
 const MAX_REQUESTS = 32;
-type Entry = { id: string; threadId: string | null; project: string; busy: boolean; feed: WebEventFeed; images: WebImages };
+type Entry = { id: string; threadId: string | null; project: string; busy: boolean; historyRevision: number; feed: WebEventFeed; images: WebImages };
 
 function requiredString(object: Record<string, unknown>, key: string, max = 4096): string {
   const value = object[key];
@@ -128,7 +128,7 @@ export class WebSurfaceApi {
         if (attached) await this.mutate(attached, operation); else await operation();
         return json(200, { ok: true });
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|rollback)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
@@ -152,6 +152,30 @@ export class WebSurfaceApi {
             ? { type: "thread.rename", surfaceId: entry.id, name }
             : { type: "thread.archive", surfaceId: entry.id });
           if (action === "archive") this.remove(entry);
+          return json(200, { ok: true });
+        });
+      }
+      if ((action === "compact" || action === "rollback") && request.method === "POST") {
+        const data = await body(request, action === "rollback" ? ["numTurns"] : []);
+        const numTurns = data.numTurns;
+        if (action === "rollback" && (typeof numTurns !== "number" || !Number.isSafeInteger(numTurns) || numTurns < 1)) {
+          throw new WebRequestError(400, "invalid_request", "numTurns must be a positive safe integer.");
+        }
+        return await this.mutate(entry, async () => {
+          if (this.context.ingress.getThreadState(threadId).activeTurnId || this.context.approvals.listApprovals(threadId).some((approval) => approval.status === "pending")) {
+            throw new WebRequestError(409, "conversation_active", "Stop the active turn and resolve approvals before compacting or rolling back.");
+          }
+          try {
+            await webControl(this.application, action === "compact"
+              ? { type: "thread.compact", surfaceId: entry.id }
+              : { type: "thread.rollback", surfaceId: entry.id, numTurns: numTurns as number });
+          } finally {
+            // A failed transport can still have applied the rollback upstream.
+            if (action === "rollback") {
+              entry.historyRevision++;
+              entry.feed.invalidateHistory();
+            }
+          }
           return json(200, { ok: true });
         });
       }
@@ -205,8 +229,10 @@ export class WebSurfaceApi {
         return new Response(stream, { headers });
       }
       if (action === "turns" && request.method === "GET") {
+        const historyRevision = entry.historyRevision;
         const history = await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full", sortDirection: "desc" });
-        return json(200, { ...history, data: history.data.map((turn) => ({ ...turn, items: turn.items.map((item) => {
+        if (historyRevision !== entry.historyRevision) throw new WebRequestError(409, "history_changed", "History changed. Reload conversation history.");
+        return json(200, { ...history, revision: historyRevision, data: history.data.map((turn) => ({ ...turn, items: turn.items.map((item) => {
           const image = extractGeneratedImageArtifact({ turnId: turn.id, item });
           if (image) return { ...item, webImage: { url: entry.images.register(turn.id, image.itemId, image.path), prompt: image.revisedPrompt } };
           const activity = mapTurnActivity({ turnId: turn.id, item }, item.status === "inProgress" ? "started" : "completed");
@@ -283,7 +309,7 @@ export class WebSurfaceApi {
     if (this.entries.size >= MAX_CONVERSATIONS) throw new WebRequestError(429, "conversation_limit", "Detach an existing conversation before opening another.");
     if (threadId && this.resuming.has(threadId)) throw new WebRequestError(409, "thread_in_use", "Thread resume is already in progress.");
     const id = randomUUID();
-    const entry: Entry = { id, images: new WebImages(id), threadId: null, project, busy: false, feed: new WebEventFeed() };
+    const entry: Entry = { id, images: new WebImages(id), threadId: null, project, busy: false, historyRevision: 0, feed: new WebEventFeed() };
     this.entries.set(entry.id, entry);
     if (threadId) this.resuming.add(threadId);
     try {

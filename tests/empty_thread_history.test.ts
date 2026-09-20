@@ -49,6 +49,6 @@ test("web initial history uses the real session error mapping instead of returni
     t.fail(notMaterialized(conversation.threadId));
     const response = await h.request(`/conversations/${conversation.id}/turns?limit=30`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ data: [], nextCursor: null, backwardsCursor: null });
+    expect(await response.json()).toEqual({ data: [], nextCursor: null, backwardsCursor: null, revision: 0 });
   } finally { h.api.dispose(); t.session.stop(); }
 });

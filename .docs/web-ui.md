@@ -262,3 +262,18 @@ reports effective-state overrides, distinguishes empty discovery from failure, a
 requires reloading after a failed update before offering another toggle. Requests
 from a closed settings panel cannot overwrite a newly opened panel. This adds no
 skill installation, file editing, or per-conversation configuration semantics.
+
+### Compact and rollback
+
+**Conversation actions** provides **Compact conversation** and **Roll back
+conversation**. Compaction reports that it started; the timeline’s existing activity
+and turn lifecycle show progress/completion. Rollback accepts a positive number of
+recent turns and requires confirmation explaining that files, commands, and other
+side effects are not undone. Fork first to preserve history if needed.
+
+Both actions are disabled during an active turn or pending approvals, with matching
+server enforcement. Rollback refreshes history by replacement, clears old pagination,
+and invalidates prior event replay. Revision checks recover even if a reset event
+was missed; stale in-flight history pages cannot restore removed turns. Failures
+leave the conversation attached and ask the user to reload/check the outcome before
+retrying because an interrupted request can still have succeeded upstream.

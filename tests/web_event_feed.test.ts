@@ -63,3 +63,18 @@ test("stream slots are released on cancel/abort and slow readers are bounded", a
     expect(() => feed.open(null, new AbortController().signal)).toThrow("closed");
   } finally { feed.close(); for (const stream of streams) await stream.cancel(); }
 });
+
+test("history invalidation discards old replay and delivers a reset to live and reconnecting clients", async () => {
+  const feed = new WebEventFeed();
+  try {
+    feed.publish("bridge", event(1));
+    const live = feed.open(null, new AbortController().signal).getReader(); await live.read();
+    const cursor = /^id: (.+)$/m.exec(decode((await live.read()).value))![1]!;
+    feed.invalidateHistory();
+    expect(decode((await live.read()).value)).toContain('"history_changed"');
+    expect(() => feed.open(cursor, new AbortController().signal)).toThrow("Reload state/history");
+    const replay = feed.open(null, new AbortController().signal).getReader(); await replay.read();
+    expect(decode((await replay.read()).value)).toContain('"history_changed"');
+    await live.cancel(); await replay.cancel();
+  } finally { feed.close(); }
+});

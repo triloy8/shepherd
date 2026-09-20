@@ -77,6 +77,12 @@ export class WebEventFeed {
     }, { highWaterMark: MAX_CLIENT_BYTES, size: (chunk) => chunk.byteLength });
   }
 
+  /** Discard replay from history that no longer exists, then notify connected clients. */
+  invalidateHistory(): void {
+    this.history = []; this.bytes = 0;
+    this.publish("reset", { reason: "history_changed" });
+  }
+
   close(): void {
     this.closed = true;
     for (const client of this.clients) client.close();

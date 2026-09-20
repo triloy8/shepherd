@@ -246,3 +246,24 @@ Both writes share the conversation mutation lock and existing origin/host checks
 Skill configuration is shared Codex configuration, not a per-conversation override.
 Effective state can differ from the requested value. Reload discovery after changing
 skill files; it does not install skills or restart the host.
+
+### Compaction and rollback
+
+`POST /api/v1/conversations/:id/compact` with `{}` starts compaction through the
+shared `thread.compact` control action. `{ "ok": true }` means the start request
+was accepted, not that compaction finished. Existing turn/activity events report
+progress and failures.
+
+`POST /api/v1/conversations/:id/rollback` with `{ "numTurns": 1 }` removes the
+requested number of recent turns through shared `thread.rollback`. The count must
+be a positive safe integer. This changes conversation history, not files or other
+side effects. Both endpoints use the conversation mutation lock and reject active
+turns or pending approvals with 409. They only target the attached thread.
+
+History responses include a per-handle `revision`. After each attempted upstream
+rollback, including a potentially ambiguous failure, the revision increments and
+the event feed discards prior replay before publishing `reset` with reason
+`history_changed`. History reads spanning that change return 409 `history_changed`.
+Clients must replace cached history and pagination on reset/revision changes; merging
+would retain removed turns. Old event cursors expire, triggering normal snapshot
+recovery. The revision is navigation state, not persistent conversation metadata.

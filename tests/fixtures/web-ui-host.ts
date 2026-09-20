@@ -88,6 +88,27 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   });
   return { ok: true, turnId };
 };
+Object.assign(h.application.conversation, {
+  async rollbackThread(threadId: string, { numTurns }: { numTurns: number }) {
+    histories.set(threadId, (histories.get(threadId) ?? []).slice(0, -numTurns));
+    return { thread: { id: threadId } };
+  },
+  async compactThread(threadId: string) {
+    const turnId = `compact-${++sequence}`;
+    const itemId = `compaction-${sequence}`;
+    const turn: HistoryTurn = { id: turnId, status: "inProgress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: itemId, type: "contextCompaction", status: "inProgress" }] };
+    histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
+    h.active.set(threadId, turnId);
+    publish(threadId, "turn.started", { turnId });
+    publish(threadId, "turn.activity", { turnId, itemId, kind: "other", label: "Compacting context", detail: null, status: "started" });
+    later(1000, () => {
+      turn.items[0]!.status = "completed";
+      publish(threadId, "turn.activity", { turnId, itemId, kind: "other", label: "Compacting context", detail: null, status: "completed" });
+      finish(threadId);
+    });
+    return { ok: true };
+  },
+});
 h.application.conversation.interruptTurn = async (threadId) => finish(threadId, "interrupted");
 h.context.approvals.applyApprovalDecision = async (threadId, id, decision) => {
   h.approvals.markDecided(threadId, id, decision); h.approvals.markApplied(threadId, id);

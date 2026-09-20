@@ -1,8 +1,9 @@
+import { imageDataParts, WEB_IMAGE_MAX_COUNT } from "../../shared/protocol/image_input";
 import type { BridgeEvent, TurnActivityEvent } from "../../shared/protocol/events";
 import type { WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryTurn } from "../../shared/protocol/requests";
 
-export type ChatMessage = { id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "commentary" | "final_answer"; streamText?: string; snapshotText?: string };
+export type ChatMessage = { id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "commentary" | "final_answer"; streamText?: string; snapshotText?: string };
 export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
 export type ChatState = { endedTurns: string[]; turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
 export const emptyChat = (): ChatState => ({ endedTurns: [], turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
@@ -19,17 +20,18 @@ export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
       return [{ id: item.id, turnId: turn.id, role: "assistant", text: "", complete: activity.status !== "started", activity }];
     }
     if (item.type !== "userMessage" && item.type !== "agentMessage") return [];
+    const attachments = Array.isArray(item.content) ? item.content.flatMap((part) => { const value = record(part); return value.type === "image" && imageDataParts(value.url) ? [value.url as string] : []; }).slice(0, WEB_IMAGE_MAX_COUNT) : [];
     const content = Array.isArray(item.content) ? item.content.map((part) => {
       const value = record(part);
-      return value.type === "text" ? text(value.text) : value.type === "image" || value.type === "localImage" ? "[Image attachment]" : "";
+      return value.type === "text" ? text(value.text) : value.type === "image" ? (attachments.includes(text(value.url)) ? "" : "[Image attachment unavailable]") : value.type === "localImage" ? "[Image attachment]" : "";
     }).filter(Boolean).join("\n") : text(item.text);
-    return [{ id: item.id, turnId: turn.id, role: item.type === "userMessage" ? "user" : "assistant", text: content, phase: phase(item.phase), complete: item.type === "userMessage" || turn.status !== "inProgress" }];
+    return [{ id: item.id, turnId: turn.id, role: item.type === "userMessage" ? "user" : "assistant", text: content, attachments, phase: phase(item.phase), complete: item.type === "userMessage" || turn.status !== "inProgress" }];
   }));
 }
 
 export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = false): ChatState {
   const incoming = historyMessages(turns);
-  const retained = state.messages.filter((message) => !message.id.startsWith("local:") || !incoming.some((item) => item.role === "user" && item.turnId === message.turnId && item.text === message.text));
+  const retained = state.messages.filter((message) => !message.id.startsWith("local:") || !incoming.some((item) => item.role === "user" && item.turnId === message.turnId && item.text === message.text && JSON.stringify(item.attachments ?? []) === JSON.stringify(message.attachments ?? [])));
   const existing = new Map(retained.map((message) => [message.id, message]));
   for (const message of incoming) {
     const previous = existing.get(message.id);

@@ -121,17 +121,17 @@ export function useConversation(conversation: WebConversation | null) {
     const id = conversation?.id;
     if (!id || actionRef.current || connection !== "online") return false;
     actionRef.current = true; setBusy(true); setError(null);
-    try { await operation(id); if (identity.current === id) await refreshRef.current(); return true; }
+    try { await operation(id); if (identity.current === id) await refreshRef.current(); return identity.current === id; }
     catch (error) { if (identity.current === id) setError(explainError(error)); return false; }
     finally { if (identity.current === id) { actionRef.current = false; setBusy(false); } }
   }
-  async function send(text: string) {
+  async function send(text: string, images: string[] = []) {
     const id = conversation?.id;
     const successful = await action(async (id) => {
-      const response = await api.send(id, text);
+      const response = await api.send(id, text, images);
       if (identity.current !== id) return;
       setChat((current) => ({ ...current, activeTurnId: response.turnId && !current.endedTurns.includes(response.turnId) ? response.turnId : current.activeTurnId, messages: [...current.messages, {
-        id: `local:${crypto.randomUUID()}`, turnId: response.turnId ?? "", role: "user", text, complete: true,
+        id: `local:${crypto.randomUUID()}`, turnId: response.turnId ?? "", role: "user", text, attachments: images, complete: true,
       }] }));
     });
     if (!successful && identity.current === id) setError((current) => `${current ?? "Message not sent."} Your draft is kept. Check the conversation before sending again.`);

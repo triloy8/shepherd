@@ -303,3 +303,19 @@ across host restarts; full output remains in host logs.
 Existing tabs reconnect without a full page reload. Reload the page when you want
 to load newly deployed web UI assets; in-memory unsent drafts do not survive a page
 reload.
+
+### Image attachments
+
+The composer supports **Attach images**, clipboard image paste, and file drop.
+PNG, JPEG, GIF, and WebP are accepted: up to four images, 5 MiB each, 10 MiB total.
+Convert unsupported formats before attaching. Thumbnails show filenames and individual
+Remove controls. Send images with text or on their own, including as follow-ups to
+an active turn. Conversation history shows inline raster previews alongside the
+user message; unsupported historical attachments have a placeholder.
+
+Image drafts are kept per thread when switching conversations or reconnecting in the
+current page. Failed sends retain both text and images; inspect the conversation
+before retrying an uncertain request. Successful sends clear only submitted
+attachments. Draft images are in memory and do not survive a full page reload;
+sent attachments are read back from provider history. Image URLs in agent Markdown
+remain non-fetching placeholders.

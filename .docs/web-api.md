@@ -295,3 +295,27 @@ Host/Origin protections apply, and no conversation attachment is required.
 After process restart, instance identity changes and operation records are gone.
 Clients must re-read running/checkout state and must not automatically resend an
 uncertain action. A reconnect alone is not proof of a successful deployment.
+
+### Image input
+
+`POST /api/v1/conversations/:id/messages` accepts `{ "text": "Describe this", "images":
+["data:image/png;base64,..."] }`. `images` is optional; text may be empty when at least
+one image is attached. Inputs become the same shared text/image user-input records
+used by Discord, for both new turns and steering an active turn.
+
+The web contract allows up to four PNG/JPEG/GIF/WebP images, 5 MiB per image and
+10 MiB decoded total. Strict base64 envelopes, declared MIME types, and raster
+signatures are checked before forwarding. Remote image URLs, local file paths,
+SVG, and unsupported formats are rejected. Image signatures share the same detector
+as Discord input and generated-image loading. Signature detection does not fully
+decode/re-encode the image.
+
+Only the message route accepts the larger bounded JSON envelope needed for base64;
+other route bodies remain capped at 64 KiB. The listener accommodates that larger
+envelope, while the API limits concurrent message processing to two and uses the
+existing per-conversation mutation lock. Oversized input returns 413; invalid image
+content/count returns 400. No temporary upload files or separate public URLs are
+created. Images are stored as part of provider conversation history.
+
+User-message history preserves bounded valid inline images for previews. Unsupported
+or remote image URLs become an unavailable-image placeholder, never a browser fetch.

@@ -41,7 +41,7 @@ export const api = {
   state: (id: string, signal?: AbortSignal) => request<WebConversationState>(conversationPath(id), "GET", undefined, signal),
   history: (id: string, cursor?: string, signal?: AbortSignal) => request<WebHistoryResponse>(`${conversationPath(id)}/turns${page(cursor)}`, "GET", undefined, signal),
   approvals: (id: string, signal?: AbortSignal) => request<WebApprovalsResponse>(`${conversationPath(id)}/approvals`, "GET", undefined, signal),
-  send: (id: string, text: string) => request<WebMessageResponse>(`${conversationPath(id)}/messages`, "POST", { text }),
+  send: (id: string, text: string, images: string[] = []) => request<WebMessageResponse>(`${conversationPath(id)}/messages`, "POST", { text, images }),
   interrupt: (id: string) => request(`${conversationPath(id)}/interrupt`, "POST", {}),
   decide: (id: string, approvalId: string, decision: string) => request(`${conversationPath(id)}/approvals/${encodeURIComponent(approvalId)}`, "POST", { decision }),
   rename: (id: string, name: string) => request(`${conversationPath(id)}/rename`, "POST", { name }),

@@ -1,3 +1,4 @@
+import type { DraftImage } from "./image-input";
 import { HostControls } from "./components/HostControls";
 import { ConversationActions } from "./components/ConversationActions";
 import { ConversationSettings } from "./components/ConversationSettings";
@@ -35,6 +36,7 @@ export default function App() {
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [dialog, setDialog] = useState<{ threadId?: string; title: string } | null>(null);
   const [project, setProject] = useState("~");
+  const [imageDrafts, setImageDrafts] = useState<Record<string, DraftImage[]>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -204,7 +206,7 @@ export default function App() {
         <div className="composer-area"><div className="chat-width">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
           {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); setProject(selected.project); setDialog({ threadId: selected.threadId, title: "Resume conversation" }); }}>Resume conversation</button>}
-          <Composer key={selected.id} draft={drafts[selected.threadId] ?? ""} onDraft={(value) => setDrafts((all) => ({ ...all, [selected.threadId]: value }))} send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
+          <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))} draft={drafts[selected.threadId] ?? ""} onDraft={(value) => setDrafts((all) => ({ ...all, [selected.threadId]: value }))} send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
           <p className="composer-caption">{active ? "You can leave this page. Shepherd will keep working." : "Enter to send · Shift + Enter for a new line"}</p>
         </div></div>
       </>}

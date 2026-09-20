@@ -1,7 +1,14 @@
-import { useState } from "react";
+import { imageDataParts } from "../../../shared/protocol/image_input";
+import { memo, useState } from "react";
 import Markdown from "react-markdown";
 import type { ChatMessage } from "../chat-state";
 import { Icon } from "./Icon";
+
+const AttachedImage = memo(function AttachedImage({ url, index }: { url: string; index: number }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (failedUrl === url || !imageDataParts(url)) return <p className="text-xs text-muted">Image attachment unavailable.</p>;
+  return <img src={url} alt={`Attached image ${index + 1}`} loading="lazy" onError={() => setFailedUrl(url)} className="mb-3 max-h-96 max-w-full rounded-lg border border-line object-contain" />;
+});
 
 export function Message({ message, progress = false, showCopy = true }: { message: ChatMessage; progress?: boolean; showCopy?: boolean }) {
   const [copied, setCopied] = useState(false);
@@ -12,6 +19,7 @@ export function Message({ message, progress = false, showCopy = true }: { messag
       <span>{message.role === "user" ? "You" : "Shepherd"}</span>
       {!message.complete && <span className="ml-1 text-dim">Writing…</span>}
     </div>}
+    {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
       : <div className="prose-chat"><Markdown components={{
         // Agent text is untrusted: no raw HTML, remote image fetches or active embeds.

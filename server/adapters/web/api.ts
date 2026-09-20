@@ -1,3 +1,4 @@
+import { readImageInputs, validImageData, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import { WebHostControls } from "./host_controls.js";
 import { webControl } from "./controls.js";
 import { WebImages } from "./images.js";
@@ -43,12 +44,12 @@ function pagination(url: URL, extra: string[] = []) {
   }
   return { limit, ...(cursor ? { cursor } : {}) };
 }
-async function body(request: Request, fields: string[]): Promise<Record<string, unknown>> {
+async function body(request: Request, fields: string[], maxBytes = WEB_MAX_BODY_BYTES): Promise<Record<string, unknown>> {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
     throw new WebRequestError(415, "unsupported_media_type", "Content-Type must be application/json.");
   }
   let value: unknown;
-  try { value = await readBoundedJson(request, WEB_MAX_BODY_BYTES); }
+  try { value = await readBoundedJson(request, maxBytes); }
   catch (error) {
     if (error instanceof BodyTooLargeError) throw error;
     throw new WebRequestError(400, "invalid_json", "Request body must contain valid JSON.");
@@ -67,6 +68,7 @@ export class WebSurfaceApi {
   private readonly resuming = new Set<string>();
   private stopping = false;
   private requests = 0;
+  private messageRequests = 0;
 
   constructor(private readonly context: SurfaceAdapterContext, private readonly config: WebConfig) {
     this.application = context.createApplication((id, event) => {
@@ -245,6 +247,16 @@ export class WebSurfaceApi {
         const history = await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full", sortDirection: "desc" });
         if (historyRevision !== entry.historyRevision) throw new WebRequestError(409, "history_changed", "History changed. Reload conversation history.");
         return json(200, { ...history, revision: historyRevision, data: history.data.map((turn) => ({ ...turn, items: turn.items.map((item) => {
+          if (item.type === "userMessage" && Array.isArray(item.content)) {
+            // Never turn provider history into arbitrary remote browser fetches.
+            let bytes = 0; let count = 0;
+            return { ...item, content: item.content.map((part: unknown) => {
+              const value = part && typeof part === "object" ? part as Record<string, unknown> : {};
+              if (value.type !== "image") return part;
+              const allowed = count++ < 4 && validImageData(value.url) && (bytes += value.url.length) <= WEB_MESSAGE_MAX_BODY_BYTES;
+              return allowed ? { type: "image", url: value.url } : { type: "image" };
+            }) };
+          }
           const image = extractGeneratedImageArtifact({ turnId: turn.id, item });
           if (image) return { ...item, webImage: { url: entry.images.register(turn.id, image.itemId, image.path), prompt: image.revisedPrompt } };
           const activity = mapTurnActivity({ turnId: turn.id, item }, item.status === "inProgress" ? "started" : "completed");
@@ -253,13 +265,22 @@ export class WebSurfaceApi {
       }
       if (action === "approvals" && !match[3] && request.method === "GET") return json(200, { approvals: this.context.approvals.listApprovals(threadId) });
       if (action === "messages" && request.method === "POST") {
-        const data = await body(request, ["text"]);
-        const text = requiredString(data, "text", 32_768);
-        const input = [toTextUserInput(text)];
-        return json(200, await this.mutate(entry, () => executeTurnRouting({ conversation: this.context.ingress }, {
-          surface: { adapter: "web", surfaceId: entry.id, content: text, input, isCommand: false, isDirectAddressed: true },
-          handled: false, threadId, input, approvalPolicy: this.context.approvalPolicy,
-        })));
+        return await this.mutate(entry, async () => {
+          if (this.messageRequests >= 2) throw new WebRequestError(429, "request_limit", "Too many messages are being uploaded. Try again shortly.");
+          this.messageRequests++;
+          try {
+            const data = await body(request, ["text", "images"], WEB_MESSAGE_MAX_BODY_BYTES);
+            if (typeof data.text !== "string" || data.text.length > 32768) throw new WebRequestError(400, "invalid_request", "text must be a string of at most 32768 characters.");
+            const text = data.text;
+            const images = readImageInputs(data.images);
+            if (!text.trim() && !images.length) throw new WebRequestError(400, "invalid_request", "Add a message or an image.");
+            const input = [...(text.trim() ? [toTextUserInput(text)] : []), ...images.map((url) => ({ type: "image" as const, url }))];
+            return json(200, await executeTurnRouting({ conversation: this.context.ingress }, {
+              surface: { adapter: "web", surfaceId: entry.id, content: text, input, isCommand: false, isDirectAddressed: true },
+              handled: false, threadId, input, approvalPolicy: this.context.approvalPolicy,
+            }));
+          } finally { this.messageRequests--; }
+        });
       }
       if (action === "interrupt" && request.method === "POST") {
         const data = await body(request, ["turnId"]);

@@ -1,3 +1,4 @@
+import { detectImageMimeType } from "../../core/image_media.js";
 import { Buffer } from "node:buffer";
 
 export const DISCORD_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -94,25 +95,12 @@ function validateContentLength(
   }
 }
 
-function hasPrefix(body: Buffer, prefix: number[]): boolean {
-  return prefix.every((byte, index) => body[index] === byte);
-}
-
 function validateImageSignature(
   attachment: DiscordImageAttachment,
   mimeType: string,
   body: Buffer,
 ): void {
-  const valid =
-    (mimeType === "image/png" &&
-      hasPrefix(body, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ||
-    (mimeType === "image/jpeg" && hasPrefix(body, [0xff, 0xd8, 0xff])) ||
-    (mimeType === "image/gif" &&
-      (body.subarray(0, 6).toString("ascii") === "GIF87a" ||
-        body.subarray(0, 6).toString("ascii") === "GIF89a")) ||
-    (mimeType === "image/webp" &&
-      body.subarray(0, 4).toString("ascii") === "RIFF" &&
-      body.subarray(8, 12).toString("ascii") === "WEBP");
+  const valid = detectImageMimeType(body) === mimeType;
 
   if (!valid) {
     throw new Error(

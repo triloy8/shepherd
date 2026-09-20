@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 const paths = {
+  host: "M4 3h16v7H4ZM4 14h16v7H4ZM7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   settings: "M4 7h16M4 17h16M8 4v6M16 14v6",
   plus: "M12 5v14M5 12h14", arrow: "m5 12 7-7 7 7M12 5v14", menu: "M4 6h16M4 12h16M4 18h16",

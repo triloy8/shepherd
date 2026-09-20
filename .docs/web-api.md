@@ -267,3 +267,31 @@ the event feed discards prior replay before publishing `reset` with reason
 Clients must replace cached history and pagination on reset/revision changes; merging
 would retain removed turns. Old event cursors expire, triggering normal snapshot
 recovery. The revision is navigation state, not persistent conversation metadata.
+
+### Host lifecycle controls
+
+`GET /api/v1/host` returns `WebHostStatus`: web instance identity/start time, lifecycle
+availability, the commit captured at host startup, current checkout status, and the
+latest web-requested operation. Running and checkout commits can differ while a
+validated deployment waits for restart. Startup commit may be unavailable outside a
+Git checkout. Checkout status also reflects deployments started on other surfaces.
+
+`POST /api/v1/host/actions` accepts `{ "requestId": "unique-id", "action": "restart" }`
+or `{ "requestId": "unique-id", "action": "deploy", "branch": "optional-preview" }`.
+Omit branch to deploy stable main. The response is 202 with a `WebHostOperation`;
+clients poll host status for starting, validating, restarting, and finished phases.
+A finished operation may be a refusal or validation failure; read its message.
+The shared runtime lifecycle orchestrator owns active-turn/approval guards,
+validation, restoration on failure, quiescing, and restart. No shell command is
+constructed by the web adapter.
+
+Accepted operations survive client disconnects. Repeated request IDs with identical
+inputs return the recorded operation; conflicting inputs return 409. The journal
+retains at most 32 requests within the current web instance. It is not a persistent
+restart/deployment audit log. Output is capped at 64,000 characters with an explicit
+truncation marker; host logs contain full output. Existing private listener and
+Host/Origin protections apply, and no conversation attachment is required.
+
+After process restart, instance identity changes and operation records are gone.
+Clients must re-read running/checkout state and must not automatically resend an
+uncertain action. A reconnect alone is not proof of a successful deployment.

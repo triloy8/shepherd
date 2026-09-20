@@ -6,7 +6,7 @@ import type { SurfaceAdapterContext } from "../../server/runtime/surface_adapter
 import type { SurfaceApplicationContext } from "../../server/core/surface_application_context.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
-export function webHarness() {
+export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtimeLifecycle"]) {
   const calls: string[] = [];
   const bindings = new Map<string, string>();
   const active = new Map<string, string | null>();
@@ -15,6 +15,7 @@ export function webHarness() {
   let publish!: (id: string, event: BridgeEvent) => void;
   let sequence = 0;
   const application = {
+    runtimeLifecycle,
     async setSurfaceProject(id: string, project: string) { calls.push(`project:${id}`); return { repoSlug: project }; },
     async createSurfaceThread(id: string) { const threadId = `thread-${++sequence}`; bindings.set(id, threadId); active.set(threadId, null); calls.push("create"); return threadId; },
     async switchSurfaceThread(id: string, threadId: string) {

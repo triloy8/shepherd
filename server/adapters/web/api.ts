@@ -1,3 +1,4 @@
+import { WebHostControls } from "./host_controls.js";
 import { webControl } from "./controls.js";
 import { WebImages } from "./images.js";
 import { mapTurnActivity, extractGeneratedImageArtifact } from "../../core/codex_rpc_mapper.js";
@@ -60,6 +61,7 @@ async function body(request: Request, fields: string[]): Promise<Record<string, 
 
 /** HTTP navigation state only. All agent operations use shared application ports. */
 export class WebSurfaceApi {
+  private readonly host: WebHostControls;
   private readonly application: SurfaceApplicationContext;
   private readonly entries = new Map<string, Entry>();
   private readonly resuming = new Set<string>();
@@ -75,6 +77,7 @@ export class WebSurfaceApi {
         entry.feed.publish("bridge", { ...event, payload: { ...image, url: entry.images.register(image.turnId, image.itemId, image.path) } });
       } else entry.feed.publish("bridge", event);
     });
+    this.host = new WebHostControls(this.application.runtimeLifecycle);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -103,6 +106,15 @@ export class WebSurfaceApi {
     this.requests++;
     try {
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true, apiVersion: WEB_API_VERSION });
+      if (url.pathname === `${WEB_API_PREFIX}/host` && request.method === "GET") return json(200, await this.host.status());
+      if (url.pathname === `${WEB_API_PREFIX}/host/actions` && request.method === "POST") {
+        const data = await body(request, ["requestId", "action", "branch"]);
+        const requestId = requiredString(data, "requestId", 100);
+        if (!/^[A-Za-z0-9_-]+$/.test(requestId) || (data.action !== "restart" && data.action !== "deploy")) throw new WebRequestError(400, "invalid_request", "Expected a valid requestId and restart or deploy action.");
+        const branch = optionalString(data, "branch", 256);
+        if (branch && (data.action !== "deploy" || branch.startsWith("-") || /[\s\x00-\x1f]/.test(branch))) throw new WebRequestError(400, "invalid_request", "Invalid deployment branch.");
+        return json(202, this.host.start({ requestId, action: data.action, ...(branch ? { branch } : {}) }));
+      }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
         const result = await webControl(this.application, { type: "limits.read" });
         if (result.type !== "limits.read") throw new Error("Unexpected limits response.");

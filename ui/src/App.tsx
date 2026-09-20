@@ -1,3 +1,4 @@
+import { HostControls } from "./components/HostControls";
 import { ConversationActions } from "./components/ConversationActions";
 import { ConversationSettings } from "./components/ConversationSettings";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -161,6 +162,17 @@ export default function App() {
     </aside>
     <main className="main-pane" inert={!desktop && drawer}>
       <header className="main-header">
+        <HostControls onRecovered={async () => {
+          const previous = selected ?? savedSelection();
+          setSelected(null); setSaved(previous);
+          const handles = await api.conversations();
+          if (previous) {
+            const next = handles.conversations.find((item) => item.threadId === previous.threadId)
+              ?? await api.create({ project: previous.project, threadId: previous.threadId });
+            select(next); setSaved(null);
+          }
+          await refreshList();
+        }} />
         <button className="icon-button lg:hidden" aria-label="Open conversations" aria-expanded={drawer} onClick={() => setDrawer(true)}><Icon name="menu" /></button>
         <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">{selected ? title : "Workspace"}</h1>{selected && <p className="mt-1 flex items-center gap-1.5 text-xs text-dim"><Icon name="folder" className="size-3" /><span className="truncate">{selected.project}</span></p>}</div>
         {selected && <><ConversationActions key={`actions-${selected.id}`} conversation={selected} title={title} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0}

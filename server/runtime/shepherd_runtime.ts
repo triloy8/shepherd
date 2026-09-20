@@ -11,6 +11,7 @@ export type ShepherdRuntimeOptions = {
   approvalPolicy: ApprovalPolicy;
   defaultSandbox?: SandboxMode;
   deployment: RuntimeDeploymentPort;
+  runningCommit?: Promise<string | null>;
   restartDelayMs?: number;
   exitProcess?: (code: number) => void;
 };
@@ -40,6 +41,7 @@ export class ShepherdRuntime {
     this.lifecycle = new RuntimeLifecycleOrchestrator({
       readActivity: () => this.conversation.getRuntimeActivity(),
       deployment: options.deployment,
+      runningCommit: options.runningCommit,
       lifecycle: {
         prepareRestart: () => this.prepareRestart(),
         cancelRestart: () => this.cancelRestart(),

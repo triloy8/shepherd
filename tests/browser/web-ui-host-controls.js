@@ -1,0 +1,53 @@
+// Run against the isolated web-ui-host fixture using playwright-cli run-code.
+async (page) => {
+  const open = () => page.getByRole('button', { name: 'Host controls', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Host controls', exact: true });
+  await open();
+  await dialog.locator('dd').filter({ hasText: /^fixture-initial$/ }).first().waitFor();
+  await dialog.getByRole('button', { name: 'Restart host', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Cancel host action', exact: true }).click();
+  await dialog.getByLabel('Deployment branch', { exact: true }).fill('fail-validation');
+  await dialog.getByRole('button', { name: 'Deploy host', exact: true }).click();
+  await dialog.getByText('Deploy origin/fail-validation, validate it, and restart Shepherd?', { exact: true }).waitFor();
+  await dialog.getByRole('button', { name: 'Confirm deploy', exact: true }).click();
+  await dialog.getByText('Validation failed: fixture test failed; restored fixture-initial. Shepherd remains online.', { exact: true }).waitFor();
+  if (!(await dialog.getByRole('button', { name: 'Deploy host', exact: true }).isEnabled())) throw Error('Validation failure did not release controls');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
+  await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();
+  await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
+  const composer = page.getByRole('textbox', { name: 'Message Shepherd' });
+  await composer.fill('Keep my draft through restart');
+  await open();
+  await dialog.getByRole('button', { name: 'Restart host', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm restart', exact: true }).click();
+  await dialog.getByText('Host reconnected.', { exact: false }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
+  if (await composer.inputValue() !== 'Keep my draft through restart') throw Error('Draft lost during host recovery');
+  await page.getByText('Where did we leave off?', { exact: true }).waitFor();
+  await open();
+  await dialog.getByLabel('Deployment branch', { exact: true }).fill('');
+  await dialog.getByRole('button', { name: 'Deploy host', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm deploy', exact: true }).click();
+  // Pending state survives reload; the request must not be sent twice.
+  await page.reload();
+  await open();
+  await dialog.locator('dd').filter({ hasText: /^fixture-updated$/ }).first().waitFor();
+  await dialog.getByText('Host reconnected.', { exact: false }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
+  await page.getByText('Where did we leave off?', { exact: true }).waitFor();
+  await open();
+  await page.route('**/api/v1/host/actions', route => route.abort());
+  await dialog.getByRole('button', { name: 'Restart host', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm restart', exact: true }).click();
+  await dialog.getByText('No matching operation is recorded yet.', { exact: false }).waitFor();
+  if (await dialog.getByRole('button', { name: 'Restart host', exact: true }).isEnabled()) throw Error('Lost request permits automatic retry');
+  await dialog.getByRole('button', { name: 'I checked the outcome', exact: true }).click();
+  await page.unroute('**/api/v1/host/actions');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: '/tmp/shepherd-host-controls-mobile.png' });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw Error('Host controls overflow');
+  await page.keyboard.press('Escape');
+}

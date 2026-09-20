@@ -114,7 +114,32 @@ h.context.approvals.applyApprovalDecision = async (threadId, id, decision) => {
   h.approvals.markDecided(threadId, id, decision); h.approvals.markApplied(threadId, id);
   publish(threadId, "approval.applied", { approvalId: id }); finish(threadId);
 };
-const adapter = createWebAdapter(h.context, { ...h.config, port: Number(process.env.UI_TEST_PORT ?? 8799) });
+let fixtureCheckout = "fixture-initial";
+let fixtureRunning = fixtureCheckout;
+let fixtureDeploying = false;
+const restartFixture = () => later(250, () => { void (async () => {
+  await adapter.stop(); fixtureRunning = fixtureCheckout;
+  adapter = createWebAdapter(h.context, { ...h.config, port: Number(process.env.UI_TEST_PORT ?? 8799) });
+  await adapter.start();
+})(); });
+h.application.runtimeLifecycle = {
+  async runningCommit() { return fixtureRunning; },
+  async deploymentStatus() { return { deployedCommit: fixtureCheckout, matchingRemoteRefs: ["origin/main"], deploymentInProgress: fixtureDeploying }; },
+  async restart({ announce }) {
+    await announce({ action: "restart" }); restartFixture();
+    return { type: "restart-requested", action: "restart" };
+  },
+  async deploy({ announce, onDeploymentStarted, target = { kind: "main" } }) {
+    fixtureDeploying = true; await onDeploymentStarted?.();
+    await new Promise((resolve) => setTimeout(resolve, 2500)); fixtureDeploying = false;
+    if (target.kind === "branch" && target.branch === "fail-validation") return { type: "deployment-failed", message: "Validation failed: fixture test failed; restored fixture-initial. Shepherd remains online." };
+    const deployment = { previousCommit: fixtureCheckout, deployedCommit: "fixture-updated", target, changed: true };
+    fixtureCheckout = deployment.deployedCommit;
+    await announce({ action: "deploy", deployment }); restartFixture();
+    return { type: "restart-requested", action: "deploy", deployment };
+  },
+};
+let adapter = createWebAdapter(h.context, { ...h.config, port: Number(process.env.UI_TEST_PORT ?? 8799) });
 await adapter.start();
 console.log(adapter.url());
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, async () => {

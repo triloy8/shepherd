@@ -277,3 +277,29 @@ and invalidates prior event replay. Revision checks recover even if a reset even
 was missed; stale in-flight history pages cannot restore removed turns. Failures
 leave the conversation attached and ask the user to reload/check the outcome before
 retrying because an interrupted request can still have succeeded upstream.
+
+### Host controls
+
+The header’s **Host controls** opens host status, running and checkout commits,
+remote refs, restart, and deploy. These controls work without selecting a conversation.
+Both actions require confirmation because they affect every surface. Leave the
+branch blank for stable main or enter a preview branch; deploy main to return to
+stable. Shared lifecycle guards refuse actions while turns or approvals are active.
+
+Deployment runs in the background and status polls show validation progress,
+validation failure/restoration details, or restart. Command output is rendered as
+plain text in a bounded, scrollable area. The UI remembers its pending request in
+session storage and continues checking after closing the dialog or reloading the
+page. It never automatically resends a lost request. An unknown outcome requires
+checking status before explicitly requesting another action.
+
+When instance identity changes, the UI refreshes status and attempts to resume the
+selected stored conversation through the existing API. Drafts in the current page
+remain keyed by thread. Resume failures remain visible and the saved selection is
+retained for manual recovery. Check running/checkout commits to verify a deployment:
+restart alone does not establish success. Detailed operation logs are not persisted
+across host restarts; full output remains in host logs.
+
+Existing tabs reconnect without a full page reload. Reload the page when you want
+to load newly deployed web UI assets; in-memory unsent drafts do not survive a page
+reload.

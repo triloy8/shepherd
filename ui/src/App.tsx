@@ -1,3 +1,4 @@
+import { HistoryBrowser } from "./components/HistoryBrowser";
 import type { DraftImage } from "./image-input";
 import { HostControls } from "./components/HostControls";
 import { ConversationActions } from "./components/ConversationActions";
@@ -195,6 +196,7 @@ export default function App() {
       </section> : <>
         <div className="chat-scroll" ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}>
           <div className="chat-width pb-6 pt-6 sm:pt-10">
+            <HistoryBrowser key={selected.id} id={selected.id} disabled={controller.connection !== "online"} />
             {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
             {!controller.chat.messages.length && <div className="py-14 text-center"><h2 className="text-xl font-medium">A new thread of thought</h2><p className="mt-3 text-sm text-muted">Tell Shepherd what you have in mind.</p></div>}
             <Timeline chat={controller.chat} />

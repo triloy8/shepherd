@@ -6,6 +6,9 @@ archive when historical reasoning is useful.
 
 ## Maintained references
 
+- [Web parity review](web-parity-review.md) — current Discord control coverage,
+  recovery limits and remaining web controls.
+
 - [Surface launch and lifecycle](surface-launch.md) — selection, shared host ownership, adapter health, and startup/shutdown behavior.
 
 - [Shared skills installation](shared-skills-location.md) — host setup,

@@ -4,6 +4,7 @@ export type ActionFailure =
   | { code: "unsupported_effort"; model: string; requested: string; available: string[] }
   | { code: "thread_required" }
   | { code: "project_required" }
+  | { code: "workspace_unavailable" }
   | { code: "invalid_turn_count" }
   | { code: "unknown_model"; requestedModel: string }
   | { code: "invalid_skill" }

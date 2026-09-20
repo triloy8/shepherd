@@ -61,3 +61,15 @@ describe("WorkspaceProvisioner", () => {
     expect(mkdirCalls).toEqual(["/tmp/local/ws-2"]);
   });
 });
+
+
+test("resume validates an existing absolute directory without creating or cloning", async () => {
+  const calls: string[] = [];
+  const provisioner = new WorkspaceProvisioner({ fsImpl: {
+    async stat(value: unknown) { return { isDirectory: () => value === "/saved" }; },
+    async mkdir() { calls.push("mkdir"); },
+  } as never, cloneGithubRepo: async () => { calls.push("clone"); } });
+  await provisioner.requireExistingWorkspace("/saved");
+  for (const cwd of ["relative", "/file"]) await expect(provisioner.requireExistingWorkspace(cwd)).rejects.toMatchObject({ failure: { code: "workspace_unavailable" } });
+  expect(calls).toEqual([]);
+});

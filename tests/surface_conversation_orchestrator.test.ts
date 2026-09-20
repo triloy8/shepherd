@@ -29,6 +29,7 @@ function makeHarness(options: { provisioningFailures?: number } = {}) {
       surfaceThreads.set(`${adapter}:${surfaceId}`, "thread-created");
       return { threadId: "thread-created", sessionId: "session-1" };
     },
+    async resolveThreadCwd(threadId: string) { return `/saved/${threadId}`; },
     async resumeThread(threadId: string, request: Record<string, unknown>) {
       calls.resumeThread.push({ threadId, request });
       return { threadId, sessionId: "session-2" };
@@ -66,6 +67,7 @@ function makeHarness(options: { provisioningFailures?: number } = {}) {
 
   const surfaceState = new SurfaceStateService();
   const workspaceProvisioner = {
+    async requireExistingWorkspace(_cwd: string) {},
     async provisionWorkspace(_target: unknown, threadId: string) {
       calls.provisionWorkspace.push({ threadId });
       if (provisioningFailures > 0) {
@@ -83,7 +85,7 @@ function makeHarness(options: { provisioningFailures?: number } = {}) {
     { adapter: "discord", approvalPolicy: "on-request", sandbox: "workspace-write" },
   );
 
-  return { orchestrator, surfaceState, calls, conversation };
+  return { orchestrator, surfaceState, calls, conversation, workspaceProvisioner };
 }
 
 describe("SurfaceConversationOrchestrator", () => {
@@ -156,9 +158,9 @@ describe("SurfaceConversationOrchestrator", () => {
     expect(forked).toBe("thread-forked");
     expect(calls.resumeThread).toHaveLength(1);
     expect(calls.forkThread).toHaveLength(1);
-    expect(calls.provisionWorkspace).toEqual([{ threadId: "thread-a" }, { threadId: "thread-forked" }]);
+    expect(calls.provisionWorkspace).toEqual([{ threadId: "thread-forked" }]);
     expect(calls.setThreadCwd).toEqual([
-      { threadId: "thread-a", cwd: "/tmp/thread-a" },
+      { threadId: "thread-a", cwd: "/saved/thread-a" },
       { threadId: "thread-forked", cwd: "/tmp/thread-forked" },
     ]);
     expect(calls.bindSurfaceToThread).toHaveLength(2);
@@ -180,7 +182,7 @@ describe("SurfaceConversationOrchestrator", () => {
     });
     expect(calls.resumeThread).toContainEqual({
       threadId: "thread-missing",
-      request: { cwd: "/tmp/thread-missing", sandbox: "workspace-write" },
+      request: { cwd: "/saved/thread-missing", sandbox: "workspace-write" },
     });
   });
 
@@ -216,4 +218,23 @@ test("a loaded thread binding conflict never resumes or changes the thread works
   expect(h.calls.resumeThread).toEqual([]);
   expect(h.calls.provisionWorkspace).toEqual([]);
   expect(h.calls.setThreadCwd).toEqual([]);
+});
+
+
+test("resume uses saved cwd without any project selection or provisioning", async () => {
+  const h = makeHarness();
+  await h.orchestrator.resumeSurfaceThread("fresh", "thread-a", () => {});
+  expect(h.calls.resumeThread[0]?.request.cwd).toBe("/saved/thread-a");
+  expect(h.calls.provisionWorkspace).toEqual([]);
+  expect(h.orchestrator.getSurfaceProjectDisplay("fresh")).toBe("/saved/thread-a");
+});
+
+test("an unavailable saved directory prevents resume without making a replacement", async () => {
+  const h = makeHarness();
+  h.workspaceProvisioner.requireExistingWorkspace = async () => { throw new Error("workspace unavailable"); };
+  await h.orchestrator.setSurfaceProject("surface", "owner/other-repo");
+  await expect(h.orchestrator.resumeSurfaceThread("surface", "thread-a", () => {})).rejects.toThrow("workspace unavailable");
+  expect(h.calls.resumeThread).toEqual([]);
+  expect(h.calls.provisionWorkspace).toEqual([]);
+  expect(h.calls.bindSurfaceToThread).toEqual([]);
 });

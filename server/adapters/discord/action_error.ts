@@ -5,6 +5,7 @@ export function formatActionFailure(error: ActionFailure): string {
     case "model_unavailable": return "The thread's model is not in the model catalog. Use !model set <id> first.";
     case "unsupported_effort": return `Unsupported effort for ${error.model}: ${error.requested}. Available: ${error.available.join(", ") || "none"}.`;
     case "thread_required": return "No active thread in this channel. Use `!newthread` or `!thread <id>` first.";
+    case "workspace_unavailable": return "The conversation’s saved workspace is missing or unavailable. Restore its original directory before resuming.";
     case "project_required": return "No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.";
     case "invalid_turn_count": return "Usage: !rollback <numTurns> [id]";
     case "unknown_model": return `Unknown model: \`${error.requestedModel}\`. Use \`!models\` to inspect available models.`;

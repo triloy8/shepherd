@@ -292,6 +292,10 @@ export class ConversationService {
     return this.manager.getThreadCwd(threadId);
   }
 
+  resolveThreadCwd(threadId: string): Promise<string> {
+    return this.manager.resolveThreadCwd(threadId);
+  }
+
   setThreadCwd(threadId: string, cwd: string): void {
     this.manager.setThreadCwd(threadId, cwd);
   }

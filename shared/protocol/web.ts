@@ -39,3 +39,7 @@ export type WebModelRequest = { model: string };
 export type WebEffortRequest = { effort: string };
 
 export type WebRenameRequest = { name: string };
+
+export type WebSkillsResponse = import("./requests.js").SkillsListResponse;
+export type WebSkillRequest = { path: string; enabled: boolean };
+export type WebSkillResponse = import("./requests.js").SkillsConfigWriteResponse;

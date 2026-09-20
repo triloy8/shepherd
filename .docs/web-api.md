@@ -227,3 +227,22 @@ shares an existing handle's mutation lock when the thread is attached.
 `archived` accepts only `true` or `false`; pagination remains independent for each
 list view. There is no idempotency key for fork: after losing an HTTP response,
 refresh the conversation list before retrying to avoid duplicate forks.
+
+### Skills
+
+The attached conversation exposes `GET /api/v1/conversations/:id/skills` returning
+`SkillsListResponse` (workspace directories, skill names/descriptions/paths/scopes,
+effective enabled state, and discovery errors). Workspace selection comes from the
+shared conversation service, not a client-supplied directory.
+
+`POST /api/v1/conversations/:id/skills-reload` with `{}` repeats discovery with
+`forceReload: true` and returns the same shape. `POST /api/v1/conversations/:id/skills`
+with `{ "path": "/absolute/skill/SKILL.md", "enabled": false }` uses the same shared
+`skill.set-enabled` action as Discord and returns `{ "effectiveEnabled": false }`.
+The action also supports the shared name resolution semantics; the UI always sends
+the listed path to distinguish duplicate names. Unknown/ambiguous names return 400.
+Both writes share the conversation mutation lock and existing origin/host checks.
+
+Skill configuration is shared Codex configuration, not a per-conversation override.
+Effective state can differ from the requested value. Reload discovery after changing
+skill files; it does not install skills or restart the host.

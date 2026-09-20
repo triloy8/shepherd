@@ -128,7 +128,7 @@ export class WebSurfaceApi {
         if (attached) await this.mutate(attached, operation); else await operation();
         return json(200, { ok: true });
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|rename|archive|fork)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
@@ -153,6 +153,24 @@ export class WebSurfaceApi {
             : { type: "thread.archive", surfaceId: entry.id });
           if (action === "archive") this.remove(entry);
           return json(200, { ok: true });
+        });
+      }
+      if (action === "skills" && request.method === "GET") {
+        return json(200, await this.application.conversation.listSkills(threadId, {}));
+      }
+      if (action === "skills-reload" && request.method === "POST") {
+        await body(request, []);
+        return await this.mutate(entry, async () => json(200, await this.application.conversation.listSkills(threadId, { forceReload: true })));
+      }
+      if (action === "skills" && request.method === "POST") {
+        const data = await body(request, ["path", "enabled"]);
+        const path = requiredString(data, "path", 4096);
+        if (typeof data.enabled !== "boolean") throw new WebRequestError(400, "invalid_request", "enabled must be a boolean.");
+        const enabled = data.enabled;
+        return await this.mutate(entry, async () => {
+          const result = await webControl(this.application, { type: "skill.set-enabled", surfaceId: entry.id, requestedSkill: path, enabled });
+          if (result.type !== "skill.set-enabled" || !result.ok) throw new Error("Unexpected skill response.");
+          return json(200, { effectiveEnabled: result.effectiveEnabled });
         });
       }
       if (action === "settings" && request.method === "GET") {

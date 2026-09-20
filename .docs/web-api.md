@@ -1,11 +1,11 @@
 # Web API v1
 
-The `web` surface provides the conversation API and [built-in web UI](web-ui.md).
-It runs alone or beside Discord against the same application core. It does not
-provide arbitrary Codex RPC or full Discord command parity. Text prompts,
-history, events, interruption and approvals are the initial scope. Attachment
-uploads and skill/deploy controls are not HTTP routes in v1. Generated images,
-model/effort settings, context telemetry and account limits are supported.
+The web surface serves the built-in UI and a private conversation API from the
+same loopback listener. It runs alone or alongside Discord using the shared core.
+It supports text and image input, conversation management and history, live events,
+approvals, model/effort settings, usage, skills, and host restart/deployment controls.
+It does not expose arbitrary Codex RPC. See the [surface parity matrix](surface-parity-matrix.md)
+for implemented features and differences between surfaces.
 
 ## Enable explicitly
 

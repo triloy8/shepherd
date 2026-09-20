@@ -55,3 +55,23 @@ test("ending a turn freezes partial messages instead of leaving a writing indica
   expect(ended.messages[0]!.complete).toBe(true);
   expect(ended.activeTurnId).toBeNull();
 });
+
+test("image-only history retains previews and only deduplicates matching optimistic attachments", () => {
+  const first = "data:image/png;base64,iVBORw0KGgo=";
+  const second = "data:image/gif;base64,R0lGODlh";
+  const state = emptyChat();
+  state.messages = [
+    { id: "local:first", turnId: "turn", role: "user", text: "", attachments: [first], complete: true },
+    { id: "local:second", turnId: "turn", role: "user", text: "", attachments: [second], complete: true },
+  ];
+  const history = turn("turn", "");
+  history.items[0]!.content = [{ type: "image", url: first }];
+  const merged = mergeHistory(state, [history]);
+  expect(merged.messages).toHaveLength(2);
+  expect(merged.messages[0]!.attachments).toEqual([first]);
+  expect(merged.messages[1]!.id).toBe("local:second");
+  history.items[0]!.content = [{ type: "image", url: "https://untrusted.test/pixel" }];
+  const unavailable = mergeHistory(emptyChat(), [history]);
+  expect(unavailable.messages[0]!.attachments).toEqual([]);
+  expect(unavailable.messages[0]!.text).toContain("unavailable");
+});

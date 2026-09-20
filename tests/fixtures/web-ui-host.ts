@@ -1,6 +1,6 @@
 import { installWebSkills } from "../helpers/web_skills_harness";
 import { installWebSettings } from "../helpers/web_settings_harness";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // Local browser-test fixture. Never imported by production entrypoints.
@@ -15,6 +15,11 @@ installWebSkills(h);
 const imageDir = await mkdtemp(join(tmpdir(), "shepherd-ui-fixture-"));
 const imagePath = join(imageDir, "generated.png");
 await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64"));
+// Named local files used by the browser attachment tests.
+const uploadDir = join(tmpdir(), "shepherd-image-input-fixtures");
+await mkdir(uploadDir, { recursive: true });
+for (const name of ["first.png", "second.png", "only.png", "2.png", "3.png", "4.png", "5.png"]) await writeFile(join(uploadDir, name), await readFile(imagePath));
+await writeFile(join(uploadDir, "bad.svg"), "<svg/>");
 const histories = new Map<string, HistoryTurn[]>([["stored", [{ id: "past", status: "completed", itemsView: "full", error: null, startedAt: 1, completedAt: 2, durationMs: 1000, items: [
   { id: "question", type: "userMessage", content: [{ type: "text", text: "Where did we leave off?" }] },
   { id: "answer", type: "agentMessage", text: "The shared API is ready. Next, we’re building a **private workspace** for conversations, live responses, and approvals.\n\nEverything runs in the same Shepherd host." },
@@ -54,10 +59,10 @@ function finish(threadId: string, status: "completed" | "interrupted" = "complet
   publish(threadId, "turn.completed", { turnId: turn.id });
 }
 h.context.ingress.submitTurn = async (threadId, request) => {
-  const text = String((request.input[0] as { text: string }).text);
+  const text = request.input.filter((item) => item.type === "text").map((item) => (item as { text: string }).text).join("\n");
   const turnId = `turn-${++sequence}`;
   const itemId = `agent-${sequence}`;
-  const turn: HistoryTurn = { id: turnId, status: "inProgress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: `user-${sequence}`, type: "userMessage", content: [{ type: "text", text }] }] };
+  const turn: HistoryTurn = { id: turnId, status: "inProgress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: `user-${sequence}`, type: "userMessage", content: structuredClone(request.input) }] };
   histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
   h.active.set(threadId, turnId); publish(threadId, "turn.started", { turnId });
   const progress = { id: `progress-${sequence}`, type: "agentMessage", phase: "commentary", text: "I’ll check the project first." };
@@ -144,5 +149,5 @@ await adapter.start();
 console.log(adapter.url());
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, async () => {
   for (const timer of timers) clearTimeout(timer);
-  await adapter.stop(); h.api.dispose(); await rm(imageDir, { recursive: true, force: true }); process.exit(0);
+  await adapter.stop(); h.api.dispose(); await rm(imageDir, { recursive: true, force: true }); await rm(uploadDir, { recursive: true, force: true }); process.exit(0);
 });

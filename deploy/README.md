@@ -49,7 +49,7 @@ cd /home/nio/shepherd
 ./deploy/ubuntu/setup.sh
 ```
 
-The setup script installs Ubuntu packages, Bun, Codex CLI `0.154.0`,
+The setup script installs Ubuntu packages, Bun, Codex CLI `0.159.2`,
 project dependencies, and missing runtime environment files. Existing `.env`
 files are preserved. It is safe to rerun after updates.
 
@@ -303,7 +303,7 @@ Enter Ubuntu normally and verify:
 
 When the pinned Codex version changes, rerun `./deploy/ubuntu/setup.sh` from the
 updated checkout as `nio`, then check `codex --version`. The current default is
-`0.154.0`; `CODEX_VERSION` can override it explicitly. The Discord `!deploy`
+`0.159.2`; `CODEX_VERSION` can override it explicitly. The Discord `!deploy`
 command updates Shepherd's checkout and dependencies, not the globally installed
 Codex executable.
 

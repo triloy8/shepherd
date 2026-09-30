@@ -48,7 +48,7 @@ import {
 } from "./codex_rpc_mapper.js";
 
 function getDefaultModel(): string {
-  return process.env.CODEX_MODEL ?? "gpt-5.3-codex";
+  return process.env.CODEX_MODEL ?? "gpt-6.1-sol";
 }
 
 type PendingRequest = {
@@ -329,7 +329,7 @@ export class CodexSession {
       approvalPolicy: this.approvalPolicy,
       ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
       ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      ...(request.config ? { config: request.config } : {}),
+      config: { model_reasoning_effort: "medium", ...request.config },
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.personality ? { personality: request.personality } : {}),
       ...(request.sandbox ? { sandbox: request.sandbox } : {}),

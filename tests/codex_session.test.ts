@@ -46,6 +46,30 @@ describe("CodexSession app-server contract", () => {
     expect(notifications).toEqual(["initialized"]);
   });
 
+  test("defaults new threads to Sol medium while preserving explicit overrides", async () => {
+    const previousModel = process.env.CODEX_MODEL;
+    delete process.env.CODEX_MODEL;
+    try {
+      const session = new CodexSession("never");
+      const requests: unknown[] = [];
+      session.initialize = async () => {};
+      internals(session).sendRequest = async (_method, params) => {
+        requests.push(params);
+        return { thread: { id: "thread-defaults" } };
+      };
+      await session.startThread({});
+      await session.startThread({ model: "custom-model", config: { model_reasoning_effort: "high", other: true } });
+      expect(requests[0]).toMatchObject({ model: "gpt-6.1-sol", config: { model_reasoning_effort: "medium" } });
+      expect(requests[1]).toMatchObject({ model: "custom-model", config: { model_reasoning_effort: "high", other: true } });
+      process.env.CODEX_MODEL = "environment-model";
+      await session.startThread({});
+      expect(requests[2]).toMatchObject({ model: "environment-model" });
+    } finally {
+      if (previousModel === undefined) delete process.env.CODEX_MODEL;
+      else process.env.CODEX_MODEL = previousModel;
+    }
+  });
+
   test("advertises registered dynamic tools when starting a thread", async () => {
     const tools = new DynamicToolRegistry();
     tools.register({

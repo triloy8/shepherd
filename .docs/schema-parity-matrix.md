@@ -5,12 +5,13 @@ Status legend:
 - `Implemented`: wrapped and exposed in Shepherd API flow.
 - `Partial`: method exists, but Shepherd exposes only a subset of schema fields/behavior.
 - `Missing`: no wrapper/exposed API yet.
+- `Incompatible`: existing Shepherd call is absent from this provider baseline.
 
 Generated baseline:
 
-- Codex version: `codex-cli 0.154.0`
-- Last refreshed: `2026-09-16`
-- Implementation notes reviewed: `2026-09-16`
+- Codex version: `codex-cli 0.159.2`
+- Last refreshed: `2026-09-30`
+- Implementation notes reviewed: `2026-09-30`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -21,7 +22,7 @@ Generated baseline:
 Legacy note:
 
 - The legacy-named `execCommandApproval` and `applyPatchApproval` server requests
-  remain in the 0.154.0 generated schema and are supported directly. They are
+  remain in the 0.159.2 generated schema and are supported directly. They are
   not Shepherd compatibility shims. The three legacy client methods and two
   legacy notification names listed below are inventory entries, not dedicated
   wrappers or translations.
@@ -41,12 +42,15 @@ Legacy note:
 | `thread/goal/set` | Missing | Maybe Later | Goal management path not exposed by current Discord flow |
 | `thread/goal/get` | Missing | Maybe Later | Useful for richer thread diagnostics if goal state is surfaced |
 | `thread/goal/clear` | Missing | Maybe Later | Goal management path not exposed by current Discord flow |
+| `thread/attachment/add` | Missing | Maybe Later | Adds a durable thread attachment; separate from prompt image input |
+| `thread/attachment/list` | Missing | Maybe Later | Lists durable thread attachments |
+| `thread/attachment/remove` | Missing | Maybe Later | Removes a durable thread attachment |
 | `thread/metadata/update` | Missing | Maybe Later | Useful for richer repo/thread metadata, but not required for current Discord flow |
 | `thread/section/move` | Missing | Maybe Later | Moves a thread into, within, or out of a server-owned section ordering |
 | `thread/compact/start` | Implemented | Core | |
 | `thread/shellCommand` | Missing | Out of Scope (for now) | Terminal-oriented thread helper; Shepherd should route requests, not become a shell command surface |
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
-| `thread/rollback` | Implemented | Core | Existing turn-count rollback flow; the generated surface now also provides turn-ID-based `thread/revert` |
+| `thread/rollback` (removed) | Incompatible | Core | Removed from 0.159.2; Shepherd still sends this legacy RPC. Discord/web rollback controls need migration to `thread/revert` before they work with this baseline |
 | `thread/revert` | Missing | Core | Modern persisted-history replacement by `beforeTurnId`; does not revert local file changes |
 | `thread/list` | Partial | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors; missing the hosted-only `originators` filter |
 | `threadSection/list` | Missing | Maybe Later | Useful if Shepherd adds section-based thread organization UX |
@@ -56,14 +60,14 @@ Legacy note:
 | `thread/loaded/list` | Implemented | Core | |
 | `thread/read` | Implemented | Core | `includeTurns` supported, though the generated schema now recommends metadata-only reads plus paginated turn/item listing |
 | `thread/turns/list` | Implemented | Core | Wrapped with cursors, direction, and items view; Discord `!history` uses five-turn summary pages |
-| `thread/items/list` | Implemented | Core | Wrapped with cursors, direction, and optional turn filter; Discord history Items buttons and `!history items` show paginated excerpts with Read buttons for message text/activity summaries |
+| `thread/items/list` | Partial | Core | Wrapped with string cursors, direction, and optional turn filter; the new object item-anchor cursor is not exposed; Discord history Items buttons and `!history items` show paginated excerpts with Read buttons for message text/activity summaries |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
 | `thread/unsubscribe` | Missing | Maybe Later | Useful for lifecycle cleanup/stream controls; not required for current correctness |
 | `hooks/list` | Missing | Maybe Later | Useful for admin diagnostics, but hook management is not part of the current Discord surface |
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports all generated input variants plus `approvalPolicy`, `model`, `effort` (Discord `!effort`), and resolved `cwd`; missing client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
+| `turn/start` | Partial | Core | Supports URL/local image, audio, text, skill, and mention input; missing the new image `fileId` variant. Supports `approvalPolicy`, `model`, `effort` (Discord `!effort`), and resolved `cwd`; missing disabled plugin IDs, client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
@@ -118,6 +122,9 @@ Legacy note:
 | `externalAgentConfig/import` | Missing | Out of Scope (for now) | |
 | `externalAgentConfig/import/recordHistory` | Missing | Out of Scope (for now) | Records results for an externally completed agent-config import |
 | `externalAgentConfig/import/readHistories` | Missing | Out of Scope (for now) | External-agent migration history is outside Shepherd's current Discord/admin surface |
+| `account/gatewayOAuth/read` | Missing | Maybe Later | Reads gateway OAuth status |
+| `account/gatewayOAuth/login` | Missing | Out of Scope (for now) | Explicit gateway authorization; initialize also adds `explicitGatewayOauth` |
+| `account/gatewayOAuth/cancel` | Missing | Out of Scope (for now) | Cancels gateway authorization |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
 | `account/rateLimits/read` | Partial | Core | Exposed via Discord `!limits`; does not send the new `supportsLunaReserve` or `excludeResetCreditDetails` capabilities, and does not expose the top-level `ordinaryUsageAllowed` flag or per-limit `normalModelSlug` |
 | `account/rateLimitResetCredit/consume` | Missing | Out of Scope (for now) | Account quota mutation path |
@@ -154,6 +161,8 @@ Legacy note:
 |---|---|---|
 | `error` | Typed nested error decoding (`session.error`; context limits use `session.limit.context`) | Core |
 | `thread/status/changed` | Typed event (`thread.status.changed`) | Core |
+| `thread/attachment/updated` | Generic | Maybe Later |
+| `account/gatewayOAuth/changed` | Generic | Out of Scope (for now) |
 | `thread/started` | Generic | Maybe Later |
 | `thread/deleted` | Generic | Maybe Later |
 | `thread/name/updated` | Typed event (`thread.name.updated`) | Core |
@@ -225,14 +234,50 @@ Legacy note:
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, revert, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.154.0`: 102 TypeScript request methods (99 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 83 TypeScript notifications (81 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. The refreshed schema also adds application network requirements, MCP tool-discovery errors, and a `configuration_update` raw response item, which remain structurally preserved or generic |
+| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.159.2`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is an outstanding compatibility gap |
 
+
+## Changes in 0.159.2
+
+Compared with freshly generated 0.154.0 schemas, this baseline adds six client
+methods and two notifications, removes `thread/rollback`, and leaves the ten
+server request methods unchanged. The removed method is listed above for tracking
+but is excluded from the 107-method inventory count.
+
+Additional protocol changes not yet fully exposed by Shepherd:
+
+- Item history supports object anchor cursors and per-item `startedAtMs` /
+  `completedAtMs` timestamps; current controls use string continuation cursors.
+- Image inputs and raw tool-result images can reference uploaded file IDs.
+- `turn/start` adds `disabledPluginIds`; start/resume/fork responses and thread
+  settings report that saved list. The schema notes it does not yet filter plugin
+  capabilities. Resume also reports effective `collaborationMode`.
+- Models add `availableAccessPrograms`; personality selection is deprecated and
+  `supportsPersonality` is always false. Model IDs remain runtime catalog data,
+  not schema constants. A live query after updating includes `gpt-6.1-sol` with
+  medium effort; Shepherd now defaults new conversations to that model/effort.
+- MCP discovery adds `serverName`, `httpOrigin`, and `serverCapabilities`;
+  resource reads add an explicit hosted app/account target. MCP items add
+  `mcpAppUi` presentation metadata. These are not embedded-app UI support.
+- Plugin details add an onboarding skill; app configuration adds tool exposure
+  exclusions. Managed requirements add provider definitions and allowed login
+  methods and revise Windows sandbox fields.
+- Error info adds `flexUnavailable` and `tooManyDenials`; turn errors may also
+  describe interrupted turns. Plans add `promax`; feedback adds `promptHash`.
+
+Experimental schemas were also regenerated in a temporary directory to verify
+that `thread/start.dynamicTools` and `item/tool/call` remain available. Generated
+files under `schemas/` are intentionally ignored by Git. The surface matrix is
+unchanged except for the rollback compatibility restriction: provider additions
+alone do not create new Discord or web controls.
 
 ## Deployment version
 
-Ubuntu setup, Docker, and Compose default to `codex-cli 0.154.0`, matching this
+Ubuntu setup, Docker, and Compose default to `codex-cli 0.159.2`, matching this
 inventory. Both schema generation commands were rerun with that exact CLI.
 Operators can override `CODEX_VERSION` during installation, but
 that selects a different protocol baseline. Updating the checkout alone does
 not upgrade an already-installed host CLI; rerun `deploy/ubuntu/setup.sh` as the
-deployment user. No global CLI is modified by schema verification.
+deployment user. Schema generation itself does not update the CLI. This refresh
+also ran `codex update` on the local standalone installation (0.154.0 → 0.159.2);
+already-running processes retain their old binary until restarted.

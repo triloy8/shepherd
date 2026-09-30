@@ -74,6 +74,11 @@ export class WebSurfaceApi {
     this.application = context.createApplication((id, event) => {
       const entry = this.entries.get(id);
       if (!entry) return;
+      if (event.type === "thread.reverted") {
+        entry.historyRevision++;
+        entry.feed.invalidateHistory();
+        return;
+      }
       if (event.type === "turn.image.generated") {
         const image = event.payload as import("../../../shared/protocol/events.js").TurnImageGeneratedEvent["payload"];
         entry.feed.publish("bridge", { ...event, payload: { ...image, url: entry.images.register(image.turnId, image.itemId, image.path) } });
@@ -142,7 +147,7 @@ export class WebSurfaceApi {
         if (attached) await this.mutate(attached, operation); else await operation();
         return json(200, { ok: true });
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|rollback)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|revert)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
@@ -169,23 +174,21 @@ export class WebSurfaceApi {
           return json(200, { ok: true });
         });
       }
-      if ((action === "compact" || action === "rollback") && request.method === "POST") {
-        const data = await body(request, action === "rollback" ? ["numTurns"] : []);
-        const numTurns = data.numTurns;
-        if (action === "rollback" && (typeof numTurns !== "number" || !Number.isSafeInteger(numTurns) || numTurns < 1)) {
-          throw new WebRequestError(400, "invalid_request", "numTurns must be a positive safe integer.");
-        }
+      if ((action === "compact" || action === "revert") && request.method === "POST") {
+        const data = await body(request, action === "revert" ? ["beforeTurnId"] : []);
+        const beforeTurnId = action === "revert" ? requiredString(data, "beforeTurnId", 256) : null;
         return await this.mutate(entry, async () => {
           if (this.context.ingress.getThreadState(threadId).activeTurnId || this.context.approvals.listApprovals(threadId).some((approval) => approval.status === "pending")) {
-            throw new WebRequestError(409, "conversation_active", "Stop the active turn and resolve approvals before compacting or rolling back.");
+            throw new WebRequestError(409, "conversation_active", "Stop the active turn and resolve approvals before compacting or reverting.");
           }
+          const revision = entry.historyRevision;
           try {
             await webControl(this.application, action === "compact"
               ? { type: "thread.compact", surfaceId: entry.id }
-              : { type: "thread.rollback", surfaceId: entry.id, numTurns: numTurns as number });
+              : { type: "thread.revert", surfaceId: entry.id, beforeTurnId: beforeTurnId! });
           } finally {
-            // A failed transport can still have applied the rollback upstream.
-            if (action === "rollback") {
+            // A failed transport can still have applied the revert upstream.
+            if (action === "revert" && entry.historyRevision === revision) {
               entry.historyRevision++;
               entry.feed.invalidateHistory();
             }

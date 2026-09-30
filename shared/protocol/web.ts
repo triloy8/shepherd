@@ -44,4 +44,4 @@ export type WebSkillsResponse = import("./requests.js").SkillsListResponse;
 export type WebSkillRequest = { path: string; enabled: boolean };
 export type WebSkillResponse = import("./requests.js").SkillsConfigWriteResponse;
 
-export type WebRollbackRequest = { numTurns: number };
+export type WebRevertRequest = { beforeTurnId: string };

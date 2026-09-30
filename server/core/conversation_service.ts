@@ -23,8 +23,8 @@ import type {
   ReadThreadTokenUsageResponse,
   ResumeThreadRequest,
   ResumeThreadResponse,
-  RollbackThreadRequest,
-  RollbackThreadResponse,
+  RevertThreadRequest,
+  RevertThreadResponse,
   SetThreadNameRequest,
   SkillsConfigWriteRequest,
   SkillsConfigWriteResponse,
@@ -240,8 +240,8 @@ export class ConversationService {
     return this.manager.compactThread(threadId);
   }
 
-  rollbackThread(threadId: string, request: RollbackThreadRequest): Promise<RollbackThreadResponse> {
-    return this.manager.rollbackThread(threadId, request);
+  revertThread(threadId: string, request: RevertThreadRequest): Promise<RevertThreadResponse> {
+    return this.manager.revertThread(threadId, request);
   }
 
   readAccountRateLimits(): Promise<AccountRateLimitsResponse> {

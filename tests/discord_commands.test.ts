@@ -205,7 +205,7 @@ function makeContext(overrides?: {
       async unarchiveThread() {
         return { ok: true };
       },
-      async rollbackThread(threadId: string) {
+      async revertThread(threadId: string) {
         return { thread: { id: threadId } };
       },
       async compactThread() {
@@ -392,7 +392,7 @@ describe("Discord !skill commands", () => {
 
     const embed = replyCardAt(replies);
     expect(embed.title).toBe("Shepherd commands");
-    expect(embed.description).toContain("- !rollback <numTurns> [id]");
+    expect(embed.description).not.toContain("!rollback");
   });
 
   test("renders context telemetry as a structured Components V2 card", async () => {
@@ -645,7 +645,7 @@ describe("Discord !skill commands", () => {
     });
     const cases = [
       ["!threadname Release prep", "Thread renamed"],
-      ["!rollback 1 thread-1", "Thread rolled back"],
+      ["!rollback 1 thread-1", "Rollback retired"],
       ["!compact thread-1", "Compaction started"],
       ["!interrupt", "Interrupt requested"],
       ["!archive thread-1", "Thread archived"],

@@ -7,7 +7,7 @@ export function formatActionFailure(error: ActionFailure): string {
     case "thread_required": return "No active thread in this channel. Use `!newthread` or `!thread <id>` first.";
     case "workspace_unavailable": return "The conversation’s saved workspace is missing or unavailable. Restore its original directory before resuming.";
     case "project_required": return "No repo selected for this channel. Use `!repo <owner>/<repo>`, `!repo ~`, or `!repo ~/path` first.";
-    case "invalid_turn_count": return "Usage: !rollback <numTurns> [id]";
+    case "invalid_turn_id": return "Choose a valid turn in the web conversation history.";
     case "unknown_model": return `Unknown model: \`${error.requestedModel}\`. Use \`!models\` to inspect available models.`;
     case "invalid_skill": return "Invalid skill name or path.";
     case "skill_not_found": return `No loaded skill matches \`${error.requestedSkill}\`. Use \`!skills\` to inspect available names.`;

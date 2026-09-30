@@ -5,7 +5,7 @@ export type ActionFailure =
   | { code: "thread_required" }
   | { code: "project_required" }
   | { code: "workspace_unavailable" }
-  | { code: "invalid_turn_count" }
+  | { code: "invalid_turn_id" }
   | { code: "unknown_model"; requestedModel: string }
   | { code: "invalid_skill" }
   | { code: "skill_not_found"; requestedSkill: string }

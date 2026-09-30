@@ -40,7 +40,7 @@ function makeContext(overrides?: {
   const threadNameWrites: Array<{ threadId: string; name: string }> = [];
   const archivedThreads: string[] = [];
   const unarchivedThreads: string[] = [];
-  const rolledBackThreads: Array<{ threadId: string; numTurns: number }> = [];
+  const revertedThreads: Array<{ threadId: string; beforeTurnId: string }> = [];
   const compactedThreads: string[] = [];
   const interruptedThreads: string[] = [];
   const clearedChannels: string[] = [];
@@ -138,9 +138,9 @@ function makeContext(overrides?: {
         unarchivedThreads.push(threadId);
         return { ok: true };
       },
-      async rollbackThread(threadId, request) {
-        rolledBackThreads.push({ threadId, numTurns: request.numTurns });
-        return { thread: { id: threadId } };
+      async revertThread(threadId, request) {
+        revertedThreads.push({ threadId, beforeTurnId: request.beforeTurnId });
+        return { thread: { id: threadId }, turnsBackwardsCursor: null, itemsBackwardsCursor: null };
       },
       async compactThread(threadId) {
         compactedThreads.push(threadId);
@@ -185,7 +185,7 @@ function makeContext(overrides?: {
     threadNameWrites,
     archivedThreads,
     unarchivedThreads,
-    rolledBackThreads,
+    revertedThreads,
     compactedThreads,
     interruptedThreads,
     clearedChannels,
@@ -416,21 +416,21 @@ describe("ControlActionsService", () => {
     expect(unarchivedThreads).toEqual(["thread-2"]);
   });
 
-  test("rolls back the requested thread", async () => {
-    const { context, rolledBackThreads } = makeContext();
+  test("reverts before the selected turn", async () => {
+    const { context, revertedThreads } = makeContext();
     await expect(
       executeControlAction(context, {
-        type: "thread.rollback",
+        type: "thread.revert",
         surfaceId: "chan-1",
-        numTurns: 2,
+        beforeTurnId: "turn-2",
       }),
     ).resolves.toEqual({
-      type: "thread.rollback",
+      type: "thread.revert",
       ok: true,
       threadId: "thread-1",
-      numTurns: 2,
+      beforeTurnId: "turn-2",
     });
-    expect(rolledBackThreads).toEqual([{ threadId: "thread-1", numTurns: 2 }]);
+    expect(revertedThreads).toEqual([{ threadId: "thread-1", beforeTurnId: "turn-2" }]);
   });
 
   test("starts compaction for the active thread", async () => {
@@ -526,13 +526,13 @@ describe("ControlActionsService", () => {
 
 describe("surface-independent failures", () => {
   test("missing bindings reject mutations before calling services", async () => {
-    const { context, modelWrites, skillWrites, threadNameWrites, archivedThreads, rolledBackThreads, compactedThreads, interruptedThreads } = makeContext({ activeThreadId: null });
+    const { context, modelWrites, skillWrites, threadNameWrites, archivedThreads, revertedThreads, compactedThreads, interruptedThreads } = makeContext({ activeThreadId: null });
     const requests = [
       { type: "model.set", requestedModel: "model" },
       { type: "skill.set-enabled", requestedSkill: "skill", enabled: true },
       { type: "thread.rename", name: "name" },
       { type: "thread.archive" },
-      { type: "thread.rollback", numTurns: 1 },
+      { type: "thread.revert", beforeTurnId: "turn-1" },
       { type: "thread.compact" },
       { type: "turn.interrupt" },
     ] as const;
@@ -540,16 +540,16 @@ describe("surface-independent failures", () => {
       expect(await executeControlAction(context, { ...request, surfaceId: "terminal-session" }))
         .toEqual({ type: request.type, ok: false, error: { code: "thread_required" } });
     }
-    expect([modelWrites, skillWrites, threadNameWrites, archivedThreads, rolledBackThreads, compactedThreads, interruptedThreads].flat()).toEqual([]);
+    expect([modelWrites, skillWrites, threadNameWrites, archivedThreads, revertedThreads, compactedThreads, interruptedThreads].flat()).toEqual([]);
   });
 
-  test("invalid rollback counts never reach the conversation", async () => {
-    const { context, rolledBackThreads } = makeContext();
-    for (const numTurns of [0, -1, 1.5, NaN]) {
-      expect(await executeControlAction(context, { type: "thread.rollback", surfaceId: "terminal-session", numTurns }))
-        .toEqual({ type: "thread.rollback", ok: false, error: { code: "invalid_turn_count" } });
+  test("invalid revert turn IDs never reach the conversation", async () => {
+    const { context, revertedThreads } = makeContext();
+    for (const beforeTurnId of ["", " ", "x".repeat(257)]) {
+      expect(await executeControlAction(context, { type: "thread.revert", surfaceId: "terminal-session", beforeTurnId }))
+        .toEqual({ type: "thread.revert", ok: false, error: { code: "invalid_turn_id" } });
     }
-    expect(rolledBackThreads).toEqual([]);
+    expect(revertedThreads).toEqual([]);
   });
 });
 

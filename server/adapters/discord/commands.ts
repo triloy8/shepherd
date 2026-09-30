@@ -437,7 +437,6 @@ export async function handleMessage(
       "- !fork [id]",
       "- !archive [id]",
       "- !unarchive <id>",
-      "- !rollback <numTurns> [id]",
       "- !compact [id]",
       "- !interrupt",
       "- !restart",
@@ -1072,26 +1071,8 @@ export async function handleMessage(
   }
 
   if (command === "!rollback") {
-    const result = await executeControlAction(context, {
-      type: "thread.rollback",
-      surfaceId: channelId,
-      numTurns: Number(args[0]),
-      threadId: args[1],
-    });
-    if (result.type !== "thread.rollback") {
-      throw new Error("Unexpected control action result for thread.rollback.");
-    }
-    if (!result.ok) {
-      await replyCard(message, "Rollback failed", formatActionFailure(result.error), "danger");
-      return { handled: true, threadId: null, input: null };
-    }
-    await replyCard(
-      message,
-      "Thread rolled back",
-      `Rolled back ${result.numTurns} turn(s) on ${result.threadId}`,
-      "warning",
-    );
-    return { handled: true, threadId: result.threadId, input: null };
+    await replyCard(message, "Rollback retired", "Rollback is no longer available in Discord. Open this conversation in the web UI and use Revert from here under a user message.", "neutral");
+    return { handled: true, threadId: null, input: null };
   }
 
   if (command === "!compact") {

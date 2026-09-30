@@ -6,12 +6,12 @@ function harness() {
   Object.assign(h.application, { getSurfaceThreadId: (id: string) => h.bindings.get(id) ?? null });
   Object.assign(h.application.conversation, {
     async compactThread(id: string) { h.calls.push(`compact:${id}`); return { ok: true }; },
-    async rollbackThread(id: string, request: { numTurns: number }) { h.calls.push(`rollback:${id}:${request.numTurns}`); return { thread: {} }; },
+    async revertThread(id: string, request: { beforeTurnId: string }) { h.calls.push(`revert:${id}:${request.beforeTurnId}`); return { thread: {} }; },
   });
   return h;
 }
 
-test("compact and rollback use shared actions; rollback revises history and notifies clients", async () => {
+test("compact and revert use shared actions; revert revises history and notifies clients", async () => {
   const h = harness();
   try {
     const c = await h.create(); const path = `/conversations/${c.id}`;
@@ -19,42 +19,42 @@ test("compact and rollback use shared actions; rollback revises history and noti
     const stream = await h.request(`${path}/events`); const reader = stream.body!.getReader(); await reader.read();
     expect((await h.request(`${path}/compact`, "POST", {})).status).toBe(200);
     expect(h.calls).toContain(`compact:${c.threadId}`);
-    expect((await h.request(`${path}/rollback`, "POST", { numTurns: 2 })).status).toBe(200);
-    expect(h.calls).toContain(`rollback:${c.threadId}:2`);
+    expect((await h.request(`${path}/revert`, "POST", { beforeTurnId: "turn-2" })).status).toBe(200);
+    expect(h.calls).toContain(`revert:${c.threadId}:turn-2`);
     expect(new TextDecoder().decode((await reader.read()).value)).toContain('"reason":"history_changed"');
     expect((await (await h.request(`${path}/turns`)).json()).revision).toBe(1);
     await reader.cancel();
   } finally { h.api.dispose(); }
 });
 
-test("history actions validate counts and boundaries and reject active turns or approvals", async () => {
+test("history actions validate turn IDs and boundaries and reject active turns or approvals", async () => {
   const h = harness();
   try {
     const c = await h.create(); const path = `/conversations/${c.id}`;
-    for (const numTurns of [0, -1, 1.5, "1", null, Number.MAX_SAFE_INTEGER + 1]) expect((await h.request(`${path}/rollback`, "POST", { numTurns })).status).toBe(400);
-    expect((await h.request(`${path}/rollback`, "POST", {})).status).toBe(400);
+    for (const beforeTurnId of [0, null, "", " ", "x".repeat(257), {}, []]) expect((await h.request(`${path}/revert`, "POST", { beforeTurnId })).status).toBe(400);
+    expect((await h.request(`${path}/revert`, "POST", {})).status).toBe(400);
     expect((await h.request(`${path}/compact`, "POST", { threadId: "other" })).status).toBe(400);
-    expect((await h.request(`${path}/rollback`, "POST", { numTurns: 1, threadId: "other" })).status).toBe(400);
+    expect((await h.request(`${path}/revert`, "POST", { beforeTurnId: "turn-1", threadId: "other" })).status).toBe(400);
     expect((await h.request(`${path}/compact`, "POST", {}, { origin: "https://evil.test" })).status).toBe(403);
     h.active.set(c.threadId, "running");
-    for (const action of ["compact", "rollback"]) expect((await h.request(`${path}/${action}`, "POST", action === "rollback" ? { numTurns: 1 } : {})).status).toBe(409);
+    for (const action of ["compact", "revert"]) expect((await h.request(`${path}/${action}`, "POST", action === "revert" ? { beforeTurnId: "turn-1" } : {})).status).toBe(409);
     h.active.set(c.threadId, null);
     h.approvals.create({ approvalId: "approval", method: "test", prompt: "Allow?", choices: [{ value: "accept", label: "Allow" }], params: {} }, { threadId: c.threadId, sessionId: "session" });
-    for (const action of ["compact", "rollback"]) expect((await h.request(`${path}/${action}`, "POST", action === "rollback" ? { numTurns: 1 } : {})).status).toBe(409);
-    expect(h.calls.some((call) => /^(compact|rollback):/.test(call))).toBe(false);
+    for (const action of ["compact", "revert"]) expect((await h.request(`${path}/${action}`, "POST", action === "revert" ? { beforeTurnId: "turn-1" } : {})).status).toBe(409);
+    expect(h.calls.some((call) => /^(compact|revert):/.test(call))).toBe(false);
     expect((await h.request("/conversations/missing/compact", "POST", {})).status).toBe(404);
   } finally { h.api.dispose(); }
 });
 
-test("rollback blocks concurrent writes and invalidates snapshots begun before completion", async () => {
+test("revert blocks concurrent writes and invalidates snapshots begun before completion", async () => {
   const h = harness(); let release!: () => void; let historyRelease!: () => void;
-  Object.assign(h.application.conversation, { rollbackThread: async () => { await new Promise<void>((resolve) => { release = resolve; }); return { thread: {} }; } });
+  Object.assign(h.application.conversation, { revertThread: async () => { await new Promise<void>((resolve) => { release = resolve; }); return { thread: {} }; } });
   try {
     const c = await h.create(); const path = `/conversations/${c.id}`;
     h.application.conversation.listThreadTurns = async () => { await new Promise<void>((resolve) => { historyRelease = resolve; }); return { data: [], nextCursor: null, backwardsCursor: null }; };
     const stale = h.request(`${path}/turns`);
     while (!historyRelease) await new Promise((resolve) => setTimeout(resolve, 1));
-    const pending = h.request(`${path}/rollback`, "POST", { numTurns: 1 });
+    const pending = h.request(`${path}/revert`, "POST", { beforeTurnId: "turn-1" });
     while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
     expect((await h.request(`${path}/compact`, "POST", {})).status).toBe(409);
     expect((await h.request(`${path}/messages`, "POST", { text: "hello" })).status).toBe(409);
@@ -63,15 +63,33 @@ test("rollback blocks concurrent writes and invalidates snapshots begun before c
   } finally { release?.(); historyRelease?.(); h.api.dispose(); }
 });
 
-test("failed rollback preserves attachment, releases lock, and forces authoritative history recovery", async () => {
+test("failed revert preserves attachment, releases lock, and forces authoritative history recovery", async () => {
   const h = harness();
-  Object.assign(h.application.conversation, { rollbackThread: async () => { throw new Error("private failure"); } });
+  Object.assign(h.application.conversation, { revertThread: async () => { throw new Error("private failure"); } });
   try {
     const c = await h.create(); const path = `/conversations/${c.id}`;
-    const response = await h.request(`${path}/rollback`, "POST", { numTurns: 1 });
+    const response = await h.request(`${path}/revert`, "POST", { beforeTurnId: "turn-1" });
     expect(response.status).toBe(502); expect(await response.text()).not.toContain("private failure");
     expect((await (await h.request(`${path}/turns`)).json()).revision).toBe(1);
     expect(h.bindings.get(c.id)).toBe(c.threadId);
     expect((await h.request(`${path}/compact`, "POST", {})).status).toBe(200);
+  } finally { h.api.dispose(); }
+});
+
+
+test("provider revert invalidates all connected clients and does not duplicate the initiating reset", async () => {
+  const h = harness();
+  try {
+    const c = await h.create(); const path = `/conversations/${c.id}`;
+    const readers = await Promise.all([1, 2].map(async () => { const response = await h.request(`${path}/events`); const reader = response.body!.getReader(); await reader.read(); return reader; }));
+    const notify = () => h.publish(c.id, { id: "reverted-1", type: "thread.reverted", threadId: c.threadId, sessionId: "session", ts: new Date().toISOString(), payload: {} });
+    Object.assign(h.application.conversation, { revertThread: async () => { notify(); return { thread: {} }; } });
+    expect((await h.request(`${path}/revert`, "POST", { beforeTurnId: "turn" })).status).toBe(200);
+    for (const reader of readers) expect(new TextDecoder().decode((await reader.read()).value)).toContain('"history_changed"');
+    expect((await (await h.request(`${path}/turns`)).json()).revision).toBe(1);
+    notify();
+    expect((await (await h.request(`${path}/turns`)).json()).revision).toBe(2);
+    for (const reader of readers) await reader.cancel();
+    expect((await h.request(`${path}/rollback`, "POST", { numTurns: 1 })).status).toBe(404);
   } finally { h.api.dispose(); }
 });

@@ -108,7 +108,7 @@ type AppServerRequestParams = {
   "thread/unarchive": { threadId: string };
   "thread/name/set": { threadId: string; name: string };
   "thread/compact/start": { threadId: string };
-  "thread/rollback": { threadId: string; numTurns: number };
+  "thread/revert": { threadId: string; beforeTurnId: string };
   "thread/list": {
     archived: boolean | null;
     cursor: string | null;
@@ -404,9 +404,9 @@ export class CodexSession {
     await this.sendRequest("thread/compact/start", { threadId });
   }
 
-  async rollbackThread(threadId: string, numTurns: number): Promise<unknown> {
+  async revertThread(threadId: string, beforeTurnId: string): Promise<unknown> {
     await this.initialize();
-    return this.sendRequest("thread/rollback", { threadId, numTurns });
+    return this.sendRequest("thread/revert", { threadId, beforeTurnId });
   }
 
   async listStoredThreads(request: ListStoredThreadsRequest): Promise<unknown> {
@@ -833,6 +833,11 @@ export class CodexSession {
 
     if (lower === "account/ratelimits/updated") {
       this.publish("turn.notification", threadId, { method, params });
+      return;
+    }
+
+    if (lower === "thread/reverted") {
+      this.publish("thread.reverted", threadId, {});
       return;
     }
 

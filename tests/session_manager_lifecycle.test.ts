@@ -132,3 +132,21 @@ test("saved cwd can be read before loading a thread without resuming it", async 
     await expect(manager.resolveThreadCwd("missing")).rejects.toMatchObject({ failure: { code: "workspace_unavailable" } });
   } finally { manager.stopAll(); }
 });
+
+test("revert preserves provider pagination cursors without loading full history", async () => {
+  const h = harness();
+  const ready = h.manager.resumeThread("thread", {});
+  h.gate.resolve(started); await ready;
+  const calls: unknown[] = [];
+  h.sessions[0]!.revertThread = async (threadId, beforeTurnId) => {
+    calls.push({ threadId, beforeTurnId });
+    return { thread: { id: threadId, turns: [], extraMetadata: "retained" }, turnsBackwardsCursor: "turn-anchor", itemsBackwardsCursor: null };
+  };
+  expect(await h.manager.revertThread("thread", { beforeTurnId: "cutoff" })).toEqual({
+    thread: { id: "thread", turns: [], extraMetadata: "retained" }, turnsBackwardsCursor: "turn-anchor", itemsBackwardsCursor: null,
+  });
+  expect(calls).toEqual([{ threadId: "thread", beforeTurnId: "cutoff" }]);
+  h.sessions[0]!.revertThread = async () => ({});
+  await expect(h.manager.revertThread("thread", { beforeTurnId: "cutoff" })).rejects.toThrow("updated thread state");
+  h.manager.stopAll();
+});

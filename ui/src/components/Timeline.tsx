@@ -1,12 +1,15 @@
-import type { ChatState } from "../chat-state";
+import { useState } from "react";
+import { RevertDialog } from "./RevertDialog";
+import type { ChatMessage, ChatState } from "../chat-state";
 import { timelineGroups } from "../timeline";
 import { GeneratedImage } from "./GeneratedImage";
 import { Message } from "./Message";
 
-export function Timeline({ chat }: { chat: ChatState }) {
-  return <div className="space-y-8">{timelineGroups(chat).map((group) => {
+export function Timeline({ chat, revertDisabled = true, onRevert, onReload }: { chat: ChatState; revertDisabled?: boolean; onRevert?: (turnId: string) => Promise<void>; onReload?: () => Promise<void> }) {
+  const [target, setTarget] = useState<ChatMessage | null>(null);
+  return <><div className="space-y-8">{timelineGroups(chat).map((group) => {
     if (group.messages[0]!.image) return <GeneratedImage key={group.id} image={group.messages[0]!.image!} />;
-    if (group.messages[0]!.role === "user") return <Message key={group.id} message={group.messages[0]!} />;
+    if (group.messages[0]!.role === "user") return <Message key={group.id} message={group.messages[0]!} revertDisabled={revertDisabled} onRevert={onRevert ? () => setTarget(group.messages[0]!) : undefined} />;
     const progress = group.messages.filter((message) => !group.finalIds.includes(message.id));
     const finals = group.messages.filter((message) => group.finalIds.includes(message.id));
     const updates = <div className="space-y-4 border-l border-line pl-4 text-muted">{progress.map((message) => message.activity ? <details key={message.id} className={message.activity.status === "failed" ? "notice" : "text-xs text-muted"}>
@@ -19,5 +22,7 @@ export function Timeline({ chat }: { chat: ChatState }) {
         <div><p className="mb-3 text-xs text-muted">{group.label}</p>{updates}</div>)}
       {finals.map((message) => <Message key={message.id} message={message} showCopy={group.settled} />)}
     </section>;
-  })}</div>;
+  })}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
+    available={!!target && chat.messages.some((message) => message.id === target.id && message.turnId === target.turnId)}
+    onClose={() => setTarget(null)} revert={onRevert} reload={onReload} />}</>;
 }

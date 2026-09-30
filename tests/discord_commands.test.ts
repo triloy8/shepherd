@@ -632,6 +632,21 @@ describe("Discord !skill commands", () => {
     });
   });
 
+  test("retired rollback never invokes history mutation or forwards agent input", async () => {
+    const { context } = makeContext();
+    let mutations = 0;
+    context.conversation.revertThread = async () => { mutations++; throw new Error("Must not invoke revert from Discord"); };
+    for (const command of ["!rollback", "!rollback 2 thread-1", "!rollback invalid"]) {
+      const { message, replies } = makeMessage(command);
+      expect(await handleMessage(message as never, context)).toEqual({ handled: true, threadId: null, input: null });
+      const card = replyCardAt(replies);
+      expect(card.title).toBe("Rollback retired");
+      expect(card.description).toContain("web UI");
+      expect(card.description).toContain("Revert from here");
+    }
+    expect(mutations).toBe(0);
+  });
+
   test("renders thread state changes as Components V2 cards", async () => {
     const { context } = makeContext({
       getThreadState(threadId) {

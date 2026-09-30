@@ -6,6 +6,7 @@ Status legend:
 - `Partial`: method exists, but Shepherd exposes only a subset of schema fields/behavior.
 - `Missing`: no wrapper/exposed API yet.
 - `Incompatible`: existing Shepherd call is absent from this provider baseline.
+- `Removed`: provider method was removed and Shepherd no longer invokes it.
 
 Generated baseline:
 
@@ -50,8 +51,8 @@ Legacy note:
 | `thread/compact/start` | Implemented | Core | |
 | `thread/shellCommand` | Missing | Out of Scope (for now) | Terminal-oriented thread helper; Shepherd should route requests, not become a shell command surface |
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
-| `thread/rollback` (removed) | Incompatible | Core | Removed from 0.159.2; Shepherd still sends this legacy RPC. Discord/web rollback controls need migration to `thread/revert` before they work with this baseline |
-| `thread/revert` | Missing | Core | Modern persisted-history replacement by `beforeTurnId`; does not revert local file changes |
+| `thread/rollback` (removed) | Removed | Core | No longer invoked; Discord command returns a retirement notice; web uses turn-based revert |
+| `thread/revert` | Implemented | Core | Explicit `beforeTurnId` cutoff; web Revert from here under persisted user messages; preserves response pagination cursors and resets history; does not revert local file changes |
 | `thread/list` | Partial | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors; missing the hosted-only `originators` filter |
 | `threadSection/list` | Missing | Maybe Later | Useful if Shepherd adds section-based thread organization UX |
 | `threadSection/create` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
@@ -172,7 +173,7 @@ Legacy note:
 | `thread/tokenUsage/updated` | Partial; mapped to typed bridge event (`thread.tokenUsage.updated`) and cached for Discord `!context` | Core |
 | `thread/archived` / `thread/unarchived` | Typed events (`thread.archived`, `thread.unarchived`) | Core |
 | `thread/closed` | Generic | Maybe Later |
-| `thread/reverted` | Generic | Maybe Later |
+| `thread/reverted` | Typed event (`thread.reverted`); web invalidates history and event replay | Core |
 | `thread/compacted` | Generic | Maybe Later |
 | `thread/queue/changed` | Generic | Maybe Later |
 | `project/changed` / `thread/project/updated` | Generic | Maybe Later |
@@ -230,11 +231,11 @@ Legacy note:
 | Area | Status | Notes |
 |---|---|---|
 | Thread lifecycle DTOs | Good | Includes current list filters, pagination cursors, and generated approval-policy values |
-| Rich thread object typing | Partial | `ReadThreadResponse`/`RollbackThreadResponse` use `ThreadRecord`; generated `originator`, project assignment, agent-message delivery, and environment fields remain only structurally preserved through the open record shape |
+| Rich thread object typing | Partial | `ReadThreadResponse`/`RevertThreadResponse` use `ThreadRecord`; generated `originator`, project assignment, agent-message delivery, and environment fields remain only structurally preserved through the open record shape |
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
-| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, revert, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
+| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.159.2`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is an outstanding compatibility gap |
+| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.159.2`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is retired in favor of implemented revert |
 
 
 ## Changes in 0.159.2
@@ -267,9 +268,9 @@ Additional protocol changes not yet fully exposed by Shepherd:
 
 Experimental schemas were also regenerated in a temporary directory to verify
 that `thread/start.dynamicTools` and `item/tool/call` remain available. Generated
-files under `schemas/` are intentionally ignored by Git. The surface matrix is
-unchanged except for the rollback compatibility restriction: provider additions
-alone do not create new Discord or web controls.
+files under `schemas/` are intentionally ignored by Git. The surface matrix tracks
+the web turn-based revert action and Discord rollback retirement. Other provider
+additions alone do not create new Discord or web controls.
 
 ## Deployment version
 

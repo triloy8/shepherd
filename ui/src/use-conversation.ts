@@ -20,7 +20,7 @@ export function useConversation(conversation: WebConversation | null) {
   const [busy, setBusy] = useState(false);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const refreshRef = useRef<() => Promise<boolean>>(async () => false);
   const identity = useRef(conversation?.id);
   identity.current = conversation?.id;
   const actionRef = useRef(false);
@@ -33,14 +33,14 @@ export function useConversation(conversation: WebConversation | null) {
     setChat(emptyChat()); setApprovals([]); setError(null); setHistoryCursor(null);
     setConnection("connecting"); setBusy(false); actionRef.current = false;
     setLoadingHistory(false); historyExpanded.current = false;
-    if (!conversation) { refreshRef.current = async () => {}; return; }
+    if (!conversation) { refreshRef.current = async () => false; return; }
     const id = conversation.id;
     const abort = new AbortController();
     let cursor: string | null = null;
     let transport: AbortController | undefined;
     const offline = () => { transport?.abort(); setConnection("reconnecting"); };
     window.addEventListener("offline", offline);
-    let snapshot: Promise<void> | null = null;
+    let snapshot: Promise<boolean> | null = null;
     let refreshAgain = false;
     let turnRevision = 0;
     let scheduled: ReturnType<typeof setTimeout> | undefined;
@@ -50,32 +50,40 @@ export function useConversation(conversation: WebConversation | null) {
       }
       return false;
     };
-    const refresh = (): Promise<void> => {
+    // A caller awaiting recovery must wait through stale snapshots too, rather
+    // than returning while a replacement refresh is still running in the background.
+    const refresh = (): Promise<boolean> => {
       if (snapshot) { refreshAgain = true; return snapshot; }
       return snapshot = (async () => {
-        const revision = turnRevision;
-        const epoch = historyEpoch.current;
+        let successful = false;
         try {
-          const [state, history, pending] = await Promise.all([
-            api.state(id, abort.signal), api.history(id, undefined, abort.signal), api.approvals(id, abort.signal),
-          ]);
-          if (abort.signal.aborted) return;
-          if (epoch !== historyEpoch.current) { refreshAgain = true; return; }
-          const replaced = historyRevision.current !== null && historyRevision.current !== history.revision;
-          if (replaced) { historyEpoch.current++; historyExpanded.current = false; setLoadingHistory(false); }
-          historyRevision.current = history.revision;
-          setChat((current) => ({ ...mergeHistory(replaced ? emptyChat() : current, history.data), activeTurnId: revision === turnRevision ? state.state.activeTurnId : current.activeTurnId }));
-          setApprovals(pending.approvals.filter((approval) => approval.status === "pending"));
-          if (!historyExpanded.current) setHistoryCursor(history.nextCursor);
-        } catch (error) {
-          if (!abort.signal.aborted) {
-            if (error instanceof ApiError && error.code === "history_changed") refreshAgain = true;
-            else if (!missing(error)) setError(explainError(error));
-          }
-        } finally {
-          snapshot = null;
-          if (refreshAgain && !abort.signal.aborted) { refreshAgain = false; void refresh(); }
-        }
+          do {
+            refreshAgain = false;
+            const revision = turnRevision;
+            const epoch = historyEpoch.current;
+            try {
+              const [state, history, pending] = await Promise.all([
+                api.state(id, abort.signal), api.history(id, undefined, abort.signal), api.approvals(id, abort.signal),
+              ]);
+              if (abort.signal.aborted) return false;
+              if (epoch !== historyEpoch.current) { refreshAgain = true; continue; }
+              const replaced = historyRevision.current !== null && historyRevision.current !== history.revision;
+              if (replaced) { historyEpoch.current++; historyExpanded.current = false; setLoadingHistory(false); }
+              historyRevision.current = history.revision;
+              setChat((current) => ({ ...mergeHistory(replaced ? emptyChat() : current, history.data), activeTurnId: revision === turnRevision ? state.state.activeTurnId : current.activeTurnId }));
+              setApprovals(pending.approvals.filter((approval) => approval.status === "pending"));
+              if (!historyExpanded.current) setHistoryCursor(history.nextCursor);
+              successful = true;
+            } catch (error) {
+              successful = false;
+              if (!abort.signal.aborted) {
+                if (error instanceof ApiError && error.code === "history_changed") refreshAgain = true;
+                else if (!missing(error)) setError(explainError(error));
+              }
+            }
+          } while (refreshAgain && !abort.signal.aborted);
+          return successful;
+        } finally { snapshot = null; }
       })();
     };
     refreshRef.current = refresh;
@@ -153,6 +161,26 @@ export function useConversation(conversation: WebConversation | null) {
   return { chat, approvals, connection, error, busy, historyCursor, loadingHistory, send, loadOlder,
     interrupt: () => action((id) => api.interrupt(id)),
     decide: (approvalId: string, decision: string) => action((id) => api.decide(id, approvalId, decision)),
-    refresh: () => refreshRef.current(),
+    revert: async (beforeTurnId: string) => {
+      const id = conversation?.id;
+      if (!id || actionRef.current || connection !== "online" || chat.activeTurnId || approvals.length) {
+        throw new ApiError(409, "conversation_active", "Wait until the conversation is connected, idle, and has no pending approvals.");
+      }
+      actionRef.current = true; setBusy(true); setError(null);
+      try {
+        await api.revert(id, beforeTurnId);
+        if (identity.current !== id) return;
+        // Also reset locally if the response arrives before the SSE notification.
+        historyEpoch.current++; historyRevision.current = null; historyExpanded.current = false;
+        setChat(emptyChat()); setHistoryCursor(null); setLoadingHistory(false);
+        if (!await refreshRef.current()) throw new Error("History recovery failed.");
+        setError(null);
+      } finally { if (identity.current === id) { actionRef.current = false; setBusy(false); } }
+    },
+    recoverHistory: async () => {
+      if (!await refreshRef.current()) throw new Error("History recovery failed.");
+      setError(null);
+    },
+    refresh: async () => { await refreshRef.current(); },
   };
 }

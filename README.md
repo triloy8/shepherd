@@ -147,7 +147,8 @@ A loaded conversation retains its current workspace.
 1. Select **New conversation**, choose a project, and create it.
 2. Send a message or attach images. Follow-ups steer the active turn.
 3. Use settings for models, effort, usage, and skills; use conversation actions
-   for rename, fork, archive, compact, and rollback.
+   for rename, fork, archive, and compact. Use **Revert from here** beside Copy
+   under a user message to remove that turn and all later turns. Files are not changed.
 4. Select an existing conversation in the sidebar to resume it directly.
 
 Conversations are listed by most recent update. The list refreshes after selected
@@ -192,8 +193,10 @@ Use `!help` for the command list:
 | Model and effort | `!models`, `!model`, `!model set <id>`, `!effort [set <level\|default>]` |
 | Usage | `!context`, `!limits` |
 | Skills | `!skills [reload]`, `!skill enable <name-or-path>`, `!skill disable <name-or-path>` |
-| Turn and context controls | `!interrupt`, `!compact [id]`, `!rollback <numTurns> [id]` |
+| Turn and context controls | `!interrupt`, `!compact [id]` |
 | Host lifecycle | `!restart`, `!deploy`, `!deploy branch <name>`, `!deploy status` |
+
+`!rollback` is retired and returns a notice directing users to the web revert action.
 
 ## Restart and deployment
 

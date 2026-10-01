@@ -1,5 +1,5 @@
 import { readDraftImages, type DraftImage } from "../image-input";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 
 export function Composer({ draft, onDraft, images, onImages, send, disabled, busy, active, interrupt }: {
@@ -7,6 +7,24 @@ export function Composer({ draft, onDraft, images, onImages, send, disabled, bus
   disabled: boolean; busy: boolean; active: boolean; interrupt: () => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const resize = () => {
+    const element = textarea.current;
+    if (!element) return;
+    element.style.height = "0px";
+    element.style.height = `${element.scrollHeight}px`;
+  };
+  useLayoutEffect(resize, [draft]);
+  useEffect(() => {
+    const element = textarea.current;
+    if (!element) return;
+    let width = element.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (element.clientWidth !== width) { width = element.clientWidth; resize(); }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const readingRef = useRef(false);
@@ -31,20 +49,23 @@ export function Composer({ draft, onDraft, images, onImages, send, disabled, bus
     {images.length > 0 && <div className="flex flex-wrap gap-3 p-3" aria-label="Attached images">{images.map((image) => <figure key={image.id} className="w-24"><img src={image.url} alt={image.name} className="h-20 w-24 rounded-lg border border-line object-contain" /><figcaption className="truncate text-xs text-muted">{image.name}</figcaption><button type="button" className="text-xs underline" aria-label={`Remove ${image.name}`} disabled={sending || reading} onClick={() => onImages((current) => current.filter((item) => item.id !== image.id))}>Remove</button></figure>)}</div>}
     {imageError && <p role="alert" className="notice m-3">{imageError}</p>}
     {reading && <p role="status" className="px-3 text-xs text-muted">Reading images…</p>}
-    <textarea aria-label="Message Shepherd" placeholder={active ? "Add a follow-up…" : "Message Shepherd…"}
+    <textarea ref={textarea} aria-label="Message Shepherd" aria-describedby="composer-help" placeholder={active ? "Add a follow-up…" : "Message Shepherd…"}
       onPaste={(event) => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); void addFiles(files); } }}
-      value={draft} onChange={(event) => onDraft(event.target.value)} maxLength={32768} rows={3} disabled={sending}
+      value={draft} onChange={(event) => onDraft(event.target.value)} maxLength={32768} rows={1} disabled={sending}
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia("(pointer: fine)").matches) {
           event.preventDefault(); void submit();
         }
       }} />
-    <div className="flex items-center justify-between gap-3 px-3 pb-3">
-      <span className="pl-1 text-xs text-dim">{disabled ? "Waiting for connection" : active ? "Follow-ups steer the active turn" : "A little context goes a long way"}</span>
-      <div className="flex items-center gap-2">
+    <span id="composer-help" className="sr-only">Enter to send on a keyboard. Shift + Enter for a new line. Follow-ups steer the active turn.</span>
+    <div className="composer-toolbar">
+      <div className="flex min-w-0 items-center gap-2">
         <button type="button" className="icon-button" aria-label="Attach images" title="Attach images (PNG, JPEG, GIF, WebP)" disabled={sending || reading || images.length >= 4} onClick={() => picker.current?.click()}><Icon name="image" /></button>
-        {active && <button type="button" className="icon-button" aria-label="Stop response" disabled={disabled || busy} onClick={interrupt}><Icon name="stop" /></button>}
-        <button className="send-button" aria-label={active ? "Send follow-up" : "Send message"} disabled={disabled || busy || sending || reading || (!draft.trim() && !images.length)}><Icon name="arrow" /></button>
+        {(disabled || active) && <span className="truncate text-xs text-dim">{disabled ? "Waiting for connection" : "Follow-up"}</span>}
+      </div>
+      <div className="flex items-center gap-2">
+        {active && <button type="button" className="icon-button" aria-label="Stop response" title="Stop response" disabled={disabled || busy} onClick={interrupt}><Icon name="stop" /></button>}
+        <button className="send-button" aria-label={active ? "Send follow-up" : "Send message"} title={active ? "Send follow-up" : "Send message"} disabled={disabled || busy || sending || reading || (!draft.trim() && !images.length)}><Icon name="arrow" /></button>
       </div>
     </div>
   </form>;

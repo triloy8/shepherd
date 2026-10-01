@@ -6,9 +6,11 @@ import { Icon } from "./Icon";
 import { ConversationSkills } from "./ConversationSkills";
 import { AccountLimits, ContextUsage } from "./Usage";
 
-export function ConversationSettings({ id, activeTurnId, disabled }: { id: string; activeTurnId: string | null; disabled: boolean }) {
+export function ConversationSettings({ id, activeTurnId, disabled, open: controlledOpen, onOpenChange }: { id: string; activeTurnId: string | null; disabled: boolean; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [revision, setRevision] = useState(0);
   const generation = useRef(0);
   const [settings, setSettings] = useState<WebSettingsResponse | null>(null);
@@ -76,7 +78,7 @@ export function ConversationSettings({ id, activeTurnId, disabled }: { id: strin
   const supported = settings?.effort.supportedEfforts ?? [];
   const defaultSupported = supported.some((option) => option.reasoningEffort === settings?.effort.defaultEffort);
   return <>
-    <button className="icon-button" aria-label="Conversation settings" disabled={disabled} onClick={() => setOpen(true)}><Icon name="settings" /></button>
+    {controlledOpen === undefined && <button className="icon-button" aria-label="Conversation settings" disabled={disabled} onClick={() => setOpen(true)}><Icon name="settings" /></button>}
     <dialog ref={dialog} className="project-dialog settings-dialog" onCancel={() => setOpen(false)} onClose={() => setOpen(false)} aria-labelledby="settings-title">
       <div className="mb-5 flex items-center justify-between"><h2 id="settings-title" className="text-lg font-medium">Conversation settings</h2><button className="icon-button" aria-label="Close settings" onClick={() => setOpen(false)}><Icon name="close" /></button></div>
       <p className="mb-5 text-xs text-muted">Model and effort changes apply to the next new turn, including while a response is running.</p>

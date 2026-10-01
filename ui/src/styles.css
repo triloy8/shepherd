@@ -21,25 +21,32 @@
   ::selection { background: #525252; color: white; }
 }
 @layer components {
-  .app-shell { @apply flex h-dvh min-h-0 overflow-hidden; }
-  .sidebar { @apply fixed inset-y-0 left-0 z-30 flex w-72 -translate-x-full flex-col border-r border-line bg-panel transition-transform lg:static lg:z-auto lg:w-68 lg:translate-x-0; }
+  .app-shell { @apply flex min-h-0 overflow-hidden; height: var(--app-height, 100dvh); }
+  .sidebar { @apply fixed inset-y-0 left-0 z-30 flex w-[min(85vw,288px)] -translate-x-full flex-col border-r border-line bg-panel transition-transform lg:static lg:z-auto lg:w-68 lg:translate-x-0; }
+  .sidebar-collapsed { @apply lg:w-0 lg:overflow-hidden lg:border-0; }
   .sidebar-open { @apply translate-x-0; }
   .drawer-backdrop { @apply fixed inset-0 z-20 bg-black/60 lg:hidden; }
   .main-pane { @apply flex min-w-0 flex-1 flex-col; }
-  .main-header { @apply flex h-20 shrink-0 items-center gap-3 border-b border-line/70 px-4 sm:px-8; }
-  .icon-button { @apply inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-raised hover:text-ink; }
+  .main-header { @apply relative z-10 flex h-14 shrink-0 items-center gap-2 px-3 sm:h-16 sm:px-6; }
+  .icon-button { @apply inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-raised hover:text-ink; }
   .new-conversation { @apply flex w-full items-center gap-3 rounded-xl border border-line bg-raised/50 px-3.5 py-3 text-sm text-ink hover:border-accent/50 hover:bg-raised; }
   .thread-button { @apply mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[13px] text-muted hover:bg-raised/60 hover:text-ink; }
   .thread-selected { @apply bg-raised text-ink; }
   .thread-selected > svg { @apply text-accent; }
-  .sidebar-footer { @apply flex shrink-0 items-center gap-2 border-t border-line px-5 py-5 text-xs text-muted; padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
+  .sidebar-footer { @apply flex shrink-0 flex-col gap-2 border-t border-line/60 p-3; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
+  .sidebar-control { @apply flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] text-muted hover:bg-raised hover:text-ink; }
+  .conversation-menu { @apply absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-24px)] rounded-xl border border-line bg-panel p-1.5 shadow-xl shadow-black/30; }
+  .conversation-menu > button { @apply flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] text-muted hover:bg-raised hover:text-ink focus-visible:bg-raised; }
+
   .status-dot { @apply inline-block size-1.5 shrink-0 rounded-full bg-accent; }
   .status-dot-muted { @apply bg-dim; }
   .empty-screen { @apply relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 pb-24 text-center; }
   .welcome-footnote { @apply absolute bottom-8 flex items-center gap-2 text-xs text-dim; }
   .button-primary { @apply inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-canvas hover:bg-white; }
   .button-secondary { @apply inline-flex items-center gap-2 rounded-lg border border-line bg-raised px-3 py-2 text-xs font-medium text-ink hover:border-accent/50; }
-  .chat-scroll { @apply min-h-0 flex-1 overflow-y-auto overscroll-contain; }
+  .conversation-stage { @apply relative flex min-h-0 flex-1 flex-col; }
+  .chat-scroll { @apply min-h-0 flex-1 overflow-y-auto overscroll-contain; scroll-padding-bottom: var(--composer-space, 150px); }
+  .chat-content { padding-bottom: var(--composer-space, 150px); }
   .chat-width { @apply mx-auto w-full max-w-3xl px-5 sm:px-10; }
   .message-user { @apply rounded-2xl border border-line/70 bg-panel px-5 py-4; }
   .message-assistant { @apply px-1; }
@@ -57,11 +64,12 @@
   .prose-chat pre code { @apply bg-transparent p-0; }
   .prose-chat blockquote { @apply my-3 border-l-2 border-accent/50 pl-4 text-muted; }
   .prose-chat hr { @apply my-5 border-line; }
-  .composer-area { @apply shrink-0 bg-canvas pb-3 pt-3; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
-  .composer { @apply overflow-hidden rounded-2xl border border-line bg-panel shadow-lg shadow-black/10 focus-within:border-accent/45; }
-  .composer textarea { @apply block max-h-52 min-h-20 w-full resize-y bg-transparent px-4 pb-2 pt-4 text-base leading-6 text-ink outline-none placeholder:text-dim; }
-  .send-button { @apply flex size-9 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-white; }
-  .composer-caption { @apply mt-3 hidden text-center text-[10px] tracking-wide text-dim sm:block; }
+  .composer-area { @apply pointer-events-none absolute inset-x-0 bottom-0 z-10 pb-3 pt-5; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); background: linear-gradient(to top, var(--color-canvas) 0%, rgb(18 18 18 / .94) 40%, transparent 100%); }
+  .composer-dock { @apply pointer-events-auto mx-auto w-full max-w-3xl px-3 sm:px-6; }
+  .composer { @apply overflow-hidden rounded-2xl border border-line/80 bg-panel shadow-xl shadow-black/20 focus-within:border-accent/45; }
+  .composer textarea { @apply block w-full resize-none overflow-y-auto bg-transparent px-4 pb-1 pt-3 text-base leading-6 text-ink outline-none placeholder:text-dim; min-height: 44px; max-height: min(30dvh, 240px); }
+  .composer-toolbar { @apply flex items-center justify-between gap-3 px-2 pb-2; }
+  .send-button { @apply flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-white; }
   .notice { @apply rounded-xl border border-amber-300/20 bg-amber-200/5 px-4 py-3 text-xs leading-6 text-amber-100; }
   .approval-card { @apply rounded-2xl border border-accent/30 bg-accent/5 p-5; }
   .project-dialog { @apply fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-line bg-panel p-6 text-ink shadow-2xl; }

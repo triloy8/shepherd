@@ -289,7 +289,8 @@ keeps automatic follow disabled. The app follows the visual viewport at normal
 zoom, tracking both its height and vertical offset so Safari keyboard panning does
 not lift the composer away from the keyboard. The page itself is fixed; transcript
 and composer scrolling stay inside their containers. Pinch zoom retains
-normal browser behavior. Bottom padding accounts for safe-area insets.
+normal browser behavior. Bottom padding accounts for safe-area insets when the
+keyboard is closed; a keyboard-reduced visual viewport uses a tighter 4px gap.
 
 ### Compact and revert
 

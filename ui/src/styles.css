@@ -67,7 +67,7 @@
   .prose-chat pre code { @apply bg-transparent p-0; }
   .prose-chat blockquote { @apply my-3 border-l-2 border-accent/50 pl-4 text-muted; }
   .prose-chat hr { @apply my-5 border-line; }
-  .composer-area { @apply pointer-events-none absolute inset-x-0 bottom-0 z-10 pb-3 pt-5; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); background: linear-gradient(to top, var(--color-canvas) 0%, rgb(18 18 18 / .94) 40%, transparent 100%); }
+  .composer-area { @apply pointer-events-none absolute inset-x-0 bottom-0 z-10 pb-3 pt-5; padding-bottom: var(--composer-bottom-gap, max(.75rem, env(safe-area-inset-bottom))); background: linear-gradient(to top, var(--color-canvas) 0%, rgb(18 18 18 / .94) 40%, transparent 100%); }
   .composer-dock { @apply pointer-events-auto mx-auto w-full max-w-3xl px-3 sm:px-6; }
   .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 100px)); @apply overflow-y-auto rounded-2xl border border-line/80 bg-panel shadow-xl shadow-black/20 focus-within:border-accent/45; }
   .composer textarea { @apply block w-full resize-none overflow-y-auto bg-transparent px-4 pb-1 pt-3 text-base leading-6 text-ink outline-none placeholder:text-dim; min-height: 44px; max-height: min(30dvh, 240px); }

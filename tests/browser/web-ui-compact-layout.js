@@ -88,7 +88,7 @@ async page => {
       const composer = document.querySelector('.composer').getBoundingClientRect();
       const visibleBottom = offset + window.visualViewport.height;
       return Math.abs(app.top - offset) < 1 && Math.abs(app.bottom - visibleBottom) < 1 &&
-        visibleBottom - composer.bottom >= 10 && visibleBottom - composer.bottom <= 20;
+        Math.abs(visibleBottom - composer.bottom - 4) < 1;
     }, offset);
   }
   await page.evaluate(() => window.scrollTo(0, 200));
@@ -106,11 +106,12 @@ async page => {
     window.visualViewport.dispatchEvent(new Event('scroll'));
   });
   await page.waitForFunction(() => Math.abs(document.querySelector('.app-shell').getBoundingClientRect().bottom - window.visualViewport.height) < 1);
+  if (await page.locator('.composer-area').evaluate(el => parseFloat(getComputedStyle(el).paddingBottom) < 12)) throw Error('Keyboard dismissal lost normal bottom padding');
   await page.evaluate(() => {
     Object.defineProperty(window.visualViewport, 'scale', { configurable:true, value:2 });
     window.visualViewport.dispatchEvent(new Event('resize'));
   });
-  if (await page.evaluate(() => document.documentElement.style.getPropertyValue('--app-top') || document.documentElement.style.getPropertyValue('--app-height'))) throw Error('Keyboard viewport override interferes with pinch zoom');
+  if (await page.evaluate(() => document.documentElement.style.getPropertyValue('--app-top') || document.documentElement.style.getPropertyValue('--app-height') || document.documentElement.style.getPropertyValue('--composer-bottom-gap'))) throw Error('Keyboard viewport override interferes with pinch zoom');
   await page.evaluate(() => { delete window.visualViewport.scale; window.visualViewport.dispatchEvent(new Event('resize')); });
 
   // Sidebar's host dialog must remain interactive after the mobile drawer closes.

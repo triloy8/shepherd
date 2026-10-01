@@ -64,9 +64,13 @@ export default function App() {
         // Keep the fixed app inside that visible rectangle instead of moving it twice.
         style.setProperty("--app-height", `${viewport.height}px`);
         style.setProperty("--app-top", `${viewport.offsetTop}px`);
+        // The keyboard already separates the composer from the home indicator.
+        if (viewport.height < document.documentElement.clientHeight - 100) style.setProperty("--composer-bottom-gap", "4px");
+        else style.removeProperty("--composer-bottom-gap");
       } else {
         style.removeProperty("--app-height");
         style.removeProperty("--app-top");
+        style.removeProperty("--composer-bottom-gap");
       }
     };
     size();
@@ -77,6 +81,7 @@ export default function App() {
       viewport.removeEventListener("scroll", size);
       document.documentElement.style.removeProperty("--app-height");
       document.documentElement.style.removeProperty("--app-top");
+      document.documentElement.style.removeProperty("--composer-bottom-gap");
     };
   }, []);
   useEffect(() => {

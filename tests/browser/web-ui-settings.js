@@ -2,7 +2,8 @@
 async (page) => {
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Conversation settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Conversation settings', exact: true });
   await dialog.getByRole('button', { name: 'More models', exact: true }).click();
   await dialog.getByLabel('Model for next turn', { exact: true }).selectOption('large');
@@ -19,7 +20,8 @@ async (page) => {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw Error('Settings overflow');
   await dialog.getByRole('button', { name: 'Close settings', exact: true }).click();
   await page.reload();
-  await page.getByRole('button', { name: 'Conversation settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).click();
   await dialog.locator('dd').filter({ hasText: /^large$/ }).waitFor();
   await dialog.locator('dd').filter({ hasText: /^high$/ }).waitFor();
   await page.route('**/api/v1/limits', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Limits unavailable' } } }));

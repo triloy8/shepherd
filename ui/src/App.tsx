@@ -1,8 +1,7 @@
 import type { DraftImage } from "./image-input";
 import { HostControls } from "./components/HostControls";
-import { ConversationActions } from "./components/ConversationActions";
-import { ConversationSettings } from "./components/ConversationSettings";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ConversationMenu } from "./components/ConversationMenu";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { StoredThreadSummary } from "../../shared/protocol/requests";
 import type { WebConversation } from "../../shared/protocol/web";
 import { api, explainError } from "./api";
@@ -34,6 +33,9 @@ export default function App() {
   const [selected, setSelected] = useState<WebConversation | null>(null);
   const [saved, setSaved] = useState<WebConversation | null>(savedSelection);
   const [drawer, setDrawer] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarTrigger = useRef<HTMLButtonElement>(null);
+  const hadDrawer = useRef(false);
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [project, setProject] = useState("~");
@@ -50,6 +52,45 @@ export default function App() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [composerSpace, setComposerSpace] = useState(150);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const size = () => {
+      const style = document.documentElement.style;
+      if (viewport.scale === 1) {
+        // Safari can pan the visual viewport as well as shrink it for the keyboard.
+        // Keep the fixed app inside that visible rectangle instead of moving it twice.
+        style.setProperty("--app-height", `${viewport.height}px`);
+        style.setProperty("--app-top", `${viewport.offsetTop}px`);
+        // The keyboard already separates the composer from the home indicator.
+        if (viewport.height < document.documentElement.clientHeight - 100) style.setProperty("--composer-bottom-gap", "4px");
+        else style.removeProperty("--composer-bottom-gap");
+      } else {
+        style.removeProperty("--app-height");
+        style.removeProperty("--app-top");
+        style.removeProperty("--composer-bottom-gap");
+      }
+    };
+    size();
+    viewport.addEventListener("resize", size);
+    viewport.addEventListener("scroll", size);
+    return () => {
+      viewport.removeEventListener("resize", size);
+      viewport.removeEventListener("scroll", size);
+      document.documentElement.style.removeProperty("--app-height");
+      document.documentElement.style.removeProperty("--app-top");
+      document.documentElement.style.removeProperty("--composer-bottom-gap");
+    };
+  }, []);
+  useEffect(() => {
+    const element = composerRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setComposerSpace(Math.ceil(element.getBoundingClientRect().height) + 20));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [selected?.id]);
   const follow = useRef(true);
   const initialSelection = useRef(true);
   const controller = useConversation(selected);
@@ -101,7 +142,7 @@ export default function App() {
   }, [selected]);
   useEffect(() => {
     if (follow.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [controller.chat.messages, controller.approvals, controller.chat.activity]);
+  }, [controller.chat.messages, controller.approvals, controller.chat.activity, composerSpace]);
   useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
     const change = () => setDesktop(query.matches);
@@ -109,9 +150,20 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (drawer) sidebarRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setDrawer(false); };
+    else if (hadDrawer.current && !desktop) sidebarTrigger.current?.focus();
+    hadDrawer.current = drawer;
+    const close = (event: KeyboardEvent) => {
+      if (!drawer || desktop) return;
+      if (event.key === "Escape") { setDrawer(false); sidebarTrigger.current?.focus(); }
+      if (event.key === "Tab") {
+        const items = [...sidebarRef.current!.querySelectorAll<HTMLElement>('a[href], button:not(:disabled)')];
+        const first = items[0]; const last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
     window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close);
-  }, [drawer]);
+  }, [drawer, desktop]);
 
   function select(conversation: WebConversation) { setSelected(conversation); setSaved(null); setDrawer(false); }
   async function openThread(threadId: string, force = false) {
@@ -172,13 +224,13 @@ export default function App() {
   const visibleHandles = (archived ? [] : conversations).filter((item) => !threads.some((thread) => thread.threadId === item.threadId));
   return <div className="app-shell">
     {drawer && <button className="drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)} />}
-    <aside inert={!desktop && !drawer} role={desktop ? "complementary" : "dialog"} aria-modal={!desktop && drawer ? true : undefined} ref={sidebarRef} className={`sidebar ${drawer ? "sidebar-open" : ""}`} aria-label="Conversations">
-      <div className="flex h-20 shrink-0 items-center justify-between px-5">
+    <aside inert={desktop ? sidebarCollapsed : !drawer} role={!desktop && drawer ? "dialog" : "complementary"} aria-hidden={!desktop && !drawer ? true : undefined} aria-modal={!desktop && drawer ? true : undefined} ref={sidebarRef} className={`sidebar ${drawer ? "sidebar-open" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} aria-label="Conversations">
+      <div className="flex h-16 shrink-0 items-center justify-between px-5">
         <a href="/" className="flex items-center gap-2.5 font-semibold tracking-tight"><span className="text-lg">shepherd<span className="text-accent">.</span></span></a>
         <button className="icon-button lg:hidden" aria-label="Close conversations" onClick={() => setDrawer(false)}><Icon name="close" /></button>
       </div>
       <div className="px-4"><button className="new-conversation" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); setDrawer(false); }}><Icon name="plus" /><span>New conversation</span></button></div>
-      <div className="mb-2 mt-7 flex items-center justify-between px-5 text-[10px] font-semibold uppercase tracking-[.16em] text-dim"><span>Conversations</span><button className="icon-button size-7!" aria-label="Refresh conversations" disabled={refreshingThreads} aria-busy={refreshingThreads} onClick={() => void refreshList()}><Icon name="refresh" className="size-3.5" /></button></div>
+      <div className="mb-2 mt-7 flex items-center justify-between px-5 text-[10px] font-semibold uppercase tracking-[.16em] text-dim"><span>Conversations</span><button className="icon-button border border-line bg-raised/50" title="Refresh conversations" aria-label="Refresh conversations" disabled={refreshingThreads} aria-busy={refreshingThreads} onClick={() => void refreshList()}><Icon name="refresh" className={`size-5! ${refreshingThreads ? "motion-safe:animate-spin" : ""}`} /></button></div>
       <div className="mb-3 flex gap-2 px-4" aria-label="Conversation filter"><button className="button-secondary flex-1 justify-center" aria-pressed={!archived} onClick={() => changeView(false)}>Active</button><button className="button-secondary flex-1 justify-center" aria-pressed={archived} onClick={() => changeView(true)}>Archived</button></div>
       {refreshingThreads && !loading && <p role="status" className="px-5 pb-2 text-xs text-muted">Refreshing conversations…</p>}
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
@@ -188,11 +240,8 @@ export default function App() {
         {threads.map((item) => archived ? <div key={item.threadId} className="mb-2 flex items-center gap-2 px-3 py-2"><span className="min-w-0 flex-1 truncate text-sm text-muted" title={label(item)}>{label(item)}</span><button className="button-secondary" aria-label={`Restore ${label(item)}`} disabled={restoring !== null} onClick={() => void restore(item.threadId)}>{restoring === item.threadId ? "Restoring…" : "Restore"}</button></div> : <button title={label(item)} className={`thread-button ${selected?.threadId === item.threadId ? "thread-selected" : ""}`} key={item.threadId} onClick={() => openThread(item.threadId)}><Icon name="chat" /><span className="truncate">{label(item)}</span>{conversations.some((c) => c.threadId === item.threadId) && <span className="status-dot ml-auto" />}</button>)}
         {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads || refreshingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
-      <div className="sidebar-footer"><span className="status-dot" /><span>Private workspace</span><span className="ml-auto text-dim">Web</span></div>
-    </aside>
-    <main className="main-pane" inert={!desktop && drawer}>
-      <header className="main-header">
-        <HostControls onRecovered={async () => {
+      <div className="sidebar-footer">
+        <HostControls onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} onOpen={() => setDrawer(false)} onRecovered={async () => {
           const previous = selected ?? savedSelection();
           setSelected(null); setSaved(previous);
           const handles = await api.conversations();
@@ -203,42 +252,41 @@ export default function App() {
           }
           await refreshList();
         }} />
-        <button className="icon-button lg:hidden" aria-label="Open conversations" aria-expanded={drawer} onClick={() => setDrawer(true)}><Icon name="menu" /></button>
-        <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">{selected ? title : "Workspace"}</h1>{selected && <p className="mt-1 flex items-center gap-1.5 text-xs text-dim"><Icon name="folder" className="size-3" /><span className="truncate">{selected.project}</span></p>}</div>
-        {selected && <><ConversationActions key={`actions-${selected.id}`} conversation={selected} title={title} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0}
+        <p className="px-3 text-[11px] text-dim">Private workspace</p>
+      </div>
+    </aside>
+    <main className="main-pane" inert={!desktop && drawer}>
+      <header className="main-header">
+        <button ref={sidebarTrigger} className="icon-button" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
+        <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium" title={selected ? title : "Workspace"}>{selected ? title : "Workspace"}</h1></div>
+        {selected && <ConversationMenu key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} activeTurnId={controller.chat.activeTurnId} detaching={detaching || controller.busy} onDetach={() => void detach()}
           onHistoryChange={controller.refresh}
           onRename={(name) => { setNames((current) => ({ ...current, [selected.threadId]: name })); setThreads((items) => items.map((item) => item.threadId === selected.threadId ? { ...item, name } : item)); void refreshList(); }}
           onArchive={() => { setSelected(null); setSaved(null); setConversations((items) => items.filter((item) => item.id !== selected.id)); try { localStorage.removeItem("shepherd.selection"); } catch {} void refreshList(); }}
           onFork={(conversation) => { setConversations((items) => [...items, conversation]); select(conversation); changeView(false); }}
-        /><ConversationSettings key={selected.id} id={selected.id} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} /><div role="status" aria-label={status} className="flex items-center gap-2 text-xs text-muted"><span className={`status-dot ${controller.connection !== "online" ? "status-dot-muted" : ""}`} />{status}</div><button className="icon-button ml-1" aria-label="Detach conversation" title="Detach without stopping agent work" disabled={detaching || controller.busy} onClick={() => void detach()}><Icon name="detach" /></button></>}
+        />}
       </header>
       {creating && !dialog && <p role="status" className="notice mx-5 mt-4">Resuming conversation…</p>}
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}
       {!selected ? <section className="empty-screen">
-        <p className="mb-3 mt-7 text-[11px] font-medium uppercase tracking-[.2em] text-accent">A little direction. A lot of possibility.</p>
-        <h2 className="max-w-lg text-balance text-3xl font-medium leading-tight tracking-tight sm:text-4xl">What shall we work on?</h2>
-        <p className="mt-4 max-w-md text-balance text-sm leading-7 text-muted">A space to build, explore, and pick up where you left off. Choose a conversation or start something new.</p>
-        <button className="button-primary mt-7" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>
+        <button className="button-primary" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>
         {saved && <button className="mt-5 text-sm text-muted underline decoration-line underline-offset-4" onClick={() => openThread(saved.threadId)}>Resume your last conversation</button>}
-        <div className="welcome-footnote"><Icon name="folder" /><span>Your projects. Your conversations. One place.</span></div>
-      </section> : <>
+      </section> : <section className="conversation-stage" style={{ "--composer-space": `${composerSpace}px` } as CSSProperties}>
         <div className="chat-scroll" ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}>
-          <div className="chat-width pb-6 pt-6 sm:pt-10">
+          <div className="chat-width chat-content pt-4 sm:pt-6">
             {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
-            {!controller.chat.messages.length && <div className="py-14 text-center"><h2 className="text-xl font-medium">A new thread of thought</h2><p className="mt-3 text-sm text-muted">Tell Shepherd what you have in mind.</p></div>}
             <Timeline key={selected.id} chat={controller.chat} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.revert} onReload={controller.recoverHistory} />
             {active && <div role="status" className="mt-7 flex items-center gap-2 text-xs text-muted"><span className="working-dot" />{controller.chat.activity || "Working"}</div>}
             {controller.chat.error && <p role="alert" className="notice mt-5">{controller.chat.error}</p>}
             <div className="mt-6"><Approvals approvals={controller.approvals} busy={controller.busy || controller.connection !== "online"} decide={(id, choice) => { void controller.decide(id, choice); }} /></div>
           </div>
         </div>
-        <div className="composer-area"><div className="chat-width">
+        <div ref={composerRef} className="composer-area"><div className="composer-dock">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
           {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); void openThread(selected.threadId, true); }}>Resume conversation</button>}
           <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))} draft={drafts[selected.threadId] ?? ""} onDraft={(value) => setDrafts((all) => ({ ...all, [selected.threadId]: value }))} send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
-          <p className="composer-caption">{active ? "You can leave this page. Shepherd will keep working." : "Enter to send · Shift + Enter for a new line"}</p>
         </div></div>
-      </>}
+      </section>}
     </main>
     <dialog ref={dialogRef} className="project-dialog" onCancel={(event) => { if (creating) event.preventDefault(); else setDialog(null); }} onClose={() => { if (!creating) setDialog(null); }}>
       <form onSubmit={(event) => { event.preventDefault(); void createConversation(); }}>

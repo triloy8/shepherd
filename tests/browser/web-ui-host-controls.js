@@ -1,6 +1,6 @@
 // Run against the isolated web-ui-host fixture using playwright-cli run-code.
 async (page) => {
-  const open = () => page.getByRole('button', { name: 'Host controls', exact: true }).click();
+  const open = async () => { if (!await page.getByRole('button', { name: 'Host controls', exact: true }).count()) await page.getByRole('button', { name: 'Open conversations', exact: true }).click(); await page.getByRole('button', { name: 'Host controls', exact: true }).click(); };
   const dialog = page.getByRole('dialog', { name: 'Host controls', exact: true });
   await open();
   await dialog.locator('dd').filter({ hasText: /^fixture-initial$/ }).first().waitFor();

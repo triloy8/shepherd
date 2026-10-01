@@ -3,13 +3,16 @@ import type { WebConversation } from "../../../shared/protocol/web";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
 
-export function ConversationActions({ conversation, title, disabled, active, onHistoryChange, onRename, onArchive, onFork }: {
+export function ConversationActions({ conversation, title, disabled, active, onHistoryChange, onRename, onArchive, onFork, open: controlledOpen, onOpenChange }: {
   conversation: WebConversation; title: string; disabled: boolean; active: boolean;
+  open?: boolean; onOpenChange?: (open: boolean) => void;
   onHistoryChange: () => Promise<void>;
   onRename: (name: string) => void; onArchive: () => void; onFork: (conversation: WebConversation) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [name, setName] = useState(title);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -18,7 +21,10 @@ export function ConversationActions({ conversation, title, disabled, active, onH
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close(); }, [open]);
+  useEffect(() => {
+    if (open) { setName(title); setError(null); setConfirmArchive(false); setNotice(null); dialog.current?.showModal(); }
+    else dialog.current?.close();
+  }, [open]);
   async function run(action: "rename" | "archive" | "fork" | "compact") {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(null); setNotice(null); setOperation(action);
@@ -38,7 +44,7 @@ export function ConversationActions({ conversation, title, disabled, active, onH
     finally { lock.current = false; setBusy(false); }
   }
   return <>
-    <button className="icon-button" aria-label="Conversation actions" disabled={disabled} onClick={() => { setName(title); setError(null); setConfirmArchive(false); setNotice(null); setOpen(true); }}><Icon name="more" /></button>
+    {controlledOpen === undefined && <button className="icon-button" aria-label="Conversation actions" disabled={disabled} onClick={() => setOpen(true)}><Icon name="more" /></button>}
     <dialog ref={dialog} className="project-dialog" aria-labelledby="actions-title" onCancel={(event) => { if (busy) event.preventDefault(); else setOpen(false); }} onClose={() => { if (!busy) setOpen(false); }}>
       <div className="mb-5 flex items-center justify-between"><h2 id="actions-title" className="text-lg font-medium">Conversation actions</h2><button className="icon-button" aria-label="Close conversation actions" disabled={busy} onClick={() => setOpen(false)}><Icon name="close" /></button></div>
       {confirmArchive ? <><p className="mb-5 text-sm text-muted">Archive this conversation? It will leave the active list and detach from the web UI. You can restore it from Archived.</p><div className="flex gap-2"><button className="button-secondary" disabled={busy} onClick={() => setConfirmArchive(false)}>Cancel</button><button className="button-primary" disabled={busy || active || disabled} onClick={() => void run("archive")}>Confirm archive</button></div></> : <>

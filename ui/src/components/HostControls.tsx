@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import type { WebHostStatus } from "../../../shared/protocol/host";
 import { api, explainError } from "../api";
@@ -8,7 +9,7 @@ const readPending = (): Pending | null => {
   try { const value = JSON.parse(sessionStorage.getItem("shepherd.host-operation") ?? "null"); return typeof value?.instanceId === "string" && typeof value?.requestId === "string" ? value : null; } catch { return null; }
 };
 
-export function HostControls({ onRecovered }: { onRecovered: () => Promise<void> }) {
+export function HostControls({ onRecovered, onOpen, onClosed }: { onRecovered: () => Promise<void>; onOpen?: () => void; onClosed?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<WebHostStatus | null>(null);
@@ -69,8 +70,8 @@ export function HostControls({ onRecovered }: { onRecovered: () => Promise<void>
   const running = status?.operation && status.operation.phase !== "finished";
   const blocked = !online || !status?.available || sending || Boolean(pending) || Boolean(running) || status?.checkout?.deploymentInProgress;
   return <>
-    <button className="icon-button" aria-label="Host controls" title="Host controls" onClick={() => setOpen(true)}><Icon name="host" /></button>
-    <dialog ref={dialog} className="project-dialog settings-dialog" aria-labelledby="host-title" onCancel={(event) => { if (sending) event.preventDefault(); else setOpen(false); }} onClose={() => setOpen(false)}>
+    <button className="sidebar-control" aria-label="Host controls" onClick={() => { onOpen?.(); setOpen(true); }}><Icon name="host" /><span>Host controls</span><Icon name="chevron" className="ml-auto size-3.5" /></button>
+    {typeof document !== "undefined" && createPortal(<dialog ref={dialog} className="project-dialog settings-dialog" aria-labelledby="host-title" onCancel={(event) => { if (sending) event.preventDefault(); else setOpen(false); }} onClose={() => { setOpen(false); onClosed?.(); }}>
       <div className="mb-5 flex items-center justify-between"><h2 id="host-title" className="text-lg font-medium">Host controls</h2><button className="icon-button" aria-label="Close host controls" disabled={sending} onClick={() => setOpen(false)}><Icon name="close" /></button></div>
       <p className="mb-4 text-xs text-muted">These actions affect the entire Shepherd host and every surface. Active turns and pending approvals must finish first.</p>
       {status ? <dl className="settings-facts"><dt>Connection</dt><dd>{online ? "Connected" : "Reconnecting"}</dd><dt>Started</dt><dd>{status.startedAt}</dd><dt>Running commit</dt><dd className="break-all">{status.runningCommit ?? "Unavailable"}</dd><dt>Checkout commit</dt><dd className="break-all">{status.checkout?.deployedCommit ?? "Unavailable"}</dd><dt>Remote refs</dt><dd className="break-all">{status.checkout?.matchingRemoteRefs.join(", ") || "None"}</dd></dl> : <p role="status">Loading host status…</p>}
@@ -81,6 +82,6 @@ export function HostControls({ onRecovered }: { onRecovered: () => Promise<void>
       {confirm ? <section className="mt-5 space-y-3"><p className="text-sm">{confirm === "restart" ? "Restart Shepherd now?" : `Deploy origin/${branch.trim() || "main"}, validate it, and restart Shepherd?`}</p><p className="text-xs text-muted">All surfaces will disconnect briefly. The web UI will check for the host to return and resume the selected conversation when possible.</p><div className="flex gap-2"><button className="button-secondary" disabled={sending} onClick={() => setConfirm(null)}>Cancel host action</button><button className="button-primary" disabled={blocked} onClick={() => void run()}>Confirm {confirm}</button></div></section> : <section className="mt-5 space-y-3"><button className="button-secondary" disabled={blocked} onClick={() => setConfirm("restart")}>Restart host</button><label className="block text-sm">Deployment branch<input aria-label="Deployment branch" placeholder="main (stable)" value={branch} maxLength={256} disabled={blocked} onChange={(event) => setBranch(event.target.value)} /></label><p className="text-xs text-muted">Leave blank for stable main. A named branch deploys a preview; deploy main again to return to stable.</p><button className="button-secondary" disabled={blocked} onClick={() => setConfirm("deploy")}>Deploy host</button></section>}
       {pending && online && !running && !sending && <button className="button-secondary mt-4" onClick={() => { track(null); setNotice("Review the current checkout and operation outcome before requesting another action."); }}>I checked the outcome</button>}
       <button className="button-secondary mt-4" disabled={sending} onClick={() => setRevision((value) => value + 1)}>Refresh host status</button>
-    </dialog>
+    </dialog>, document.body)}
   </>;
 }

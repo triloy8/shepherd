@@ -17,20 +17,20 @@ method or generated schema alone does not count as UI support.
 | --- | --- | --- | --- |
 | Create conversation | Yes — `!newthread`; ordinary input can ensure a thread | Yes — New conversation | Shared conversation core |
 | Select project/repository/local workspace | Yes — `!repo <owner/repo>`, `~`, `~/path` | Yes — project dialog for new conversations | Shared project resolution |
-| Read selected project | Yes — `!repo`, `!status` | Yes — header | Presentation differs |
+| Read selected project | Yes — `!repo`, `!status` | Yes — Conversation details | Presentation differs |
 | Change binding for future conversations | Yes — `!repo` | Partial — choose when creating a conversation | Discord change does not move the current session's cwd |
 | List stored conversations | Yes — `!threads` | Yes — sidebar | Most recently updated first; paged in both |
 | List archived conversations | Yes — `!threads archived` | Yes — Archived filter | Separate from active/stored view |
 | List host-loaded conversations | Yes — `!threads loaded` | No | Web attachment dots are not a host-loaded list |
 | Switch/resume stored conversation | Yes — `!thread <id>` | Yes — select conversation; saved workspace resumes directly | Normal workflow covered in both |
 | Paste an arbitrary conversation ID | Yes — `!thread <id>` | No UI; API accepts `threadId` on create | Optional navigation difference |
-| Read current conversation ID | Yes — `!thread`, `!status` | No dedicated UI | ID exists in API state |
-| Inspect ID/name/update time/preview together | Yes — `!threadread [id]` | Partial — names/previews in navigation | No dedicated web metadata panel |
+| Read current conversation ID | Yes — `!thread`, `!status` | Yes — Conversation details | Shared thread ID |
+| Inspect ID/name/update time/preview together | Yes — `!threadread [id]` | Partial — ID/name in details; previews in navigation | No combined update-time/preview metadata panel |
 | Rename | Yes — `!threadname <name>` | Yes — conversation actions | Current conversation |
 | Fork | Yes — `!fork [id]` | Yes — conversation actions | Web forks selected conversation; Discord can target an ID |
 | Archive | Yes — `!archive [id]` | Yes — conversation actions | Web acts on selected conversation |
 | Restore archive | Yes — `!unarchive <id>` | Yes — Restore in archived list | Shared core action |
-| Detach without interrupting work | Yes — `!detach` | Yes — header detach control | Detach is not deletion or stop |
+| Detach without interrupting work | Yes — `!detach` | Yes — conversation menu | Detach is not deletion or stop |
 | Compact context | Yes — `!compact [id]` | Yes — conversation actions | Web selected conversation; active work/approvals constrain actions |
 | Revert conversation from a selected turn | No — `!rollback` returns a retirement notice | Yes — Revert from here beside Copy under user messages | Uses `thread/revert` with `beforeTurnId`; removes selected turn and later history; local files unchanged; confirmation and active-work/approval guards |
 | Conversation search | No Shepherd command | No | Discord channel search is a client feature, not stored-thread search |
@@ -50,7 +50,7 @@ Sources: [Discord commands](../server/adapters/discord/commands.ts),
 | Pause and resume conversation ingress | Yes — `!pause`, `!resume` | N/A | Discord control commands remain available while paused |
 | Direct-message routing | Yes — open unless paused | N/A | Discord transport behavior |
 | Command help | Yes — `!help` | N/A — labeled controls | No web command interpreter |
-| Current surface status | Yes — `!status` | Partial — header, settings, host controls | No single equivalent status report |
+| Current surface status | Yes — `!status` | Partial — status dot/details, settings, sidebar host controls | No single equivalent status report |
 | Command/file-change approval decisions | Yes — approval buttons | Yes — approval cards | Both use shared allowed choices |
 | Approval request details | Yes — rendered approval request | Yes — expandable request details | Presentation differs |
 | Arbitrary questionnaire/form answers | No general form renderer | No general form renderer | Approval choices are not a questionnaire UI |
@@ -158,6 +158,9 @@ Sources: [surface launch](surface-launch.md), [web API contract](web-api.md),
 Revert support reviewed 2026-09-30 against Codex 0.159.2 in [PR #75](https://github.com/triloy8/shepherd/pull/75), based on
 `7e18d1d`: web uses `thread/revert`; Discord rollback is retired. See the
 [schema matrix](schema-parity-matrix.md).
+
+Layout navigation reviewed 2026-10-01 in [PR #76](https://github.com/triloy8/shepherd/pull/76),
+based on `d83232b`: compact header, floating composer, and sidebar host controls.
 
 ## Interpretation and maintenance
 

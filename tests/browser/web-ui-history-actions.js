@@ -90,7 +90,8 @@ async (page) => {
 
   // Compaction remains available in the header; the count-based control is gone.
   const actions = page.getByRole('dialog', { name: 'Conversation actions', exact: true });
-  await page.getByRole('button', { name: 'Conversation actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Conversation actions', exact: true }).click();
   if (await actions.getByText('Roll back conversation', { exact: true }).count()) throw Error('Old rollback UI remains');
   await actions.getByRole('button', { name: 'Compact conversation', exact: true }).click();
   await actions.getByText('Compaction started.', { exact: false }).waitFor();
@@ -119,7 +120,7 @@ async (page) => {
   if (await page.getByRole('button', { name: 'Load earlier messages', exact: true }).count()) throw Error('Old pagination survived revert');
   await revert('History turn 0').click();
   await confirm.click();
-  await page.getByRole('heading', { name: 'A new thread of thought', exact: true }).waitFor();
+  await page.locator('article.message').first().waitFor({ state: 'hidden' });
   if (await page.locator('article.message').count()) throw Error('Reverting the first turn did not empty history');
   await send('Conversation still works after reverting everything');
   await page.getByLabel('Choose images', { exact: true }).setInputFiles('/tmp/shepherd-image-input-fixtures/only.png');

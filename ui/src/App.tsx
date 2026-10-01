@@ -58,11 +58,26 @@ export default function App() {
     const viewport = window.visualViewport;
     if (!viewport) return;
     const size = () => {
-      if (viewport.scale === 1) document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
-      else document.documentElement.style.removeProperty("--app-height");
+      const style = document.documentElement.style;
+      if (viewport.scale === 1) {
+        // Safari can pan the visual viewport as well as shrink it for the keyboard.
+        // Keep the fixed app inside that visible rectangle instead of moving it twice.
+        style.setProperty("--app-height", `${viewport.height}px`);
+        style.setProperty("--app-top", `${viewport.offsetTop}px`);
+      } else {
+        style.removeProperty("--app-height");
+        style.removeProperty("--app-top");
+      }
     };
-    size(); viewport.addEventListener("resize", size);
-    return () => { viewport.removeEventListener("resize", size); document.documentElement.style.removeProperty("--app-height"); };
+    size();
+    viewport.addEventListener("resize", size);
+    viewport.addEventListener("scroll", size);
+    return () => {
+      viewport.removeEventListener("resize", size);
+      viewport.removeEventListener("scroll", size);
+      document.documentElement.style.removeProperty("--app-height");
+      document.documentElement.style.removeProperty("--app-top");
+    };
   }, []);
   useEffect(() => {
     const element = composerRef.current;

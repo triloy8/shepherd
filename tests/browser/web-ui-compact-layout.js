@@ -77,6 +77,22 @@ async page => {
   });
   await page.waitForFunction(() => document.querySelector('.app-shell').getBoundingClientRect().height === 430);
   if (await page.locator('.composer').evaluate(el => el.getBoundingClientRect().bottom > 430)) throw Error('Keyboard viewport hides composer');
+  // iOS can pan the visual viewport after focus, without another height resize.
+  for (const offset of [260, 180, 0]) {
+    await page.evaluate(offset => {
+      Object.defineProperty(window.visualViewport, 'offsetTop', { configurable:true, value:offset });
+      window.visualViewport.dispatchEvent(new Event('scroll'));
+    }, offset);
+    await page.waitForFunction(offset => {
+      const app = document.querySelector('.app-shell').getBoundingClientRect();
+      const composer = document.querySelector('.composer').getBoundingClientRect();
+      const visibleBottom = offset + window.visualViewport.height;
+      return Math.abs(app.top - offset) < 1 && Math.abs(app.bottom - visibleBottom) < 1 &&
+        visibleBottom - composer.bottom >= 10 && visibleBottom - composer.bottom <= 20;
+    }, offset);
+  }
+  await page.evaluate(() => window.scrollTo(0, 200));
+  if (await page.evaluate(() => window.scrollY !== 0)) throw Error('Document scroll competes with the keyboard viewport');
   await page.getByLabel('Choose images', { exact: true }).setInputFiles(Array.from({ length: 4 }, (_, i) => ({name: `compact-${i}.png`, mimeType:'image/png', buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64')})));
   await page.getByRole('button', { name: 'Remove compact-3.png', exact: true }).waitFor();
   await composer.fill(Array.from({length:40}, () => 'Long attached draft').join('\n'));
@@ -84,7 +100,18 @@ async page => {
   await page.getByRole('button', { name: 'Send message', exact: true }).scrollIntoViewIfNeeded();
   for (let i=0; i<4; i++) await page.getByRole('button', { name: `Remove compact-${i}.png`, exact: true }).click();
   await composer.fill('Compact draft');
-  await page.evaluate(() => { delete window.visualViewport.height; window.visualViewport.dispatchEvent(new Event('resize')); });
+  await page.evaluate(() => {
+    delete window.visualViewport.height; delete window.visualViewport.offsetTop;
+    window.visualViewport.dispatchEvent(new Event('resize'));
+    window.visualViewport.dispatchEvent(new Event('scroll'));
+  });
+  await page.waitForFunction(() => Math.abs(document.querySelector('.app-shell').getBoundingClientRect().bottom - window.visualViewport.height) < 1);
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, 'scale', { configurable:true, value:2 });
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  if (await page.evaluate(() => document.documentElement.style.getPropertyValue('--app-top') || document.documentElement.style.getPropertyValue('--app-height'))) throw Error('Keyboard viewport override interferes with pinch zoom');
+  await page.evaluate(() => { delete window.visualViewport.scale; window.visualViewport.dispatchEvent(new Event('resize')); });
 
   // Sidebar's host dialog must remain interactive after the mobile drawer closes.
   await page.getByRole('button', { name: 'Open conversations', exact: true }).click();
@@ -109,5 +136,5 @@ async page => {
   const final = page.locator('.message-assistant').last();
   if (await final.evaluate(el => el.getBoundingClientRect().bottom) > await page.locator('.composer').evaluate(el=>el.getBoundingClientRect().top)) throw Error('Last response is obscured by composer');
   if (errors.length) throw Error(errors.join('\n'));
-  return 'Compact header, menu keyboard/focus, connection details, bounded auto-grow, draft retention, 320/390/768/1280 widths, touch sizes, transcript clearance, keyboard viewport, sidebar host dialog, and send passed.';
+  return 'Compact header, menu keyboard/focus, connection details, bounded auto-grow, draft retention, 320/390/768/1280 widths, touch sizes, transcript clearance, keyboard viewport height/panning/dismissal, pinch zoom, sidebar host dialog, and send passed.';
 }

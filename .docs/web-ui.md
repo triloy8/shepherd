@@ -286,7 +286,9 @@ The transcript reserves the measured composer height so the last message is not
 covered, including while attaching images or composing a long draft. If following
 latest output, composer growth maintains that position; reading older messages
 keeps automatic follow disabled. The app follows the visual viewport at normal
-zoom so a software keyboard can reduce its available height. Pinch zoom retains
+zoom, tracking both its height and vertical offset so Safari keyboard panning does
+not lift the composer away from the keyboard. The page itself is fixed; transcript
+and composer scrolling stay inside their containers. Pinch zoom retains
 normal browser behavior. Bottom padding accounts for safe-area insets.
 
 ### Compact and revert

@@ -13,6 +13,7 @@
 @layer base {
   :root { color-scheme: dark; }
   * { scrollbar-width: thin; scrollbar-color: #444444 transparent; }
+  html, body, #root { height: 100%; overflow: hidden; }
   body { @apply m-0 bg-canvas font-sans text-ink antialiased; }
   button, a, input, textarea, summary { -webkit-tap-highlight-color: transparent; }
   button { @apply cursor-pointer transition-colors; }
@@ -21,8 +22,10 @@
   ::selection { background: #525252; color: white; }
 }
 @layer components {
-  .app-shell { @apply flex min-h-0 overflow-hidden; height: var(--app-height, 100dvh); }
+  .app-shell { @apply fixed inset-x-0 flex min-h-0 overflow-hidden; top: var(--app-top, 0px); height: var(--app-height, 100dvh); }
   .sidebar { @apply fixed inset-y-0 left-0 z-30 flex w-[min(85vw,288px)] -translate-x-full flex-col border-r border-line bg-panel transition-transform lg:static lg:z-auto lg:w-68 lg:translate-x-0; }
+  .sidebar { top: var(--app-top, 0px); bottom: auto; height: var(--app-height, 100dvh); }
+  @media (min-width: 1024px) { .sidebar { height: auto; } }
   .sidebar-collapsed { @apply lg:w-0 lg:overflow-hidden lg:border-0; }
   .sidebar-open { @apply translate-x-0; }
   .drawer-backdrop { @apply fixed inset-0 z-20 bg-black/60 lg:hidden; }

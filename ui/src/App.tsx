@@ -269,17 +269,12 @@ export default function App() {
       {creating && !dialog && <p role="status" className="notice mx-5 mt-4">Resuming conversation…</p>}
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}
       {!selected ? <section className="empty-screen">
-        <p className="mb-3 mt-7 text-[11px] font-medium uppercase tracking-[.2em] text-accent">A little direction. A lot of possibility.</p>
-        <h2 className="max-w-lg text-balance text-3xl font-medium leading-tight tracking-tight sm:text-4xl">What shall we work on?</h2>
-        <p className="mt-4 max-w-md text-balance text-sm leading-7 text-muted">A space to build, explore, and pick up where you left off. Choose a conversation or start something new.</p>
-        <button className="button-primary mt-7" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>
+        <button className="button-primary" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>
         {saved && <button className="mt-5 text-sm text-muted underline decoration-line underline-offset-4" onClick={() => openThread(saved.threadId)}>Resume your last conversation</button>}
-        <div className="welcome-footnote"><Icon name="folder" /><span>Your projects. Your conversations. One place.</span></div>
       </section> : <section className="conversation-stage" style={{ "--composer-space": `${composerSpace}px` } as CSSProperties}>
         <div className="chat-scroll" ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}>
           <div className="chat-width chat-content pt-4 sm:pt-6">
             {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
-            {!controller.chat.messages.length && <div className="py-14 text-center"><h2 className="text-xl font-medium">A new thread of thought</h2><p className="mt-3 text-sm text-muted">Tell Shepherd what you have in mind.</p></div>}
             <Timeline key={selected.id} chat={controller.chat} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.revert} onReload={controller.recoverHistory} />
             {active && <div role="status" className="mt-7 flex items-center gap-2 text-xs text-muted"><span className="working-dot" />{controller.chat.activity || "Working"}</div>}
             {controller.chat.error && <p role="alert" className="notice mt-5">{controller.chat.error}</p>}

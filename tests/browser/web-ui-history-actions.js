@@ -120,7 +120,7 @@ async (page) => {
   if (await page.getByRole('button', { name: 'Load earlier messages', exact: true }).count()) throw Error('Old pagination survived revert');
   await revert('History turn 0').click();
   await confirm.click();
-  await page.getByRole('heading', { name: 'A new thread of thought', exact: true }).waitFor();
+  await page.locator('article.message').first().waitFor({ state: 'hidden' });
   if (await page.locator('article.message').count()) throw Error('Reverting the first turn did not empty history');
   await send('Conversation still works after reverting everything');
   await page.getByLabel('Choose images', { exact: true }).setInputFiles('/tmp/shepherd-image-input-fixtures/only.png');

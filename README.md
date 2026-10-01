@@ -146,7 +146,8 @@ A loaded conversation retains its current workspace.
 
 1. Select **New conversation**, choose a project, and create it.
 2. Send a message or attach images. Follow-ups steer the active turn.
-3. Use settings for models, effort, usage, and skills; use conversation actions
+3. Open **Conversation menu** for settings (models, effort, usage, and skills)
+   and conversation actions
    for rename, fork, archive, and compact. Use **Revert from here** beside Copy
    under a user message to remove that turn and all later turns. Files are not changed.
 4. Select an existing conversation in the sidebar to resume it directly.
@@ -200,7 +201,7 @@ Use `!help` for the command list:
 
 ## Restart and deployment
 
-Use Discord commands or the web **Host controls** panel. These operations affect
+Use Discord commands or **Host controls** in the web sidebar. These operations affect
 all surfaces. Active turns and pending approvals block restart/deployment.
 
 Deploy requires a clean checkout. It fetches `origin/main` by default, or the

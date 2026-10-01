@@ -90,7 +90,8 @@ async (page) => {
 
   // Compaction remains available in the header; the count-based control is gone.
   const actions = page.getByRole('dialog', { name: 'Conversation actions', exact: true });
-  await page.getByRole('button', { name: 'Conversation actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Conversation actions', exact: true }).click();
   if (await actions.getByText('Roll back conversation', { exact: true }).count()) throw Error('Old rollback UI remains');
   await actions.getByRole('button', { name: 'Compact conversation', exact: true }).click();
   await actions.getByText('Compaction started.', { exact: false }).waitFor();

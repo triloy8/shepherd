@@ -9,7 +9,7 @@ const readPending = (): Pending | null => {
   try { const value = JSON.parse(sessionStorage.getItem("shepherd.host-operation") ?? "null"); return typeof value?.instanceId === "string" && typeof value?.requestId === "string" ? value : null; } catch { return null; }
 };
 
-export function HostControls({ onRecovered, onOpen }: { onRecovered: () => Promise<void>; onOpen?: () => void }) {
+export function HostControls({ onRecovered, onOpen, onClosed }: { onRecovered: () => Promise<void>; onOpen?: () => void; onClosed?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<WebHostStatus | null>(null);
@@ -71,7 +71,7 @@ export function HostControls({ onRecovered, onOpen }: { onRecovered: () => Promi
   const blocked = !online || !status?.available || sending || Boolean(pending) || Boolean(running) || status?.checkout?.deploymentInProgress;
   return <>
     <button className="sidebar-control" aria-label="Host controls" onClick={() => { onOpen?.(); setOpen(true); }}><Icon name="host" /><span>Host controls</span><Icon name="chevron" className="ml-auto size-3.5" /></button>
-    {typeof document !== "undefined" && createPortal(<dialog ref={dialog} className="project-dialog settings-dialog" aria-labelledby="host-title" onCancel={(event) => { if (sending) event.preventDefault(); else setOpen(false); }} onClose={() => setOpen(false)}>
+    {typeof document !== "undefined" && createPortal(<dialog ref={dialog} className="project-dialog settings-dialog" aria-labelledby="host-title" onCancel={(event) => { if (sending) event.preventDefault(); else setOpen(false); }} onClose={() => { setOpen(false); onClosed?.(); }}>
       <div className="mb-5 flex items-center justify-between"><h2 id="host-title" className="text-lg font-medium">Host controls</h2><button className="icon-button" aria-label="Close host controls" disabled={sending} onClick={() => setOpen(false)}><Icon name="close" /></button></div>
       <p className="mb-4 text-xs text-muted">These actions affect the entire Shepherd host and every surface. Active turns and pending approvals must finish first.</p>
       {status ? <dl className="settings-facts"><dt>Connection</dt><dd>{online ? "Connected" : "Reconnecting"}</dd><dt>Started</dt><dd>{status.startedAt}</dd><dt>Running commit</dt><dd className="break-all">{status.runningCommit ?? "Unavailable"}</dd><dt>Checkout commit</dt><dd className="break-all">{status.checkout?.deployedCommit ?? "Unavailable"}</dd><dt>Remote refs</dt><dd className="break-all">{status.checkout?.matchingRemoteRefs.join(", ") || "None"}</dd></dl> : <p role="status">Loading host status…</p>}

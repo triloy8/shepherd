@@ -2,7 +2,8 @@
 async (page) => {
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Conversation settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Conversation settings', exact: true });
   await dialog.getByText('Skills', { exact: true }).click();
   const skills = dialog.getByRole('region', { name: 'Skills', exact: true });
@@ -41,7 +42,8 @@ async (page) => {
   await skills.getByText('No skills found in this workspace.', { exact: true }).waitFor();
   await page.unroute('**/api/v1/conversations/*/skills-reload');
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Conversation settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).click();
   await skills.getByRole('button', { name: 'Enable review (repo)', exact: true }).waitFor();
   await page.keyboard.press('Escape');
 }

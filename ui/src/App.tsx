@@ -35,6 +35,7 @@ export default function App() {
   const [drawer, setDrawer] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarTrigger = useRef<HTMLButtonElement>(null);
+  const hadDrawer = useRef(false);
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [project, setProject] = useState("~");
@@ -121,7 +122,7 @@ export default function App() {
   }, [selected]);
   useEffect(() => {
     if (follow.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [controller.chat.messages, controller.approvals, controller.chat.activity]);
+  }, [controller.chat.messages, controller.approvals, controller.chat.activity, composerSpace]);
   useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
     const change = () => setDesktop(query.matches);
@@ -129,6 +130,8 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (drawer) sidebarRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    else if (hadDrawer.current && !desktop) sidebarTrigger.current?.focus();
+    hadDrawer.current = drawer;
     const close = (event: KeyboardEvent) => {
       if (!drawer || desktop) return;
       if (event.key === "Escape") { setDrawer(false); sidebarTrigger.current?.focus(); }
@@ -201,7 +204,7 @@ export default function App() {
   const visibleHandles = (archived ? [] : conversations).filter((item) => !threads.some((thread) => thread.threadId === item.threadId));
   return <div className="app-shell">
     {drawer && <button className="drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)} />}
-    <aside inert={desktop ? sidebarCollapsed : !drawer} role={desktop ? "complementary" : "dialog"} aria-modal={!desktop && drawer ? true : undefined} ref={sidebarRef} className={`sidebar ${drawer ? "sidebar-open" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} aria-label="Conversations">
+    <aside inert={desktop ? sidebarCollapsed : !drawer} role={!desktop && drawer ? "dialog" : "complementary"} aria-hidden={!desktop && !drawer ? true : undefined} aria-modal={!desktop && drawer ? true : undefined} ref={sidebarRef} className={`sidebar ${drawer ? "sidebar-open" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} aria-label="Conversations">
       <div className="flex h-16 shrink-0 items-center justify-between px-5">
         <a href="/" className="flex items-center gap-2.5 font-semibold tracking-tight"><span className="text-lg">shepherd<span className="text-accent">.</span></span></a>
         <button className="icon-button lg:hidden" aria-label="Close conversations" onClick={() => setDrawer(false)}><Icon name="close" /></button>
@@ -218,7 +221,7 @@ export default function App() {
         {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads || refreshingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
       <div className="sidebar-footer">
-        <HostControls onOpen={() => setDrawer(false)} onRecovered={async () => {
+        <HostControls onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} onOpen={() => setDrawer(false)} onRecovered={async () => {
           const previous = selected ?? savedSelection();
           setSelected(null); setSaved(previous);
           const handles = await api.conversations();

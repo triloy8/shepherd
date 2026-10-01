@@ -233,7 +233,7 @@ refresh the conversation list before retrying to avoid duplicate forks.
 
 ## Conversation management
 
-The conversation header's actions menu provides Rename, Fork conversation and
+**Conversation menu → Conversation actions** provides Rename, Fork conversation and
 Archive conversation. Renaming updates the title and list. Forking selects the
 new conversation while preserving the source, its handle and its draft. Archive
 asks for confirmation, clears the local selection and detaches the web handle;
@@ -266,6 +266,29 @@ requires reloading after a failed update before offering another toggle. Request
 from a closed settings panel cannot overwrite a newly opened panel. This adds no
 skill installation, file editing, or per-conversation configuration semantics.
 
+### Compact layout and navigation
+
+The header has a sidebar toggle, a single-line conversation title, a connection
+status dot, and **Conversation menu**. Tap the dot or choose **Conversation details**
+to see connection state, project path, and thread ID. Settings, conversation actions,
+and detach are in the same menu. Arrow keys, Home/End, Enter, and Escape work in the
+menu; dialogs return focus to the opener. The desktop sidebar can collapse. On
+mobile, the navigation drawer traps focus and hides the transcript from interaction.
+Host controls are in the sidebar footer, including when no conversation is selected.
+
+The composer floats over the transcript with inset edges and a subtle bottom fade.
+It starts at one line, grows with the draft, and scrolls internally at its height
+limit. Attachment, stop, and send controls retain comfortable touch targets.
+Routine helper copy is screen-reader-only; connection and follow-up state remain
+visible when relevant. Images, image errors, and send failures remain visible.
+
+The transcript reserves the measured composer height so the last message is not
+covered, including while attaching images or composing a long draft. If following
+latest output, composer growth maintains that position; reading older messages
+keeps automatic follow disabled. The app follows the visual viewport at normal
+zoom so a software keyboard can reduce its available height. Pinch zoom retains
+normal browser behavior. Bottom padding accounts for safe-area insets.
+
 ### Compact and revert
 
 **Conversation actions** provides **Compact conversation**. Compaction reports that
@@ -293,7 +316,7 @@ pending. Discord `!rollback` is retired with a notice pointing to this web actio
 
 ### Host controls
 
-The header’s **Host controls** opens host status, running and checkout commits,
+The sidebar’s **Host controls** opens host status, running and checkout commits,
 remote refs, restart, and deploy. These controls work without selecting a conversation.
 Both actions require confirmation because they affect every surface. Leave the
 branch blank for stable main or enter a preview branch; deploy main to return to

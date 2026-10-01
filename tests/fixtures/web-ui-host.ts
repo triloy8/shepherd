@@ -28,7 +28,17 @@ const names = new Map<string, string>();
 const archivedIds = new Set<string>();
 const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: String((turns[0]?.items[0]?.content as Array<{ text: string }> | undefined)?.[0]?.text ?? "New conversation"), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2, source: "appServer" }));
 h.application.conversation.listStoredThreads = async (request) => ({ threads: stored().filter((thread) => thread.archived === Boolean((request as { archived?: boolean }).archived)), nextCursor: null, backwardsCursor: null });
-h.application.conversation.listThreadTurns = async (threadId) => ({ data: [...(histories.get(threadId) ?? [])].reverse(), nextCursor: null, backwardsCursor: null });
+histories.set("paged", Array.from({ length: 35 }, (_, index): HistoryTurn => ({ id: `paged-${index}`, status: "completed", itemsView: "full", error: null, startedAt: index, completedAt: index + 1, durationMs: 1000, items: [
+  { id: `paged-user-${index}`, type: "userMessage", content: [{ type: "text", text: `History turn ${index}` }] },
+  { id: `paged-agent-${index}`, type: "agentMessage", phase: "final_answer", text: `History response ${index}` },
+] })));
+names.set("paged", "Paginated history");
+h.application.conversation.listThreadTurns = async (threadId, request) => {
+  const turns = [...(histories.get(threadId) ?? [])].reverse();
+  const offset = Number(request.cursor?.replace("fixture:", "") ?? 0);
+  const end = offset + (request.limit ?? 30);
+  return { data: turns.slice(offset, end), nextCursor: end < turns.length ? `fixture:${end}` : null, backwardsCursor: null };
+};
 let sequence = 0;
 Object.assign(h.application, {
   clearSurfaceThread: (id: string) => h.bindings.delete(id),
@@ -94,9 +104,13 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   return { ok: true, turnId };
 };
 Object.assign(h.application.conversation, {
-  async rollbackThread(threadId: string, { numTurns }: { numTurns: number }) {
-    histories.set(threadId, (histories.get(threadId) ?? []).slice(0, -numTurns));
-    return { thread: { id: threadId } };
+  async revertThread(threadId: string, { beforeTurnId }: { beforeTurnId: string }) {
+    const turns = histories.get(threadId) ?? [];
+    const index = turns.findIndex((turn) => turn.id === beforeTurnId);
+    if (index < 0) throw new Error("Unknown revert turn.");
+    histories.set(threadId, turns.slice(0, index));
+    publish(threadId, "thread.reverted", {});
+    return { thread: { id: threadId, turns: [] }, turnsBackwardsCursor: null, itemsBackwardsCursor: null };
   },
   async compactThread(threadId: string) {
     const turnId = `compact-${++sequence}`;

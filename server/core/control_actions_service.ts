@@ -5,7 +5,7 @@ import type {
   ReadThreadTokenUsageResponse,
   ModelSummary,
   ReadThreadResponse,
-  RollbackThreadResponse,
+  RevertThreadResponse,
   SkillsConfigWriteResponse,
   SkillsListResponse,
   ThreadModelState,
@@ -30,7 +30,7 @@ type ControlConversation = {
   readThread: (threadId: string, request: { includeTurns: boolean }) => Promise<ReadThreadResponse>;
   archiveThread: (threadId: string) => Promise<{ ok: true }>;
   unarchiveThread: (threadId: string) => Promise<{ ok: true }>;
-  rollbackThread: (threadId: string, request: { numTurns: number }) => Promise<RollbackThreadResponse>;
+  revertThread: (threadId: string, request: { beforeTurnId: string }) => Promise<RevertThreadResponse>;
   compactThread: (threadId: string) => Promise<{ ok: true }>;
   interruptTurn: (threadId: string) => Promise<void>;
 };
@@ -64,7 +64,7 @@ export type ControlActionRequest =
   | { type: "thread.fork"; surfaceId: string; sourceThreadId?: string }
   | { type: "thread.archive"; surfaceId: string; threadId?: string }
   | { type: "thread.unarchive"; threadId: string }
-  | { type: "thread.rollback"; surfaceId: string; numTurns: number; threadId?: string }
+  | { type: "thread.revert"; surfaceId: string; beforeTurnId: string; threadId?: string }
   | { type: "thread.compact"; surfaceId: string; threadId?: string }
   | { type: "turn.interrupt"; surfaceId: string };
 
@@ -93,8 +93,8 @@ export type ControlActionResult =
   | { type: "thread.archive"; ok: true; threadId: string; clearedActiveBinding: boolean }
   | { type: "thread.archive"; ok: false; error: ActionFailure }
   | { type: "thread.unarchive"; ok: true; threadId: string }
-  | { type: "thread.rollback"; ok: true; threadId: string; numTurns: number }
-  | { type: "thread.rollback"; ok: false; error: ActionFailure }
+  | { type: "thread.revert"; ok: true; threadId: string; beforeTurnId: string }
+  | { type: "thread.revert"; ok: false; error: ActionFailure }
   | { type: "thread.compact"; ok: true; threadId: string }
   | { type: "thread.compact"; ok: false; error: ActionFailure }
   | { type: "turn.interrupt"; ok: true; threadId: string }
@@ -334,21 +334,21 @@ export async function executeControlAction(
     };
   }
 
-  if (request.type === "thread.rollback") {
+  if (request.type === "thread.revert") {
     const threadId = request.threadId ?? context.getSurfaceThreadId(request.surfaceId);
-    if (!Number.isInteger(request.numTurns) || request.numTurns < 1 || !threadId) {
+    if (typeof request.beforeTurnId !== "string" || !request.beforeTurnId.trim() || request.beforeTurnId.length > 256 || !threadId) {
       return {
-        type: "thread.rollback",
+        type: "thread.revert",
         ok: false,
-        error: { code: !threadId ? "thread_required" : "invalid_turn_count" },
+        error: { code: !threadId ? "thread_required" : "invalid_turn_id" },
       };
     }
-    await context.conversation.rollbackThread(threadId, { numTurns: request.numTurns });
+    await context.conversation.revertThread(threadId, { beforeTurnId: request.beforeTurnId });
     return {
-      type: "thread.rollback",
+      type: "thread.revert",
       ok: true,
       threadId,
-      numTurns: request.numTurns,
+      beforeTurnId: request.beforeTurnId,
     };
   }
 

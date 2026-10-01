@@ -8,7 +8,7 @@ import type {
   Personality,
   ReadThreadRequest,
   ResumeThreadRequest,
-  RollbackThreadRequest,
+  RevertThreadRequest,
   SandboxMode,
   SortDirection,
   SteerTurnRequest,
@@ -343,13 +343,11 @@ export function validateSetThreadNameRequest(value: unknown): SetThreadNameReque
   return { name: value.name.trim() };
 }
 
-export function validateRollbackThreadRequest(value: unknown): RollbackThreadRequest {
-  if (!isRecord(value)) throw new Error("Invalid rollback payload.");
-  const numTurns = parseOptionalPositiveInteger(value.numTurns, "numTurns");
-  if (!numTurns || numTurns < 1) {
-    throw new Error("numTurns must be >= 1.");
+export function validateRevertThreadRequest(value: unknown): RevertThreadRequest {
+  if (!isRecord(value) || typeof value.beforeTurnId !== "string" || !value.beforeTurnId.trim() || value.beforeTurnId.length > 256) {
+    throw new Error("beforeTurnId must be a non-empty string of at most 256 characters.");
   }
-  return { numTurns };
+  return { beforeTurnId: value.beforeTurnId };
 }
 
 export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {

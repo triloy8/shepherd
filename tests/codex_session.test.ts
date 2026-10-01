@@ -46,6 +46,21 @@ describe("CodexSession app-server contract", () => {
     expect(notifications).toEqual(["initialized"]);
   });
 
+  test("reverts with an explicit cutoff and decodes provider history replacement", async () => {
+    const session = new CodexSession("on-request");
+    session.initialize = async () => {};
+    const requests: unknown[] = [];
+    internals(session).sendRequest = async (method, params) => { requests.push({ method, params }); return { thread: { id: "thread-1", turns: [] }, turnsBackwardsCursor: "turn-cursor", itemsBackwardsCursor: "item-cursor" }; };
+    const response = await session.revertThread("thread-1", "turn-2");
+    expect(requests).toEqual([{ method: "thread/revert", params: { threadId: "thread-1", beforeTurnId: "turn-2" } }]);
+    expect(response).toMatchObject({ turnsBackwardsCursor: "turn-cursor", itemsBackwardsCursor: "item-cursor" });
+    const events: BridgeEvent[] = [];
+    session.eventBus.subscribe((event) => events.push(event), { replay: false });
+    internals(session).onNotification("thread/reverted", { threadId: "thread-1" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "thread.reverted", threadId: "thread-1", payload: {} });
+  });
+
   test("defaults new threads to Sol medium while preserving explicit overrides", async () => {
     const previousModel = process.env.CODEX_MODEL;
     delete process.env.CODEX_MODEL;

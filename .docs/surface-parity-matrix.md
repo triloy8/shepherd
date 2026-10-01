@@ -32,7 +32,7 @@ method or generated schema alone does not count as UI support.
 | Restore archive | Yes — `!unarchive <id>` | Yes — Restore in archived list | Shared core action |
 | Detach without interrupting work | Yes — `!detach` | Yes — header detach control | Detach is not deletion or stop |
 | Compact context | Yes — `!compact [id]` | Yes — conversation actions | Web selected conversation; active work/approvals constrain actions |
-| Roll back recent turns | Unavailable with Codex 0.159.2 — command remains | Unavailable with Codex 0.159.2 — action remains | Provider removed `thread/rollback`; controls require migration to `thread/revert` |
+| Revert conversation from a selected turn | No — `!rollback` returns a retirement notice | Yes — Revert from here beside Copy under user messages | Uses `thread/revert` with `beforeTurnId`; removes selected turn and later history; local files unchanged; confirmation and active-work/approval guards |
 | Conversation search | No Shepherd command | No | Discord channel search is a client feature, not stored-thread search |
 
 Sources: [Discord commands](../server/adapters/discord/commands.ts),
@@ -155,8 +155,9 @@ Sources: [surface launch](surface-launch.md), [web API contract](web-api.md),
 [web host operation service](../server/adapters/web/host_controls.ts),
 [web conversation recovery](../ui/src/use-conversation.ts).
 
-Protocol compatibility checked 2026-09-30 against Codex 0.159.2: rollback is
-currently incompatible; see the [schema matrix](schema-parity-matrix.md).
+Revert support reviewed 2026-09-30 against Codex 0.159.2 in [PR #75](https://github.com/triloy8/shepherd/pull/75), based on
+`7e18d1d`: web uses `thread/revert`; Discord rollback is retired. See the
+[schema matrix](schema-parity-matrix.md).
 
 ## Interpretation and maintenance
 

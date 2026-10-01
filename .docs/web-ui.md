@@ -266,20 +266,30 @@ requires reloading after a failed update before offering another toggle. Request
 from a closed settings panel cannot overwrite a newly opened panel. This adds no
 skill installation, file editing, or per-conversation configuration semantics.
 
-### Compact and rollback
+### Compact and revert
 
-**Conversation actions** provides **Compact conversation** and **Roll back
-conversation**. Compaction reports that it started; the timeline’s existing activity
-and turn lifecycle show progress/completion. Rollback accepts a positive number of
-recent turns and requires confirmation explaining that files, commands, and other
-side effects are not undone. Fork first to preserve history if needed.
+**Conversation actions** provides **Compact conversation**. Compaction reports that
+it started; timeline activity and turn lifecycle show progress/completion.
 
-Both actions are disabled during an active turn or pending approvals, with matching
-server enforcement. Rollback refreshes history by replacement, clears old pagination,
-and invalidates prior event replay. Revision checks recover even if a reset event
-was missed; stale in-flight history pages cannot restore removed turns. Failures
-leave the conversation attached and ask the user to reload/check the outcome before
-retrying because an interrupted request can still have succeeded upstream.
+Each persisted user message has **Revert from here** under its text beside **Copy**.
+Image-only messages also have revert. The action opens a confirmation with the
+selected message preview and explains that this turn (including its response) and
+all later turns will be removed. File edits, commands, and other side effects are
+not undone. Fork first to preserve a copy. Cancel is focused by default.
+Optimistic messages without persisted history do not offer revert.
+
+Both compact and revert are disabled during an active turn or pending approvals,
+with matching server enforcement. Revert also requires an online connection and
+blocks other conversation writes while running. The selected turn ID is passed
+directly to the provider; there is no turn-count input or rollback control.
+
+Revert refreshes history by replacement, clears old pagination, and invalidates
+prior event replay. Provider `thread/reverted` notifications trigger the same
+recovery. Revision checks recover even if a reset event was missed; stale in-flight
+history pages cannot restore removed turns. An ambiguous failure prevents another
+revert until history is successfully reloaded, even after closing and reopening the
+confirmation. A removed selection cannot be submitted. Reload failures keep recovery
+pending. Discord `!rollback` is retired with a notice pointing to this web action.
 
 ### Host controls
 

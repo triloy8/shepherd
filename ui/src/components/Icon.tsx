@@ -10,6 +10,7 @@ const paths = {
   folder: "M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z",
   stop: "M6 6h12v12H6Z", chevron: "m9 5 7 7-7 7", check: "m5 12 4 4L19 6",
   detach: "M9 5H5v14h4M10 12h11m-4-4 4 4-4 4", shield: "m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z",
+  revert: "M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12h-3",
   down: "m5 9 7 7 7-7", copy: "M9 9h11v11H9ZM15 9V3H3v12h6",
 } as const;
 export function Icon({ name, className = "", style }: { name: keyof typeof paths; className?: string; style?: CSSProperties }) {

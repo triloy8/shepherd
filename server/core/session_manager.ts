@@ -33,8 +33,8 @@ import type {
   ReadThreadTokenUsageResponse,
   ResumeThreadRequest,
   ResumeThreadResponse,
-  RollbackThreadRequest,
-  RollbackThreadResponse,
+  RevertThreadRequest,
+  RevertThreadResponse,
   SetThreadNameRequest,
   SkillsConfigWriteRequest,
   SkillsConfigWriteResponse,
@@ -265,13 +265,13 @@ export class SessionManager {
     return { ok: true };
   }
 
-  async rollbackThread(threadId: string, request: RollbackThreadRequest): Promise<RollbackThreadResponse> {
+  async revertThread(threadId: string, request: RevertThreadRequest): Promise<RevertThreadResponse> {
     const session = this.mustGet(threadId).session;
-    const raw = asRecord(await session.rollbackThread(threadId, request.numTurns));
+    const raw = asRecord(await session.revertThread(threadId, request.beforeTurnId));
     if (!raw.thread) {
-      throw new Error("Rollback did not return updated thread state.");
+      throw new Error("Revert did not return updated thread state.");
     }
-    return { thread: extractThreadRecord(raw.thread) };
+    return { thread: extractThreadRecord(raw.thread), turnsBackwardsCursor: asString(raw.turnsBackwardsCursor), itemsBackwardsCursor: asString(raw.itemsBackwardsCursor) };
   }
 
   async readAccountRateLimits(): Promise<AccountRateLimitsResponse> {

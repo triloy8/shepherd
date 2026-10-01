@@ -8,7 +8,7 @@ const readMethods = [
 const controlMethods = [
   "getThreadEffort", "setThreadEffort", "writeSkillConfig", "setThreadModel",
   "readAccountRateLimits", "readThreadTokenUsage", "setThreadName", "readThread",
-  "archiveThread", "unarchiveThread", "rollbackThread", "compactThread", "interruptTurn",
+  "archiveThread", "unarchiveThread", "revertThread", "compactThread", "interruptTurn",
 ] as const;
 
 export type ConversationReads = Pick<ConversationService, typeof readMethods[number]>;

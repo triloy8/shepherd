@@ -184,12 +184,14 @@ export interface CompactThreadResponse {
   ok: true;
 }
 
-export interface RollbackThreadRequest {
-  numTurns: number;
+export interface RevertThreadRequest {
+  beforeTurnId: string;
 }
 
-export interface RollbackThreadResponse {
+export interface RevertThreadResponse {
   thread: ThreadRecord;
+  turnsBackwardsCursor: string | null;
+  itemsBackwardsCursor: string | null;
 }
 
 export interface ThreadRecord {

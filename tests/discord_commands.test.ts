@@ -205,7 +205,7 @@ function makeContext(overrides?: {
       async unarchiveThread() {
         return { ok: true };
       },
-      async rollbackThread(threadId: string) {
+      async revertThread(threadId: string) {
         return { thread: { id: threadId } };
       },
       async compactThread() {
@@ -392,7 +392,7 @@ describe("Discord !skill commands", () => {
 
     const embed = replyCardAt(replies);
     expect(embed.title).toBe("Shepherd commands");
-    expect(embed.description).toContain("- !rollback <numTurns> [id]");
+    expect(embed.description).not.toContain("!rollback");
   });
 
   test("renders context telemetry as a structured Components V2 card", async () => {
@@ -632,6 +632,21 @@ describe("Discord !skill commands", () => {
     });
   });
 
+  test("retired rollback never invokes history mutation or forwards agent input", async () => {
+    const { context } = makeContext();
+    let mutations = 0;
+    context.conversation.revertThread = async () => { mutations++; throw new Error("Must not invoke revert from Discord"); };
+    for (const command of ["!rollback", "!rollback 2 thread-1", "!rollback invalid"]) {
+      const { message, replies } = makeMessage(command);
+      expect(await handleMessage(message as never, context)).toEqual({ handled: true, threadId: null, input: null });
+      const card = replyCardAt(replies);
+      expect(card.title).toBe("Rollback retired");
+      expect(card.description).toContain("web UI");
+      expect(card.description).toContain("Revert from here");
+    }
+    expect(mutations).toBe(0);
+  });
+
   test("renders thread state changes as Components V2 cards", async () => {
     const { context } = makeContext({
       getThreadState(threadId) {
@@ -645,7 +660,7 @@ describe("Discord !skill commands", () => {
     });
     const cases = [
       ["!threadname Release prep", "Thread renamed"],
-      ["!rollback 1 thread-1", "Thread rolled back"],
+      ["!rollback 1 thread-1", "Rollback retired"],
       ["!compact thread-1", "Compaction started"],
       ["!interrupt", "Interrupt requested"],
       ["!archive thread-1", "Thread archived"],

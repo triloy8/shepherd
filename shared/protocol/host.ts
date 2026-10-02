@@ -1,4 +1,9 @@
 /** Host controls are independent of conversation handles and surface rendering. */
+export type WebHostBattery = {
+  percentage: number;
+  status: "charging" | "discharging" | "full" | "not-charging" | "unknown";
+};
+export type WebHostBatteryResponse = { battery: WebHostBattery | null };
 export type WebHostOperation = {
   id: string;
   action: "restart" | "deploy";

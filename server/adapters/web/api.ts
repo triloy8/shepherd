@@ -1,6 +1,7 @@
 import { presentHistoryItem } from "./history.js";
 import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import { WebHostControls } from "./host_controls.js";
+import { readHostBattery } from "./host_battery.js";
 import { webControl } from "./controls.js";
 import { WebImages } from "./images.js";
 import { randomUUID } from "node:crypto";
@@ -114,6 +115,7 @@ export class WebSurfaceApi {
     try {
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true, apiVersion: WEB_API_VERSION });
       if (url.pathname === `${WEB_API_PREFIX}/host` && request.method === "GET") return json(200, await this.host.status());
+      if (url.pathname === `${WEB_API_PREFIX}/host/battery` && request.method === "GET") return json(200, { battery: await readHostBattery() });
       if (url.pathname === `${WEB_API_PREFIX}/host/actions` && request.method === "POST") {
         const data = await body(request, ["requestId", "action", "branch"]);
         const requestId = requiredString(data, "requestId", 100);

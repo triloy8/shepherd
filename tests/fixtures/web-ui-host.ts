@@ -16,6 +16,8 @@ const imageDir = await mkdtemp(join(tmpdir(), "shepherd-ui-fixture-"));
 const imagePath = join(imageDir, "generated.png");
 await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64"));
 // Named local files used by the browser attachment tests.
+const viewedImagePath = join(imageDir, "desktop-screenshot.png");
+await writeFile(viewedImagePath, await readFile(process.env.UI_TEST_SCREENSHOT ?? imagePath));
 const uploadDir = join(tmpdir(), "shepherd-image-input-fixtures");
 await mkdir(uploadDir, { recursive: true });
 for (const name of ["first.png", "second.png", "only.png", "2.png", "3.png", "4.png", "5.png"]) await writeFile(join(uploadDir, name), await readFile(imagePath));
@@ -84,6 +86,13 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     if (!h.active.get(threadId)) return;
     turn.items.push({ id: itemId, type: "agentMessage", phase: "final_answer", text: response });
     publish(threadId, "turn.message.completed", { itemId, turnId, phase: "final_answer", text: response });
+    if (text.includes("view screenshot")) {
+      const image = { id: `view-${sequence}`, type: "imageView", path: viewedImagePath };
+      turn.items.push(image);
+      publish(threadId, "turn.activity", { itemId: image.id, turnId, kind: "image", label: "Viewing image", detail: image.path, status: "started" });
+      publish(threadId, "turn.image.viewed", { itemId: image.id, turnId, path: image.path });
+      publish(threadId, "turn.activity", { itemId: image.id, turnId, kind: "image", label: "Viewing image", detail: image.path, status: "completed" });
+    }
     if (text.includes("parity")) {
       const tool = { id: `tool-${sequence}`, type: "commandExecution", command: "bun test", status: "failed" };
       turn.items.push(tool);

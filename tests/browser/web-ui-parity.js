@@ -24,7 +24,7 @@ async (page) => {
   if (await page.getByText('I’ll check the project first.', { exact: true }).isVisible()) throw Error('Reload failed to fold progress');
   await page.route('**/images/*', route => route.fulfill({ status: 422, json: { error: { code: 'image_unavailable' } } }));
   await page.reload();
-  await page.getByText('Generated image unavailable. Reload the conversation to retry.', { exact: true }).waitFor();
+  await page.getByText('Image unavailable. Reload the conversation to retry.', { exact: true }).waitFor();
   await page.unroute('**/images/*');
   await page.reload();
   await page.getByRole('img', { name: 'Fixture image' }).waitFor();

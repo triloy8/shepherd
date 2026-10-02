@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   extractCompletedAgentMessage,
   extractGeneratedImageArtifact,
+  extractViewedImageArtifact,
   mapTurnActivity,
 } from "../server/core/codex_rpc_mapper.js";
 
@@ -15,6 +16,14 @@ function params(item: Record<string, unknown>) {
 }
 
 describe("Codex RPC activity mapping", () => {
+  test("extracts real imageView items and rejects missing or unsuccessful artifacts", () => {
+    const item = { type: "imageView", id: "exec-screenshot", path: "/tmp/desktop-conversation.png" };
+    expect(extractViewedImageArtifact(params(item))).toEqual({ itemId: item.id, turnId: "turn-1", path: item.path });
+    expect(extractViewedImageArtifact(params({ ...item, status: "completed" }))).not.toBeNull();
+    for (const changed of [{ type: "commandExecution" }, { id: "" }, { path: "" }, { path: null }, { status: "inProgress" }, { status: "failed" }, { status: "cancelled" }]) {
+      expect(extractViewedImageArtifact(params({ ...item, ...changed }))).toBeNull();
+    }
+  });
   test("normalizes command, file, MCP, dynamic, and web activity", () => {
     expect(
       mapTurnActivity(

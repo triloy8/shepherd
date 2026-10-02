@@ -91,6 +91,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Copy assistant response button | Client | Yes | Web copies response text |
 | Dedicated per-code-block copy | Client | No | No custom web code toolbar |
 | Generated image display | Yes — attachment delivery | Yes — scoped image viewer | Shared artifact handling; different delivery |
+| Viewed image display (including screenshots) | Activity only | Yes — scoped image viewer, live and from history | Requires a completed provider `imageView` item with a readable local file |
 | Input image previews in transcript | Client for original attachment | Yes — bounded valid inline images | Unavailable images get a placeholder |
 | Per-conversation transcript | Partial — channel messages may span several conversations | Yes | Native web history workflow |
 | Read earlier stored turns | Yes — `!history [thread-id]` | Yes — Load earlier messages | Same need, different presentation |
@@ -103,7 +104,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 
 Sources: [Discord event presentation](../server/adapters/discord/thread_event_handler.ts),
 [activity mapping](../server/core/codex_rpc_mapper.ts), [web timeline](../ui/src/components/Timeline.tsx),
-[web messages](../ui/src/components/Message.tsx), [web images](../ui/src/components/GeneratedImage.tsx),
+[web messages](../ui/src/components/Message.tsx), [web images](../ui/src/components/ImageArtifact.tsx),
 [Discord signal notices](../server/adapters/discord/signal_notice.ts),
 [web conversation controller](../ui/src/use-conversation.ts).
 

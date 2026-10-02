@@ -175,12 +175,21 @@ validation, concurrent mutations, replay/backpressure, real loopback sockets,
 shared host operation and pending-session cleanup. Live Codex credentials and a
 remote tailnet connection are not required by these automated tests.
 
-## Turn activity and generated images
+## Turn activity and images
 
 History items may include `webActivity` (the shared normalized activity payload)
-or `webImage: { url, prompt }`. Generated-image SSE events include the same scoped
-asset URL as `payload.url`. The browser uses these fields for the work timeline
-and image previews; it does not request files by filesystem path.
+or `webImage: { url, prompt, name }`. Generated-image and viewed-image SSE events
+(`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
+as `payload.url` and the file basename as `payload.name`. The browser uses these
+fields for the work timeline and image previews; it does not request files by
+filesystem path.
+
+Completed Codex `imageView` items expose the existing local image, including
+Playwright screenshots opened with `view_image`. These images stay visible outside
+collapsed progress and can be opened at full size. Reloading history restores the
+image card while its source file remains available. Failed or unfinished view
+items remain activity only; inspecting an image makes it visible to the web user.
+Generated images retain their prompt captions; viewed images use their filenames.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a
 provider image event or that conversation's stored history. IDs are opaque and

@@ -2,13 +2,13 @@ import { useState } from "react";
 import { RevertDialog } from "./RevertDialog";
 import type { ChatMessage, ChatState } from "../chat-state";
 import { timelineGroups } from "../timeline";
-import { GeneratedImage } from "./GeneratedImage";
+import { ImageArtifact } from "./ImageArtifact";
 import { Message } from "./Message";
 
 export function Timeline({ chat, revertDisabled = true, onRevert, onReload }: { chat: ChatState; revertDisabled?: boolean; onRevert?: (turnId: string) => Promise<void>; onReload?: () => Promise<void> }) {
   const [target, setTarget] = useState<ChatMessage | null>(null);
   return <><div className="space-y-8">{timelineGroups(chat).map((group) => {
-    if (group.messages[0]!.image) return <GeneratedImage key={group.id} image={group.messages[0]!.image!} />;
+    if (group.messages[0]!.image) return <ImageArtifact key={group.id} image={group.messages[0]!.image!} />;
     if (group.messages[0]!.role === "user") return <Message key={group.id} message={group.messages[0]!} revertDisabled={revertDisabled} onRevert={onRevert ? () => setTarget(group.messages[0]!) : undefined} />;
     const progress = group.messages.filter((message) => !group.finalIds.includes(message.id));
     const finals = group.messages.filter((message) => group.finalIds.includes(message.id));

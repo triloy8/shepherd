@@ -1,4 +1,4 @@
-# 🐕 Shepherd 🐑
+<h1 align="center">🐕 Shepherd 🐑</h1>
 
 Shepherd runs Codex conversations through Discord and a private web UI.
 Both surfaces use the same core for workspaces, conversation routing, approvals,

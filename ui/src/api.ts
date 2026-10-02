@@ -1,4 +1,4 @@
-import type { WebHostAction, WebHostOperation, WebHostStatus } from "../../shared/protocol/host";
+import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
 import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse } from "../../shared/protocol/web";
 import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
 
@@ -23,6 +23,7 @@ const conversationPath = (id: string) => `/conversations/${encodeURIComponent(id
 const page = (cursor?: string) => `?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
 export const api = {
   host: (signal?: AbortSignal) => request<WebHostStatus>("/host", "GET", undefined, signal),
+  hostBattery: (signal?: AbortSignal) => request<WebHostBatteryResponse>("/host/battery", "GET", undefined, signal),
   hostAction: (input: WebHostAction) => request<WebHostOperation>("/host/actions", "POST", input),
   compact: (id: string) => request(`${conversationPath(id)}/compact`, "POST", {}),
   revert: (id: string, beforeTurnId: string) => request(`${conversationPath(id)}/revert`, "POST", { beforeTurnId }),

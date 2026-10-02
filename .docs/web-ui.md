@@ -275,6 +275,11 @@ and detach are in the same menu. Arrow keys, Home/End, Enter, and Escape work in
 menu; dialogs return focus to the opener. The desktop sidebar can collapse. On
 mobile, the navigation drawer traps focus and hides the transcript from interaction.
 Host controls are in the sidebar footer, including when no conversation is selected.
+The top bar shows the host battery percentage and charging indicator on Linux/Android
+hosts with a readable system battery. It refreshes every 30 seconds while visible
+and when returning to the page. Low discharging batteries (20% or less) appear in
+amber; unavailable readings are hidden. The tooltip and accessible label identify
+this as the host battery, rather than the browser device's battery.
 
 The composer floats over the transcript with inset edges and a subtle bottom fade.
 It starts at one line, grows with the draft, and scrolls internally at its height

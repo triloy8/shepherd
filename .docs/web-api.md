@@ -279,6 +279,14 @@ recovery. The revision is navigation state, not persistent conversation metadata
 
 ### Host lifecycle controls
 
+`GET /api/v1/host/battery` returns `WebHostBatteryResponse`: `{ battery: { percentage,
+status } }`, or `{ battery: null }` when no system battery can be read. Percentage
+is an integer from 0 to 100; status is `charging`, `discharging`, `full`,
+`not-charging`, or `unknown`. This reads the Shepherd host's Linux/Android sysfs
+power supplies, excludes supplies marked with Device scope, and requires neither
+a conversation nor lifecycle controls. It follows the same origin checks as other
+API routes.
+
 `GET /api/v1/host` returns `WebHostStatus`: web instance identity/start time, lifecycle
 availability, the commit captured at host startup, current checkout status, and the
 latest web-requested operation. Running and checkout commits can differ while a

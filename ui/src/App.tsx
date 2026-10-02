@@ -1,5 +1,6 @@
 import type { DraftImage } from "./image-input";
 import { HostControls } from "./components/HostControls";
+import { HostBattery } from "./components/HostBattery";
 import { ConversationMenu } from "./components/ConversationMenu";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { StoredThreadSummary } from "../../shared/protocol/requests";
@@ -259,6 +260,7 @@ export default function App() {
       <header className="main-header">
         <button ref={sidebarTrigger} className="icon-button" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
         <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium" title={selected ? title : "Workspace"}>{selected ? title : "Workspace"}</h1></div>
+        <HostBattery />
         {selected && <ConversationMenu key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} activeTurnId={controller.chat.activeTurnId} detaching={detaching || controller.busy} onDetach={() => void detach()}
           onHistoryChange={controller.refresh}
           onRename={(name) => { setNames((current) => ({ ...current, [selected.threadId]: name })); setThreads((items) => items.map((item) => item.threadId === selected.threadId ? { ...item, name } : item)); void refreshList(); }}

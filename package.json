@@ -30,6 +30,8 @@
     "vite": "^7.3.0",
     "@vitejs/plugin-react": "^5.1.0",
     "tailwindcss": "^4.1.0",
-    "@tailwindcss/vite": "^4.1.0"
+    "@tailwindcss/vite": "^4.1.0",
+    "micromark-util-types": "2.0.2",
+    "unified": "^11.0.5"
   }
 }

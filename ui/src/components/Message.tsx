@@ -2,7 +2,7 @@ import { imageDataParts } from "../../../shared/protocol/image_input";
 import { createContext, memo, useContext, useId, useState, type MouseEvent } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
+import remarkChatMath from "../remark-chat-math";
 import rehypeKatex from "rehype-katex";
 import type { ChatMessage } from "../chat-state";
 import { Icon } from "./Icon";
@@ -74,7 +74,7 @@ export function Message({ message, images = [], progress = false, showAuthor = t
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
-      : <MessageImages.Provider value={images}><FootnotePrefix.Provider value={footnotePrefix}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}
+      : <MessageImages.Provider value={images}><FootnotePrefix.Provider value={footnotePrefix}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkChatMath]} rehypePlugins={[rehypeKatex]}
         remarkRehypeOptions={{ clobberPrefix: footnotePrefix, footnoteBackContent: "↩\uFE0E" }} components={markdownComponents}>{message.text}</Markdown></div></FootnotePrefix.Provider></MessageImages.Provider>}
     {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {

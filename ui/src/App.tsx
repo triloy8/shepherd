@@ -286,7 +286,7 @@ export default function App() {
         <div ref={composerRef} className="composer-area"><div className="composer-dock">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
           {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); void openThread(selected.threadId, true); }}>Resume conversation</button>}
-          <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))} draft={drafts[selected.threadId] ?? ""} onDraft={(value) => setDrafts((all) => ({ ...all, [selected.threadId]: value }))} send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
+          <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))} draft={drafts[selected.threadId] ?? ""} onDraft={(update) => setDrafts((all) => ({ ...all, [selected.threadId]: typeof update === "function" ? update(all[selected.threadId] ?? "") : update }))} send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
         </div></div>
       </section>}
     </main>

@@ -110,13 +110,18 @@ test("stale turn completion and activity cannot clear a newer active turn", () =
   }
 });
 
-test("tool lifecycle updates one entry and keeps failures outside collapsed work", () => {
+test("a failed tool step does not prevent completed work from collapsing", () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
   state = reduceBridge(state, event("tool1", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "started" }));
   state = reduceBridge(state, event("tool2", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "failed" }));
   expect(state.messages).toHaveLength(1);
   state.activeTurnId = null; state.turns.turn = { status: "completed", durationMs: 1 };
-  expect(render(state)).toContain("Failed"); expect(render(state)).not.toContain("progress-disclosure");
+  const html = render(state);
+  expect(html).toContain("Failed");
+  expect(html).toContain("progress-disclosure");
+  expect(html).toContain("1 failed step");
+  expect(html).not.toContain(" open=");
+  expect(html.indexOf("1 failed step")).toBeLessThan(html.indexOf("</summary>"));
 });
 
 test("tool history survives reload and is not mistaken for a final answer", () => {

@@ -177,6 +177,10 @@ remote tailnet connection are not required by these automated tests.
 
 ## Turn activity and images
 
+Completed work remains collapsible even when a tool step failed. The work summary
+shows the number of failed steps; expand it to inspect their details. Failed or
+interrupted turns themselves retain expanded progress.
+
 History items may include `webActivity` (the shared normalized activity payload)
 or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
 (`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL

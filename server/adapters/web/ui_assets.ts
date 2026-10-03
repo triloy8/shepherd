@@ -16,7 +16,10 @@ export async function loadUiAssets(): Promise<UiAssets> {
   }
   const root = fileURLToPath(new URL("../../../ui/dist/", import.meta.url));
   const assets: UiAssets = new Map();
-  const mime: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml" };
+  const mime: Record<string, string> = {
+    ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml",
+    ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".otf": "font/otf",
+  };
   async function walk(directory: string) {
     for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
       const name = path.posix.join(directory, entry.name);

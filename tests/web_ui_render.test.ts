@@ -45,6 +45,23 @@ test("assistant Markdown supports tables, task lists, strikethrough and footnote
   expect(html).toContain('class="katex"');
 });
 
+test("footnotes have distinct targets and accessible labels in every message", () => {
+  const message = { id: "first", turnId: "turn", role: "assistant" as const, complete: true, text: "A note[^1].\n\n[^1]: Details." };
+  const html = renderToStaticMarkup(createElement("div", null,
+    createElement(Message, { message }),
+    createElement(Message, { message: { ...message, id: "second" } }),
+  ));
+  const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]!);
+  expect(new Set(ids).size).toBe(ids.length);
+  const refs = [...html.matchAll(/href="#([^"]+)"/g)].map((match) => match[1]!);
+  expect(refs).toHaveLength(4);
+  for (const ref of refs) expect(ids).toContain(ref);
+  const labels = [...html.matchAll(/aria-describedby="([^"]+)"/g)].map((match) => match[1]!);
+  expect(new Set(labels).size).toBe(2);
+  for (const label of labels) expect(ids).toContain(label);
+  expect(html).toContain("↩\uFE0E");
+});
+
 test("assistant Markdown embeds and links only known image artifacts", () => {
   const image: WebImage = { url: "/api/v1/conversations/abc/images/def", path: "/tmp/desktop screenshot.png", name: "desktop screenshot.png", prompt: null };
   const render = (text: string, images = [image]) => renderToStaticMarkup(createElement(Message, { images, message: {

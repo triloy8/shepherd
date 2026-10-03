@@ -195,7 +195,10 @@ with completed work. Expand **Viewed image** to inspect them at full size.
 Images explicitly embedded in assistant answers stay visible. Reloading history
 restores the same behavior while source files remain available. Failed or unfinished view
 items remain activity only; inspecting an image makes it visible to the web user.
-Generated images retain their prompt captions; viewed images use their filenames.
+Generated images appear immediately as assistant output, grouped with the following
+final text under one Shepherd author label. Generation prompts live under a closed
+**Generation details** disclosure. This also supports image-only responses and
+history reload. Viewed work images use their filenames.
 
 Assistant answers can embed registered images with Markdown, for example
 `![Desktop view](/absolute/path/to/screenshot.png)`. The renderer resolves the exact

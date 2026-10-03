@@ -2,7 +2,7 @@ import type { WebImage } from "../../../shared/protocol/web";
 import { useState } from "react";
 import { isImageAssetUrl } from "../image-artifacts";
 
-export function ImageArtifact({ image, inline = false, alt }: { image: WebImage; inline?: boolean; alt?: string }) {
+export function ImageArtifact({ image, inline = false, alt, collapsePrompt = false }: { image: WebImage; inline?: boolean; alt?: string; collapsePrompt?: boolean }) {
   const [failed, setFailed] = useState(false);
   // Only the API's conversation-scoped asset route may cause a browser fetch.
   const safe = isImageAssetUrl(image.url);
@@ -14,6 +14,8 @@ export function ImageArtifact({ image, inline = false, alt }: { image: WebImage;
     <a href={image.url} target="_blank" rel="noopener noreferrer" aria-label={image.name ? `Open image: ${image.name}` : "Open image"}>
       <img src={image.url} alt={caption || "Image"} loading="lazy" onError={() => setFailed(true)} className="max-h-96 max-w-full rounded-xl border border-line object-contain" />
     </a>
-    {caption && <Caption className="text-xs text-muted">{caption}</Caption>}
+    {collapsePrompt && image.prompt && !inline ? <details className="generation-details text-xs text-muted">
+      <summary className="cursor-pointer">Generation details</summary><p className="mt-2 whitespace-pre-wrap">{image.prompt}</p>
+    </details> : caption && <Caption className="text-xs text-muted">{caption}</Caption>}
   </Container>;
 }

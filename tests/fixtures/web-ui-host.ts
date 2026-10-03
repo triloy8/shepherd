@@ -18,6 +18,8 @@ await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1
 // Named local files used by the browser attachment tests.
 const viewedImagePath = join(imageDir, "desktop-screenshot.png");
 await writeFile(viewedImagePath, await readFile(process.env.UI_TEST_SCREENSHOT ?? imagePath));
+const generatedImagePath = join(imageDir, "unicorn.png");
+await writeFile(generatedImagePath, await readFile(process.env.UI_TEST_GENERATED_IMAGE ?? imagePath));
 const uploadDir = join(tmpdir(), "shepherd-image-input-fixtures");
 await mkdir(uploadDir, { recursive: true });
 for (const name of ["first.png", "second.png", "only.png", "2.png", "3.png", "4.png", "5.png"]) await writeFile(join(uploadDir, name), await readFile(imagePath));
@@ -80,10 +82,17 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   const progress = { id: `progress-${sequence}`, type: "agentMessage", phase: "commentary", text: "I’ll check the project first." };
   turn.items.push(progress);
   publish(threadId, "turn.message.completed", { itemId: progress.id, turnId, phase: progress.phase, text: progress.text });
-  const response = text.includes("answer screenshot")
+  const response = text.includes("generate unicorn") ? "Your unicorn is ready." : text.includes("answer screenshot")
     ? `Here is the desktop view:\n\n![Desktop view](${viewedImagePath})\n\n[Open the original screenshot](${viewedImagePath})`
     : "Let’s make it happen.\n\nI’ll keep the UI connected to the same shared core, with a clear path back to your conversation if the connection drops.\n\n```ts\nconst surface = \"web\";\n```";
-  later(120, () => { if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { method: "item/agentMessage/delta", itemId, turnId, phase: "final_answer", textDelta: "Let’s make it happen." }); });
+  later(120, () => {
+    if (h.active.get(threadId) !== turnId) return;
+    if (text.includes("generate unicorn")) {
+      const image = { id: `generated-${sequence}`, type: "imageGeneration", status: "completed", savedPath: generatedImagePath, revisedPrompt: "A white unicorn in an enchanted meadow" };
+      turn.items.push(image);
+      publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: image.savedPath, revisedPrompt: image.revisedPrompt });
+    } else publish(threadId, "turn.stream.delta", { method: "item/agentMessage/delta", itemId, turnId, phase: "final_answer", textDelta: "Let’s make it happen." });
+  });
   later(650, () => {
     if (!h.active.get(threadId)) return;
     turn.items.push({ id: itemId, type: "agentMessage", phase: "final_answer", text: response });

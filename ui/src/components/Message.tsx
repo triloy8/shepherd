@@ -13,11 +13,11 @@ const AttachedImage = memo(function AttachedImage({ url, index }: { url: string;
   return <img src={url} alt={`Attached image ${index + 1}`} loading="lazy" onError={() => setFailedUrl(url)} className="mb-3 max-h-96 max-w-full rounded-lg border border-line object-contain" />;
 });
 
-export function Message({ message, images = [], progress = false, showCopy = true, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showCopy?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
+export function Message({ message, images = [], progress = false, showAuthor = true, showCopy = true, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showAuthor?: boolean; showCopy?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   return <article className={`message ${message.role === "user" ? "message-user" : "message-assistant"}`}>
-    {!progress && <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
+    {!progress && showAuthor && <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
       {message.role === "user" && <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
       <span>{message.role === "user" ? "You" : "Shepherd"}</span>
       {!message.complete && <span className="ml-1 text-dim">Writing…</span>}

@@ -14,10 +14,11 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
   }
   for (const message of chat.messages) {
     const previous = groups.at(-1);
-    const outputImage = message.image && message.image.kind !== "viewed";
-    const previousOutputImage = previous?.messages[0]?.image && previous.messages[0].image.kind !== "viewed";
-    if (!outputImage && !previousOutputImage && message.role === "assistant" && previous?.messages[0]?.role === "assistant" &&
-      message.turnId && previous.messages[0].turnId === message.turnId && !finals.get(message.turnId)?.some((m) => m.id === previous.messages.at(-1)?.id)) previous.messages.push(message);
+    const finalTexts = finals.get(message.turnId) ?? [];
+    const followsFinal = finalTexts.some((m) => m.id === previous?.messages.at(-1)?.id);
+    const output = (message.image && message.image.kind !== "viewed") || finalTexts.some((m) => m.id === message.id);
+    if (message.role === "assistant" && previous?.messages[0]?.role === "assistant" &&
+      message.turnId && previous.messages[0].turnId === message.turnId && (!followsFinal || output)) previous.messages.push(message);
     else groups.push({ id: message.id, messages: [message], settled: false, finalIds: [], label: "Progress" });
   }
   for (const group of groups) {
@@ -28,7 +29,8 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
     // Message completion is not turn completion. Wait for canonical history
     // before folding, including on reconnect and when a turn was interrupted.
     group.settled = !active && turn?.status === "completed";
-    group.finalIds = (finals.get(first.turnId) ?? []).filter((m) => (m.phase === "final_answer" || group.settled) && group.messages.includes(m)).map((m) => m.id);
+    const finalTextIds = (finals.get(first.turnId) ?? []).filter((m) => (m.phase === "final_answer" || group.settled) && group.messages.includes(m)).map((m) => m.id);
+    group.finalIds = group.messages.filter((message) => (message.image && message.image.kind !== "viewed") || finalTextIds.includes(message.id)).map((message) => message.id);
     group.label = active ? "Working…" : turn?.status === "interrupted" ? "Interrupted work" : turn?.status === "failed" ? "Failed work" : group.settled ?
       (turn.durationMs != null ? `Worked for ${Math.max(1, Math.round(turn.durationMs / 1000))}s` : "Work completed") : "Progress";
   }

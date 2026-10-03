@@ -227,7 +227,7 @@ export default function App() {
     {drawer && <button className="drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)} />}
     <aside inert={desktop ? sidebarCollapsed : !drawer} role={!desktop && drawer ? "dialog" : "complementary"} aria-hidden={!desktop && !drawer ? true : undefined} aria-modal={!desktop && drawer ? true : undefined} ref={sidebarRef} className={`sidebar ${drawer ? "sidebar-open" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} aria-label="Conversations">
       <div className="flex h-16 shrink-0 items-center justify-between px-5">
-        <a href="/" className="flex items-center gap-2.5 font-semibold tracking-tight"><span className="text-lg">shepherd<span className="text-accent">.</span></span></a>
+        <a href="/" className="flex items-center gap-2.5 font-semibold tracking-tight"><span className="text-lg">shepherd</span></a>
         <button className="icon-button lg:hidden" aria-label="Close conversations" onClick={() => setDrawer(false)}><Icon name="close" /></button>
       </div>
       <div className="px-4"><button className="new-conversation" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); setDrawer(false); }}><Icon name="plus" /><span>New conversation</span></button></div>

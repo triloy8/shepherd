@@ -1,5 +1,5 @@
 import { imageDataParts } from "../../../shared/protocol/image_input";
-import { createContext, memo, useContext, useState } from "react";
+import { createContext, memo, useContext, useId, useState, type MouseEvent } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -12,7 +12,30 @@ import { ImageArtifact } from "./ImageArtifact";
 
 // Keep renderer identities stable so updates preserve loaded image elements.
 const MessageImages = createContext<readonly WebImage[]>([]);
+const FootnotePrefix = createContext("");
+
+function navigateFootnote(event: MouseEvent<HTMLAnchorElement>) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.currentTarget;
+  const message = link.closest(".message");
+  const scroll = link.closest<HTMLElement>(".chat-scroll");
+  const href = link.getAttribute("href");
+  if (!scroll || !href?.startsWith("#")) return;
+  const target = link.ownerDocument.getElementById(decodeURIComponent(href.slice(1)));
+  if (!target || !message?.contains(target)) return;
+  // Native fragment navigation also scrolls ancestors of the chat, displacing
+  // the fixed header/composer on mobile. Move only the conversation viewport.
+  event.preventDefault();
+  scroll.scrollTo({ top: scroll.scrollTop + target.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 16 });
+  if (!target.matches("a[href], [tabindex]")) target.tabIndex = -1;
+  target.focus({ preventScroll: true });
+}
+
 const markdownComponents: Components = {
+  h2: function MarkdownHeading({ id, node: _node, ...props }) {
+    const prefix = useContext(FootnotePrefix);
+    return <h2 {...props} id={id === "footnote-label" ? `${prefix}footnote-label` : id} />;
+  },
   table: function MarkdownTable({ children, ...props }) {
     const { node: _node, ...tableProps } = props;
     return <div className="table-scroll" role="region" aria-label="Table" tabIndex={0}><table {...tableProps}>{children}</table></div>;
@@ -23,9 +46,13 @@ const markdownComponents: Components = {
     const image = resolveImageArtifact(typeof src === "string" ? src : undefined, images);
     return image ? <ImageArtifact key={image.url} image={image} inline alt={alt} /> : <span className="text-muted">[Image: {alt || "attachment"}]</span>;
   },
-  a: function MarkdownLink({ href, children, node: _node, ...props }) {
+  a: function MarkdownLink({ href, children, node, ...props }) {
     const images = useContext(MessageImages);
-    return <a {...props} href={resolveImageArtifact(href, images)?.url ?? href} target={href?.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer">{children}</a>;
+    const prefix = useContext(FootnotePrefix);
+    const footnote = node?.properties.dataFootnoteRef !== undefined || node?.properties.dataFootnoteBackref !== undefined;
+    return <a {...props} aria-describedby={props["aria-describedby"] === "footnote-label" ? `${prefix}footnote-label` : props["aria-describedby"]}
+      href={resolveImageArtifact(href, images)?.url ?? href} target={href?.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer"
+      onClick={footnote ? navigateFootnote : undefined}>{children}</a>;
   },
 };
 
@@ -38,6 +65,7 @@ const AttachedImage = memo(function AttachedImage({ url, index }: { url: string;
 export function Message({ message, images = [], progress = false, showAuthor = true, showCopy = true, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showAuthor?: boolean; showCopy?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+  const footnotePrefix = `message-${useId()}-`;
   return <article className={`message ${message.role === "user" ? "message-user" : "message-assistant"}`}>
     {!progress && showAuthor && <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
       {message.role === "user" && <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
@@ -46,7 +74,8 @@ export function Message({ message, images = [], progress = false, showAuthor = t
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
-      : <MessageImages.Provider value={images}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={markdownComponents}>{message.text}</Markdown></div></MessageImages.Provider>}
+      : <MessageImages.Provider value={images}><FootnotePrefix.Provider value={footnotePrefix}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}
+        remarkRehypeOptions={{ clobberPrefix: footnotePrefix, footnoteBackContent: "↩\uFE0E" }} components={markdownComponents}>{message.text}</Markdown></div></FootnotePrefix.Provider></MessageImages.Provider>}
     {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {
         void navigator.clipboard.writeText(message.text).then(() => { setCopied(true); setCopyError(false); }, () => setCopyError(true));

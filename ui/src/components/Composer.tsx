@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 
 export function Composer({ draft, onDraft, images, onImages, send, disabled, busy, active, interrupt }: {
-  draft: string; onDraft: (value: string) => void; images: DraftImage[]; onImages: (update: (current: DraftImage[]) => DraftImage[]) => void; send: (text: string, images: string[]) => Promise<boolean>;
+  draft: string; onDraft: (update: string | ((current: string) => string)) => void; images: DraftImage[]; onImages: (update: (current: DraftImage[]) => DraftImage[]) => void; send: (text: string, images: string[]) => Promise<boolean>;
   disabled: boolean; busy: boolean; active: boolean; interrupt: () => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
@@ -31,18 +31,25 @@ export function Composer({ draft, onDraft, images, onImages, send, disabled, bus
   const [reading, setReading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   async function addFiles(files: File[]) {
-    if (!files.length || readingRef.current || sending) return;
+    if (!files.length || readingRef.current || sendingRef.current) return;
     readingRef.current = true; setReading(true); setImageError(null);
     try { const added = await readDraftImages(files, images); if (mounted.current) onImages((current) => [...current, ...added]); }
     catch (error) { setImageError(error instanceof Error ? error.message : "Could not read image."); }
     finally { readingRef.current = false; setReading(false); }
   }
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   async function submit() {
-    if ((!draft.trim() && !images.length) || disabled || busy || sending || readingRef.current) return;
+    if ((!draft.trim() && !images.length) || disabled || busy || sendingRef.current || readingRef.current) return;
     const value = draft;
-    setSending(true);
-    try { if (await send(value, images.map((image) => image.url))) { onDraft(""); onImages((current) => current.filter((image) => !images.some((sent) => sent.id === image.id))); setImageError(null); } } finally { setSending(false); }
+    sendingRef.current = true; setSending(true);
+    try {
+      if (await send(value, images.map((image) => image.url))) {
+        onDraft((current) => current === value ? "" : current);
+        onImages((current) => current.filter((image) => !images.some((sent) => sent.id === image.id)));
+        if (mounted.current) setImageError(null);
+      }
+    } finally { sendingRef.current = false; if (mounted.current) setSending(false); }
   }
   return <form className="composer" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={(event) => { const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); void addFiles(files); } }} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <input ref={picker} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp" aria-label="Choose images" className="sr-only" disabled={sending || reading} onChange={(event) => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />

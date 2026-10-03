@@ -20,6 +20,7 @@ export function useConversation(conversation: WebConversation | null) {
   const [busy, setBusy] = useState(false);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [stateId, setStateId] = useState(conversation?.id);
   const refreshRef = useRef<() => Promise<boolean>>(async () => false);
   const identity = useRef(conversation?.id);
   identity.current = conversation?.id;
@@ -29,6 +30,7 @@ export function useConversation(conversation: WebConversation | null) {
   const historyExpanded = useRef(false);
 
   useEffect(() => {
+    setStateId(conversation?.id);
     historyEpoch.current++; historyRevision.current = null;
     setChat(emptyChat()); setApprovals([]); setError(null); setHistoryCursor(null);
     setConnection("connecting"); setBusy(false); actionRef.current = false;
@@ -36,15 +38,17 @@ export function useConversation(conversation: WebConversation | null) {
     if (!conversation) { refreshRef.current = async () => false; return; }
     const id = conversation.id;
     const abort = new AbortController();
+    const current = () => !abort.signal.aborted && identity.current === id;
     let cursor: string | null = null;
     let transport: AbortController | undefined;
-    const offline = () => { transport?.abort(); setConnection("reconnecting"); };
+    const offline = () => { if (!current()) return; transport?.abort(); setConnection("reconnecting"); };
     window.addEventListener("offline", offline);
     let snapshot: Promise<boolean> | null = null;
     let refreshAgain = false;
     let turnRevision = 0;
     let scheduled: ReturnType<typeof setTimeout> | undefined;
     const missing = (error: unknown) => {
+      if (!current()) return false;
       if (error instanceof ApiError && error.code === "conversation_not_found") {
         setConnection("detached"); setError(explainError(error)); abort.abort(); return true;
       }
@@ -53,6 +57,7 @@ export function useConversation(conversation: WebConversation | null) {
     // A caller awaiting recovery must wait through stale snapshots too, rather
     // than returning while a replacement refresh is still running in the background.
     const refresh = (): Promise<boolean> => {
+      if (!current()) return Promise.resolve(false);
       if (snapshot) { refreshAgain = true; return snapshot; }
       return snapshot = (async () => {
         let successful = false;
@@ -65,45 +70,49 @@ export function useConversation(conversation: WebConversation | null) {
               const [state, history, pending] = await Promise.all([
                 api.state(id, abort.signal), api.history(id, undefined, abort.signal), api.approvals(id, abort.signal),
               ]);
-              if (abort.signal.aborted) return false;
+              if (!current()) return false;
               if (epoch !== historyEpoch.current) { refreshAgain = true; continue; }
               const replaced = historyRevision.current !== null && historyRevision.current !== history.revision;
               if (replaced) { historyEpoch.current++; historyExpanded.current = false; setLoadingHistory(false); }
               historyRevision.current = history.revision;
-              setChat((current) => ({ ...mergeHistory(replaced ? emptyChat() : current, history.data), activeTurnId: revision === turnRevision ? state.state.activeTurnId : current.activeTurnId }));
+              setChat((chat) => current() ? ({ ...mergeHistory(replaced ? emptyChat() : chat, history.data), activeTurnId: revision === turnRevision ? state.state.activeTurnId : chat.activeTurnId }) : chat);
               setApprovals(pending.approvals.filter((approval) => approval.status === "pending"));
               if (!historyExpanded.current) setHistoryCursor(history.nextCursor);
               successful = true;
             } catch (error) {
               successful = false;
-              if (!abort.signal.aborted) {
+              if (current()) {
                 if (error instanceof ApiError && error.code === "history_changed") refreshAgain = true;
                 else if (!missing(error)) setError(explainError(error));
               }
             }
-          } while (refreshAgain && !abort.signal.aborted);
+          } while (refreshAgain && current());
           return successful;
         } finally { snapshot = null; }
       })();
     };
     refreshRef.current = refresh;
     const soon = () => {
+      if (!current()) return;
       if (scheduled) clearTimeout(scheduled);
       scheduled = setTimeout(() => { void refresh(); }, 150);
     };
     void (async () => {
       let failures = 0;
-      while (!abort.signal.aborted) {
+      while (current()) {
         if (!navigator.onLine) { setConnection("reconnecting"); await delay(1000, abort.signal); continue; }
         transport = new AbortController();
         try {
           await streamConversation(id, cursor, AbortSignal.any([abort.signal, transport.signal]), () => {
+            if (!current()) return;
             failures = 0; setConnection("online"); void refresh();
           }, (event) => {
+            if (!current()) return;
+            if (event.type === "bridge" && event.data.threadId !== conversation.threadId) return;
             if (event.id) cursor = event.id;
             if (event.type === "bridge") {
               if (["turn.started", "turn.completed", "turn.failed"].includes(event.data.type)) turnRevision++;
-              setChat((current) => reduceBridge(current, event.data));
+              setChat((chat) => current() ? reduceBridge(chat, event.data) : chat);
               if (event.data.type.startsWith("approval.") || ["turn.started", "turn.completed", "turn.failed", "turn.message.completed"].includes(event.data.type)) soon();
             } else {
               if (event.type === "reset" && event.data.reason === "history_changed") {
@@ -114,14 +123,14 @@ export function useConversation(conversation: WebConversation | null) {
             }
           });
         } catch (error) {
-          if (abort.signal.aborted || missing(error)) break;
+          if (!current() || missing(error)) break;
           if (error instanceof ApiError && error.code === "event_cursor_expired") cursor = null;
           else if (error instanceof ApiError && error.status === 403) { setError(explainError(error)); setConnection("detached"); break; }
         }
-        if (!abort.signal.aborted) { setConnection("reconnecting"); await delay(Math.min(1000 * 2 ** failures++, 10_000), abort.signal); }
+        if (current()) { setConnection("reconnecting"); await delay(Math.min(1000 * 2 ** failures++, 10_000), abort.signal); }
       }
     })();
-    const poll = setInterval(() => { if (!abort.signal.aborted) void refresh(); }, 15_000);
+    const poll = setInterval(() => { if (current()) void refresh(); }, 15_000);
     return () => { abort.abort(); window.removeEventListener("offline", offline); clearInterval(poll); if (scheduled) clearTimeout(scheduled); };
   }, [conversation?.id]);
 
@@ -158,7 +167,11 @@ export function useConversation(conversation: WebConversation | null) {
     } catch (error) { if (identity.current === id && epoch === historyEpoch.current) setError(explainError(error)); }
     finally { if (identity.current === id && epoch === historyEpoch.current) setLoadingHistory(false); }
   }
-  return { chat, approvals, connection, error, busy, historyCursor, loadingHistory, send, loadOlder,
+  // Selection renders before effect cleanup/reset; never show the previous
+  // conversation's messages or enabled controls under the new chat's title.
+  const selected = stateId === conversation?.id;
+  return { chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
+    error: selected ? error : null, busy: selected && busy, historyCursor: selected ? historyCursor : null, loadingHistory: selected && loadingHistory, send, loadOlder,
     interrupt: () => action((id) => api.interrupt(id)),
     decide: (approvalId: string, decision: string) => action((id) => api.decide(id, approvalId, decision)),
     revert: async (beforeTurnId: string) => {

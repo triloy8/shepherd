@@ -33,6 +33,7 @@ export type BridgeEventType =
   | "turn.stream.delta"
   | "turn.message.completed"
   | "turn.image.generated"
+  | "turn.image.viewed"
   | "turn.activity"
   | "turn.notification"
   | "approval.requested"
@@ -80,6 +81,11 @@ export type TurnImageGeneratedEvent = BridgeEvent<{
   turnId: string | null;
   path: string;
   revisedPrompt: string | null;
+}>;
+export type TurnImageViewedEvent = BridgeEvent<{
+  itemId: string;
+  turnId: string | null;
+  path: string;
 }>;
 export type TurnActivityEvent = BridgeEvent<{
   itemId: string | null;

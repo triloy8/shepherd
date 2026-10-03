@@ -175,12 +175,39 @@ validation, concurrent mutations, replay/backpressure, real loopback sockets,
 shared host operation and pending-session cleanup. Live Codex credentials and a
 remote tailnet connection are not required by these automated tests.
 
-## Turn activity and generated images
+## Turn activity and images
+
+Completed work remains collapsible even when a tool step failed. The work summary
+shows the number of failed steps; expand it to inspect their details. Failed or
+interrupted turns themselves retain expanded progress.
 
 History items may include `webActivity` (the shared normalized activity payload)
-or `webImage: { url, prompt }`. Generated-image SSE events include the same scoped
-asset URL as `payload.url`. The browser uses these fields for the work timeline
-and image previews; it does not request files by filesystem path.
+or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
+(`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
+as `payload.url` and the file basename as `payload.name`. The browser uses these
+fields for the work timeline and image previews; it does not request files by
+filesystem path.
+
+Completed Codex `imageView` items expose the existing local image, including
+Playwright screenshots opened with `view_image`. Viewed images (`kind: "viewed"`)
+are work artifacts: their previews are collapsed by default while working and fold
+with completed work. Expand **Viewed image** to inspect them at full size.
+Images explicitly embedded in assistant answers stay visible. Reloading history
+restores the same behavior while source files remain available. Failed or unfinished view
+items remain activity only; inspecting an image makes it visible to the web user.
+Generated images appear immediately as assistant output, grouped with the following
+final text under one Shepherd author label. Generation prompts live under a closed
+**Generation details** disclosure. This also supports image-only responses and
+history reload. Viewed work images use their filenames.
+
+Assistant answers can embed registered images with Markdown, for example
+`![Desktop view](/absolute/path/to/screenshot.png)`. The renderer resolves the exact
+local source path (including URL-encoded paths) to its known conversation asset
+URL. Plain links to registered images resolve to the same full-size asset. Images
+remain inside the assistant message with their Markdown alt text as a caption.
+Unregistered local paths, remote images, and arbitrary asset URLs remain image
+placeholders; Markdown never registers or reads a new file. References to older
+images work when their artifact metadata is loaded in the current conversation.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a
 provider image event or that conversation's stored history. IDs are opaque and

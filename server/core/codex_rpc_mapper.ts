@@ -91,6 +91,7 @@ export type GeneratedImageArtifact = {
   path: string;
   revisedPrompt: string | null;
 };
+export type ViewedImageArtifact = Pick<GeneratedImageArtifact, "itemId" | "turnId" | "path">;
 
 export function extractCompletedAgentMessage(params: unknown): CompletedAgentMessage | null {
   const record = asRecord(params);
@@ -138,6 +139,19 @@ export function extractGeneratedImageArtifact(params: unknown): GeneratedImageAr
     path: savedPath,
     revisedPrompt: asString(item.revisedPrompt),
   };
+}
+
+export function extractViewedImageArtifact(params: unknown): ViewedImageArtifact | null {
+  const record = asRecord(params);
+  const item = asRecord(record.item);
+  if (item.type !== "imageView") return null;
+  // imageView normally has no status. Do not expose unfinished or failed history items.
+  const status = asString(item.status)?.toLowerCase() ?? "";
+  if (status && status !== "completed" && status !== "success") return null;
+  const itemId = asString(item.id);
+  const path = asString(item.path);
+  if (!itemId || !path) return null;
+  return { itemId, turnId: extractTurnId(params), path };
 }
 
 export type NormalizedTurnActivity = TurnActivityEvent["payload"];

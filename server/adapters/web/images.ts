@@ -1,11 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 import { loadGeneratedImage } from "../../core/generated_image.js";
 import { WebRequestError } from "./errors.js";
+import type { WebImage } from "../../../shared/protocol/web.js";
 
 /** Only provider-reported artifacts get URLs; clients never supply a file path. */
 export class WebImages {
   private readonly images = new Map<string, { key: string; path: string }>();
   constructor(private readonly conversationId: string) {}
+
+  present(turnId: string | null, itemId: string, path: string, prompt: string | null = null, kind?: WebImage["kind"]): WebImage {
+    return { url: this.register(turnId, itemId, path), prompt, name: basename(path), path, ...(kind ? { kind } : {}) };
+  }
 
   register(turnId: string | null, itemId: string, path: string): string {
     const key = JSON.stringify([turnId, itemId]);
@@ -28,7 +34,7 @@ export class WebImages {
       headers.set("content-security-policy", "default-src 'none'; sandbox");
       return new Response(new Uint8Array(file.attachment), { headers });
     } catch {
-      throw new WebRequestError(422, "image_unavailable", "The generated image is unavailable or unsupported.");
+      throw new WebRequestError(422, "image_unavailable", "The image is unavailable or unsupported.");
     }
   }
 }

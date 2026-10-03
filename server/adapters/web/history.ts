@@ -1,4 +1,4 @@
-import { extractGeneratedImageArtifact, mapTurnActivity } from "../../core/codex_rpc_mapper.js";
+import { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "../../core/codex_rpc_mapper.js";
 import { validImageData, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import type { WebImages } from "./images.js";
@@ -14,7 +14,9 @@ export function presentHistoryItem(item: HistoryItem, turnId: string, images: We
     }) };
   }
   const image = extractGeneratedImageArtifact({ turnId, item });
-  if (image) return { ...item, webImage: { url: images.register(turnId, image.itemId, image.path), prompt: image.revisedPrompt } };
+  if (image) return { ...item, webImage: images.present(turnId, image.itemId, image.path, image.revisedPrompt) };
+  const viewedImage = extractViewedImageArtifact({ turnId, item });
+  if (viewedImage) return { ...item, webImage: images.present(turnId, viewedImage.itemId, viewedImage.path, null, "viewed") };
   const activity = mapTurnActivity({ turnId, item }, item.status === "inProgress" ? "started" : "completed");
   return activity ? { ...item, webActivity: activity } : item;
 }

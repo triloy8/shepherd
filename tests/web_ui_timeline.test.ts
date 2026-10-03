@@ -110,13 +110,18 @@ test("stale turn completion and activity cannot clear a newer active turn", () =
   }
 });
 
-test("tool lifecycle updates one entry and keeps failures outside collapsed work", () => {
+test("a failed tool step does not prevent completed work from collapsing", () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
   state = reduceBridge(state, event("tool1", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "started" }));
   state = reduceBridge(state, event("tool2", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "failed" }));
   expect(state.messages).toHaveLength(1);
   state.activeTurnId = null; state.turns.turn = { status: "completed", durationMs: 1 };
-  expect(render(state)).toContain("Failed"); expect(render(state)).not.toContain("progress-disclosure");
+  const html = render(state);
+  expect(html).toContain("Failed");
+  expect(html).toContain("progress-disclosure");
+  expect(html).toContain("1 failed step");
+  expect(html).not.toContain(" open=");
+  expect(html.indexOf("1 failed step")).toBeLessThan(html.indexOf("</summary>"));
 });
 
 test("tool history survives reload and is not mistaken for a final answer", () => {
@@ -135,6 +140,55 @@ test("generated images stay visible, use only scoped URLs and deduplicate by ite
   expect(render(state)).toContain('<img'); expect(render(state)).not.toContain("progress-disclosure");
   state.messages[0]!.image!.url = "https://tracking.test/image.png";
   expect(render(state)).not.toContain('<img'); expect(render(state)).toContain("unavailable");
+});
+
+test("generated images and final text share one assistant response live and after reload", () => {
+  const image = { url: "/api/v1/conversations/abc/images/def", prompt: "A white unicorn in an enchanted meadow", name: "unicorn.png" };
+  let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
+  state = reduceBridge(state, event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: image.url, name: image.name, revisedPrompt: image.prompt }));
+  let html = render(state);
+  expect(html).toContain("assistant-response");
+  expect(html.indexOf("Shepherd")).toBeLessThan(html.indexOf("<img"));
+  expect(html).toContain("Generation details");
+  expect(html).not.toContain(" open=");
+  state = reduceBridge(state, event("answer", "turn.message.completed", { itemId: "answer", turnId: "turn", phase: "final_answer", text: "Your unicorn is ready." }));
+  html = render(state);
+  expect(timelineGroups(state)).toHaveLength(1);
+  expect(timelineGroups(state)[0]!.finalIds).toEqual(["image", "answer"]);
+  expect(html.match(/>Shepherd</g)).toHaveLength(1);
+  expect(html.indexOf("<img")).toBeLessThan(html.indexOf("Your unicorn is ready."));
+  const multipart = reduceBridge(state, event("answer2", "turn.message.completed", { itemId: "answer2", turnId: "turn", phase: "final_answer", text: "It has a rainbow mane." }));
+  expect(timelineGroups(multipart)).toHaveLength(1);
+  expect(render(multipart).match(/>Shepherd</g)).toHaveLength(1);
+  const history = turn();
+  history.items = [{ id: "image", type: "imageGeneration", webImage: image }, { id: "answer", type: "agentMessage", phase: "final_answer", text: "Your unicorn is ready." }];
+  state = mergeHistory(emptyChat(), [history]);
+  html = render(state);
+  expect(timelineGroups(state)).toHaveLength(1);
+  expect(html.match(/>Shepherd</g)).toHaveLength(1);
+  expect(html).not.toContain("progress-disclosure");
+  expect(html).toContain('aria-label="Copy response"');
+});
+
+test("viewed images fold with work while images embedded in final answers stay visible", () => {
+  let state = mergeHistory(emptyChat(), [turn("inProgress")]);
+  state.activeTurnId = "turn";
+  state = reduceBridge(state, event("view", "turn.image.viewed", { itemId: "view", turnId: "turn", name: "screenshot.png", path: "/tmp/screenshot.png", url: "/api/v1/conversations/abc/images/def" }));
+  let html = render(state);
+  expect(html).toContain("viewed-image-disclosure");
+  expect(html).not.toContain(" open=");
+  expect(html).not.toContain("progress-disclosure");
+  const history = turn();
+  history.items.splice(2, 0, { id: "view", type: "imageView", path: "/tmp/screenshot.png", webImage: state.messages.find((message) => message.id === "view")!.image });
+  history.items[3]!.text = "Here is the screenshot:\n\n![Final screenshot](/tmp/screenshot.png)";
+  state = reduceBridge(state, event("end", "turn.completed", { turnId: "turn" }));
+  state = mergeHistory(state, [history]);
+  html = render(state);
+  expect(html.match(/class="progress-disclosure"/g)).toHaveLength(1);
+  expect(html).not.toContain(" open=");
+  expect(html.indexOf("Viewed image · screenshot.png")).toBeLessThan(html.lastIndexOf("</details>"));
+  expect(html.indexOf('alt="Final screenshot"')).toBeGreaterThan(html.lastIndexOf("</details>"));
+  expect(timelineGroups(state).flatMap((group) => group.finalIds)).toEqual(["answer"]);
 });
 
 test("superseded and completed turns cannot restart from late events", () => {

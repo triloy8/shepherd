@@ -84,10 +84,10 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   if (event.type === "turn.started") return { ...next, endedTurns: state.activeTurnId && state.activeTurnId !== turnId ? [...new Set([...state.endedTurns, state.activeTurnId])] : state.endedTurns, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "inProgress", durationMs: null } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
   if (["turn.completed", "turn.failed"].includes(event.type)) return { ...next, endedTurns: turnId ? [...new Set([...state.endedTurns, turnId])] : state.endedTurns, messages: next.messages.map((message) => message.turnId === payload.turnId ? { ...message, complete: true } : message), activeTurnId: null, activity: null, error: event.type === "turn.failed" ? text(payload.message) || "The turn failed." : state.error };
   if (event.type === "session.error" || event.type === "session.limit.context") return { ...next, error: text(payload.message) || "The session needs attention." };
-  if (event.type === "turn.image.generated") {
+  if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {
     const id = text(payload.itemId);
     if (!id || !text(payload.url)) return next;
-    const message: ChatMessage = { id, turnId, role: "assistant", text: "", complete: true, image: { url: text(payload.url), prompt: text(payload.revisedPrompt) || null } };
+    const message: ChatMessage = { id, turnId, role: "assistant", text: "", complete: true, image: { url: text(payload.url), prompt: text(payload.revisedPrompt) || null, ...(text(payload.name) ? { name: text(payload.name) } : {}), ...(text(payload.path) ? { path: text(payload.path) } : {}), ...(event.type === "turn.image.viewed" ? { kind: "viewed" as const } : {}) } };
     const previous = state.messages.find((m) => m.id === id && m.turnId === turnId);
     return { ...next, messages: previous ? state.messages.map((m) => m === previous ? message : m) : [...state.messages, message] };
   }

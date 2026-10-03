@@ -38,6 +38,7 @@ import { EventBus } from "./event_bus.js";
 import {
   extractCompletedAgentMessage,
   extractGeneratedImageArtifact,
+  extractViewedImageArtifact,
   extractItemId,
   extractTextDelta,
   extractThreadId,
@@ -883,6 +884,10 @@ export class CodexSession {
         const generatedImage = extractGeneratedImageArtifact(params);
         if (generatedImage) {
           this.publish("turn.image.generated", threadId, generatedImage);
+        }
+        const viewedImage = extractViewedImageArtifact(params);
+        if (viewedImage) {
+          this.publish("turn.image.viewed", threadId, viewedImage);
         }
       }
 

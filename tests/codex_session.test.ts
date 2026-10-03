@@ -20,6 +20,22 @@ function internals(session: CodexSession): SessionInternals {
 }
 
 describe("CodexSession app-server contract", () => {
+  test("publishes viewed images only on successful item completion", () => {
+    const session = new CodexSession("on-request");
+    session.threadId = "thread-1";
+    session.activeTurnId = "turn-1";
+    const events: BridgeEvent[] = [];
+    session.eventBus.subscribe((event) => events.push(event), { replay: false });
+    const params = { threadId: "thread-1", turnId: "turn-1", item: { type: "imageView", id: "exec-screenshot", path: "/tmp/desktop-conversation.png" } };
+    internals(session).onNotification("item/started", params);
+    expect(events.some((event) => event.type === "turn.image.viewed")).toBe(false);
+    internals(session).onNotification("item/completed", params);
+    expect(events.filter((event) => event.type === "turn.image.viewed").map((event) => event.payload)).toEqual([
+      { itemId: params.item.id, turnId: "turn-1", path: params.item.path },
+    ]);
+    internals(session).onNotification("item/completed", { ...params, item: { ...params.item, status: "failed" } });
+    expect(events.filter((event) => event.type === "turn.image.viewed")).toHaveLength(1);
+  });
   test("uses the generated initialize and initialized envelope shapes", async () => {
     const session = new CodexSession("on-request");
     const requests: Array<{ method: string; params: unknown }> = [];

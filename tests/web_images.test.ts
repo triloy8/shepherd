@@ -4,8 +4,79 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { webHarness } from "./helpers/web_harness";
 import { WebImages } from "../server/adapters/web/images";
+import { mergeHistory, emptyChat, reduceBridge } from "../ui/src/chat-state";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Timeline } from "../ui/src/components/Timeline";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64");
+
+test("viewed screenshots reload as visible images and use the existing bounded asset route", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "web-viewed-images-"));
+  const path = join(dir, "desktop-screenshot.png");
+  const h = webHarness();
+  await writeFile(path, png);
+  h.application.conversation.listThreadTurns = async () => ({ data: [{ id: "turn", status: "completed", items: [
+    { id: "view", type: "imageView", path },
+    { id: "failed", type: "imageView", path, status: "failed" },
+    { id: "running", type: "imageView", path, status: "inProgress" },
+  ] }], nextCursor: null, backwardsCursor: null });
+  try {
+    const a = await h.create(); const b = await h.create();
+    const load = async () => (await h.request(`/conversations/${a.id}/turns`)).json();
+    const first = await load(); const reloaded = await load();
+    const image = first.data[0].items[0].webImage;
+    expect(reloaded.data[0].items[0].webImage).toEqual(image);
+    expect(image).toMatchObject({ prompt: null, name: "desktop-screenshot.png", path, kind: "viewed" });
+    expect(first.data[0].items[1].webImage).toBeUndefined();
+    expect(first.data[0].items[2].webImage).toBeUndefined();
+    const html = renderToStaticMarkup(createElement(Timeline, { chat: mergeHistory(emptyChat(), reloaded.data) }));
+    expect(html).toContain(`src="${image.url}"`);
+    expect(html).toContain('aria-label="Open image: desktop-screenshot.png"');
+    expect(html).not.toContain("Generated image");
+    const route = image.url.replace("/api/v1", "");
+    const response = await h.request(route);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
+    expect((await h.request(route.replace(a.id, b.id))).status).toBe(404);
+    expect((await h.request(route, "GET", undefined, { origin: "https://evil.test" })).status).toBe(403);
+    await writeFile(path, "<svg/>");
+    expect((await h.request(route)).status).toBe(422);
+    await writeFile(path, Buffer.alloc(10 * 1024 * 1024 + 1));
+    expect((await h.request(route)).status).toBe(422);
+    await rm(path);
+    expect((await h.request(route)).status).toBe(422);
+  } finally { h.api.dispose(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test("live viewed image events replace activity and survive replay without duplicate cards", async () => {
+  const h = webHarness(); const a = await h.create();
+  const response = await h.request(`/conversations/${a.id}/events`);
+  const reader = response.body!.getReader();
+  try {
+    await reader.read();
+    const viewed = { id: "viewed", type: "turn.image.viewed" as const, threadId: a.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { itemId: "view", turnId: "turn", path: "/tmp/desktop-screenshot.png" } };
+    h.publish(a.id, viewed);
+    const chunk = new TextDecoder().decode((await reader.read()).value);
+    const event = JSON.parse(chunk.split("\n").find((line) => line.startsWith("data:"))!.slice(5));
+    expect(event.payload.url).toMatch(/^\/api\/v1\/conversations\/[\w-]+\/images\/[\w-]+$/);
+    expect(event.payload.name).toBe("desktop-screenshot.png");
+    let state = reduceBridge(emptyChat(), { ...viewed, id: "started", type: "turn.activity", payload: { itemId: "view", turnId: "turn", kind: "image", label: "Viewing image", detail: viewed.payload.path, status: "started" } });
+    state = reduceBridge(state, event);
+    state = reduceBridge(state, { ...event, id: "replay" });
+    state = reduceBridge(state, { ...viewed, id: "finished", type: "turn.activity", payload: { itemId: "view", turnId: "turn", kind: "image", label: "Viewing image", detail: viewed.payload.path, status: "completed" } });
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.image).toMatchObject({ url: event.payload.url, name: "desktop-screenshot.png", prompt: null, path: viewed.payload.path });
+    const html = renderToStaticMarkup(createElement(Timeline, { chat: state }));
+    expect(html).toContain('<img');
+    expect(html).toContain("viewed-image-disclosure");
+    expect(html).not.toContain(" open=");
+    state = reduceBridge(state, { ...viewed, id: "answer", type: "turn.message.completed", payload: { itemId: "answer", turnId: "turn", phase: "final_answer", text: `Here is your screenshot:\n\n![Desktop view](${viewed.payload.path})` } });
+    const answerHtml = renderToStaticMarkup(createElement(Timeline, { chat: state }));
+    expect(answerHtml).toContain('alt="Desktop view"');
+    expect(answerHtml).toContain(`src="${event.payload.url}"`);
+  } finally { await reader.cancel(); h.api.dispose(); }
+});
 
 test("history exposes scoped images and shared activity mapping; image reads respect origin and detach", async () => {
   const dir = await mkdtemp(join(tmpdir(), "web-images-"));

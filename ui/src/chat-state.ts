@@ -87,7 +87,7 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {
     const id = text(payload.itemId);
     if (!id || !text(payload.url)) return next;
-    const message: ChatMessage = { id, turnId, role: "assistant", text: "", complete: true, image: { url: text(payload.url), prompt: text(payload.revisedPrompt) || null, ...(text(payload.name) ? { name: text(payload.name) } : {}) } };
+    const message: ChatMessage = { id, turnId, role: "assistant", text: "", complete: true, image: { url: text(payload.url), prompt: text(payload.revisedPrompt) || null, ...(text(payload.name) ? { name: text(payload.name) } : {}), ...(text(payload.path) ? { path: text(payload.path) } : {}) } };
     const previous = state.messages.find((m) => m.id === id && m.turnId === turnId);
     return { ...next, messages: previous ? state.messages.map((m) => m === previous ? message : m) : [...state.messages, message] };
   }

@@ -27,7 +27,7 @@ test("viewed screenshots reload as visible images and use the existing bounded a
     const first = await load(); const reloaded = await load();
     const image = first.data[0].items[0].webImage;
     expect(reloaded.data[0].items[0].webImage).toEqual(image);
-    expect(image).toMatchObject({ prompt: null, name: "desktop-screenshot.png" });
+    expect(image).toMatchObject({ prompt: null, name: "desktop-screenshot.png", path });
     expect(first.data[0].items[1].webImage).toBeUndefined();
     expect(first.data[0].items[2].webImage).toBeUndefined();
     const html = renderToStaticMarkup(createElement(Timeline, { chat: mergeHistory(emptyChat(), reloaded.data) }));
@@ -66,10 +66,14 @@ test("live viewed image events replace activity and survive replay without dupli
     state = reduceBridge(state, { ...event, id: "replay" });
     state = reduceBridge(state, { ...viewed, id: "finished", type: "turn.activity", payload: { itemId: "view", turnId: "turn", kind: "image", label: "Viewing image", detail: viewed.payload.path, status: "completed" } });
     expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.image).toMatchObject({ url: event.payload.url, name: "desktop-screenshot.png", prompt: null });
+    expect(state.messages[0]?.image).toMatchObject({ url: event.payload.url, name: "desktop-screenshot.png", prompt: null, path: viewed.payload.path });
     const html = renderToStaticMarkup(createElement(Timeline, { chat: state }));
     expect(html).toContain('<img');
     expect(html).not.toContain("progress-disclosure");
+    state = reduceBridge(state, { ...viewed, id: "answer", type: "turn.message.completed", payload: { itemId: "answer", turnId: "turn", phase: "final_answer", text: `Here is your screenshot:\n\n![Desktop view](${viewed.payload.path})` } });
+    const answerHtml = renderToStaticMarkup(createElement(Timeline, { chat: state }));
+    expect(answerHtml).toContain('alt="Desktop view"');
+    expect(answerHtml).toContain(`src="${event.payload.url}"`);
   } finally { await reader.cancel(); h.api.dispose(); }
 });
 

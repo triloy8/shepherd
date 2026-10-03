@@ -80,13 +80,15 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   const progress = { id: `progress-${sequence}`, type: "agentMessage", phase: "commentary", text: "I’ll check the project first." };
   turn.items.push(progress);
   publish(threadId, "turn.message.completed", { itemId: progress.id, turnId, phase: progress.phase, text: progress.text });
-  const response = "Let’s make it happen.\n\nI’ll keep the UI connected to the same shared core, with a clear path back to your conversation if the connection drops.\n\n```ts\nconst surface = \"web\";\n```";
+  const response = text.includes("answer screenshot")
+    ? `Here is the desktop view:\n\n![Desktop view](${viewedImagePath})\n\n[Open the original screenshot](${viewedImagePath})`
+    : "Let’s make it happen.\n\nI’ll keep the UI connected to the same shared core, with a clear path back to your conversation if the connection drops.\n\n```ts\nconst surface = \"web\";\n```";
   later(120, () => { if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { method: "item/agentMessage/delta", itemId, turnId, phase: "final_answer", textDelta: "Let’s make it happen." }); });
   later(650, () => {
     if (!h.active.get(threadId)) return;
     turn.items.push({ id: itemId, type: "agentMessage", phase: "final_answer", text: response });
     publish(threadId, "turn.message.completed", { itemId, turnId, phase: "final_answer", text: response });
-    if (text.includes("view screenshot")) {
+    if (text.includes("view screenshot") || text.includes("answer screenshot")) {
       const image = { id: `view-${sequence}`, type: "imageView", path: viewedImagePath };
       turn.items.push(image);
       publish(threadId, "turn.activity", { itemId: image.id, turnId, kind: "image", label: "Viewing image", detail: image.path, status: "started" });

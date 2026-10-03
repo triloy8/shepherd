@@ -3,6 +3,9 @@ import { memo, useState } from "react";
 import Markdown from "react-markdown";
 import type { ChatMessage } from "../chat-state";
 import { Icon } from "./Icon";
+import type { WebImage } from "../../../shared/protocol/web";
+import { resolveImageArtifact } from "../image-artifacts";
+import { ImageArtifact } from "./ImageArtifact";
 
 const AttachedImage = memo(function AttachedImage({ url, index }: { url: string; index: number }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -10,7 +13,7 @@ const AttachedImage = memo(function AttachedImage({ url, index }: { url: string;
   return <img src={url} alt={`Attached image ${index + 1}`} loading="lazy" onError={() => setFailedUrl(url)} className="mb-3 max-h-96 max-w-full rounded-lg border border-line object-contain" />;
 });
 
-export function Message({ message, progress = false, showCopy = true, onRevert, revertDisabled = false }: { message: ChatMessage; progress?: boolean; showCopy?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
+export function Message({ message, images = [], progress = false, showCopy = true, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showCopy?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   return <article className={`message ${message.role === "user" ? "message-user" : "message-assistant"}`}>
@@ -22,9 +25,12 @@ export function Message({ message, progress = false, showCopy = true, onRevert, 
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
       : <div className="prose-chat"><Markdown components={{
-        // Agent text is untrusted: no raw HTML, remote image fetches or active embeds.
-        img: ({ alt }) => <span className="text-muted">[Image: {alt || "attachment"}]</span>,
-        a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+        // Only registered conversation artifacts may turn Markdown into image requests.
+        img: ({ src, alt }) => {
+          const image = resolveImageArtifact(typeof src === "string" ? src : undefined, images);
+          return image ? <ImageArtifact key={image.url} image={image} inline alt={alt} /> : <span className="text-muted">[Image: {alt || "attachment"}]</span>;
+        },
+        a: ({ href, children }) => <a href={resolveImageArtifact(href, images)?.url ?? href} target="_blank" rel="noopener noreferrer">{children}</a>,
       }}>{message.text}</Markdown></div>}
     {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {

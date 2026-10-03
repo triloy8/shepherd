@@ -10,7 +10,7 @@ export class WebImages {
   constructor(private readonly conversationId: string) {}
 
   present(turnId: string | null, itemId: string, path: string, prompt: string | null = null): WebImage {
-    return { url: this.register(turnId, itemId, path), prompt, name: basename(path) };
+    return { url: this.register(turnId, itemId, path), prompt, name: basename(path), path };
   }
 
   register(turnId: string | null, itemId: string, path: string): string {

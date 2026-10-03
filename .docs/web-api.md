@@ -178,7 +178,7 @@ remote tailnet connection are not required by these automated tests.
 ## Turn activity and images
 
 History items may include `webActivity` (the shared normalized activity payload)
-or `webImage: { url, prompt, name }`. Generated-image and viewed-image SSE events
+or `webImage: { url, prompt, name, path }`. Generated-image and viewed-image SSE events
 (`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
 as `payload.url` and the file basename as `payload.name`. The browser uses these
 fields for the work timeline and image previews; it does not request files by
@@ -190,6 +190,15 @@ collapsed progress and can be opened at full size. Reloading history restores th
 image card while its source file remains available. Failed or unfinished view
 items remain activity only; inspecting an image makes it visible to the web user.
 Generated images retain their prompt captions; viewed images use their filenames.
+
+Assistant answers can embed registered images with Markdown, for example
+`![Desktop view](/absolute/path/to/screenshot.png)`. The renderer resolves the exact
+local source path (including URL-encoded paths) to its known conversation asset
+URL. Plain links to registered images resolve to the same full-size asset. Images
+remain inside the assistant message with their Markdown alt text as a caption.
+Unregistered local paths, remote images, and arbitrary asset URLs remain image
+placeholders; Markdown never registers or reads a new file. References to older
+images work when their artifact metadata is loaded in the current conversation.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a
 provider image event or that conversation's stored history. IDs are opaque and

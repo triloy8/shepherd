@@ -14,7 +14,9 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
   }
   for (const message of chat.messages) {
     const previous = groups.at(-1);
-    if (!message.image && !previous?.messages[0]?.image && message.role === "assistant" && previous?.messages[0]?.role === "assistant" &&
+    const outputImage = message.image && message.image.kind !== "viewed";
+    const previousOutputImage = previous?.messages[0]?.image && previous.messages[0].image.kind !== "viewed";
+    if (!outputImage && !previousOutputImage && message.role === "assistant" && previous?.messages[0]?.role === "assistant" &&
       message.turnId && previous.messages[0].turnId === message.turnId && !finals.get(message.turnId)?.some((m) => m.id === previous.messages.at(-1)?.id)) previous.messages.push(message);
     else groups.push({ id: message.id, messages: [message], settled: false, finalIds: [], label: "Progress" });
   }

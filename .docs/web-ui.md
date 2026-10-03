@@ -178,16 +178,18 @@ remote tailnet connection are not required by these automated tests.
 ## Turn activity and images
 
 History items may include `webActivity` (the shared normalized activity payload)
-or `webImage: { url, prompt, name, path }`. Generated-image and viewed-image SSE events
+or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
 (`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
 as `payload.url` and the file basename as `payload.name`. The browser uses these
 fields for the work timeline and image previews; it does not request files by
 filesystem path.
 
 Completed Codex `imageView` items expose the existing local image, including
-Playwright screenshots opened with `view_image`. These images stay visible outside
-collapsed progress and can be opened at full size. Reloading history restores the
-image card while its source file remains available. Failed or unfinished view
+Playwright screenshots opened with `view_image`. Viewed images (`kind: "viewed"`)
+are work artifacts: their previews are collapsed by default while working and fold
+with completed work. Expand **Viewed image** to inspect them at full size.
+Images explicitly embedded in assistant answers stay visible. Reloading history
+restores the same behavior while source files remain available. Failed or unfinished view
 items remain activity only; inspecting an image makes it visible to the web user.
 Generated images retain their prompt captions; viewed images use their filenames.
 

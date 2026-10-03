@@ -82,7 +82,7 @@ export class WebSurfaceApi {
       }
       if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {
         const image = event.payload as import("../../../shared/protocol/events.js").TurnImageGeneratedEvent["payload"] | import("../../../shared/protocol/events.js").TurnImageViewedEvent["payload"];
-        const presentation = entry.images.present(image.turnId, image.itemId, image.path, "revisedPrompt" in image ? image.revisedPrompt : null);
+        const presentation = entry.images.present(image.turnId, image.itemId, image.path, "revisedPrompt" in image ? image.revisedPrompt : null, event.type === "turn.image.viewed" ? "viewed" : undefined);
         entry.feed.publish("bridge", { ...event, payload: { ...image, ...presentation } });
       } else entry.feed.publish("bridge", event);
     });

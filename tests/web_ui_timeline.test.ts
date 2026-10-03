@@ -137,6 +137,27 @@ test("generated images stay visible, use only scoped URLs and deduplicate by ite
   expect(render(state)).not.toContain('<img'); expect(render(state)).toContain("unavailable");
 });
 
+test("viewed images fold with work while images embedded in final answers stay visible", () => {
+  let state = mergeHistory(emptyChat(), [turn("inProgress")]);
+  state.activeTurnId = "turn";
+  state = reduceBridge(state, event("view", "turn.image.viewed", { itemId: "view", turnId: "turn", name: "screenshot.png", path: "/tmp/screenshot.png", url: "/api/v1/conversations/abc/images/def" }));
+  let html = render(state);
+  expect(html).toContain("viewed-image-disclosure");
+  expect(html).not.toContain(" open=");
+  expect(html).not.toContain("progress-disclosure");
+  const history = turn();
+  history.items.splice(2, 0, { id: "view", type: "imageView", path: "/tmp/screenshot.png", webImage: state.messages.find((message) => message.id === "view")!.image });
+  history.items[3]!.text = "Here is the screenshot:\n\n![Final screenshot](/tmp/screenshot.png)";
+  state = reduceBridge(state, event("end", "turn.completed", { turnId: "turn" }));
+  state = mergeHistory(state, [history]);
+  html = render(state);
+  expect(html.match(/class="progress-disclosure"/g)).toHaveLength(1);
+  expect(html).not.toContain(" open=");
+  expect(html.indexOf("Viewed image · screenshot.png")).toBeLessThan(html.lastIndexOf("</details>"));
+  expect(html.indexOf('alt="Final screenshot"')).toBeGreaterThan(html.lastIndexOf("</details>"));
+  expect(timelineGroups(state).flatMap((group) => group.finalIds)).toEqual(["answer"]);
+});
+
 test("superseded and completed turns cannot restart from late events", () => {
   let state = reduceBridge(emptyChat(), event("start1", "turn.started", { turnId: "old" }));
   state = reduceBridge(state, event("start2", "turn.started", { turnId: "new" }));

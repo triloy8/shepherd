@@ -6,6 +6,11 @@ async (page) => {
   await page.getByRole('textbox', { name: 'Message Shepherd' }).fill('view screenshot');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   const image = page.getByRole('img', { name: 'desktop-screenshot.png', exact: true });
+  const expandView = async () => {
+    await page.locator('.progress-disclosure').filter({ has: page.locator('.viewed-image-disclosure') }).locator(':scope > summary').click();
+    await page.getByText('Viewed image · desktop-screenshot.png', { exact: true }).click();
+  };
+  await expandView();
   await image.waitFor();
   await page.waitForFunction(() => {
     const img = document.querySelector('img[alt="desktop-screenshot.png"]');
@@ -21,6 +26,7 @@ async (page) => {
   if (fullSize.url() !== new URL(url, page.url()).href) throw Error('Full-size image opened a different asset');
   await fullSize.close();
   await page.reload();
+  await expandView();
   await image.waitFor();
   await page.waitForFunction(() => {
     const img = document.querySelector('img[alt="desktop-screenshot.png"]');
@@ -30,9 +36,11 @@ async (page) => {
   if (await image.getAttribute('src') !== url) throw Error('History lost the screenshot asset');
   await page.route('**/images/*', route => route.fulfill({ status: 422, json: { error: { code: 'image_unavailable' } } }));
   await page.reload();
+  await expandView();
   await page.getByText('Image unavailable. Reload the conversation to retry.', { exact: true }).waitFor();
   await page.unroute('**/images/*');
   await page.reload();
+  await expandView();
   await image.waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw Error('Screenshot caused mobile overflow');

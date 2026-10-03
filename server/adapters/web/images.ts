@@ -9,8 +9,8 @@ export class WebImages {
   private readonly images = new Map<string, { key: string; path: string }>();
   constructor(private readonly conversationId: string) {}
 
-  present(turnId: string | null, itemId: string, path: string, prompt: string | null = null): WebImage {
-    return { url: this.register(turnId, itemId, path), prompt, name: basename(path), path };
+  present(turnId: string | null, itemId: string, path: string, prompt: string | null = null, kind?: WebImage["kind"]): WebImage {
+    return { url: this.register(turnId, itemId, path), prompt, name: basename(path), path, ...(kind ? { kind } : {}) };
   }
 
   register(turnId: string | null, itemId: string, path: string): string {

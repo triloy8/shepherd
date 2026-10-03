@@ -55,8 +55,10 @@ export const api = {
 export type StreamEvent = { [K in keyof WebEventData]: { id: string; type: K; data: WebEventData[K] } }[keyof WebEventData];
 
 /** SSE framing across arbitrary UTF-8/chunk/CRLF boundaries, without unbounded buffering. */
-export async function readEvents(body: ReadableStream<Uint8Array>, receive: (event: StreamEvent) => void, progress: () => void = () => {}): Promise<void> {
+export async function readEvents(body: ReadableStream<Uint8Array>, receive: (event: StreamEvent) => void, progress: () => void = () => {}, signal?: AbortSignal): Promise<void> {
   const reader = body.getReader();
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  signal?.addEventListener("abort", cancel, { once: true });
   const decoder = new TextDecoder();
   let pending = "";
   let fields: string[] = [];
@@ -76,18 +78,21 @@ export async function readEvents(body: ReadableStream<Uint8Array>, receive: (eve
     }
   }
   try {
-    while (true) {
+    while (!signal?.aborted) {
       const { done, value } = await reader.read();
-      if (done) return;
+      if (done || signal?.aborted) return;
       progress();
+      if (signal?.aborted) return;
       pending += decoder.decode(value, { stream: true });
       let newline: number;
       while ((newline = pending.indexOf("\n")) >= 0) {
+        // Switching conversations can abort while a chunk still contains events.
+        if (signal?.aborted) return;
         line(pending.slice(0, newline)); pending = pending.slice(newline + 1);
       }
       if (pending.length > 262_144) throw new Error("Event exceeds the client buffer limit.");
     }
-  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  } finally { signal?.removeEventListener("abort", cancel); await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
 export async function streamConversation(id: string, cursor: string | null, signal: AbortSignal, ready: () => void, receive: (event: StreamEvent) => void) {
@@ -95,13 +100,15 @@ export async function streamConversation(id: string, cursor: string | null, sign
   let timer: ReturnType<typeof setTimeout>;
   const heartbeat = () => { clearTimeout(timer); timer = setTimeout(() => idle.abort(), 45_000); };
   heartbeat();
+  const streamSignal = AbortSignal.any([signal, idle.signal]);
   try {
     const response = await checked(await fetch(`${WEB_API_PREFIX}${conversationPath(id)}/events`, {
-      signal: AbortSignal.any([signal, idle.signal]), credentials: "omit", cache: "no-store", headers: cursor ? { "Last-Event-ID": cursor } : {},
+      signal: streamSignal, credentials: "omit", cache: "no-store", headers: cursor ? { "Last-Event-ID": cursor } : {},
     }));
     if (!response.body) throw new Error("Event stream is unavailable.");
+    if (streamSignal.aborted) { await response.body.cancel().catch(() => {}); return; }
     ready();
-    await readEvents(response.body, receive, heartbeat);
+    await readEvents(response.body, receive, heartbeat, streamSignal);
   } finally { clearTimeout(timer!); }
 
 }

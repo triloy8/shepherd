@@ -4,6 +4,47 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Message } from "../ui/src/components/Message";
 import type { WebImage } from "../shared/protocol/web";
 
+function renderAssistantMarkdown(text: string) {
+  return renderToStaticMarkup(createElement(Message, { message: {
+    id: "markdown", turnId: "turn", role: "assistant", complete: true, text,
+  } }));
+}
+
+test("assistant Markdown renders inline and display math with accessible MathML", () => {
+  const html = renderAssistantMarkdown("Energy: $E = mc^2$.\n\n$$\n\\frac{a}{b} = \\sqrt{c}\n$$");
+  expect(html).toContain('class="katex"');
+  expect(html).toContain('class="katex-display"');
+  expect(html).toContain('<math xmlns="http://www.w3.org/1998/Math/MathML"');
+  expect(html).toContain("<mfrac>");
+  expect(html).toContain("<msqrt>");
+});
+
+test("math keeps code and escaped dollars literal and malformed formulas readable", () => {
+  const literal = renderAssistantMarkdown("`$x^2$`\n\n```tex\n$x^2$\n```\n\nPrice: \\$5.\n\nUnfinished $x^2");
+  expect(literal).not.toContain('class="katex"');
+  expect(literal).toContain("<code>$x^2$</code>");
+  expect(literal).toContain("Price: $5.");
+  expect(literal).toContain("Unfinished $x^2");
+  const invalid = renderAssistantMarkdown("$\\unknowncommand{x}$\n\nStill readable.");
+  expect(invalid).toContain("Still readable.");
+  expect(invalid).toContain("unknowncommand");
+  const untrusted = renderAssistantMarkdown("$\\href{javascript:alert(1)}{click}$\n\n$\\includegraphics{https://tracking.test/pixel.png}$");
+  expect(untrusted).not.toContain('href="javascript:');
+  expect(untrusted).not.toContain("<img");
+});
+
+test("assistant Markdown supports tables, task lists, strikethrough and footnotes", () => {
+  const html = renderAssistantMarkdown("| Name | Value |\n| --- | ---: |\n| Formula | $x^2$ |\n\n- [x] Done\n- [ ] Pending\n\n~~Old~~ and a note[^1].\n\n[^1]: Details.");
+  expect(html).toContain('class="table-scroll"');
+  expect(html).toContain("<table>");
+  expect(html).toContain('style="text-align:right"');
+  expect(html).toContain('type="checkbox"');
+  expect(html).toContain('checked=""');
+  expect(html).toContain("<del>Old</del>");
+  expect(html).toContain('data-footnotes="true"');
+  expect(html).toContain('class="katex"');
+});
+
 test("assistant Markdown embeds and links only known image artifacts", () => {
   const image: WebImage = { url: "/api/v1/conversations/abc/images/def", path: "/tmp/desktop screenshot.png", name: "desktop screenshot.png", prompt: null };
   const render = (text: string, images = [image]) => renderToStaticMarkup(createElement(Message, { images, message: {

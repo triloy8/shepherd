@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
 @theme {
   /* 4chan Tomorrow: https://s.4cdn.org/css/tomorrow.css */
   --color-canvas: #1d1f21;
@@ -71,6 +72,16 @@
   .prose-chat pre code { @apply bg-transparent p-0; }
   .prose-chat blockquote { @apply my-3 border-l-2 border-quote/50 pl-4 text-quote; }
   .prose-chat hr { @apply my-5 border-line; }
+  .prose-chat .table-scroll { @apply my-4 max-w-full overflow-x-auto rounded-lg border border-line; }
+  .prose-chat table { width: 100%; border-collapse: collapse; }
+  .prose-chat th, .prose-chat td { @apply border-b border-line px-3 py-2; min-width: 8rem; }
+  .prose-chat th { @apply bg-panel font-semibold; text-align: left; }
+  .prose-chat tr:last-child td { border-bottom: 0; }
+  .prose-chat .contains-task-list { list-style: none; padding-left: 0; }
+  .prose-chat .task-list-item input { margin-right: .5rem; accent-color: var(--color-accent); }
+  .prose-chat .katex { overflow-wrap: normal; }
+  .prose-chat .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: .5rem 0; }
+  .prose-chat .katex-display > .katex { text-align: left; }
   .composer-area { @apply pointer-events-none absolute inset-x-0 bottom-0 z-10 pb-3 pt-5; padding-bottom: var(--composer-bottom-gap, max(.75rem, env(safe-area-inset-bottom))); background: linear-gradient(to top, var(--color-canvas) 0%, color-mix(in srgb, var(--color-canvas) 94%, transparent) 40%, transparent 100%); }
   .composer-dock { @apply pointer-events-auto mx-auto w-full max-w-3xl px-3 sm:px-6; }
   .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 100px)); @apply overflow-y-auto rounded-2xl border border-line/80 bg-panel shadow-xl shadow-black/20 focus-within:border-accent/45; }

@@ -1,6 +1,9 @@
 import { imageDataParts } from "../../../shared/protocol/image_input";
 import { createContext, memo, useContext, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import type { ChatMessage } from "../chat-state";
 import { Icon } from "./Icon";
 import type { WebImage } from "../../../shared/protocol/web";
@@ -10,15 +13,19 @@ import { ImageArtifact } from "./ImageArtifact";
 // Keep renderer identities stable so updates preserve loaded image elements.
 const MessageImages = createContext<readonly WebImage[]>([]);
 const markdownComponents: Components = {
+  table: function MarkdownTable({ children, ...props }) {
+    const { node: _node, ...tableProps } = props;
+    return <div className="table-scroll" role="region" aria-label="Table" tabIndex={0}><table {...tableProps}>{children}</table></div>;
+  },
   img: function MarkdownImage({ src, alt }) {
     const images = useContext(MessageImages);
     // Only registered conversation artifacts may turn Markdown into image requests.
     const image = resolveImageArtifact(typeof src === "string" ? src : undefined, images);
     return image ? <ImageArtifact key={image.url} image={image} inline alt={alt} /> : <span className="text-muted">[Image: {alt || "attachment"}]</span>;
   },
-  a: function MarkdownLink({ href, children }) {
+  a: function MarkdownLink({ href, children, node: _node, ...props }) {
     const images = useContext(MessageImages);
-    return <a href={resolveImageArtifact(href, images)?.url ?? href} target="_blank" rel="noopener noreferrer">{children}</a>;
+    return <a {...props} href={resolveImageArtifact(href, images)?.url ?? href} target={href?.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer">{children}</a>;
   },
 };
 
@@ -39,7 +46,7 @@ export function Message({ message, images = [], progress = false, showAuthor = t
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
-      : <MessageImages.Provider value={images}><div className="prose-chat"><Markdown components={markdownComponents}>{message.text}</Markdown></div></MessageImages.Provider>}
+      : <MessageImages.Provider value={images}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={markdownComponents}>{message.text}</Markdown></div></MessageImages.Provider>}
     {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {
         void navigator.clipboard.writeText(message.text).then(() => { setCopied(true); setCopyError(false); }, () => setCopyError(true));

@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { emptyChat, mergeHistory, reduceBridge } from "../ui/src/chat-state";
-import { readEvents } from "../ui/src/api";
+import { readEvents, streamConversation } from "../ui/src/api";
 import type { BridgeEvent } from "../shared/protocol/events";
 import type { HistoryTurn } from "../shared/protocol/requests";
 const event = (id: string, type: BridgeEvent["type"], payload: unknown): BridgeEvent => ({ id, type, payload, threadId: "thread", sessionId: "session", ts: "2026-01-01T00:00:00Z" });
@@ -36,6 +36,62 @@ test("SSE parser caps unterminated input and cancels its reader", async () => {
   const body = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("x".repeat(262145))); }, cancel() { cancelled = true; } });
   await expect(readEvents(body, () => {})).rejects.toThrow("buffer limit");
   expect(cancelled).toBe(true);
+});
+
+test("switching chats discards old deltas and completions buffered in the same SSE chunk", async () => {
+  const abort = new AbortController();
+  const events = [
+    event("first", "turn.stream.delta", { method: "item/agentMessage/delta", itemId: "old-item", turnId: "old-turn", textDelta: "Old chat" }),
+    event("late-delta", "turn.stream.delta", { method: "item/agentMessage/delta", itemId: "old-item", turnId: "old-turn", textDelta: " continued" }),
+    event("late-completion", "turn.message.completed", { itemId: "old-item", turnId: "old-turn", text: "Old chat completed" }),
+  ];
+  const chunk = events.map((data) => `event: bridge\ndata: ${JSON.stringify(data)}\n\n`).join("");
+  let chat = emptyChat();
+  let received = 0;
+  let cancelled = false;
+  await readEvents(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode(chunk)); },
+    cancel() { cancelled = true; },
+  }), (message) => {
+    if (message.type !== "bridge") return;
+    received++;
+    chat = reduceBridge(chat, message.data);
+    // The user selects a new chat before the buffered chunk is exhausted.
+    abort.abort();
+    chat = emptyChat();
+  }, undefined, abort.signal);
+  expect(received).toBe(1);
+  expect(chat.messages).toEqual([]);
+  expect(cancelled).toBe(true);
+});
+
+test("aborting an idle SSE reader cancels pending reads without waiting for another chunk", async () => {
+  const abort = new AbortController();
+  let cancelled = false;
+  let received = false;
+  const pending = readEvents(new ReadableStream({ cancel() { cancelled = true; } }), () => { received = true; }, undefined, abort.signal);
+  abort.abort();
+  await pending;
+  expect(cancelled).toBe(true);
+  expect(received).toBe(false);
+});
+
+test("an old chat's delayed stream response cannot mark the new chat connected", async () => {
+  const abort = new AbortController();
+  let cancelled = false;
+  let ready = false;
+  let received = false;
+  let respond!: (response: Response) => void;
+  const fetchMock = spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>((resolve) => { respond = resolve; }));
+  try {
+    const pending = streamConversation("old-chat", null, abort.signal, () => { ready = true; }, () => { received = true; });
+    abort.abort();
+    respond(new Response(new ReadableStream({ cancel() { cancelled = true; } })));
+    await pending;
+    expect(ready).toBe(false);
+    expect(received).toBe(false);
+    expect(cancelled).toBe(true);
+  } finally { fetchMock.mockRestore(); }
 });
 
 test("history ahead of queued stream deltas is not duplicated", () => {

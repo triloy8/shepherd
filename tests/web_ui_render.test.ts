@@ -10,6 +10,34 @@ function renderAssistantMarkdown(text: string) {
   } }));
 }
 
+test("dollar prices preserve Markdown formatting instead of becoming math", () => {
+  const html = renderAssistantMarkdown("Compared with Prime’s available **40GB A100 at $1.99/h**, Runpod advertises **80GB at $1.59/h**. An account/API key would let us check actual stock, region, and the final configured price.");
+  expect(html).toContain("<strong>40GB A100 at $1.99/h</strong>");
+  expect(html).toContain("<strong>80GB at $1.59/h</strong>");
+  expect(html).not.toContain('class="katex"');
+  for (const text of ["Prices: $5, $10, and $20.", "A $5 discount and a $10 budget.", "**$5** versus **$10**", "Costs $1.99/h\nand $1.59/h.", "| GPU | Cost |\n| --- | --- |\n| A | $1.99/h |\n| B | $1.59/h |", "[Price $5](https://example.com) and $10."]) {
+    expect(renderAssistantMarkdown(text)).not.toContain('class="katex"');
+  }
+});
+
+test("currency and numeric inline math can appear together", () => {
+  const html = renderAssistantMarkdown("Costs $5 or $10. Formula: $2 + 2 = 4$ and $x^2$.\n\n$$\n\\frac{a}{b}\n$$");
+  expect(html).toContain("Costs $5 or $10.");
+  expect(html.match(/class="katex"/g)).toHaveLength(3);
+  expect(html).toContain('class="katex-display"');
+  const adjacent = renderAssistantMarkdown("A $5 discount. **Energy: $E = mc^2$**. $10 more.");
+  expect(adjacent).toContain("A $5 discount.");
+  expect(adjacent).toContain("$10 more.");
+  expect(adjacent.match(/class="katex"/g)).toHaveLength(1);
+});
+
+test("single-dollar math requires tight delimiters and a closing dollar without a following digit", () => {
+  for (const text of ["$ x$", "$x $", "$ x $", "$x$2"]) {
+    expect(renderAssistantMarkdown(text)).not.toContain('class="katex"');
+  }
+  expect(renderAssistantMarkdown("Padded explicit math: $$ x^2 $$.")).toContain('class="katex"');
+});
+
 test("assistant Markdown renders inline and display math with accessible MathML", () => {
   const html = renderAssistantMarkdown("Energy: $E = mc^2$.\n\n$$\n\\frac{a}{b} = \\sqrt{c}\n$$");
   expect(html).toContain('class="katex"');

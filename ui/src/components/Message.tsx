@@ -78,7 +78,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const footnotePrefix = `message-${useId()}-`;
-  return <article className={`message ${message.role === "user" ? "message-user" : "message-assistant"}`}>
+  return <article className={`message timeline-entry ${message.role === "user" ? "message-user" : "message-assistant"}`}>
     {!progress && showAuthor && <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
       {message.role === "user" && <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
       <span>{message.role === "user" ? "You" : "Shepherd"}</span>
@@ -86,6 +86,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
+      : !message.complete ? <div className="prose-chat whitespace-pre-wrap break-words">{message.text}</div>
       : <MessageMarkdown text={message.text} images={images} prefix={footnotePrefix} />}
     {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {

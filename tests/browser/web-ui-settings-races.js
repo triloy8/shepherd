@@ -4,6 +4,8 @@ async page => {
   await page.goto('http://127.0.0.1:8799');
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
   await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
+  let modelRequests = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/models')) modelRequests++; });
   const open = async () => {
     await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).click();
@@ -15,6 +17,7 @@ async page => {
   await effort.selectOption('default');
   await page.getByRole('button', { name: 'More models', exact: true }).click();
   await model.selectOption('large');
+  const catalogRequests = modelRequests;
   const settingsResponse = response => response.url().endsWith('/settings') && response.request().method() === 'GET';
   const started = page.waitForResponse(settingsResponse);
   await page.evaluate(async () => {
@@ -25,7 +28,8 @@ async page => {
   await started;
   const completed = page.waitForResponse(settingsResponse);
   await completed;
-  await page.getByRole('button', { name: 'More models', exact: true }).waitFor();
+  if (modelRequests !== catalogRequests) throw Error('Turn lifecycle refetched the model catalog');
+  if (await model.locator('option[value="large"]').count() !== 1) throw Error('Turn lifecycle discarded paginated models');
   if (await model.inputValue() !== 'large' || await effort.inputValue() !== 'default') throw Error('Turn activity overwrote unsaved settings');
   const refreshed = page.waitForResponse(settingsResponse);
   await page.getByRole('button', { name: 'Refresh settings and usage', exact: true }).click();

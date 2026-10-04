@@ -10,7 +10,7 @@ async (page) => {
   await send('answer screenshot');
   const answer = page.locator('.message-assistant').filter({ has: page.locator('img[alt="Desktop view"]') });
   await answer.locator('img').waitFor();
-  await page.locator('.progress-disclosure').filter({ has: page.locator('.viewed-image-disclosure') }).locator(':scope > summary').click();
+  await answer.locator('xpath=ancestor::section').locator('.progress-disclosure > summary').click();
   await page.locator('.viewed-image-disclosure > summary').click();
   await page.waitForFunction(() => [...document.querySelectorAll('.message-assistant img, .viewed-image-disclosure img')].every(img => img.complete && img.naturalWidth > 0));
   await page.evaluate(() => {
@@ -35,7 +35,10 @@ async (page) => {
   await send('another update');
   await page.locator('.message-user').getByText('another update', { exact: true }).waitFor();
   await page.waitForFunction(() => window.imageStabilityNodes.length === 3 && window.imageStabilityNodes.every(node => node.isConnected && node.complete && node.naturalWidth > 0));
-  await page.waitForTimeout(16000); // Include the periodic history refresh.
+  // Revalidate explicitly without making this check wait for the idle poll.
+  const refreshed = page.waitForResponse(response => response.url().includes('/turns?'));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await refreshed;
   if (!await page.evaluate(() => window.imageStabilityNodes.every(node => node.isConnected))) throw Error('Image was replaced by periodic history refresh');
   if (!await page.locator('.viewed-image-disclosure').evaluate(node => node.open)) throw Error('Refresh closed the viewed image disclosure');
 }

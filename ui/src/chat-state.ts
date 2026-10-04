@@ -29,7 +29,12 @@ export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
   }));
 }
 
-const sameUserMessage = (a: ChatMessage, b: ChatMessage) => a.role === "user" && b.role === "user" && a.turnId === b.turnId && a.text === b.text && JSON.stringify(a.attachments ?? []) === JSON.stringify(b.attachments ?? []);
+const sameAttachments = (left: string[] | undefined, right: string[] | undefined) => {
+  const a = left ?? [];
+  const b = right ?? [];
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+};
+const sameUserMessage = (a: ChatMessage, b: ChatMessage) => a.role === "user" && b.role === "user" && a.turnId === b.turnId && a.text === b.text && sameAttachments(a.attachments, b.attachments);
 
 // Keep an occurrence baseline, rather than deduplicating by text alone: users
 // can intentionally send the same follow-up more than once within one turn.

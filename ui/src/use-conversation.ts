@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
+import type { BridgeEvent } from "../../shared/protocol/events";
 import type { WebConversation } from "../../shared/protocol/web";
 import { api, ApiError, explainError, streamConversation } from "./api";
 import { acceptUserMessage, emptyChat, mergeHistory, reduceBridge, type ChatState } from "./chat-state";
@@ -46,7 +47,11 @@ export function useConversation(conversation: WebConversation | null) {
     let cursor: string | null = null;
     let transport: AbortController | undefined;
     const offline = () => { if (!current()) return; transport?.abort(); setConnection("reconnecting"); };
+    const online = () => { if (current()) void refreshRef.current(); };
+    const visible = () => { if (document.visibilityState === "visible" && navigator.onLine && current()) void refreshRef.current(); };
     window.addEventListener("offline", offline);
+    window.addEventListener("online", online);
+    document.addEventListener("visibilitychange", visible);
     let snapshot: Promise<boolean> | null = null;
     let refreshAgain = false;
     let turnRevision = 0;
@@ -70,26 +75,33 @@ export function useConversation(conversation: WebConversation | null) {
             refreshAgain = false;
             const revision = turnRevision;
             const epoch = historyEpoch.current;
-            try {
-              const [state, history, pending] = await Promise.all([
-                api.state(id, abort.signal), api.history(id, undefined, abort.signal), api.approvals(id, abort.signal),
-              ]);
-              if (!current()) return false;
-              if (epoch !== historyEpoch.current) { refreshAgain = true; continue; }
+            const stateRequest = api.state(id, abort.signal).then((state) => {
+              if (current() && revision === turnRevision) setChat((chat) => current() && revision === turnRevision && epoch === historyEpoch.current ? ({ ...chat, activeTurnId: state.state.activeTurnId }) : chat);
+              return state;
+            });
+            const historyRequest = api.history(id, undefined, abort.signal).then((history) => {
+              if (!current() || epoch !== historyEpoch.current) return history;
               const replaced = historyRevision.current !== null && historyRevision.current !== history.revision;
               if (replaced) { historyEpoch.current++; historyExpanded.current = false; setLoadingHistory(false); }
               historyRevision.current = history.revision;
-              setChat((chat) => current() ? ({ ...mergeHistory(replaced ? emptyChat() : chat, history.data), activeTurnId: revision === turnRevision ? state.state.activeTurnId : chat.activeTurnId }) : chat);
-              setApprovals(pending.approvals.filter((approval) => approval.status === "pending"));
+              const applyEpoch = historyEpoch.current;
+              startTransition(() => setChat((chat) => current() && applyEpoch === historyEpoch.current ? mergeHistory(replaced ? { ...emptyChat(), activeTurnId: chat.activeTurnId } : chat, history.data) : chat));
               if (!historyExpanded.current) setHistoryCursor(history.nextCursor);
-              successful = true;
-            } catch (error) {
-              successful = false;
-              if (current()) {
-                if (error instanceof ApiError && error.code === "history_changed") refreshAgain = true;
-                else if (!missing(error)) setError(explainError(error));
-              }
+              return history;
+            });
+            const approvalRequest = api.approvals(id, abort.signal).then((pending) => {
+              if (current()) setApprovals(pending.approvals.filter((approval) => approval.status === "pending"));
+              return pending;
+            });
+            const results = await Promise.allSettled([stateRequest, historyRequest, approvalRequest]);
+            if (!current()) return false;
+            successful = results[0].status === "fulfilled" && results[1].status === "fulfilled";
+            for (const result of results) if (result.status === "rejected") {
+              const error = result.reason;
+              if (error instanceof ApiError && error.code === "history_changed") refreshAgain = true;
+              else if (!missing(error)) setError(explainError(error));
             }
+            if (epoch !== historyEpoch.current && !refreshAgain) refreshAgain = true;
           } while (refreshAgain && current());
           return successful;
         } finally { snapshot = null; }
@@ -100,6 +112,15 @@ export function useConversation(conversation: WebConversation | null) {
       if (!current()) return;
       if (scheduled) clearTimeout(scheduled);
       scheduled = setTimeout(() => { void refresh(); }, 150);
+    };
+    let pendingDeltas: BridgeEvent[] = [];
+    let deltaFrame: number | undefined;
+    const flushDeltas = () => {
+      if (deltaFrame !== undefined) cancelAnimationFrame(deltaFrame);
+      deltaFrame = undefined;
+      const events = pendingDeltas; pendingDeltas = [];
+      const epoch = historyEpoch.current;
+      if (events.length && current()) setChat((chat) => current() && epoch === historyEpoch.current ? events.reduce(reduceBridge, chat) : chat);
     };
     void (async () => {
       let failures = 0;
@@ -116,9 +137,19 @@ export function useConversation(conversation: WebConversation | null) {
             if (event.id) cursor = event.id;
             if (event.type === "bridge") {
               if (["turn.started", "turn.completed", "turn.failed"].includes(event.data.type)) turnRevision++;
-              setChat((chat) => current() ? reduceBridge(chat, event.data) : chat);
+              if (event.data.type === "turn.stream.delta") {
+                pendingDeltas.push(event.data);
+                // Animation frames pause in background tabs. Bound the queue
+                // there too, while preserving the original event order.
+                if (pendingDeltas.length >= 64) flushDeltas();
+                if (deltaFrame === undefined) deltaFrame = requestAnimationFrame(flushDeltas);
+              } else {
+                flushDeltas();
+                setChat((chat) => current() ? reduceBridge(chat, event.data) : chat);
+              }
               if (event.data.type.startsWith("approval.") || ["turn.started", "turn.completed", "turn.failed", "turn.message.completed"].includes(event.data.type)) soon();
             } else {
+              flushDeltas();
               if (event.type === "reset" && event.data.reason === "history_changed") {
                 historyEpoch.current++; historyRevision.current = null; historyExpanded.current = false;
                 setChat(emptyChat()); setHistoryCursor(null); setLoadingHistory(false);
@@ -134,8 +165,8 @@ export function useConversation(conversation: WebConversation | null) {
         if (current()) { setConnection("reconnecting"); await delay(Math.min(1000 * 2 ** failures++, 10_000), abort.signal); }
       }
     })();
-    const poll = setInterval(() => { if (current()) void refresh(); }, 15_000);
-    return () => { abort.abort(); window.removeEventListener("offline", offline); clearInterval(poll); if (scheduled) clearTimeout(scheduled); };
+    const poll = setInterval(() => { if (current() && document.visibilityState === "visible" && navigator.onLine) void refresh(); }, 60_000);
+    return () => { abort.abort(); window.removeEventListener("offline", offline); window.removeEventListener("online", online); document.removeEventListener("visibilitychange", visible); clearInterval(poll); if (scheduled) clearTimeout(scheduled); if (deltaFrame !== undefined) cancelAnimationFrame(deltaFrame); };
   }, [conversation?.id]);
 
   async function action(operation: (id: string) => Promise<unknown>, refresh = true): Promise<boolean> {
@@ -179,7 +210,7 @@ export function useConversation(conversation: WebConversation | null) {
       const history = await api.history(id, historyCursor);
       if (identity.current !== id || epoch !== historyEpoch.current) return;
       if (historyRevision.current !== history.revision) { await refreshRef.current(); return; }
-      setChat((current) => mergeHistory(current, history.data, true)); setHistoryCursor(history.nextCursor);
+      startTransition(() => setChat((current) => identity.current === id && epoch === historyEpoch.current ? mergeHistory(current, history.data, true) : current)); setHistoryCursor(history.nextCursor);
     } catch (error) { if (identity.current === id && epoch === historyEpoch.current) setError(explainError(error)); }
     finally { if (identity.current === id && epoch === historyEpoch.current) setLoadingHistory(false); }
   }

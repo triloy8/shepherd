@@ -241,7 +241,7 @@ export class WebSurfaceApi {
           : { type: "effort.set", surfaceId: entry.id, effort: value }));
         return json(200, { ok: true });
       }
-      if (action === "images" && match[3] && request.method === "GET") return await entry.images.response(match[3], headers);
+      if (action === "images" && match[3] && request.method === "GET") return await entry.images.response(match[3], headers, request.headers);
       if (action === "events" && request.method === "GET") {
         const stream = entry.feed.open(request.headers.get("last-event-id"), request.signal);
         headers.set("content-type", "text/event-stream");

@@ -57,17 +57,19 @@ export async function loadGeneratedImage(
       throw new Error(`Generated image exceeds the ${maxBytes} byte upload limit.`);
     }
 
-    const buffer = Buffer.alloc(maxBytes + 1);
+    // The stat check bounds the allocation. Probe once after the expected
+    // bytes so a file changing during the read cannot be returned truncated.
+    const buffer = Buffer.alloc(stat.size);
     let length = 0;
     while (length < buffer.length) {
       const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
       if (!bytesRead) break;
       length += bytesRead;
     }
-    const attachment = buffer.subarray(0, length);
-    if (attachment.byteLength > maxBytes) {
-      throw new Error(`Generated image exceeds the ${maxBytes} byte upload limit.`);
-    }
+    if (length !== stat.size) throw new Error("Generated image changed while reading.");
+    const probe = Buffer.allocUnsafe(1);
+    if ((await handle.read(probe, 0, 1, null)).bytesRead) throw new Error("Generated image changed while reading.");
+    const attachment = buffer;
     const mimeType = detectImageMimeType(attachment);
     if (!mimeType) {
       throw new Error("Generated image must be a PNG, JPEG, GIF, or WebP file.");
@@ -81,4 +83,3 @@ export async function loadGeneratedImage(
     await handle.close();
   }
 }
-

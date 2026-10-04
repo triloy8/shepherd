@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { loadGeneratedImage } from "../../core/generated_image.js";
 import { WebRequestError } from "./errors.js";
@@ -24,14 +24,18 @@ export class WebImages {
     return `/api/v1/conversations/${this.conversationId}/images/${id}`;
   }
 
-  async response(id: string, headers: Headers): Promise<Response> {
+  async response(id: string, headers: Headers, requestHeaders?: Headers): Promise<Response> {
     const image = this.images.get(id);
     if (!image) throw new WebRequestError(404, "image_not_found", "Image not found. Reload conversation history.");
     try {
       const file = await loadGeneratedImage(image.path);
+      const etag = `"${createHash("sha256").update(file.attachment).digest("base64url")}"`;
       headers.set("content-type", file.mimeType);
       headers.set("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`);
       headers.set("content-security-policy", "default-src 'none'; sandbox");
+      headers.set("cache-control", "private, max-age=0, must-revalidate");
+      headers.set("etag", etag);
+      if (requestHeaders?.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
       return new Response(new Uint8Array(file.attachment), { headers });
     } catch {
       throw new WebRequestError(422, "image_unavailable", "The image is unavailable or unsupported.");

@@ -23,7 +23,7 @@ test("completed history folds commentary with only the final answer copyable", (
   expect(html).toContain("<details");
   expect(html).not.toContain(" open=");
   expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
-  expect(html.indexOf("Checking the project")).toBeLessThan(html.indexOf("</details>"));
+  expect(html).not.toContain("Checking the project");
   expect(html.indexOf("The answer")).toBeGreaterThan(html.indexOf("</details>"));
 });
 
@@ -86,7 +86,8 @@ test("activity after an explicit final answer retains its position", () => {
   history.items.push({ id: "trailing", type: "agentMessage", phase: "commentary", text: "Follow-up update" });
   const state = mergeHistory(emptyChat(), [history]);
   const html = render(state);
-  expect(html.indexOf("The answer")).toBeLessThan(html.indexOf("Follow-up update"));
+  expect(html).toContain("The answer");
+  expect(html).not.toContain("Follow-up update");
 });
 
 test("history without phase metadata preserves known streamed phase", () => {
@@ -117,7 +118,7 @@ test("a failed tool step does not prevent completed work from collapsing", () =>
   expect(state.messages).toHaveLength(1);
   state.activeTurnId = null; state.turns.turn = { status: "completed", durationMs: 1 };
   const html = render(state);
-  expect(html).toContain("Failed");
+  expect(html).toContain("1 failed step");
   expect(html).toContain("progress-disclosure");
   expect(html).toContain("1 failed step");
   expect(html).not.toContain(" open=");

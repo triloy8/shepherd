@@ -3,7 +3,7 @@ import type { BridgeEvent, TurnActivityEvent } from "../../shared/protocol/event
 import type { WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryTurn } from "../../shared/protocol/requests";
 
-export type ChatMessage = { id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "commentary" | "final_answer"; streamText?: string; snapshotText?: string };
+export type ChatMessage = { localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "commentary" | "final_answer"; streamText?: string; snapshotText?: string };
 export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
 export type ChatState = { endedTurns: string[]; turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
 export const emptyChat = (): ChatState => ({ endedTurns: [], turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
@@ -29,9 +29,28 @@ export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
   }));
 }
 
+const sameUserMessage = (a: ChatMessage, b: ChatMessage) => a.role === "user" && b.role === "user" && a.turnId === b.turnId && a.text === b.text && JSON.stringify(a.attachments ?? []) === JSON.stringify(b.attachments ?? []);
+
+// Keep an occurrence baseline, rather than deduplicating by text alone: users
+// can intentionally send the same follow-up more than once within one turn.
+export function acceptUserMessage(state: ChatState, message: ChatMessage, beforeSend: ChatMessage[]): ChatState {
+  const baseline = beforeSend.filter((item) => sameUserMessage(item, message)).map((item) => item.id);
+  const canonical = state.messages.filter((item) => !item.id.startsWith("local:") && sameUserMessage(item, message));
+  const received = canonical.some((item, index) => index >= baseline.length && !baseline.includes(item.id));
+  return { ...state, messages: received ? state.messages : [...state.messages, { ...message, localBaseline: baseline }] };
+}
+
 export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = false): ChatState {
   const incoming = historyMessages(turns);
-  const retained = state.messages.filter((message) => !message.id.startsWith("local:") || !incoming.some((item) => item.role === "user" && item.turnId === message.turnId && item.text === message.text && JSON.stringify(item.attachments ?? []) === JSON.stringify(message.attachments ?? [])));
+  const claimed = new Set<string>();
+  const retained = state.messages.filter((message) => {
+    if (!message.id.startsWith("local:")) return true;
+    const baseline = message.localBaseline ?? [];
+    const match = incoming.filter((item) => sameUserMessage(item, message)).find((item, index) => index >= baseline.length && !baseline.includes(item.id) && !claimed.has(item.id));
+    if (!match) return true;
+    claimed.add(match.id);
+    return false;
+  });
   const existing = new Map(retained.map((message) => [message.id, message]));
   for (const message of incoming) {
     const previous = existing.get(message.id);

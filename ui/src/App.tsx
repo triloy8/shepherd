@@ -1,4 +1,4 @@
-import type { DraftImage } from "./image-input";
+import { useImageDrafts } from "./use-image-drafts";
 import { HostControls } from "./components/HostControls";
 import { HostBattery } from "./components/HostBattery";
 import { ConversationMenu } from "./components/ConversationMenu";
@@ -28,7 +28,9 @@ export default function App() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [restoring, setRestoring] = useState<string | null>(null);
   const restoreLock = useRef(false);
-  const resumeLock = useRef(false);
+  const resumes = useRef(new Map<string, Promise<WebConversation>>());
+  const selectionVersion = useRef(0);
+  const [resuming, setResuming] = useState(false);
   const [threads, setThreads] = useState<StoredThreadSummary[]>([]);
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<WebConversation | null>(null);
@@ -40,8 +42,8 @@ export default function App() {
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [project, setProject] = useState("~");
-  const [imageDrafts, setImageDrafts] = useState<Record<string, DraftImage[]>>({});
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const imageDrafts = useImageDrafts();
+  const [drafts, setDrafts] = useState<Record<string, { text: string; revision: number }>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -166,21 +168,30 @@ export default function App() {
     window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close);
   }, [drawer, desktop]);
 
-  function select(conversation: WebConversation) { setSelected(conversation); setSaved(null); setDrawer(false); }
+  function select(conversation: WebConversation) { selectionVersion.current++; setResuming(false); setSelected(conversation); setSaved(null); setDrawer(false); }
   async function openThread(threadId: string, force = false) {
-    if (resumeLock.current || creating) return;
     const existing = conversations.find((item) => item.threadId === threadId);
     if (existing && !force) { select(existing); return; }
-    resumeLock.current = true; setCreating(true); setError(null); setDrawer(false);
+    if (creating) return;
+    const version = ++selectionVersion.current;
+    setResuming(true); setError(null); setDrawer(false);
+    // Repeated clicks share the request, while the latest selection wins.
+    const pending = resumes.current.get(threadId) ?? api.create({ threadId });
+    resumes.current.set(threadId, pending);
     try {
-      const conversation = await api.create({ threadId });
+      const conversation = await pending;
       setConversations((items) => [...items.filter((item) => item.id !== conversation.id), conversation]);
-      select(conversation); void refreshList();
-    } catch (error) { setError(explainError(error)); }
-    finally { resumeLock.current = false; setCreating(false); }
+      if (version === selectionVersion.current) select(conversation);
+      void refreshList();
+    } catch (error) { if (version === selectionVersion.current) setError(explainError(error)); }
+    finally {
+      if (resumes.current.get(threadId) === pending) resumes.current.delete(threadId);
+      if (version === selectionVersion.current) setResuming(false);
+    }
   }
   async function createConversation() {
     if (creating || !project.trim() || !dialog) return;
+    selectionVersion.current++; setResuming(false);
     setCreating(true); setError(null);
     try {
       const conversation = await api.create({ project: project.trim() });
@@ -215,7 +226,14 @@ export default function App() {
     if (!selected || detaching) return;
     const id = selected.id;
     setDetaching(true);
-    try { await api.detach(id); setSelected(null); setSaved(null); try { localStorage.removeItem("shepherd.selection"); } catch { /* Storage is optional. */ } await refreshList(); }
+    try {
+      await api.detach(id);
+      setSelected((current) => current?.id === id ? null : current);
+      setSaved((current) => current?.id === id ? null : current);
+      setConversations((items) => items.filter((item) => item.id !== id));
+      try { if (savedSelection()?.id === id) localStorage.removeItem("shepherd.selection"); } catch { /* Storage is optional. */ }
+      await refreshList();
+    }
     catch (error) { setError(explainError(error)); }
     finally { setDetaching(false); }
   }
@@ -268,7 +286,7 @@ export default function App() {
           onFork={(conversation) => { setConversations((items) => [...items, conversation]); select(conversation); changeView(false); }}
         />}
       </header>
-      {creating && !dialog && <p role="status" className="notice mx-5 mt-4">Resuming conversation…</p>}
+      {resuming && <p role="status" className="notice mx-5 mt-4">Resuming conversation…</p>}
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}
       {!selected ? <section className="empty-screen">
         <button className="button-primary" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>
@@ -286,7 +304,17 @@ export default function App() {
         <div ref={composerRef} className="composer-area"><div className="composer-dock">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
           {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); void openThread(selected.threadId, true); }}>Resume conversation</button>}
-          <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))} draft={drafts[selected.threadId] ?? ""} onDraft={(value) => setDrafts((all) => ({ ...all, [selected.threadId]: value }))} send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
+          <Composer key={selected.id} images={imageDrafts.images[selected.threadId] ?? []} onImages={(update) => imageDrafts.update(selected.threadId, update)}
+            reading={imageDrafts.reading[selected.threadId] ?? false} imageError={imageDrafts.errors[selected.threadId] ?? null}
+            addFiles={(files) => imageDrafts.addFiles(selected.threadId, files)} clearImageError={() => imageDrafts.clearError(selected.threadId)}
+            draft={drafts[selected.threadId]?.text ?? ""} draftRevision={drafts[selected.threadId]?.revision ?? 0}
+            onDraft={(text) => setDrafts((all) => ({ ...all, [selected.threadId]: { text, revision: (all[selected.threadId]?.revision ?? 0) + 1 } }))}
+            clearDraft={(revision) => setDrafts((all) => {
+              const current = all[selected.threadId];
+              if ((current?.revision ?? 0) !== revision) return all;
+              return { ...all, [selected.threadId]: { text: "", revision: revision + 1 } };
+            })}
+            send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
         </div></div>
       </section>}
     </main>

@@ -2,7 +2,7 @@ import { imageDataParts } from "../../../shared/protocol/image_input";
 import { createContext, memo, useContext, useId, useState, type MouseEvent } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
+import remarkChatMath from "../remark-chat-math";
 import rehypeKatex from "rehype-katex";
 import type { ChatMessage } from "../chat-state";
 import { Icon } from "./Icon";
@@ -56,13 +56,25 @@ const markdownComponents: Components = {
   },
 };
 
+const emptyImages: readonly WebImage[] = [];
+// History snapshots recreate objects. Compare text and artifact metadata so
+// unchanged Markdown stays cached while new image references still resolve.
+const MessageMarkdown = memo(function MessageMarkdown({ text, images, prefix }: { text: string; images: readonly WebImage[]; prefix: string }) {
+  return <MessageImages.Provider value={images}><FootnotePrefix.Provider value={prefix}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkChatMath]} rehypePlugins={[rehypeKatex]}
+    remarkRehypeOptions={{ clobberPrefix: prefix, footnoteBackContent: "↩\uFE0E" }} components={markdownComponents}>{text}</Markdown></div></FootnotePrefix.Provider></MessageImages.Provider>;
+}, (previous, next) => previous.text === next.text && previous.prefix === next.prefix &&
+  previous.images.length === next.images.length && previous.images.every((image, index) => {
+    const other = next.images[index]!;
+    return image === other || (image.url === other.url && image.path === other.path && image.name === other.name && image.prompt === other.prompt && image.kind === other.kind);
+  }));
+
 const AttachedImage = memo(function AttachedImage({ url, index }: { url: string; index: number }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   if (failedUrl === url || !imageDataParts(url)) return <p className="text-xs text-muted">Image attachment unavailable.</p>;
   return <img src={url} alt={`Attached image ${index + 1}`} loading="lazy" onError={() => setFailedUrl(url)} className="mb-3 max-h-96 max-w-full rounded-lg border border-line object-contain" />;
 });
 
-export function Message({ message, images = [], progress = false, showAuthor = true, showCopy = true, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showAuthor?: boolean; showCopy?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
+export function Message({ message, images = emptyImages, progress = false, showAuthor = true, showCopy = true, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showAuthor?: boolean; showCopy?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const footnotePrefix = `message-${useId()}-`;
@@ -74,8 +86,7 @@ export function Message({ message, images = [], progress = false, showAuthor = t
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
-      : <MessageImages.Provider value={images}><FootnotePrefix.Provider value={footnotePrefix}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}
-        remarkRehypeOptions={{ clobberPrefix: footnotePrefix, footnoteBackContent: "↩\uFE0E" }} components={markdownComponents}>{message.text}</Markdown></div></FootnotePrefix.Provider></MessageImages.Provider>}
+      : <MessageMarkdown text={message.text} images={images} prefix={footnotePrefix} />}
     {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {
         void navigator.clipboard.writeText(message.text).then(() => { setCopied(true); setCopyError(false); }, () => setCopyError(true));

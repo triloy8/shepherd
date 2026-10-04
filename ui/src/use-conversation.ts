@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
 import type { WebConversation } from "../../shared/protocol/web";
 import { api, ApiError, explainError, streamConversation } from "./api";
-import { emptyChat, mergeHistory, reduceBridge, type ChatState } from "./chat-state";
+import { acceptUserMessage, emptyChat, mergeHistory, reduceBridge, type ChatState } from "./chat-state";
 
 export type Connection = "connecting" | "online" | "reconnecting" | "detached";
 const delay = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
@@ -14,6 +14,8 @@ const delay = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =
 
 export function useConversation(conversation: WebConversation | null) {
   const [chat, setChat] = useState<ChatState>(emptyChat);
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -25,11 +27,13 @@ export function useConversation(conversation: WebConversation | null) {
   const identity = useRef(conversation?.id);
   identity.current = conversation?.id;
   const actionRef = useRef(false);
+  const actionEpoch = useRef(0);
   const historyEpoch = useRef(0);
   const historyRevision = useRef<number | null>(null);
   const historyExpanded = useRef(false);
 
   useEffect(() => {
+    actionEpoch.current++;
     setStateId(conversation?.id);
     historyEpoch.current++; historyRevision.current = null;
     setChat(emptyChat()); setApprovals([]); setError(null); setHistoryCursor(null);
@@ -134,24 +138,36 @@ export function useConversation(conversation: WebConversation | null) {
     return () => { abort.abort(); window.removeEventListener("offline", offline); clearInterval(poll); if (scheduled) clearTimeout(scheduled); };
   }, [conversation?.id]);
 
-  async function action(operation: (id: string) => Promise<unknown>): Promise<boolean> {
+  async function action(operation: (id: string) => Promise<unknown>, refresh = true): Promise<boolean> {
     const id = conversation?.id;
     if (!id || actionRef.current || connection !== "online") return false;
+    const epoch = actionEpoch.current;
+    const current = () => identity.current === id && actionEpoch.current === epoch;
     actionRef.current = true; setBusy(true); setError(null);
-    try { await operation(id); if (identity.current === id) await refreshRef.current(); return identity.current === id; }
-    catch (error) { if (identity.current === id) setError(explainError(error)); return false; }
-    finally { if (identity.current === id) { actionRef.current = false; setBusy(false); } }
+    try {
+      await operation(id);
+      if (refresh && current()) await refreshRef.current();
+      return !refresh || current();
+    }
+    catch (error) { if (current()) setError(explainError(error)); return false; }
+    finally { if (current()) { actionRef.current = false; setBusy(false); } }
   }
   async function send(text: string, images: string[] = []) {
     const id = conversation?.id;
+    const epoch = actionEpoch.current;
+    const current = () => identity.current === id && actionEpoch.current === epoch;
+    const beforeSend = chatRef.current.messages;
     const successful = await action(async (id) => {
       const response = await api.send(id, text, images);
-      if (identity.current !== id) return;
-      setChat((current) => ({ ...current, activeTurnId: response.turnId && !current.endedTurns.includes(response.turnId) ? response.turnId : current.activeTurnId, messages: [...current.messages, {
+      if (!current()) return;
+      setChat((state) => current() ? ({ ...acceptUserMessage(state, {
         id: `local:${crypto.randomUUID()}`, turnId: response.turnId ?? "", role: "user", text, attachments: images, complete: true,
-      }] }));
-    });
-    if (!successful && identity.current === id) setError((current) => `${current ?? "Message not sent."} Your draft is kept. Check the conversation before sending again.`);
+      }, beforeSend), activeTurnId: response.turnId && !state.endedTurns.includes(response.turnId) ? response.turnId : state.activeTurnId }) : state);
+    }, false);
+    // Acceptance of the POST clears the submitted draft immediately. History
+    // recovery can be slow or finish after the user selects another chat.
+    if (successful && current()) void refreshRef.current();
+    if (!successful && current()) setError((error) => `${error ?? "Message not sent."} Your draft is kept. Check the conversation before sending again.`);
     return successful;
   }
   async function loadOlder() {

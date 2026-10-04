@@ -273,7 +273,6 @@ export default function App() {
           }
           await refreshList();
         }} />
-        <p className="px-3 text-[11px] text-dim">Private workspace</p>
       </div>
     </aside>
     <main className="main-pane" inert={!desktop && drawer}>

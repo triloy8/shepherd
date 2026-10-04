@@ -1,6 +1,8 @@
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import type { WebLimitsResponse, WebResetRequest } from "../../../shared/protocol/web";
+import type { ModelSummary, RateLimitResetCredit } from "../../../shared/protocol/requests";
+import { usageTitle } from "../usage-title";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
 import { AccountLimits } from "./Usage";
@@ -9,7 +11,9 @@ const pendingKey = "shepherd.usage-reset";
 function readPending(): WebResetRequest | null {
   try {
     const value = JSON.parse(sessionStorage.getItem(pendingKey) ?? "null");
-    return typeof value?.idempotencyKey === "string" && value.idempotencyKey.trim() ? { idempotencyKey: value.idempotencyKey } : null;
+    if (typeof value?.idempotencyKey !== "string" || !value.idempotencyKey.trim()) return null;
+    if (value.creditId !== undefined && (typeof value.creditId !== "string" || !value.creditId.trim())) return null;
+    return { idempotencyKey: value.idempotencyKey, ...(value.creditId ? { creditId: value.creditId } : {}) };
   } catch { return null; }
 }
 const outcomeMessage = {
@@ -23,10 +27,19 @@ function dateLabel(seconds: number) {
   return Number.isFinite(date.getTime()) ? date.toLocaleString() : "Unknown";
 }
 
+function expiredCredit(credit: RateLimitResetCredit): boolean {
+  return credit.expiresAt !== null && credit.expiresAt <= Date.now() / 1000;
+}
+function usableCredit(credit: RateLimitResetCredit): boolean {
+  return credit.status === "available" && credit.resetType === "codexRateLimits"
+    && !expiredCredit(credit);
+}
+
 export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClosed?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [models, setModels] = useState<ModelSummary[]>([]);
   const [limits, setLimits] = useState<WebLimitsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -51,11 +64,35 @@ export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClose
     return () => abort.abort();
   }, [open, revision]);
 
-  async function useReset() {
+  useEffect(() => {
+    if (!open) return;
+    const abort = new AbortController();
+    setModels([]);
+    async function loadModels() {
+      let cursor: string | undefined;
+      const seen = new Set<string>();
+      const catalog: ModelSummary[] = [];
+      do {
+        const page = await api.accountModels(cursor, abort.signal);
+        if (abort.signal.aborted) return;
+        catalog.push(...page.data);
+        setModels([...catalog]);
+        cursor = page.nextCursor ?? undefined;
+        if (cursor && seen.has(cursor)) return;
+        if (cursor) seen.add(cursor);
+      } while (cursor);
+    }
+    // Catalog metadata is optional: usage and redemption remain available if it fails.
+    void loadModels().catch(() => {});
+    return () => abort.abort();
+  }, [open, revision]);
+
+  async function useReset(creditId?: string) {
     if (lock.current || loading || (!pending && !limits?.rateLimitResetCredits?.availableCount)) return;
+    if (!pending && creditId && !limits?.rateLimitResetCredits?.credits?.some((credit) => credit.id === creditId && usableCredit(credit))) return;
     lock.current = true; setSending(true); setResetError(null); setNotice(null);
     try {
-      const request = pending ?? { idempotencyKey: crypto.randomUUID() };
+      const request = pending ?? { idempotencyKey: crypto.randomUUID(), ...(creditId ? { creditId } : {}) };
       track(request);
       const result = await api.consumeReset(request);
       track(null);
@@ -69,6 +106,7 @@ export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClose
   const resets = limits?.rateLimitResetCredits;
   const buckets = limits?.rateLimitsByLimitId && Object.keys(limits.rateLimitsByLimitId).length
     ? Object.entries(limits.rateLimitsByLimitId) : limits ? [["codex", limits.rateLimits] as const] : [];
+  const hasUnlistedResets = Boolean(resets && (resets.credits === null || resets.availableCount > resets.credits.length));
   return <>
     <button ref={trigger} className="sidebar-control" aria-label="Usage & limits" onClick={() => { onOpen?.(); setOpen(true); }}><Icon name="usage" /><span>Usage & limits</span><Icon name="chevron" className="ml-auto size-3.5" /></button>
     {typeof document !== "undefined" && createPortal(<dialog ref={dialog} className="project-dialog settings-dialog" aria-labelledby="usage-title"
@@ -79,22 +117,30 @@ export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClose
       {loading && <p role="status" className="text-xs text-muted">Loading usage…</p>}
       {error && <p role="alert" className="notice">{error}</p>}
       {notice && <p role="status" className="mb-4 text-sm text-muted">{notice}</p>}
-      {buckets.map(([id, value]) => <section className="mb-5" key={id}><h3 className="mb-2 text-sm font-medium">{id}</h3><AccountLimits value={value} /></section>)}
+      {buckets.map(([id, value]) => {
+        const { title, subtitle } = usageTitle(id, value, models);
+        return <section className="mb-5" key={id}><h3 className="mb-2 text-sm font-medium">{title}</h3>{subtitle && <p className="mb-2 text-xs text-muted">{subtitle}</p>}<AccountLimits value={value} /></section>;
+      })}
       <section className="mt-5 border-t border-line pt-4" aria-label="Banked resets">
         <h3 className="mb-2 text-sm font-medium">Banked resets{resets ? ` · ${resets.availableCount.toLocaleString()} available` : ""}</h3>
         {!loading && !error && !resets && <p className="text-xs text-muted">Banked reset information is unavailable.</p>}
         {resets && <>
           {resets.credits === null ? <p className="text-xs text-muted">Expiration details are unavailable.</p> : <ul className="space-y-3 text-xs text-muted">{resets.credits.map((credit) => <li key={credit.id}>
-            <p className="text-ink">{credit.title ?? "Usage reset"} · {credit.status}</p>
+            <p className="text-ink">{credit.title ?? "Usage reset"} · {expiredCredit(credit) ? "expired" : credit.status}</p>
             {credit.description && <p>{credit.description}</p>}
             <p>Granted: {dateLabel(credit.grantedAt)}</p><p>{credit.expiresAt === null ? "Does not expire" : `Expires: ${dateLabel(credit.expiresAt)}`}</p>
+            <button className="button-secondary mt-2" disabled={sending || loading || Boolean(pending) || !resets.availableCount || !usableCredit(credit)} onClick={() => void useReset(credit.id)}>Use this reset</button>
           </li>)}</ul>}
           {resets.credits && resets.availableCount > resets.credits.length && <p className="mt-2 text-xs text-muted">Details are available for {resets.credits.length} of {resets.availableCount} resets.</p>}
           <p className="mt-3 text-xs text-muted">Using a reset spends one banked reset on eligible account usage windows.</p>
         </>}
         {pending && !sending && <p className="mt-3 text-xs text-muted">A previous reset request has an unknown outcome. Retry checks the same request.</p>}
         {resetError && <p role="alert" className="notice mt-3">{resetError}</p>}
-        <button className="button-primary mt-3" disabled={sending || loading || (!pending && !resets?.availableCount)} onClick={() => void useReset()}>{sending ? "Using reset…" : pending ? "Retry reset" : "Use reset"}</button>
+        {sending && <p role="status" className="mt-3 text-xs text-muted">Using reset…</p>}
+        {(pending || hasUnlistedResets) && <>
+          {!pending && <p className="mt-3 text-xs text-muted">Codex chooses the next available reset when no specific reset is selected.</p>}
+          <button className="button-primary mt-3" disabled={sending || loading || (!pending && !resets?.availableCount)} onClick={() => void useReset()}>{pending ? "Retry reset" : "Use next available reset"}</button>
+        </>}
       </section>
       <button className="button-secondary mt-5" disabled={loading || sending} onClick={() => setRevision((value) => value + 1)}>Refresh usage</button>
     </dialog>, document.body)}

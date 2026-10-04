@@ -1,7 +1,7 @@
 # Surface parity matrix
 
 Full surface review: 2026-09-20 against `35cd417` (PR #70). Account usage/reset
-coverage reviewed 2026-10-04 against `b1f9984` plus the implementation in this
+coverage reviewed 2026-10-04 against `c49d4a3` plus the implementation in this
 change, using Codex CLI `0.160.0`.
 Current registered surfaces:
 **Discord** and **web**. This is an inventory of implemented user-facing behavior,
@@ -115,14 +115,14 @@ Sources: [Discord event presentation](../server/adapters/discord/thread_event_ha
 
 | Feature | Discord | Web | Scope / distinction |
 | --- | --- | --- | --- |
-| List available models | Yes — `!models` | Yes — settings model picker | Paged discovery |
+| List available models | Yes — `!models` | Yes — settings model picker; account catalog API | Paged discovery; usage titles resolve model names without a selected conversation |
 | Read current/pending model | Yes — `!model` | Yes — settings | Pending choice applies to a new turn |
 | Set model | Yes — `!model set <id>` | Yes — settings | Shared model validation |
 | Read/set reasoning effort | Yes — `!effort [set <level\|default>]` | Yes — settings | Includes default/reset and supported choices |
 | Context/token usage | Yes — `!context` | Yes — settings | Available telemetry; not always present before a turn |
 | Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Discord shows the single-bucket view; web shows all reported metered buckets. Provider usage windows/reset times and workspace credit balance are separate from banked resets |
 | Banked reset count/details/expiration | No | Yes — sidebar Usage & limits | Available count is authoritative; detail rows may be unavailable or capped; non-expiring resets are labeled |
-| Use a banked reset | No | Yes — Use reset | Shared consume RPC; explicit outcome feedback and limits refresh. Unknown outcomes retain the request key for retries, including across page reload in the same tab |
+| Use a banked reset | No | Yes — Use this reset per credit; Use next available reset for count-only/capped details | Shared consume RPC; explicit outcome feedback and limits refresh. Unknown outcomes retain the request key and selected credit ID for retries, including across page reload in the same tab |
 | List discovered skills | Yes — `!skills` | Yes — Skills section | Workspace-scoped discovery |
 | Reload skill discovery | Yes — `!skills reload` | Yes — Reload skills | Not an installer |
 | Enable/disable skill | Yes — `!skill enable/disable <name-or-path>` | Yes — per-skill control | Shared configuration; may affect other conversations |

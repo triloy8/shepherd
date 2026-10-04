@@ -10,13 +10,18 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
 }) {
   const picker = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const [expanded, setExpanded] = useState(false);
   const resize = () => {
     const element = textarea.current;
     if (!element) return;
+    // Measure wrapping at the compact row width so expanding cannot oscillate.
+    element.style.width = `${Math.max(1, element.parentElement!.clientWidth - 120)}px`;
     element.style.height = "0px";
+    setExpanded(element.scrollHeight > 44);
+    element.style.width = "";
     element.style.height = `${element.scrollHeight}px`;
   };
-  useLayoutEffect(resize, [draft]);
+  useLayoutEffect(resize, [draft, expanded, images.length]);
   useEffect(() => {
     const element = textarea.current;
     if (!element) return;
@@ -70,24 +75,20 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
     {images.length > 0 && <div className="flex flex-wrap gap-3 p-3" aria-label="Attached images">{images.map((image) => <figure key={image.id} className="w-24"><img src={image.url} alt={image.name} className="h-20 w-24 rounded-lg border border-line object-contain" /><figcaption className="truncate text-xs text-muted">{image.name}</figcaption><button type="button" className="text-xs underline" aria-label={`Remove ${image.name}`} disabled={sending || reading} onClick={() => onImages((current) => current.filter((item) => item.id !== image.id))}>Remove</button></figure>)}</div>}
     {imageError && <p role="alert" className="notice m-3">{imageError}</p>}
     {reading && <p role="status" className="px-3 text-xs text-muted">Reading images…</p>}
-    <textarea ref={textarea} aria-label="Message Shepherd" aria-describedby="composer-help" placeholder={active ? "Add a follow-up…" : "Message Shepherd…"}
-      onPaste={pasteImages}
-      value={draft} onChange={(event) => onDraft(event.target.value)} maxLength={32768} rows={1} disabled={sending}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia("(pointer: fine)").matches) {
-          event.preventDefault(); void submit();
-        }
-      }} />
-    <span id="composer-help" className="sr-only">Enter to send on a keyboard. Shift + Enter for a new line. Follow-ups steer the active turn.</span>
-    <div className="composer-toolbar">
-      <div className="flex min-w-0 items-center gap-2">
-        <button type="button" className="icon-button" aria-label="Attach images" title="Attach images (PNG, JPEG, GIF, WebP)" disabled={sending || reading || images.length >= 4} onClick={() => picker.current?.click()}><Icon name="image" /></button>
-        {(disabled || active) && <span className="truncate text-xs text-dim">{disabled ? "Waiting for connection" : "Follow-up"}</span>}
-      </div>
-      <div className="flex items-center gap-2">
-        <button type={stop ? "button" : "submit"} className={`send-button${stop ? " stop-button" : ""}`} aria-label={actionLabel} title={actionLabel}
-          disabled={disabled || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : "arrow"} /></button>
-      </div>
+    <div className={`composer-input${expanded || images.length || imageError || reading ? " composer-expanded" : ""}`}>
+      <button type="button" className="icon-button attach-button" aria-label="Attach images" title="Attach images (PNG, JPEG, GIF, WebP)" disabled={sending || reading || images.length >= 4} onClick={() => picker.current?.click()}><Icon name="plus" className="size-6!" /></button>
+      <textarea ref={textarea} aria-label="Message Shepherd" aria-describedby="composer-help" placeholder={active ? "Add a follow-up…" : "Message Shepherd…"}
+        onPaste={pasteImages}
+        value={draft} onChange={(event) => onDraft(event.target.value)} maxLength={32768} rows={1} disabled={sending}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia("(pointer: fine)").matches) {
+            event.preventDefault(); void submit();
+          }
+        }} />
+      <span id="composer-help" className="sr-only">Enter to send on a keyboard. Shift + Enter for a new line. Follow-ups steer the active turn.</span>
+      <button type={stop ? "button" : "submit"} className={`send-button${stop ? " stop-button" : ""}`} aria-label={actionLabel} title={actionLabel}
+        disabled={disabled || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : "arrow"} className="size-5!" /></button>
     </div>
+    {disabled && <p role="status" className="px-4 pb-2 text-xs text-dim">Waiting for connection</p>}
   </form>;
 }

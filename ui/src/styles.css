@@ -42,7 +42,7 @@
   .thread-button { @apply mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[13px] text-muted hover:bg-raised/60 hover:text-ink; }
   .thread-selected { @apply bg-raised text-ink; }
   .thread-selected > svg { @apply text-accent; }
-  .sidebar-footer { @apply flex shrink-0 flex-col gap-2 border-t border-line/60 p-3; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
+  .sidebar-footer { @apply flex shrink-0 flex-col border-t border-line/60 px-3 py-2; padding-bottom: max(.5rem, env(safe-area-inset-bottom)); }
   .sidebar-control { @apply flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] text-muted hover:bg-raised hover:text-ink; }
   .conversation-menu { @apply absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-24px)] rounded-xl border border-line bg-panel p-1.5 shadow-xl shadow-black/30; }
   .conversation-menu > button { @apply flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] text-muted hover:bg-raised hover:text-ink focus-visible:bg-raised; }
@@ -86,9 +86,13 @@
   .composer-area { @apply pointer-events-none absolute inset-x-0 bottom-0 z-10 pb-3 pt-5; padding-bottom: var(--composer-bottom-gap, max(.75rem, env(safe-area-inset-bottom))); background: linear-gradient(to top, var(--color-canvas) 0%, color-mix(in srgb, var(--color-canvas) 94%, transparent) 40%, transparent 100%); }
   .composer-dock { @apply pointer-events-auto mx-auto w-full max-w-3xl px-3 sm:px-6; }
   .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 100px)); @apply overflow-y-auto rounded-2xl border border-line/80 bg-panel shadow-xl shadow-black/20 focus-within:border-accent/45; }
-  .composer textarea { @apply block w-full resize-none overflow-y-auto bg-transparent px-4 pb-1 pt-3 text-base leading-6 text-ink outline-none placeholder:text-dim; min-height: 44px; max-height: min(30dvh, 240px); }
-  .composer-toolbar { @apply flex items-center justify-between gap-3 px-2 pb-2; }
-  .send-button { @apply flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-accent-hover; }
+  .composer-input { @apply grid grid-cols-[44px_minmax(0,1fr)_44px] items-end gap-x-2 p-2; }
+  .composer textarea { grid-area: 1 / 2; @apply block w-full min-w-0 resize-none overflow-y-auto bg-transparent py-2.5 text-base leading-6 text-ink outline-none placeholder:text-dim; min-height: 44px; max-height: min(30dvh, 240px); }
+  .attach-button { grid-area: 1 / 1; @apply rounded-full text-ink; }
+  .send-button { grid-area: 1 / 3; @apply flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-accent-hover; }
+  .composer-expanded textarea { grid-area: 1 / 1 / 2 / 4; @apply px-2; }
+  .composer-expanded .attach-button { grid-area: 2 / 1; }
+  .composer-expanded .send-button { grid-area: 2 / 3; }
   .notice { @apply rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs leading-6 text-warning; }
   .stop-button { @apply border border-accent/60 bg-accent/15 text-accent hover:bg-accent/25; }
   .stop-button svg { fill: currentColor; stroke: none; }

@@ -78,6 +78,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | Method | Path | Body or result |
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
+| GET | `/models?cursor=...&limit=100` | Account-wide model catalog; includes hidden quota aliases and supports pagination |
 | GET | `/limits` | `{ rateLimits, rateLimitsByLimitId, rateLimitResetCredits }`; account-wide usage and banked resets |
 | POST | `/limits/reset` | `{ idempotencyKey, creditId? }` → `{ outcome }`; redeem one banked reset |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
@@ -239,7 +240,11 @@ responses. A failed usage read does not prevent unrelated settings requests.
 Model/effort overrides follow existing loaded-session lifetime rules; the web
 surface adds no persistence or global defaults. Account limits are provider data
 and may be incomplete/unavailable. The sidebar **Usage & limits** panel exposes
-all reported usage buckets and banked reset counts/details. Conversation settings
+all reported usage buckets and banked reset counts/details. Bucket titles use the
+model catalog display name matched by `normalModelSlug`, then the provider's
+`limitName`, then a humanized internal ID. When a model name and distinct quota
+label are both present, the quota label is shown beneath the title. Optional
+catalog failures leave usage and reset controls available. Conversation settings
 retain context telemetry, which can be null before a turn.
 
 Reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
@@ -248,7 +253,12 @@ be non-empty (maximum 100 characters); an optional non-empty credit ID (maximum
 available reset. Outcomes are `reset`, `alreadyRedeemed`, `nothingToReset`, and
 `noCredit`. Read `/limits` after a known result. Retry an unknown result with the
 same key; never generate a new key for the same attempt. The built-in UI retains
-pending keys in session storage across reloads in the same tab. Malformed bodies
+both the request key and selected credit ID in session storage across reloads in
+the same tab. Each available, unexpired, supported detail row has a **Use this
+reset** button. While an outcome is unknown, only retrying that original attempt
+is allowed. If details are count-only or capped, **Use next available reset**
+lets Codex choose from its available inventory; the UI does not assume
+an expiry ordering. Malformed bodies
 and extra fields return 400; backend failures remain sanitized 502 responses.
 Reset controls work without a selected conversation.
 
@@ -322,10 +332,11 @@ amber; unavailable readings are hidden. The tooltip and accessible label identif
 this as the host battery, rather than the browser device's battery.
 
 The composer floats over the transcript with inset edges and a subtle bottom fade.
-It starts at one line, grows with the draft, and scrolls internally at its height
-limit. Attachment, stop, and send controls retain comfortable touch targets.
-Routine helper copy is screen-reader-only; connection and follow-up state remain
-visible when relevant. Images, image errors, and send failures remain visible.
+It starts as a single row in a box with rounded corners, with an attachment plus
+button on the left and a rounded-square send/interrupt action on the right. Wrapped drafts and image attachments
+expand the text area above the controls; long drafts scroll internally at the height
+limit. All controls retain 44px touch targets. Routine helper copy is screen-reader-only;
+connection state remains visible, and the placeholder identifies follow-up drafts. Images, image errors, and send failures remain visible.
 
 The transcript reserves the measured composer height so the last message is not
 covered, including while attaching images or composing a long draft. If following

@@ -29,9 +29,9 @@ async (page) => {
       await route.fulfill({ json: { outcome: 'alreadyRedeemed' } });
     }
   });
-  await panel.getByRole('button', { name: 'Use reset', exact: true }).click();
-  await panel.getByRole('button', { name: 'Using reset…', exact: true }).waitFor();
-  if (await panel.getByRole('button', { name: 'Using reset…', exact: true }).isEnabled()) throw Error('Concurrent reset allowed');
+  await panel.locator('li').filter({ hasText: 'Expiring reset' }).getByRole('button', { name: 'Use this reset', exact: true }).click();
+  await panel.getByText('Using reset…', { exact: true }).waitFor();
+  for (const button of await panel.getByRole('button', { name: 'Use this reset', exact: true }).all()) if (await button.isEnabled()) throw Error('Concurrent reset allowed');
   await page.keyboard.press('Escape');
   if (!await panel.isVisible()) throw Error('Closed while reset in flight');
   release();
@@ -41,19 +41,19 @@ async (page) => {
   await panel.getByRole('button', { name: 'Retry reset', exact: true }).click();
   await panel.getByText('This reset was already used.', { exact: true }).waitFor();
   await panel.getByText('Banked resets · 2 available', { exact: true }).waitFor();
-  if (requests.length !== 2 || requests[0].idempotencyKey !== requests[1].idempotencyKey) throw Error('Retry changed logical reset identity');
+  if (requests.length !== 2 || requests[0].idempotencyKey !== requests[1].idempotencyKey || requests[0].creditId !== 'credit-1' || requests[1].creditId !== 'credit-1') throw Error('Retry changed logical reset identity');
   await panel.getByText('Expiration details are unavailable.', { exact: true }).waitFor();
   for (const [outcome, message] of [['nothingToReset', 'No usage window is eligible for a reset right now.'], ['noCredit', 'No banked resets are available.'], ['reset', 'Reset used.']]) {
     await page.unroute('**/api/v1/limits/reset');
     await page.route('**/api/v1/limits/reset', route => route.fulfill({ json: { outcome } }));
-    await panel.getByRole('button', { name: 'Use reset', exact: true }).click();
+    await panel.getByRole('button', { name: 'Use next available reset', exact: true }).click();
     await panel.getByText(message, { exact: true }).waitFor();
     await panel.getByText('Banked resets · 2 available', { exact: true }).waitFor();
   }
   summary = { availableCount: 0, credits: [] };
   await panel.getByRole('button', { name: 'Refresh usage', exact: true }).click();
   await panel.getByText('Banked resets · 0 available', { exact: true }).waitFor();
-  if (await panel.getByRole('button', { name: 'Use reset', exact: true }).isEnabled()) throw Error('Zero resets enabled');
+  if (await panel.getByRole('button', { name: 'Use next available reset', exact: true }).count()) throw Error('Zero resets offered');
   summary = null;
   await panel.getByRole('button', { name: 'Refresh usage', exact: true }).click();
   await panel.getByText('Banked reset information is unavailable.', { exact: true }).waitFor();

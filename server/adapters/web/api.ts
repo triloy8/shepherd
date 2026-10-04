@@ -125,6 +125,9 @@ export class WebSurfaceApi {
         if (branch && (data.action !== "deploy" || branch.startsWith("-") || /[\s\x00-\x1f]/.test(branch))) throw new WebRequestError(400, "invalid_request", "Invalid deployment branch.");
         return json(202, this.host.start({ requestId, action: data.action, ...(branch ? { branch } : {}) }));
       }
+      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/models`) {
+        return json(200, await this.application.conversation.listModels({ ...pagination(url), includeHidden: true }));
+      }
       if (request.method === "POST" && url.pathname === `${WEB_API_PREFIX}/limits/reset`) {
         const data = await body(request, ["idempotencyKey", "creditId"]);
         const idempotencyKey = requiredString(data, "idempotencyKey", 100);

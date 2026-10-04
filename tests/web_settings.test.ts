@@ -76,3 +76,20 @@ test("account usage includes banked details and redemption works without a conve
     expect(failed.status).toBe(502); expect(JSON.stringify(await failed.json())).not.toContain("private provider details");
   } finally { h.api.dispose(); }
 });
+
+test("account model metadata is paginated, includes hidden aliases, and needs no conversation", async () => {
+  const h = webHarness(); installWebSettings(h);
+  const calls: unknown[] = [];
+  Object.assign(h.application.conversation, { async listModels(request: { cursor?: string }) {
+    calls.push(request);
+    return { data: [{ id: "future", model: "future-model", displayName: "Future Model", hidden: true }], nextCursor: request.cursor ? null : "page-2" };
+  } });
+  try {
+    expect((await (await h.request("/models?limit=100")).json()).nextCursor).toBe("page-2");
+    expect((await (await h.request("/models?cursor=page-2&limit=100")).json()).data[0].displayName).toBe("Future Model");
+    expect(calls).toEqual([{ limit: 100, includeHidden: true }, { limit: 100, cursor: "page-2", includeHidden: true }]);
+    for (const route of ["/models?limit=0", "/models?limit=101", "/models?extra=true"]) expect((await h.request(route)).status).toBe(400);
+    expect((await h.request("/models", "GET", undefined, { origin: "https://evil.test" })).status).toBe(403);
+    expect(calls).toHaveLength(2);
+  } finally { h.api.dispose(); }
+});

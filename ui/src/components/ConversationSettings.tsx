@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { WebSettingsResponse, WebContextResponse, WebLimitsResponse } from "../../../shared/protocol/web";
+import type { WebSettingsResponse, WebContextResponse } from "../../../shared/protocol/web";
 import type { ModelSummary } from "../../../shared/protocol/requests";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
 import { ConversationSkills } from "./ConversationSkills";
-import { AccountLimits, ContextUsage } from "./Usage";
+import { ContextUsage } from "./Usage";
 
 export function ConversationSettings({ id, activeTurnId, disabled, open: controlledOpen, onOpenChange }: { id: string; activeTurnId: string | null; disabled: boolean; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -20,7 +20,6 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
   const [context, setContext] = useState<WebContextResponse | null>(null);
-  const [limits, setLimits] = useState<WebLimitsResponse | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -69,11 +68,10 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
   useEffect(() => {
     if (!open || !usageOpen) return;
     const abort = new AbortController();
-    setContext(null); setLimits(null);
-    setErrors((current) => { const { context: _context, limits: _limits, ...rest } = current; return rest; });
+    setContext(null);
+    setErrors((current) => { const { context: _context, ...rest } = current; return rest; });
     const fail = (key: string, error: unknown) => { if (!abort.signal.aborted) setErrors((current) => ({ ...current, [key]: explainError(error) })); };
     void api.context(id, abort.signal).then((value) => { if (!abort.signal.aborted) setContext(value); }).catch((error) => fail("context", error));
-    void api.limits(abort.signal).then((value) => { if (!abort.signal.aborted) setLimits(value); }).catch((error) => fail("limits", error));
     return () => abort.abort();
   }, [id, open, usageOpen, revision, activeTurnId]);
 
@@ -140,9 +138,8 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
         <button className="button-secondary" disabled={blocked || !settings || !supported.length || model !== effectiveModel || !(effort === "default" ? defaultSupported : supported.some((option) => option.reasoningEffort === effort))} onClick={() => void save("effort")}>Use effort</button>
       </section>
       <details className="mt-6 border-t border-line pt-4" onToggle={(event) => setSkillsOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm">Skills</summary>{skillsOpen && <ConversationSkills key={id} id={id} disabled={disabled || saving} />}</details>
-      <details className="mt-6 border-t border-line pt-4" onToggle={(event) => setUsageOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm">Usage and account limits</summary>{usageOpen && <div className="mt-4 space-y-5">
-        <section><h3 className="mb-2 text-sm">Conversation context</h3>{errors.context ? <p role="alert" className="notice">{errors.context}</p> : context ? <ContextUsage usage={context.tokenUsage} /> : <p className="text-xs text-muted">Loading context…</p>}</section>
-        <section><h3 className="mb-2 text-sm">Account limits · shared across conversations</h3>{errors.limits ? <p role="alert" className="notice">{errors.limits}</p> : limits ? <AccountLimits value={limits.rateLimits} /> : <p className="text-xs text-muted">Loading limits…</p>}</section>
+      <details className="mt-6 border-t border-line pt-4" onToggle={(event) => setUsageOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm">Conversation context</summary>{usageOpen && <div className="mt-4 space-y-5">
+        {errors.context ? <p role="alert" className="notice">{errors.context}</p> : context ? <ContextUsage usage={context.tokenUsage} /> : <p className="text-xs text-muted">Loading context…</p>}
       </div>}</details>
       <button className="button-secondary mt-5" disabled={saving || loading} onClick={() => setRevision((value) => value + 1)}>Refresh settings and usage</button>
     </dialog>

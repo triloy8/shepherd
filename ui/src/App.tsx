@@ -9,6 +9,7 @@ import { api, explainError } from "./api";
 import { useConversation } from "./use-conversation";
 import { Icon } from "./components/Icon";
 import { Timeline } from "./components/Timeline";
+import { UsageLimits } from "./components/UsageLimits";
 import { Composer } from "./components/Composer";
 import { Approvals } from "./components/Approvals";
 
@@ -260,6 +261,7 @@ export default function App() {
         {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads || refreshingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
       <div className="sidebar-footer">
+        <UsageLimits onOpen={() => setDrawer(false)} onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} />
         <HostControls onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} onOpen={() => setDrawer(false)} onRecovered={async () => {
           const previous = selected ?? savedSelection();
           setSelected(null); setSaved(previous);

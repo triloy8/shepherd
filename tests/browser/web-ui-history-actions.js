@@ -13,7 +13,7 @@ async (page) => {
     await composer.fill(text);
     await page.getByRole('button', { name: 'Send message', exact: true }).click();
     await user(text).waitFor();
-    await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
     await revert(text).waitFor();
   };
   await send('Keep this turn');
@@ -96,13 +96,13 @@ async (page) => {
   await actions.getByRole('button', { name: 'Compact conversation', exact: true }).click();
   await actions.getByText('Compaction started.', { exact: false }).waitFor();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
   await composer.fill('approval');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await page.getByRole('button', { name: 'Allow once', exact: true }).waitFor();
   if (await revert('Keep this turn').isEnabled()) throw Error('Revert enabled during approval');
   await page.getByRole('button', { name: 'Allow once', exact: true }).click();
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
 
   // Revert from an older page and clear every subsequent page, including the oldest turn.
   await page.getByRole('button', { name: 'Paginated history', exact: true }).click();
@@ -125,7 +125,7 @@ async (page) => {
   await send('Conversation still works after reverting everything');
   await page.getByLabel('Choose images', { exact: true }).setInputFiles('/tmp/shepherd-image-input-fixtures/only.png');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
   const imageMessage = page.locator('article.message-user').filter({ has: page.getByRole('img', { name: 'Attached image 1', exact: true }) });
   await imageMessage.getByRole('button', { name: 'Revert from here', exact: true }).click();
   await dialog.getByText('[Image message]', { exact: true }).waitFor();

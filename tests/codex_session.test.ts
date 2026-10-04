@@ -199,6 +199,22 @@ describe("CodexSession app-server contract", () => {
     });
   });
 
+  test("reset redemption initializes the session and preserves retry identity", async () => {
+    const session = new CodexSession("on-request");
+    let initialized = false;
+    session.initialize = async () => { initialized = true; };
+    const requests: unknown[] = [];
+    internals(session).sendRequest = async (method, params) => {
+      expect(initialized).toBe(true);
+      requests.push({ method, params });
+      return { outcome: requests.length === 1 ? "reset" : "alreadyRedeemed" };
+    };
+    const request = { idempotencyKey: "attempt-1", creditId: "credit-1" };
+    await expect(session.consumeRateLimitReset(request)).resolves.toEqual({ outcome: "reset" });
+    await expect(session.consumeRateLimitReset(request)).resolves.toEqual({ outcome: "alreadyRedeemed" });
+    expect(requests).toEqual([1, 2].map(() => ({ method: "account/rateLimitResetCredit/consume", params: request })));
+  });
+
   test("omits params for parameterless requests and removed skill-list fields", async () => {
     const session = new CodexSession("on-request");
     const requests: Array<{ method: string; params: unknown }> = [];

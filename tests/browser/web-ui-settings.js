@@ -12,9 +12,9 @@ async (page) => {
   await dialog.getByLabel('Effort for next turn', { exact: true }).selectOption('high');
   await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
   await dialog.locator('dd').filter({ hasText: /^high$/ }).waitFor();
-  await dialog.getByText('Usage and account limits', { exact: true }).click();
+  await dialog.getByText('Conversation context', { exact: true }).click();
   await dialog.getByText('No context telemetry yet. Send a turn first.', { exact: true }).waitFor();
-  await dialog.getByText('Primary window: 25% used', { exact: true }).waitFor();
+  if (await dialog.getByText('Banked resets', { exact: false }).count()) throw Error('Account usage leaked into conversation settings');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: '/tmp/shepherd-settings-mobile.png' });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw Error('Settings overflow');
@@ -24,14 +24,9 @@ async (page) => {
   await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).click();
   await dialog.locator('dd').filter({ hasText: /^large$/ }).waitFor();
   await dialog.locator('dd').filter({ hasText: /^high$/ }).waitFor();
-  await page.route('**/api/v1/limits', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Limits unavailable' } } }));
-  await dialog.getByRole('button', { name: 'Refresh settings and usage', exact: true }).click();
-  await dialog.getByText('Usage and account limits', { exact: true }).click();
-  await dialog.getByText('Limits unavailable', { exact: true }).waitFor();
   await dialog.getByLabel('Effort for next turn', { exact: true }).selectOption('default');
   await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('select[aria-label="Effort for next turn"]')?.value === 'low');
-  await page.unroute('**/api/v1/limits');
   await page.keyboard.press('Escape');
   if (await dialog.isVisible()) throw Error('Escape did not close settings');
 }

@@ -27,7 +27,7 @@ async (page) => {
   if (!releaseHistory.length) throw Error('History refresh was not delayed');
   holdHistory = false; releaseHistory.forEach(resolve => resolve());
   await page.unrouteAll({ behavior: 'wait' });
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
   await page.setViewportSize({ width: 1280, height: 900 });
 
   let releaseSend;
@@ -68,7 +68,7 @@ async (page) => {
   if (await composer.inputValue() !== 'Keep this new edit') throw Error('Deleted text edited after switching back');
   await page.getByRole('button', { name: 'Remove only.png', exact: true }).waitFor();
   await page.unroute('**/api/v1/conversations/*/messages');
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
 
   await page.route('**/api/v1/conversations/*/messages', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Send failed' } } }));
   await send.click();

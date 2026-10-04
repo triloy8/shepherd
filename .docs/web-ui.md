@@ -78,7 +78,8 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | Method | Path | Body or result |
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
-| GET | `/limits` | `{ rateLimits }`; provider account limits, shared across conversations |
+| GET | `/limits` | `{ rateLimits, rateLimitsByLimitId, rateLimitResetCredits }`; account-wide usage and banked resets |
+| POST | `/limits/reset` | `{ idempotencyKey, creditId? }` → `{ outcome }`; redeem one banked reset |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
 | GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
 | POST | `/conversations` | `{ project }` creates a thread; `{ threadId }` resumes its saved workspace; 201 with `{ id, threadId, project }` |
@@ -237,7 +238,19 @@ responses. A failed usage read does not prevent unrelated settings requests.
 
 Model/effort overrides follow existing loaded-session lifetime rules; the web
 surface adds no persistence or global defaults. Account limits are provider data
-and may be incomplete/unavailable. Context telemetry can be null before a turn.
+and may be incomplete/unavailable. The sidebar **Usage & limits** panel exposes
+all reported usage buckets and banked reset counts/details. Conversation settings
+retain context telemetry, which can be null before a turn.
+
+Reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
+be non-empty (maximum 100 characters); an optional non-empty credit ID (maximum
+256 characters) selects a particular reset. Without an ID, Codex selects the next
+available reset. Outcomes are `reset`, `alreadyRedeemed`, `nothingToReset`, and
+`noCredit`. Read `/limits` after a known result. Retry an unknown result with the
+same key; never generate a new key for the same attempt. The built-in UI retains
+pending keys in session storage across reloads in the same tab. Malformed bodies
+and extra fields return 400; backend failures remain sanitized 502 responses.
+Reset controls work without a selected conversation.
 
 ## Conversation management
 

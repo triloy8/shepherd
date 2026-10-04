@@ -16,7 +16,7 @@ RUN bun run check
 
 FROM oven/bun:${BUN_VERSION}-slim AS runtime
 
-ARG CODEX_VERSION=0.159.2
+ARG CODEX_VERSION=0.160.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 

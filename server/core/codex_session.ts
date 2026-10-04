@@ -10,6 +10,7 @@ import type {
 } from "../../shared/protocol/dynamic_tools.js";
 import type { BridgeEvent, BridgeEventType, MessagePhase } from "../../shared/protocol/events.js";
 import type {
+  ConsumeRateLimitResetRequest,
   ApprovalPolicy,
   CreateThreadRequest,
   ForkThreadRequest,
@@ -127,6 +128,7 @@ type AppServerRequestParams = {
   "thread/items/list": ListThreadItemsRequest & { threadId: string };
   "thread/read": { threadId: string; includeTurns: boolean };
   "account/rateLimits/read": undefined;
+  "account/rateLimitResetCredit/consume": ConsumeRateLimitResetRequest;
   "model/list": { cursor: string | null; limit: number | null; includeHidden: boolean | null };
   "skills/list": { cwds?: string[]; forceReload?: boolean };
   "skills/config/write": { enabled: boolean; path: string };
@@ -458,6 +460,11 @@ export class CodexSession {
   async readThread(threadId: string, includeTurns: boolean): Promise<unknown> {
     await this.initialize();
     return this.sendRequest("thread/read", { threadId, includeTurns });
+  }
+
+  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<unknown> {
+    await this.initialize();
+    return this.sendRequest("account/rateLimitResetCredit/consume", request);
   }
 
   async readAccountRateLimits(): Promise<unknown> {

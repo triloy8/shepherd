@@ -7,7 +7,7 @@ async (page) => {
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   const image = page.getByRole('img', { name: 'desktop-screenshot.png', exact: true });
   const expandView = async () => {
-    await page.locator('.progress-disclosure').filter({ has: page.locator('.viewed-image-disclosure') }).locator(':scope > summary').click();
+    await page.locator('section[aria-label="Assistant turn"]').last().locator('.progress-disclosure > summary').click();
     await page.getByText('Viewed image · desktop-screenshot.png', { exact: true }).click();
   };
   await expandView();
@@ -37,7 +37,7 @@ async (page) => {
   await page.route('**/images/*', route => route.fulfill({ status: 422, json: { error: { code: 'image_unavailable' } } }));
   await page.reload();
   await expandView();
-  await page.getByText('Image unavailable. Reload the conversation to retry.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Retry image', exact: true }).waitFor();
   await page.unroute('**/images/*');
   await page.reload();
   await expandView();

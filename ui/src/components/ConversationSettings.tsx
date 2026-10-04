@@ -23,6 +23,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
   const [limits, setLimits] = useState<WebLimitsResponse | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [paging, setPaging] = useState(false);
   const [saving, setSaving] = useState(false);
   const mutation = useRef(false);
@@ -30,29 +31,51 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
   const dirty = useRef({ model: false, effort: false });
   const session = useRef(0);
   const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => { session.current++; dirty.current = { model: false, effort: false }; setNotice(null); }, [id, open]);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
+  useEffect(() => { session.current++; dirty.current = { model: false, effort: false }; setNotice(null); setSkillsOpen(false); setUsageOpen(false); }, [id, open]);
 
   useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close(); }, [open]);
   useEffect(() => {
-    generation.current++;
     if (!open) return;
     const abort = new AbortController();
-    setLoading(true); setModels([]); setCursor(null); setPaging(false); setErrors({}); setContext(null); setLimits(null);
-    seenCursors.current.clear();
+    setLoading(true);
+    setErrors((current) => { const { settings: _settings, ...rest } = current; return rest; });
     const fail = (key: string, error: unknown) => { if (!abort.signal.aborted) setErrors((current) => ({ ...current, [key]: explainError(error) })); };
-    void Promise.allSettled([
-      api.settings(id, abort.signal).then((value) => {
+    void api.settings(id, abort.signal).then((value) => {
         if (abort.signal.aborted) return;
         setSettings(value);
         if (!dirty.current.model) setModel(value.model.pendingModel ?? value.model.currentModel ?? value.effort.model);
         if (!dirty.current.effort) setEffort(value.effort.pendingEffort ?? value.effort.currentEffort ?? "default");
-      }).catch((error) => { if (!abort.signal.aborted) setSettings(null); fail("settings", error); }),
-      api.models(id, undefined, abort.signal).then((value) => { if (!abort.signal.aborted) { setModels(value.data); setCursor(value.nextCursor); } }).catch((error) => fail("models", error)),
-    ]).then(() => { if (!abort.signal.aborted) setLoading(false); });
+      }).catch((error) => { if (!abort.signal.aborted) setSettings(null); fail("settings", error); })
+      .finally(() => { if (!abort.signal.aborted) setLoading(false); });
+    return () => abort.abort();
+  }, [id, open, revision, activeTurnId]);
+
+  useEffect(() => {
+    generation.current++;
+    if (!open) return;
+    const abort = new AbortController();
+    setModelsLoading(true); setModels([]); setCursor(null); setPaging(false);
+    seenCursors.current.clear();
+    setErrors((current) => { const { models: _models, ...rest } = current; return rest; });
+    void api.models(id, undefined, abort.signal).then((value) => {
+      if (!abort.signal.aborted) { setModels(value.data); setCursor(value.nextCursor); }
+    }).catch((error) => { if (!abort.signal.aborted) setErrors((current) => ({ ...current, models: explainError(error) })); })
+      .finally(() => { if (!abort.signal.aborted) setModelsLoading(false); });
+    return () => abort.abort();
+  }, [id, open, revision]);
+
+  useEffect(() => {
+    if (!open || !usageOpen) return;
+    const abort = new AbortController();
+    setContext(null); setLimits(null);
+    setErrors((current) => { const { context: _context, limits: _limits, ...rest } = current; return rest; });
+    const fail = (key: string, error: unknown) => { if (!abort.signal.aborted) setErrors((current) => ({ ...current, [key]: explainError(error) })); };
     void api.context(id, abort.signal).then((value) => { if (!abort.signal.aborted) setContext(value); }).catch((error) => fail("context", error));
     void api.limits(abort.signal).then((value) => { if (!abort.signal.aborted) setLimits(value); }).catch((error) => fail("limits", error));
     return () => abort.abort();
-  }, [id, open, revision, activeTurnId]);
+  }, [id, open, usageOpen, revision, activeTurnId]);
 
   async function loadMore() {
     if (!cursor || paging) return;
@@ -82,7 +105,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
     } catch (error) { if (version === session.current) setErrors((current) => ({ ...current, save: explainError(error) })); }
     finally { mutation.current = false; setSaving(false); }
   }
-  const blocked = disabled || saving || loading;
+  const blocked = disabled || saving || loading || modelsLoading;
   const effectiveModel = settings?.model.pendingModel ?? settings?.model.currentModel ?? settings?.effort.model;
   const supported = settings?.effort.supportedEfforts ?? [];
   const defaultSupported = supported.some((option) => option.reasoningEffort === settings?.effort.defaultEffort);
@@ -99,7 +122,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
         {errors.settings && <p role="alert" className="notice">{errors.settings}</p>}
         {errors.models && <p role="alert" className="notice">{errors.models}</p>}
         <label className="block text-xs text-muted">Model for next turn<select aria-label="Model for next turn" value={model} disabled={blocked} onChange={(event) => { edits.current.model++; dirty.current.model = true; setModel(event.target.value); }}>
-          <option value="" disabled>{loading ? "Loading models…" : "Choose a model"}</option>
+          <option value="" disabled>{modelsLoading ? "Loading models…" : "Choose a model"}</option>
           {model && !models.some((item) => item.model === model) && <option value={model}>{model}</option>}
           {models.map((item) => <option key={item.model} value={item.model}>{item.displayName || item.model}</option>)}
         </select></label>
@@ -116,11 +139,11 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
         {!supported.length && !loading && <p className="text-xs text-muted">No effort controls available for this model.</p>}
         <button className="button-secondary" disabled={blocked || !settings || !supported.length || model !== effectiveModel || !(effort === "default" ? defaultSupported : supported.some((option) => option.reasoningEffort === effort))} onClick={() => void save("effort")}>Use effort</button>
       </section>
-      <details className="mt-6 border-t border-line pt-4"><summary className="cursor-pointer text-sm">Skills</summary>{open && <ConversationSkills key={id} id={id} disabled={disabled || saving} />}</details>
-      <details className="mt-6 border-t border-line pt-4"><summary className="cursor-pointer text-sm">Usage and account limits</summary><div className="mt-4 space-y-5">
+      <details className="mt-6 border-t border-line pt-4" onToggle={(event) => setSkillsOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm">Skills</summary>{skillsOpen && <ConversationSkills key={id} id={id} disabled={disabled || saving} />}</details>
+      <details className="mt-6 border-t border-line pt-4" onToggle={(event) => setUsageOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm">Usage and account limits</summary>{usageOpen && <div className="mt-4 space-y-5">
         <section><h3 className="mb-2 text-sm">Conversation context</h3>{errors.context ? <p role="alert" className="notice">{errors.context}</p> : context ? <ContextUsage usage={context.tokenUsage} /> : <p className="text-xs text-muted">Loading context…</p>}</section>
         <section><h3 className="mb-2 text-sm">Account limits · shared across conversations</h3>{errors.limits ? <p role="alert" className="notice">{errors.limits}</p> : limits ? <AccountLimits value={limits.rateLimits} /> : <p className="text-xs text-muted">Loading limits…</p>}</section>
-      </div></details>
+      </div>}</details>
       <button className="button-secondary mt-5" disabled={saving || loading} onClick={() => setRevision((value) => value + 1)}>Refresh settings and usage</button>
     </dialog>
   </>;

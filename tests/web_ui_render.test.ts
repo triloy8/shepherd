@@ -10,6 +10,19 @@ function renderAssistantMarkdown(text: string) {
   } }));
 }
 
+test("streaming text defers math and Markdown until canonical completion", () => {
+  const text = "**Energy**: $E = mc^2$";
+  const partial = renderToStaticMarkup(createElement(Message, { message: {
+    id: "stream", turnId: "turn", role: "assistant", complete: false, text,
+  } }));
+  expect(partial).toContain(text);
+  expect(partial).not.toContain('class="katex"');
+  expect(partial).not.toContain("<strong>");
+  const completed = renderAssistantMarkdown(text);
+  expect(completed).toContain("<strong>Energy</strong>");
+  expect(completed).toContain('class="katex"');
+});
+
 test("dollar prices preserve Markdown formatting instead of becoming math", () => {
   const html = renderAssistantMarkdown("Compared with Prime’s available **40GB A100 at $1.99/h**, Runpod advertises **80GB at $1.59/h**. An account/API key would let us check actual stock, region, and the final configured price.");
   expect(html).toContain("<strong>40GB A100 at $1.99/h</strong>");

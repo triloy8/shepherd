@@ -6,17 +6,24 @@ export type TimelineGroup = { id: string; messages: ChatMessage[]; finalIds: str
 // inside a disclosure or out of its chronological position.
 export function timelineGroups(chat: ChatState): TimelineGroup[] {
   const groups: TimelineGroup[] = [];
-  const finals = new Map<string, ChatMessage[]>();
+  const explicitFinals = new Map<string, Set<string>>();
+  const implicitFinals = new Map<string, Set<string>>();
   for (const message of chat.messages) {
     if (message.role !== "assistant" || message.activity || message.image) continue;
-    if (message.phase === "final_answer") finals.set(message.turnId, [...(finals.get(message.turnId) ?? []).filter((m) => m.phase === "final_answer"), message]);
-    else if (!message.phase && !finals.get(message.turnId)?.some((m) => m.phase === "final_answer")) finals.set(message.turnId, [message]);
+    if (message.phase === "final_answer") {
+      const ids = explicitFinals.get(message.turnId) ?? new Set<string>();
+      ids.add(message.id); explicitFinals.set(message.turnId, ids);
+    } else if (!message.phase && !explicitFinals.has(message.turnId)) {
+      // Legacy history has no phase metadata, so only its last assistant text
+      // is the final response.
+      implicitFinals.set(message.turnId, new Set([message.id]));
+    }
   }
   for (const message of chat.messages) {
     const previous = groups.at(-1);
-    const finalTexts = finals.get(message.turnId) ?? [];
-    const followsFinal = finalTexts.some((m) => m.id === previous?.messages.at(-1)?.id);
-    const output = (message.image && message.image.kind !== "viewed") || finalTexts.some((m) => m.id === message.id);
+    const finalTexts = explicitFinals.get(message.turnId) ?? implicitFinals.get(message.turnId);
+    const followsFinal = !!previous?.messages.at(-1) && !!finalTexts?.has(previous.messages.at(-1)!.id);
+    const output = (message.image && message.image.kind !== "viewed") || !!finalTexts?.has(message.id);
     if (message.role === "assistant" && previous?.messages[0]?.role === "assistant" &&
       message.turnId && previous.messages[0].turnId === message.turnId && (!followsFinal || output)) previous.messages.push(message);
     else groups.push({ id: message.id, messages: [message], settled: false, finalIds: [], label: "Progress" });
@@ -29,8 +36,8 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
     // Message completion is not turn completion. Wait for canonical history
     // before folding, including on reconnect and when a turn was interrupted.
     group.settled = !active && turn?.status === "completed";
-    const finalTextIds = (finals.get(first.turnId) ?? []).filter((m) => (m.phase === "final_answer" || group.settled) && group.messages.includes(m)).map((m) => m.id);
-    group.finalIds = group.messages.filter((message) => (message.image && message.image.kind !== "viewed") || finalTextIds.includes(message.id)).map((message) => message.id);
+    const finalTextIds = explicitFinals.get(first.turnId) ?? (group.settled ? implicitFinals.get(first.turnId) : undefined);
+    group.finalIds = group.messages.filter((message) => (message.image && message.image.kind !== "viewed") || !!finalTextIds?.has(message.id)).map((message) => message.id);
     group.label = active ? "Working…" : turn?.status === "interrupted" ? "Interrupted work" : turn?.status === "failed" ? "Failed work" : group.settled ?
       (turn.durationMs != null ? `Worked for ${Math.max(1, Math.round(turn.durationMs / 1000))}s` : "Work completed") : "Progress";
   }

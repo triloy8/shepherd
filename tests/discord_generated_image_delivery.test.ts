@@ -37,6 +37,7 @@ describe("Discord generated image delivery", () => {
 
     expect(attachment.name).toBe("unicorn.png");
     expect(attachment.attachment).toEqual(png);
+    expect(attachment.attachment.buffer.byteLength).toBe(png.byteLength);
   });
 
   test("rejects relative, non-file, oversized, and unsupported artifacts", async () => {

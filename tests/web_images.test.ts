@@ -31,8 +31,8 @@ test("viewed screenshots reload as visible images and use the existing bounded a
     expect(first.data[0].items[1].webImage).toBeUndefined();
     expect(first.data[0].items[2].webImage).toBeUndefined();
     const html = renderToStaticMarkup(createElement(Timeline, { chat: mergeHistory(emptyChat(), reloaded.data) }));
-    expect(html).toContain(`src="${image.url}"`);
-    expect(html).toContain('aria-label="Open image: desktop-screenshot.png"');
+    expect(html).not.toContain(`src="${image.url}"`);
+    expect(html).toContain("Work completed");
     expect(html).not.toContain("Generated image");
     const route = image.url.replace("/api/v1", "");
     const response = await h.request(route);
@@ -68,7 +68,7 @@ test("live viewed image events replace activity and survive replay without dupli
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]?.image).toMatchObject({ url: event.payload.url, name: "desktop-screenshot.png", prompt: null, path: viewed.payload.path });
     const html = renderToStaticMarkup(createElement(Timeline, { chat: state }));
-    expect(html).toContain('<img');
+    expect(html).not.toContain('<img');
     expect(html).toContain("viewed-image-disclosure");
     expect(html).not.toContain(" open=");
     state = reduceBridge(state, { ...viewed, id: "answer", type: "turn.message.completed", payload: { itemId: "answer", turnId: "turn", phase: "final_answer", text: `Here is your screenshot:\n\n![Desktop view](${viewed.payload.path})` } });
@@ -85,15 +85,20 @@ test("history exposes scoped images and shared activity mapping; image reads res
     const path = join(dir, "output.png"); await writeFile(path, png);
     h.application.conversation.listThreadTurns = async () => ({ data: [{ id: "turn", items: [
       { id: "image", type: "imageGeneration", status: "completed", savedPath: path, revisedPrompt: "A picture" },
-      { id: "command", type: "commandExecution", status: "failed", command: "bun test" },
+      { id: "command", type: "commandExecution", status: "failed", command: "bun test", aggregatedOutput: "x".repeat(1024 * 1024) },
     ] }], nextCursor: null, backwardsCursor: null });
     const a = await h.create(); const b = await h.create();
     const page = await (await h.request(`/conversations/${a.id}/turns`)).json();
     const url = page.data[0].items[0].webImage.url as string;
     expect(page.data[0].items[1].webActivity.status).toBe("failed");
+    expect(JSON.stringify(page)).not.toContain("aggregatedOutput");
+    expect(JSON.stringify(page).length).toBeLessThan(10_000);
     const response = await h.request(url.replace("/api/v1", ""));
     expect(response.status).toBe(200); expect(response.headers.get("content-type")).toBe("image/png");
-    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    const etag = response.headers.get("etag"); expect(etag).toBeTruthy();
+    const unchanged = await h.request(url.replace("/api/v1", ""), "GET", undefined, { "if-none-match": etag! });
+    expect(unchanged.status).toBe(304); expect(await unchanged.text()).toBe("");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
     expect((await h.request(url.replace("/api/v1", "").replace(a.id, b.id))).status).toBe(404);

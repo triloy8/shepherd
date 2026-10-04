@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import type { WebConversation } from "../../../shared/protocol/web";
-import { ConversationActions } from "./ConversationActions";
-import { ConversationSettings } from "./ConversationSettings";
 import { Icon } from "./Icon";
+
+const ConversationActions = lazy(() => import("./ConversationActions").then((module) => ({ default: module.ConversationActions })));
+const ConversationSettings = lazy(() => import("./ConversationSettings").then((module) => ({ default: module.ConversationSettings })));
 
 export function ConversationMenu({ conversation, title, status, disabled, active, activeTurnId, detaching, onHistoryChange, onRename, onArchive, onFork, onDetach }: {
   conversation: WebConversation; title: string; status: string; disabled: boolean; active: boolean; activeTurnId: string | null; detaching: boolean;
@@ -63,7 +64,7 @@ export function ConversationMenu({ conversation, title, status, disabled, active
       <p className="mb-5 break-words text-sm font-medium">{title}</p>
       <dl className="space-y-4 text-sm"><div><dt className="mb-1 text-xs text-dim">Connection</dt><dd>{panel === "details" ? status : null}</dd></div><div><dt className="mb-1 text-xs text-dim">Project</dt><dd className="break-all">{conversation.project}</dd></div><div><dt className="mb-1 text-xs text-dim">Conversation ID</dt><dd className="break-all font-mono text-xs">{conversation.threadId}</dd></div></dl>
     </dialog>
-    <ConversationActions conversation={conversation} title={title} disabled={disabled} active={active} open={panel === "actions"} onOpenChange={(value) => { if (!value) closePanel(); }} onHistoryChange={onHistoryChange} onRename={onRename} onArchive={onArchive} onFork={onFork} />
-    <ConversationSettings id={conversation.id} activeTurnId={activeTurnId} disabled={disabled} open={panel === "settings"} onOpenChange={(value) => { if (!value) closePanel(); }} />
+    {panel === "actions" && <Suspense fallback={null}><ConversationActions conversation={conversation} title={title} disabled={disabled} active={active} open onOpenChange={(value) => { if (!value) closePanel(); }} onHistoryChange={onHistoryChange} onRename={onRename} onArchive={onArchive} onFork={onFork} /></Suspense>}
+    {panel === "settings" && <Suspense fallback={null}><ConversationSettings id={conversation.id} activeTurnId={activeTurnId} disabled={disabled} open onOpenChange={(value) => { if (!value) closePanel(); }} /></Suspense>}
   </>;
 }

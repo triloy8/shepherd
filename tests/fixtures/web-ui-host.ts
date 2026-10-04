@@ -14,7 +14,7 @@ installWebSettings(h);
 installWebSkills(h);
 const imageDir = await mkdtemp(join(tmpdir(), "shepherd-ui-fixture-"));
 const imagePath = join(imageDir, "generated.png");
-await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64"));
+await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64"));
 // Named local files used by the browser attachment tests.
 const viewedImagePath = join(imageDir, "desktop-screenshot.png");
 await writeFile(viewedImagePath, await readFile(process.env.UI_TEST_SCREENSHOT ?? imagePath));

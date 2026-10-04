@@ -41,7 +41,7 @@ export default function App() {
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [project, setProject] = useState("~");
   const [imageDrafts, setImageDrafts] = useState<Record<string, DraftImage[]>>({});
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, { text: string; revision: number }>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -215,7 +215,14 @@ export default function App() {
     if (!selected || detaching) return;
     const id = selected.id;
     setDetaching(true);
-    try { await api.detach(id); setSelected(null); setSaved(null); try { localStorage.removeItem("shepherd.selection"); } catch { /* Storage is optional. */ } await refreshList(); }
+    try {
+      await api.detach(id);
+      setSelected((current) => current?.id === id ? null : current);
+      setSaved((current) => current?.id === id ? null : current);
+      setConversations((items) => items.filter((item) => item.id !== id));
+      try { if (savedSelection()?.id === id) localStorage.removeItem("shepherd.selection"); } catch { /* Storage is optional. */ }
+      await refreshList();
+    }
     catch (error) { setError(explainError(error)); }
     finally { setDetaching(false); }
   }
@@ -286,7 +293,15 @@ export default function App() {
         <div ref={composerRef} className="composer-area"><div className="composer-dock">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
           {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); void openThread(selected.threadId, true); }}>Resume conversation</button>}
-          <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))} draft={drafts[selected.threadId] ?? ""} onDraft={(update) => setDrafts((all) => ({ ...all, [selected.threadId]: typeof update === "function" ? update(all[selected.threadId] ?? "") : update }))} send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
+          <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))}
+            draft={drafts[selected.threadId]?.text ?? ""} draftRevision={drafts[selected.threadId]?.revision ?? 0}
+            onDraft={(text) => setDrafts((all) => ({ ...all, [selected.threadId]: { text, revision: (all[selected.threadId]?.revision ?? 0) + 1 } }))}
+            clearDraft={(revision) => setDrafts((all) => {
+              const current = all[selected.threadId];
+              if ((current?.revision ?? 0) !== revision) return all;
+              return { ...all, [selected.threadId]: { text: "", revision: revision + 1 } };
+            })}
+            send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
         </div></div>
       </section>}
     </main>

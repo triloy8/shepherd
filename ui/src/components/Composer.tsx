@@ -1,9 +1,10 @@
 import { readDraftImages, type DraftImage } from "../image-input";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from "react";
 import { Icon } from "./Icon";
 
-export function Composer({ draft, onDraft, images, onImages, send, disabled, busy, active, interrupt }: {
-  draft: string; onDraft: (update: string | ((current: string) => string)) => void; images: DraftImage[]; onImages: (update: (current: DraftImage[]) => DraftImage[]) => void; send: (text: string, images: string[]) => Promise<boolean>;
+export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, send, disabled, busy, active, interrupt }: {
+  draft: string; draftRevision: number; onDraft: (value: string) => void; clearDraft: (revision: number) => void;
+  images: DraftImage[]; onImages: (update: (current: DraftImage[]) => DraftImage[]) => void; send: (text: string, images: string[]) => Promise<boolean>;
   disabled: boolean; busy: boolean; active: boolean; interrupt: () => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
@@ -39,13 +40,27 @@ export function Composer({ draft, onDraft, images, onImages, send, disabled, bus
   }
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
+  function pasteImages(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.files);
+    if (!files.length || sendingRef.current) return;
+    event.preventDefault();
+    const text = event.clipboardData.getData("text/plain");
+    if (text) {
+      const element = event.currentTarget;
+      const remaining = Math.max(0, element.maxLength - element.value.length + element.selectionEnd - element.selectionStart);
+      element.setRangeText(text.slice(0, remaining), element.selectionStart, element.selectionEnd, "end");
+      onDraft(element.value);
+    }
+    void addFiles(files);
+  }
   async function submit() {
     if ((!draft.trim() && !images.length) || disabled || busy || sendingRef.current || readingRef.current) return;
     const value = draft;
+    const revision = draftRevision;
     sendingRef.current = true; setSending(true);
     try {
       if (await send(value, images.map((image) => image.url))) {
-        onDraft((current) => current === value ? "" : current);
+        clearDraft(revision);
         onImages((current) => current.filter((image) => !images.some((sent) => sent.id === image.id)));
         if (mounted.current) setImageError(null);
       }
@@ -57,7 +72,7 @@ export function Composer({ draft, onDraft, images, onImages, send, disabled, bus
     {imageError && <p role="alert" className="notice m-3">{imageError}</p>}
     {reading && <p role="status" className="px-3 text-xs text-muted">Reading images…</p>}
     <textarea ref={textarea} aria-label="Message Shepherd" aria-describedby="composer-help" placeholder={active ? "Add a follow-up…" : "Message Shepherd…"}
-      onPaste={(event) => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); void addFiles(files); } }}
+      onPaste={pasteImages}
       value={draft} onChange={(event) => onDraft(event.target.value)} maxLength={32768} rows={1} disabled={sending}
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia("(pointer: fine)").matches) {

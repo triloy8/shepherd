@@ -24,7 +24,7 @@ async (page) => {
   if (body.images.length !== 1 || !body.images[0].startsWith('data:image/png;base64,')) throw Error('Image not forwarded');
   await page.getByRole('img', { name: 'Attached image 1', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Remove first.png', exact: true }).waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
   await page.reload();
   await page.getByRole('img', { name: 'Attached image 1', exact: true }).waitFor();
   await picker.setInputFiles(file('only.png'));
@@ -32,7 +32,7 @@ async (page) => {
   if (!(await page.getByRole('button', { name: 'Send message', exact: true }).isEnabled())) throw Error('Image-only send disabled');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await page.getByRole('button', { name: 'Remove only.png', exact: true }).waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
   await page.waitForFunction(() => [...document.querySelectorAll('img[alt="Attached image 1"]')].length === 2);
   // Clipboard input uses the same validation/preview path as file selection.
   await composer.evaluate((element, base64) => {

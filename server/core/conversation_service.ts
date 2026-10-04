@@ -2,6 +2,8 @@ import type { ApprovalDecisionRequest, ApprovalRecord } from "../../shared/proto
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type {
   AccountRateLimitsResponse,
+  ConsumeRateLimitResetRequest,
+  ConsumeRateLimitResetResponse,
   ApprovalPolicy,
   CreateThreadRequest,
   CreateThreadResponse,
@@ -242,6 +244,10 @@ export class ConversationService {
 
   revertThread(threadId: string, request: RevertThreadRequest): Promise<RevertThreadResponse> {
     return this.manager.revertThread(threadId, request);
+  }
+
+  consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<ConsumeRateLimitResetResponse> {
+    return this.manager.consumeRateLimitReset(request);
   }
 
   readAccountRateLimits(): Promise<AccountRateLimitsResponse> {

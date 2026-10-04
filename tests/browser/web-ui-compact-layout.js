@@ -132,7 +132,7 @@ async page => {
   if (await composer.inputValue() !== 'Draft still here') throw Error('Sidebar toggle lost draft');
   await composer.fill('Compact layout still sends');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state:'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state:'hidden' });
   await page.locator('.chat-scroll').evaluate(el => el.scrollTop = el.scrollHeight);
   const final = page.locator('.message-assistant').last();
   if (await final.evaluate(el => el.getBoundingClientRect().bottom) > await page.locator('.composer').evaluate(el=>el.getBoundingClientRect().top)) throw Error('Last response is obscured by composer');

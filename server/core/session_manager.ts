@@ -1,3 +1,4 @@
+import { decodeResetCredits, decodeResetOutcome } from "./account_usage.js";
 import { ApplicationActionError } from "./action_error.js";
 import type {
   ApprovalDecisionRequest,
@@ -6,6 +7,8 @@ import type {
 } from "../../shared/protocol/approvals.js";
 import type { ThreadTokenUsageUpdatedEvent } from "../../shared/protocol/events.js";
 import type {
+  ConsumeRateLimitResetRequest,
+  ConsumeRateLimitResetResponse,
   ApprovalPolicy,
   AccountRateLimitsResponse,
   ArchiveThreadResponse,
@@ -274,6 +277,11 @@ export class SessionManager {
     return { thread: extractThreadRecord(raw.thread), turnsBackwardsCursor: asString(raw.turnsBackwardsCursor), itemsBackwardsCursor: asString(raw.itemsBackwardsCursor) };
   }
 
+  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<ConsumeRateLimitResetResponse> {
+    const session = await this.getControlSession();
+    return decodeResetOutcome(await session.consumeRateLimitReset(request));
+  }
+
   async readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
     const session = await this.getControlSession();
     const raw = asRecord(await session.readAccountRateLimits());
@@ -283,7 +291,7 @@ export class SessionManager {
         raw.rateLimitsByLimitId && typeof raw.rateLimitsByLimitId === "object"
           ? (raw.rateLimitsByLimitId as Record<string, unknown>)
           : null,
-      rateLimitResetCredits: raw.rateLimitResetCredits ?? null,
+      rateLimitResetCredits: decodeResetCredits(raw.rateLimitResetCredits),
     };
   }
 

@@ -10,20 +10,20 @@ Status legend:
 
 Generated baseline:
 
-- Codex version: `codex-cli 0.159.2`
-- Last refreshed: `2026-09-30`
-- Implementation notes reviewed: `2026-09-30`
+- Codex version: `codex-cli 0.160.0`
+- Last refreshed: `2026-10-04`
+- Implementation notes reviewed: `2026-10-04`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
-- Experimental verification commands used for dynamic tools:
+- Experimental verification commands (separate inventory, including dynamic tools):
   - `codex app-server generate-ts --experimental --out <temporary-directory>`
   - `codex app-server generate-json-schema --experimental --out <temporary-directory>`
 
 Legacy note:
 
 - The legacy-named `execCommandApproval` and `applyPatchApproval` server requests
-  remain in the 0.159.2 generated schema and are supported directly. They are
+  remain in the 0.160.0 generated schema and are supported directly. They are
   not Shepherd compatibility shims. The three legacy client methods and two
   legacy notification names listed below are inventory entries, not dedicated
   wrappers or translations.
@@ -127,8 +127,8 @@ Legacy note:
 | `account/gatewayOAuth/login` | Missing | Out of Scope (for now) | Explicit gateway authorization; initialize also adds `explicitGatewayOauth` |
 | `account/gatewayOAuth/cancel` | Missing | Out of Scope (for now) | Cancels gateway authorization |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
-| `account/rateLimits/read` | Partial | Core | Exposed via Discord `!limits`; does not send the new `supportsLunaReserve` or `excludeResetCreditDetails` capabilities, and does not expose the top-level `ordinaryUsageAllowed` flag or per-limit `normalModelSlug` |
-| `account/rateLimitResetCredit/consume` | Missing | Out of Scope (for now) | Account quota mutation path |
+| `account/rateLimits/read` | Partial | Core | Discord `!limits` renders the single-bucket view; web sidebar Usage & limits renders all returned buckets and typed banked reset count/details. Shared controls preserve both. Does not send `supportsLunaReserve` or `excludeResetCreditDetails`; omits top-level `ordinaryUsageAllowed`, `accountId`, `rateLimitUpsell`, and per-limit `normalModelSlug` presentation |
+| `account/rateLimitResetCredit/consume` | Implemented | Core | Shared wrapper/control and web `POST /limits/reset` / Use reset. Requires `idempotencyKey`; optional `creditId`. Validated outcomes: `reset`, `alreadyRedeemed`, `nothingToReset`, `noCredit`. UI refreshes limits after every known outcome and retains the same request key after an unknown outcome, including across reload in the same tab. No Discord command |
 | `account/usage/read` | Missing | Maybe Later | Useful for account diagnostics if Shepherd adds admin reporting; generated params now optionally scope usage to a `threadId` |
 | `account/workspaceMessages/read` | Missing | Maybe Later | Useful for account/workspace diagnostics |
 | `account/login/start` | Missing | Out of Scope (for now) | |
@@ -234,11 +234,63 @@ Legacy note:
 | Rich thread object typing | Partial | `ReadThreadResponse`/`RevertThreadResponse` use `ThreadRecord`; generated `originator`, project assignment, agent-message delivery, and environment fields remain only structurally preserved through the open record shape |
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
+| Account usage/reset DTOs | Partial | Typed reset summary/details, consume params, and validated outcomes are exposed through shared controls and web. Per-bucket usage remains `unknown`; broader top-level account metadata is not exposed |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.159.2`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is retired in favor of implemented revert |
+| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.160.0`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is retired in favor of implemented revert |
 
 
-## Changes in 0.159.2
+## Refresh to 0.160.0
+
+The local standalone updater resolved `0.160.0`, which was already installed.
+Fresh TypeScript and JSON-schema output from `0.160.0` was compared recursively
+with fresh output from the retained `0.159.2` binary: all 1,048 default generated
+files are identical. The full experimental output is also identical between
+these versions. There are no schema additions, removals, or field changes in
+this refresh; no Shepherd request migration is required.
+
+All default request and notification method names were checked against the
+matrix: 107 TypeScript client methods / 104 JSON methods, 10 server requests,
+and 85 TypeScript notifications / 83 JSON notifications. The differences are
+the legacy compatibility entries documented above.
+
+The experimental inventory is separate: it adds 63 client methods and one
+server request (`currentTime/read`), with no additional notification names.
+Shepherd advertises dynamic tools and handles `item/tool/call`; it does not
+implement the other experimental client methods or `currentTime/read` (unknown
+server requests receive an explicit JSON-RPC unsupported response). These are
+not part of the default inventory counts.
+
+## Banked reset coverage
+
+`account/rateLimits/read` can return `rateLimitResetCredits.availableCount` and
+`credits` detail rows with `id`, `resetType`, `status`, `grantedAt`, `expiresAt`,
+`title`, and `description`. A null summary means unavailable; null detail rows
+mean only the count is known. An empty array means details were fetched with no
+available credits. Rows may be capped, so the available count is authoritative;
+`expiresAt: null` means the credit does not expire.
+
+Shepherd decodes the reset summary in SessionManager and preserves it through
+`limits.read` shared controls and the web API. The sidebar Usage & limits panel
+shows the count and available details; conversation settings retain only context
+telemetry. Discord still renders ordinary usage only.
+
+The shared consume wrapper is exposed through `POST /limits/reset` and the web
+Use reset button. The UI disables duplicate submission, reports each validated
+provider outcome, and rereads limits after a known result. If the result is
+unknown, it saves the request key in session storage and retries that same
+logical request; it does not automatically redeem another reset. Provider
+redemption support already existed in the previous baseline; this change adds
+Shepherd's control. No real banked reset was consumed during validation.
+
+Sources: [generated provider documentation](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt),
+[session bridge](../server/core/codex_session.ts),
+[session manager](../server/core/session_manager.ts),
+[shared controls](../server/core/control_actions_service.ts),
+[web limits route](../server/adapters/web/api.ts),
+[Discord commands](../server/adapters/discord/commands.ts), and
+[web limits rendering](../ui/src/components/Usage.tsx).
+
+## Previous changes in 0.159.2
 
 Compared with freshly generated 0.154.0 schemas, this baseline adds six client
 methods and two notifications, removes `thread/rollback`, and leaves the ten
@@ -274,11 +326,12 @@ additions alone do not create new Discord or web controls.
 
 ## Deployment version
 
-Ubuntu setup, Docker, and Compose default to `codex-cli 0.159.2`, matching this
+Ubuntu setup, Docker, and Compose default to `codex-cli 0.160.0`, matching this
 inventory. Both schema generation commands were rerun with that exact CLI.
-Operators can override `CODEX_VERSION` during installation, but
-that selects a different protocol baseline. Updating the checkout alone does
-not upgrade an already-installed host CLI; rerun `deploy/ubuntu/setup.sh` as the
-deployment user. Schema generation itself does not update the CLI. This refresh
-also ran `codex update` on the local standalone installation (0.154.0 → 0.159.2);
-already-running processes retain their old binary until restarted.
+Operators can override `CODEX_VERSION` during installation, but that selects a
+different protocol baseline. Updating the checkout alone does not upgrade an
+already-installed host CLI; rerun `deploy/ubuntu/setup.sh` as the deployment
+user. Schema generation itself does not update the CLI. This refresh also ran
+`codex update` on the local standalone installation; it confirmed `0.160.0` was
+already current. Already-running processes retain their old binary until
+restarted. Generated files under `schemas/` remain intentionally ignored by Git.

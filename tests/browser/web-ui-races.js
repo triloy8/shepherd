@@ -24,7 +24,7 @@ async page => {
   const duplicateMessages=await page.locator('.message-user').filter({hasText:sentText}).count();
   if(duplicateMessages!==1)throw Error('Delayed receipt duplicated a canonical message');
   holdHistory=false;historyReleases.forEach(resolve=>resolve());await page.unrouteAll({behavior:'wait'});
-  await page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Interrupt response',exact:true}).waitFor({state:'hidden'});
   await page.evaluate(()=>{
     const original=FileReader.prototype.readAsDataURL;const pending=[];
     FileReader.prototype.readAsDataURL=function(blob){pending.push({reader:this,blob});};

@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 const paths = {
+  usage: "M4 20h16M6 16v-5M12 16V4M18 16V8",
   image: "M3 3h18v18H3ZM3 16l5-5 4 4 3-3 6 6M8 7h.01",
   host: "M4 3h16v7H4ZM4 14h16v7H4ZM7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6",
   more: "M5 12h.01M12 12h.01M19 12h.01",

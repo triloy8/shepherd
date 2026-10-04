@@ -1,6 +1,9 @@
 # Surface parity matrix
 
-Reviewed 2026-09-20 against `35cd417` (PR #70). Current registered surfaces:
+Full surface review: 2026-09-20 against `35cd417` (PR #70). Account usage/reset
+coverage reviewed 2026-10-04 against `b1f9984` plus the implementation in this
+change, using Codex CLI `0.160.0`.
+Current registered surfaces:
 **Discord** and **web**. This is an inventory of implemented user-facing behavior,
 not a roadmap requiring identical interfaces. Provider capabilities that neither
 surface exposes are not automatically parity work.
@@ -45,7 +48,7 @@ Sources: [Discord commands](../server/adapters/discord/commands.ts),
 | --- | --- | --- | --- |
 | Send text | Yes — channel/DM message | Yes — composer | Shared ingress |
 | Send follow-up during a turn | Yes | Yes — Send follow-up | Steers active work; not a separate UI queue |
-| Interrupt active turn | Yes — `!interrupt` | Yes — Stop response | Shared interruption action |
+| Interrupt active turn | Yes — `!interrupt` | Yes — composer Interrupt response button when the draft is empty | Shared interruption action |
 | Open/mention-only listening | Yes — `!listen [open\|mentions]` | N/A | Web submission is explicit |
 | Pause and resume conversation ingress | Yes — `!pause`, `!resume` | N/A | Discord control commands remain available while paused |
 | Direct-message routing | Yes — open unless paused | N/A | Discord transport behavior |
@@ -117,7 +120,9 @@ Sources: [Discord event presentation](../server/adapters/discord/thread_event_ha
 | Set model | Yes — `!model set <id>` | Yes — settings | Shared model validation |
 | Read/set reasoning effort | Yes — `!effort [set <level\|default>]` | Yes — settings | Includes default/reset and supported choices |
 | Context/token usage | Yes — `!context` | Yes — settings | Available telemetry; not always present before a turn |
-| Account rate limits/credits | Yes — `!limits` | Yes — settings | Provider-reported values |
+| Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Discord shows the single-bucket view; web shows all reported metered buckets. Provider usage windows/reset times and workspace credit balance are separate from banked resets |
+| Banked reset count/details/expiration | No | Yes — sidebar Usage & limits | Available count is authoritative; detail rows may be unavailable or capped; non-expiring resets are labeled |
+| Use a banked reset | No | Yes — Use reset | Shared consume RPC; explicit outcome feedback and limits refresh. Unknown outcomes retain the request key for retries, including across page reload in the same tab |
 | List discovered skills | Yes — `!skills` | Yes — Skills section | Workspace-scoped discovery |
 | Reload skill discovery | Yes — `!skills reload` | Yes — Reload skills | Not an installer |
 | Enable/disable skill | Yes — `!skill enable/disable <name-or-path>` | Yes — per-skill control | Shared configuration; may affect other conversations |

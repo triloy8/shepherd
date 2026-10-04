@@ -16,7 +16,7 @@ async page => {
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   const retry = page.getByRole('button', { name: 'Retry image', exact: true });
   await retry.waitFor();
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
   if (loads !== 1) throw Error('Failed image entered a retry loop');
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await page.getByRole('status', { name: 'Reconnecting', exact: true }).waitFor();

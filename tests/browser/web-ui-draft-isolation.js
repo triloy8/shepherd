@@ -48,7 +48,7 @@ async page => {
   if (await composer.inputValue() !== 'Same text for a new draft') throw Error('Old send receipt cleared a newer draft with matching text');
   await page.getByRole('button', { name: 'Remove only.png', exact: true }).waitFor();
   await page.unrouteAll({ behavior: 'wait' });
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
 
   let releaseDetach, receivedDetach;
   const detached = new Promise(resolve => { receivedDetach = resolve; });

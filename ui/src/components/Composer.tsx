@@ -63,6 +63,8 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
       }
     } finally { sendingRef.current = false; if (mounted.current) setSending(false); }
   }
+  const stop = active && !draft.trim() && !images.length && !reading;
+  const actionLabel = stop ? "Interrupt response" : active ? "Send follow-up" : "Send message";
   return <form className="composer" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={(event) => { const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); void addFiles(files); } }} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <input ref={picker} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp" aria-label="Choose images" className="sr-only" disabled={sending || reading} onChange={(event) => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
     {images.length > 0 && <div className="flex flex-wrap gap-3 p-3" aria-label="Attached images">{images.map((image) => <figure key={image.id} className="w-24"><img src={image.url} alt={image.name} className="h-20 w-24 rounded-lg border border-line object-contain" /><figcaption className="truncate text-xs text-muted">{image.name}</figcaption><button type="button" className="text-xs underline" aria-label={`Remove ${image.name}`} disabled={sending || reading} onClick={() => onImages((current) => current.filter((item) => item.id !== image.id))}>Remove</button></figure>)}</div>}
@@ -83,8 +85,8 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
         {(disabled || active) && <span className="truncate text-xs text-dim">{disabled ? "Waiting for connection" : "Follow-up"}</span>}
       </div>
       <div className="flex items-center gap-2">
-        {active && <button type="button" className="icon-button" aria-label="Stop response" title="Stop response" disabled={disabled || busy} onClick={interrupt}><Icon name="stop" /></button>}
-        <button className="send-button" aria-label={active ? "Send follow-up" : "Send message"} title={active ? "Send follow-up" : "Send message"} disabled={disabled || busy || sending || reading || (!draft.trim() && !images.length)}><Icon name="arrow" /></button>
+        <button type={stop ? "button" : "submit"} className={`send-button${stop ? " stop-button" : ""}`} aria-label={actionLabel} title={actionLabel}
+          disabled={disabled || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : "arrow"} /></button>
       </div>
     </div>
   </form>;

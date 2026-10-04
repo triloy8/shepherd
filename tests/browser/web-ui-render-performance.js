@@ -41,7 +41,7 @@ async page => {
   await sendButton.evaluate(button => button.click());
   const streamFrames = await page.evaluate(() => window.auditFrames);
   if (Math.max(...streamFrames) > 500) throw Error('Slow stream frames: '+JSON.stringify({shortChat,longChat,streamFrames}));
-  await page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Interrupt response',exact:true}).waitFor({state:'hidden'});
   await page.locator('.message-assistant pre').filter({hasText:'const surface = "web";'}).waitFor();
   return { shortChat, longChat, worstStreamFrame: Math.round(Math.max(...streamFrames)), mathExpressions: await page.locator('.katex').count() };
 }

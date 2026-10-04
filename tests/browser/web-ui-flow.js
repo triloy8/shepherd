@@ -20,8 +20,8 @@ async (page) => {
   if (await page.getByRole('textbox', { name: 'Message Shepherd' }).inputValue() !== 'Keep this draft') throw new Error('Draft lost after failed send');
   await page.unroute('**/messages');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Stop response', exact: true }).click();
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
   await page.reload();
   await page.getByText('Connected', { exact: true }).waitFor();

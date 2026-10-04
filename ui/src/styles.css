@@ -90,6 +90,8 @@
   .composer-toolbar { @apply flex items-center justify-between gap-3 px-2 pb-2; }
   .send-button { @apply flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-accent-hover; }
   .notice { @apply rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs leading-6 text-warning; }
+  .stop-button { @apply border border-accent/60 bg-accent/15 text-accent hover:bg-accent/25; }
+  .stop-button svg { fill: currentColor; stroke: none; }
   .approval-card { @apply rounded-2xl border border-accent/30 bg-accent/5 p-5; }
   .project-dialog { @apply fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-line bg-panel p-6 text-ink shadow-2xl; }
   .project-dialog::backdrop { @apply bg-black/70; }

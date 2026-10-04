@@ -47,3 +47,32 @@ test("a pending settings change shares the existing conversation mutation lock",
     release(); expect((await pending).status).toBe(200);
   } finally { release?.(); h.api.dispose(); }
 });
+
+test("account usage includes banked details and redemption works without a conversation", async () => {
+  const h = webHarness(); installWebSettings(h);
+  const resets = { availableCount: 2, credits: [{ id: "reset-1", resetType: "codexRateLimits", status: "available", grantedAt: 100, expiresAt: 200, title: "Reset", description: null }] };
+  const requests: unknown[] = [];
+  const seen = new Set<string>();
+  Object.assign(h.application.conversation, {
+    async readAccountRateLimits() { return { rateLimits: {}, rateLimitsByLimitId: { codex: {} }, rateLimitResetCredits: resets }; },
+    async consumeRateLimitReset(request: { idempotencyKey: string; creditId?: string }) {
+      requests.push(request);
+      if (seen.has(request.idempotencyKey)) return { outcome: "alreadyRedeemed" };
+      seen.add(request.idempotencyKey); resets.availableCount--; return { outcome: "reset" };
+    },
+  });
+  try {
+    expect(await (await h.request("/limits")).json()).toMatchObject({ rateLimitsByLimitId: { codex: {} }, rateLimitResetCredits: resets });
+    const input = { idempotencyKey: "same-attempt", creditId: "reset-1" };
+    expect(await (await h.request("/limits/reset", "POST", input)).json()).toEqual({ outcome: "reset" });
+    expect(await (await h.request("/limits/reset", "POST", input)).json()).toEqual({ outcome: "alreadyRedeemed" });
+    expect(requests).toEqual([input, input]);
+    expect((await (await h.request("/limits")).json()).rateLimitResetCredits.availableCount).toBe(1);
+    for (const data of [{}, { idempotencyKey: "" }, { idempotencyKey: "a", creditId: "" }, { idempotencyKey: "a", creditId: null }, { idempotencyKey: "a", extra: true }, { idempotencyKey: "a".repeat(101) }]) expect((await h.request("/limits/reset", "POST", data)).status).toBe(400);
+    expect((await h.request("/limits/reset", "POST", { idempotencyKey: "a" }, { origin: "https://evil.test" })).status).toBe(403);
+    expect(requests).toHaveLength(2);
+    Object.assign(h.application.conversation, { async consumeRateLimitReset() { throw new Error("private provider details"); } });
+    const failed = await h.request("/limits/reset", "POST", { idempotencyKey: "a" });
+    expect(failed.status).toBe(502); expect(JSON.stringify(await failed.json())).not.toContain("private provider details");
+  } finally { h.api.dispose(); }
+});

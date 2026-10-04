@@ -1,5 +1,5 @@
 import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
-import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse } from "../../shared/protocol/web";
+import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse, WebResetRequest, WebResetResponse } from "../../shared/protocol/web";
 import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
 
 export class ApiError extends Error {
@@ -33,6 +33,7 @@ export const api = {
   settings: (id: string, signal?: AbortSignal) => request<WebSettingsResponse>(`${conversationPath(id)}/settings`, "GET", undefined, signal),
   models: (id: string, cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`${conversationPath(id)}/models${page(cursor)}`, "GET", undefined, signal),
   context: (id: string, signal?: AbortSignal) => request<WebContextResponse>(`${conversationPath(id)}/context`, "GET", undefined, signal),
+  consumeReset: (input: WebResetRequest) => request<WebResetResponse>("/limits/reset", "POST", input),
   limits: (signal?: AbortSignal) => request<WebLimitsResponse>("/limits", "GET", undefined, signal),
   setModel: (id: string, model: string) => request(`${conversationPath(id)}/model`, "POST", { model }),
   setEffort: (id: string, effort: string) => request(`${conversationPath(id)}/effort`, "POST", { effort }),

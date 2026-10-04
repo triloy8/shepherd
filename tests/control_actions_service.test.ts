@@ -497,6 +497,8 @@ describe("ControlActionsService", () => {
     await expect(executeControlAction(context, { type: "limits.read" })).resolves.toEqual({
       type: "limits.read",
       rateLimits: { planType: "pro" },
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
     });
   });
 

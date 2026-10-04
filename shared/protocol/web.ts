@@ -34,7 +34,9 @@ export type WebEventData = {
 export type WebSettingsResponse = { model: ThreadModelState; effort: ThreadEffortState };
 export type WebModelsResponse = ListModelsResponse;
 export type WebContextResponse = ReadThreadTokenUsageResponse;
-export type WebLimitsResponse = { rateLimits: unknown };
+export type WebLimitsResponse = import("./requests.js").AccountRateLimitsResponse;
+export type WebResetRequest = import("./requests.js").ConsumeRateLimitResetRequest;
+export type WebResetResponse = import("./requests.js").ConsumeRateLimitResetResponse;
 export type WebModelRequest = { model: string };
 export type WebEffortRequest = { effort: string };
 

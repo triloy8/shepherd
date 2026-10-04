@@ -125,10 +125,18 @@ export class WebSurfaceApi {
         if (branch && (data.action !== "deploy" || branch.startsWith("-") || /[\s\x00-\x1f]/.test(branch))) throw new WebRequestError(400, "invalid_request", "Invalid deployment branch.");
         return json(202, this.host.start({ requestId, action: data.action, ...(branch ? { branch } : {}) }));
       }
+      if (request.method === "POST" && url.pathname === `${WEB_API_PREFIX}/limits/reset`) {
+        const data = await body(request, ["idempotencyKey", "creditId"]);
+        const idempotencyKey = requiredString(data, "idempotencyKey", 100);
+        const creditId = data.creditId === undefined ? undefined : requiredString(data, "creditId", 256);
+        const result = await webControl(this.application, { type: "limits.consume", idempotencyKey, ...(creditId ? { creditId } : {}) });
+        if (result.type !== "limits.consume") throw new Error("Unexpected reset response.");
+        return json(200, { outcome: result.outcome });
+      }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
         const result = await webControl(this.application, { type: "limits.read" });
         if (result.type !== "limits.read") throw new Error("Unexpected limits response.");
-        return json(200, { rateLimits: result.rateLimits });
+        return json(200, { rateLimits: result.rateLimits, rateLimitsByLimitId: result.rateLimitsByLimitId, rateLimitResetCredits: result.rateLimitResetCredits });
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/threads`) {
         const archived = url.searchParams.get("archived");

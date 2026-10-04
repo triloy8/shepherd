@@ -1,6 +1,8 @@
 import { ApplicationActionError, type ActionFailure } from "./action_error.js";
 import type {
   AccountRateLimitsResponse,
+  ConsumeRateLimitResetRequest,
+  ConsumeRateLimitResetResponse,
   ListModelsResponse,
   ReadThreadTokenUsageResponse,
   ModelSummary,
@@ -24,6 +26,7 @@ type ControlConversation = {
   listModels: (request: { cursor?: string; limit?: number; includeHidden?: boolean }) => Promise<ListModelsResponse>;
   getThreadModel: (threadId: string) => ThreadModelState;
   setThreadModel: (threadId: string, model: string) => ThreadModelState;
+  consumeRateLimitReset: (request: ConsumeRateLimitResetRequest) => Promise<ConsumeRateLimitResetResponse>;
   readAccountRateLimits: () => Promise<AccountRateLimitsResponse>;
   readThreadTokenUsage: (threadId: string) => Promise<ReadThreadTokenUsageResponse>;
   setThreadName: (threadId: string, request: { name: string }) => Promise<{ ok: true }>;
@@ -52,6 +55,7 @@ export type ControlActionRequest =
   | { type: "repo.get"; surfaceId: string }
   | { type: "repo.set"; surfaceId: string; repoInput: string }
   | { type: "limits.read" }
+  | ({ type: "limits.consume" } & ConsumeRateLimitResetRequest)
   | { type: "models.list"; surfaceId: string; cursor?: string; limit?: number }
   | { type: "model.set"; surfaceId: string; requestedModel: string }
   | { type: "context.read"; surfaceId: string }
@@ -73,7 +77,8 @@ export type ControlActionResult =
   | { type: "effort.get" | "effort.set"; ok: false; error: ActionFailure }
   | { type: "repo.get"; currentRepo: string | null }
   | { type: "repo.set"; repoSlug: string; activeThreadId: string | null }
-  | { type: "limits.read"; rateLimits: unknown }
+  | ({ type: "limits.read" } & AccountRateLimitsResponse)
+  | ({ type: "limits.consume" } & ConsumeRateLimitResetResponse)
   | { type: "models.list"; models: ListModelsResponse; modelState: ThreadModelState | null }
   | { type: "model.set"; ok: true; threadId: string; model: string }
   | { type: "model.set"; ok: false; error: ActionFailure }
@@ -144,11 +149,18 @@ export async function executeControlAction(
     };
   }
 
+  if (request.type === "limits.consume") {
+    const { idempotencyKey, creditId } = request;
+    return { type: "limits.consume", ...await context.conversation.consumeRateLimitReset({ idempotencyKey, ...(creditId ? { creditId } : {}) }) };
+  }
+
   if (request.type === "limits.read") {
     const result = await context.conversation.readAccountRateLimits();
     return {
       type: "limits.read",
       rateLimits: result.rateLimits,
+      rateLimitsByLimitId: result.rateLimitsByLimitId ?? null,
+      rateLimitResetCredits: result.rateLimitResetCredits ?? null,
     };
   }
 

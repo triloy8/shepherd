@@ -31,6 +31,7 @@ export const api = {
   reloadSkills: (id: string) => request<WebSkillsResponse>(`${conversationPath(id)}/skills-reload`, "POST", {}),
   setSkill: (id: string, path: string, enabled: boolean) => request<WebSkillResponse>(`${conversationPath(id)}/skills`, "POST", { path, enabled }),
   settings: (id: string, signal?: AbortSignal) => request<WebSettingsResponse>(`${conversationPath(id)}/settings`, "GET", undefined, signal),
+  accountModels: (cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`/models?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
   models: (id: string, cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`${conversationPath(id)}/models${page(cursor)}`, "GET", undefined, signal),
   context: (id: string, signal?: AbortSignal) => request<WebContextResponse>(`${conversationPath(id)}/context`, "GET", undefined, signal),
   consumeReset: (input: WebResetRequest) => request<WebResetResponse>("/limits/reset", "POST", input),

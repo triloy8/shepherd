@@ -127,8 +127,8 @@ Legacy note:
 | `account/gatewayOAuth/login` | Missing | Out of Scope (for now) | Explicit gateway authorization; initialize also adds `explicitGatewayOauth` |
 | `account/gatewayOAuth/cancel` | Missing | Out of Scope (for now) | Cancels gateway authorization |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
-| `account/rateLimits/read` | Partial | Core | Discord `!limits` renders the single-bucket view; web sidebar Usage & limits renders all returned buckets and typed banked reset count/details. Shared controls preserve both. Does not send `supportsLunaReserve` or `excludeResetCreditDetails`; omits top-level `ordinaryUsageAllowed`, `accountId`, `rateLimitUpsell`, and per-limit `normalModelSlug` presentation |
-| `account/rateLimitResetCredit/consume` | Implemented | Core | Shared wrapper/control and web `POST /limits/reset` / Use reset. Requires `idempotencyKey`; optional `creditId`. Validated outcomes: `reset`, `alreadyRedeemed`, `nothingToReset`, `noCredit`. UI refreshes limits after every known outcome and retains the same request key after an unknown outcome, including across reload in the same tab. No Discord command |
+| `account/rateLimits/read` | Partial | Core | Discord `!limits` renders the single-bucket view; web sidebar Usage & limits renders all returned buckets and typed banked reset count/details. Shared controls preserve both. Does not send `supportsLunaReserve` or `excludeResetCreditDetails`; omits top-level `ordinaryUsageAllowed`, `accountId`, and `rateLimitUpsell`; usage titles resolve `normalModelSlug` through the model catalog with label/ID fallbacks |
+| `account/rateLimitResetCredit/consume` | Implemented | Core | Shared wrapper/control and web `POST /limits/reset` / Use this reset per credit. Count-only/capped inventories retain Use next available reset. Requires `idempotencyKey`; optional `creditId`. Validated outcomes: `reset`, `alreadyRedeemed`, `nothingToReset`, `noCredit`. UI refreshes limits after every known outcome and retains the same request key and selected credit ID after an unknown outcome, including across reload in the same tab. No Discord command |
 | `account/usage/read` | Missing | Maybe Later | Useful for account diagnostics if Shepherd adds admin reporting; generated params now optionally scope usage to a `threadId` |
 | `account/workspaceMessages/read` | Missing | Maybe Later | Useful for account/workspace diagnostics |
 | `account/login/start` | Missing | Out of Scope (for now) | |
@@ -274,11 +274,12 @@ Shepherd decodes the reset summary in SessionManager and preserves it through
 shows the count and available details; conversation settings retain only context
 telemetry. Discord still renders ordinary usage only.
 
-The shared consume wrapper is exposed through `POST /limits/reset` and the web
-Use reset button. The UI disables duplicate submission, reports each validated
-provider outcome, and rereads limits after a known result. If the result is
-unknown, it saves the request key in session storage and retries that same
-logical request; it does not automatically redeem another reset. Provider
+The shared consume wrapper is exposed through `POST /limits/reset` and per-credit
+Use this reset buttons. Count-only/capped details retain a provider-selected
+fallback. The UI disables duplicate submission, reports each validated provider
+outcome, and rereads limits after a known result. If the result is unknown, it
+saves the request key and selected credit ID in session storage and retries that
+same logical request; it does not automatically redeem another reset. Provider
 redemption support already existed in the previous baseline; this change adds
 Shepherd's control. No real banked reset was consumed during validation.
 

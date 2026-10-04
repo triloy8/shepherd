@@ -78,6 +78,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | Method | Path | Body or result |
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
+| GET | `/models?cursor=...&limit=100` | Account-wide model catalog; includes hidden quota aliases and supports pagination |
 | GET | `/limits` | `{ rateLimits, rateLimitsByLimitId, rateLimitResetCredits }`; account-wide usage and banked resets |
 | POST | `/limits/reset` | `{ idempotencyKey, creditId? }` → `{ outcome }`; redeem one banked reset |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
@@ -239,7 +240,11 @@ responses. A failed usage read does not prevent unrelated settings requests.
 Model/effort overrides follow existing loaded-session lifetime rules; the web
 surface adds no persistence or global defaults. Account limits are provider data
 and may be incomplete/unavailable. The sidebar **Usage & limits** panel exposes
-all reported usage buckets and banked reset counts/details. Conversation settings
+all reported usage buckets and banked reset counts/details. Bucket titles use the
+model catalog display name matched by `normalModelSlug`, then the provider's
+`limitName`, then a humanized internal ID. When a model name and distinct quota
+label are both present, the quota label is shown beneath the title. Optional
+catalog failures leave usage and reset controls available. Conversation settings
 retain context telemetry, which can be null before a turn.
 
 Reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
@@ -248,7 +253,12 @@ be non-empty (maximum 100 characters); an optional non-empty credit ID (maximum
 available reset. Outcomes are `reset`, `alreadyRedeemed`, `nothingToReset`, and
 `noCredit`. Read `/limits` after a known result. Retry an unknown result with the
 same key; never generate a new key for the same attempt. The built-in UI retains
-pending keys in session storage across reloads in the same tab. Malformed bodies
+both the request key and selected credit ID in session storage across reloads in
+the same tab. Each available, unexpired, supported detail row has a **Use this
+reset** button. While an outcome is unknown, only retrying that original attempt
+is allowed. If details are count-only or capped, **Use next available reset**
+lets Codex choose from its available inventory; the UI does not assume
+an expiry ordering. Malformed bodies
 and extra fields return 400; backend failures remain sanitized 502 responses.
 Reset controls work without a selected conversation.
 

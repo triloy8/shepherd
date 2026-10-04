@@ -332,10 +332,11 @@ amber; unavailable readings are hidden. The tooltip and accessible label identif
 this as the host battery, rather than the browser device's battery.
 
 The composer floats over the transcript with inset edges and a subtle bottom fade.
-It starts at one line, grows with the draft, and scrolls internally at its height
-limit. Attachment, stop, and send controls retain comfortable touch targets.
-Routine helper copy is screen-reader-only; connection and follow-up state remain
-visible when relevant. Images, image errors, and send failures remain visible.
+It starts as a rounded single row with an attachment plus button on the left and
+a circular send/interrupt action on the right. Wrapped drafts and image attachments
+expand the text area above the controls; long drafts scroll internally at the height
+limit. All controls retain 44px touch targets. Routine helper copy is screen-reader-only;
+connection state remains visible, and the placeholder identifies follow-up drafts. Images, image errors, and send failures remain visible.
 
 The transcript reserves the measured composer height so the last message is not
 covered, including while attaching images or composing a long draft. If following

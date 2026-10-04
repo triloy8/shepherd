@@ -88,6 +88,7 @@
   .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 100px)); @apply overflow-y-auto rounded-2xl border border-line/80 bg-panel shadow-xl shadow-black/20 focus-within:border-accent/45; }
   .composer textarea { @apply block w-full resize-none overflow-y-auto bg-transparent px-4 pb-1 pt-3 text-base leading-6 text-ink outline-none placeholder:text-dim; min-height: 44px; max-height: min(30dvh, 240px); }
   .composer-toolbar { @apply flex items-center justify-between gap-3 px-2 pb-2; }
+  .attach-button { @apply rounded-xl border border-line bg-raised/40 text-ink hover:border-accent/60 hover:bg-raised; }
   .send-button { @apply flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-canvas hover:bg-accent-hover; }
   .notice { @apply rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs leading-6 text-warning; }
   .stop-button { @apply border border-accent/60 bg-accent/15 text-accent hover:bg-accent/25; }

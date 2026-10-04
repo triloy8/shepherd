@@ -81,7 +81,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
     <span id="composer-help" className="sr-only">Enter to send on a keyboard. Shift + Enter for a new line. Follow-ups steer the active turn.</span>
     <div className="composer-toolbar">
       <div className="flex min-w-0 items-center gap-2">
-        <button type="button" className="icon-button" aria-label="Attach images" title="Attach images (PNG, JPEG, GIF, WebP)" disabled={sending || reading || images.length >= 4} onClick={() => picker.current?.click()}><Icon name="image" /></button>
+        <button type="button" className="icon-button attach-button" aria-label="Attach images" title="Attach images (PNG, JPEG, GIF, WebP)" disabled={sending || reading || images.length >= 4} onClick={() => picker.current?.click()}><Icon name="image" className="size-5!" /></button>
         {(disabled || active) && <span className="truncate text-xs text-dim">{disabled ? "Waiting for connection" : "Follow-up"}</span>}
       </div>
       <div className="flex items-center gap-2">

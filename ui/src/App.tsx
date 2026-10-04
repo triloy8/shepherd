@@ -28,7 +28,9 @@ export default function App() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [restoring, setRestoring] = useState<string | null>(null);
   const restoreLock = useRef(false);
-  const resumeLock = useRef(false);
+  const resumes = useRef(new Map<string, Promise<WebConversation>>());
+  const selectionVersion = useRef(0);
+  const [resuming, setResuming] = useState(false);
   const [threads, setThreads] = useState<StoredThreadSummary[]>([]);
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<WebConversation | null>(null);
@@ -166,21 +168,30 @@ export default function App() {
     window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close);
   }, [drawer, desktop]);
 
-  function select(conversation: WebConversation) { setSelected(conversation); setSaved(null); setDrawer(false); }
+  function select(conversation: WebConversation) { selectionVersion.current++; setResuming(false); setSelected(conversation); setSaved(null); setDrawer(false); }
   async function openThread(threadId: string, force = false) {
-    if (resumeLock.current || creating) return;
     const existing = conversations.find((item) => item.threadId === threadId);
     if (existing && !force) { select(existing); return; }
-    resumeLock.current = true; setCreating(true); setError(null); setDrawer(false);
+    if (creating) return;
+    const version = ++selectionVersion.current;
+    setResuming(true); setError(null); setDrawer(false);
+    // Repeated clicks share the request, while the latest selection wins.
+    const pending = resumes.current.get(threadId) ?? api.create({ threadId });
+    resumes.current.set(threadId, pending);
     try {
-      const conversation = await api.create({ threadId });
+      const conversation = await pending;
       setConversations((items) => [...items.filter((item) => item.id !== conversation.id), conversation]);
-      select(conversation); void refreshList();
-    } catch (error) { setError(explainError(error)); }
-    finally { resumeLock.current = false; setCreating(false); }
+      if (version === selectionVersion.current) select(conversation);
+      void refreshList();
+    } catch (error) { if (version === selectionVersion.current) setError(explainError(error)); }
+    finally {
+      if (resumes.current.get(threadId) === pending) resumes.current.delete(threadId);
+      if (version === selectionVersion.current) setResuming(false);
+    }
   }
   async function createConversation() {
     if (creating || !project.trim() || !dialog) return;
+    selectionVersion.current++; setResuming(false);
     setCreating(true); setError(null);
     try {
       const conversation = await api.create({ project: project.trim() });
@@ -275,7 +286,7 @@ export default function App() {
           onFork={(conversation) => { setConversations((items) => [...items, conversation]); select(conversation); changeView(false); }}
         />}
       </header>
-      {creating && !dialog && <p role="status" className="notice mx-5 mt-4">Resuming conversation…</p>}
+      {resuming && <p role="status" className="notice mx-5 mt-4">Resuming conversation…</p>}
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}
       {!selected ? <section className="empty-screen">
         <button className="button-primary" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>

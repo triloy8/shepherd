@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { emptyChat, mergeHistory, reduceBridge } from "../ui/src/chat-state";
+import { acceptUserMessage, type ChatMessage, emptyChat, mergeHistory, reduceBridge } from "../ui/src/chat-state";
 import { readEvents, streamConversation } from "../ui/src/api";
 import type { BridgeEvent } from "../shared/protocol/events";
 import type { HistoryTurn } from "../shared/protocol/requests";
@@ -130,4 +130,33 @@ test("image-only history retains previews and only deduplicates matching optimis
   const unavailable = mergeHistory(emptyChat(), [history]);
   expect(unavailable.messages[0]!.attachments).toEqual([]);
   expect(unavailable.messages[0]!.text).toContain("unavailable");
+});
+
+const sentUser = (id: string, attachments: string[] = []): ChatMessage => ({ id, turnId: "same-turn", role: "user", text: "Again", attachments, complete: true });
+const repeatedTurn = (ids: string[]): HistoryTurn => ({ ...turn("same-turn", "Again"), items: ids.map((id) => ({ id, type: "userMessage", content: [{ type: "text", text: "Again" }] })) });
+
+test("a delayed send receipt does not duplicate its canonical history message", () => {
+  const before = mergeHistory(emptyChat(), [repeatedTurn(["first"])]);
+  const after = mergeHistory(before, [repeatedTurn(["first", "second"])]);
+  expect(acceptUserMessage(after, sentUser("local:second"), before.messages).messages.map((item) => item.id)).toEqual(["first", "second"]);
+});
+
+test("an earlier identical follow-up cannot reconcile a new optimistic message", () => {
+  const before = mergeHistory(emptyChat(), [repeatedTurn(["first"])]);
+  const pending = acceptUserMessage(before, sentUser("local:second"), before.messages);
+  expect(mergeHistory(pending, [repeatedTurn(["first"])]).messages.map((item) => item.id)).toEqual(["first", "local:second"]);
+  expect(mergeHistory(pending, [repeatedTurn(["first", "second"])]).messages.map((item) => item.id)).toEqual(["first", "second"]);
+});
+
+test("identical optimistic follow-ups reconcile one occurrence at a time", () => {
+  const first = acceptUserMessage(emptyChat(), sentUser("local:first"), []);
+  const second = acceptUserMessage(first, sentUser("local:second"), first.messages);
+  const partial = mergeHistory(second, [repeatedTurn(["first"])]);
+  expect(partial.messages.map((item) => item.id)).toEqual(["first", "local:second"]);
+  expect(mergeHistory(partial, [repeatedTurn(["first", "second"])]).messages.map((item) => item.id)).toEqual(["first", "second"]);
+});
+
+test("receipt reconciliation distinguishes attachments and turn identity", () => {
+  const state = { ...emptyChat(), messages: [sentUser("other-image", ["image-a"]), { ...sentUser("other-turn"), turnId: "older-turn" }] };
+  expect(acceptUserMessage(state, sentUser("local:new", ["image-b"]), []).messages).toHaveLength(3);
 });

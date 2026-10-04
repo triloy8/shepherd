@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
 import type { WebConversation } from "../../shared/protocol/web";
 import { api, ApiError, explainError, streamConversation } from "./api";
-import { emptyChat, mergeHistory, reduceBridge, type ChatState } from "./chat-state";
+import { acceptUserMessage, emptyChat, mergeHistory, reduceBridge, type ChatState } from "./chat-state";
 
 export type Connection = "connecting" | "online" | "reconnecting" | "detached";
 const delay = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
@@ -14,6 +14,8 @@ const delay = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =
 
 export function useConversation(conversation: WebConversation | null) {
   const [chat, setChat] = useState<ChatState>(emptyChat);
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -154,12 +156,13 @@ export function useConversation(conversation: WebConversation | null) {
     const id = conversation?.id;
     const epoch = actionEpoch.current;
     const current = () => identity.current === id && actionEpoch.current === epoch;
+    const beforeSend = chatRef.current.messages;
     const successful = await action(async (id) => {
       const response = await api.send(id, text, images);
       if (!current()) return;
-      setChat((current) => ({ ...current, activeTurnId: response.turnId && !current.endedTurns.includes(response.turnId) ? response.turnId : current.activeTurnId, messages: [...current.messages, {
+      setChat((state) => current() ? ({ ...acceptUserMessage(state, {
         id: `local:${crypto.randomUUID()}`, turnId: response.turnId ?? "", role: "user", text, attachments: images, complete: true,
-      }] }));
+      }, beforeSend), activeTurnId: response.turnId && !state.endedTurns.includes(response.turnId) ? response.turnId : state.activeTurnId }) : state);
     }, false);
     // Acceptance of the POST clears the submitted draft immediately. History
     // recovery can be slow or finish after the user selects another chat.

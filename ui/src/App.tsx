@@ -1,4 +1,4 @@
-import type { DraftImage } from "./image-input";
+import { useImageDrafts } from "./use-image-drafts";
 import { HostControls } from "./components/HostControls";
 import { HostBattery } from "./components/HostBattery";
 import { ConversationMenu } from "./components/ConversationMenu";
@@ -40,7 +40,7 @@ export default function App() {
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [project, setProject] = useState("~");
-  const [imageDrafts, setImageDrafts] = useState<Record<string, DraftImage[]>>({});
+  const imageDrafts = useImageDrafts();
   const [drafts, setDrafts] = useState<Record<string, { text: string; revision: number }>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -293,7 +293,9 @@ export default function App() {
         <div ref={composerRef} className="composer-area"><div className="composer-dock">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
           {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); void openThread(selected.threadId, true); }}>Resume conversation</button>}
-          <Composer key={selected.id} images={imageDrafts[selected.threadId] ?? []} onImages={(update) => setImageDrafts((all) => ({ ...all, [selected.threadId]: update(all[selected.threadId] ?? []) }))}
+          <Composer key={selected.id} images={imageDrafts.images[selected.threadId] ?? []} onImages={(update) => imageDrafts.update(selected.threadId, update)}
+            reading={imageDrafts.reading[selected.threadId] ?? false} imageError={imageDrafts.errors[selected.threadId] ?? null}
+            addFiles={(files) => imageDrafts.addFiles(selected.threadId, files)} clearImageError={() => imageDrafts.clearError(selected.threadId)}
             draft={drafts[selected.threadId]?.text ?? ""} draftRevision={drafts[selected.threadId]?.revision ?? 0}
             onDraft={(text) => setDrafts((all) => ({ ...all, [selected.threadId]: { text, revision: (all[selected.threadId]?.revision ?? 0) + 1 } }))}
             clearDraft={(revision) => setDrafts((all) => {

@@ -1,10 +1,11 @@
-import { readDraftImages, type DraftImage } from "../image-input";
+import type { DraftImage } from "../image-input";
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from "react";
 import { Icon } from "./Icon";
 
-export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, send, disabled, busy, active, interrupt }: {
+export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, reading, imageError, addFiles: readFiles, clearImageError, send, disabled, busy, active, interrupt }: {
   draft: string; draftRevision: number; onDraft: (value: string) => void; clearDraft: (revision: number) => void;
   images: DraftImage[]; onImages: (update: (current: DraftImage[]) => DraftImage[]) => void; send: (text: string, images: string[]) => Promise<boolean>;
+  reading: boolean; imageError: string | null; addFiles: (files: File[]) => Promise<void>; clearImageError: () => void;
   disabled: boolean; busy: boolean; active: boolean; interrupt: () => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
@@ -29,14 +30,10 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const readingRef = useRef(false);
-  const [reading, setReading] = useState(false);
-  const [imageError, setImageError] = useState<string | null>(null);
   async function addFiles(files: File[]) {
-    if (!files.length || readingRef.current || sendingRef.current) return;
-    readingRef.current = true; setReading(true); setImageError(null);
-    try { const added = await readDraftImages(files, images); if (mounted.current) onImages((current) => [...current, ...added]); }
-    catch (error) { setImageError(error instanceof Error ? error.message : "Could not read image."); }
-    finally { readingRef.current = false; setReading(false); }
+    if (sendingRef.current || reading || readingRef.current) return;
+    readingRef.current = true;
+    try { await readFiles(files); } finally { readingRef.current = false; }
   }
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
@@ -54,7 +51,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
     void addFiles(files);
   }
   async function submit() {
-    if ((!draft.trim() && !images.length) || disabled || busy || sendingRef.current || readingRef.current) return;
+    if ((!draft.trim() && !images.length) || disabled || busy || sendingRef.current || reading || readingRef.current) return;
     const value = draft;
     const revision = draftRevision;
     sendingRef.current = true; setSending(true);
@@ -62,7 +59,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
       if (await send(value, images.map((image) => image.url))) {
         clearDraft(revision);
         onImages((current) => current.filter((image) => !images.some((sent) => sent.id === image.id)));
-        if (mounted.current) setImageError(null);
+        clearImageError();
       }
     } finally { sendingRef.current = false; if (mounted.current) setSending(false); }
   }

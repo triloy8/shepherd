@@ -14,10 +14,10 @@ async page => {
 
   // Keyboard navigation, Escape and focus restoration in the consolidated menu.
   await menuButton.focus(); await page.keyboard.press('ArrowDown');
-  if (!await page.getByRole('menuitem', { name: 'Conversation details', exact: true }).evaluate(el => el === document.activeElement)) throw Error('Menu did not focus first option');
+  if (!await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).evaluate(el => el === document.activeElement)) throw Error('Menu did not focus first option');
   await page.keyboard.press('End');
   if (!await page.getByRole('menuitem', { name: 'Detach conversation', exact: false }).evaluate(el => el === document.activeElement)) throw Error('Menu End navigation failed');
-  await page.keyboard.press('Home'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+  await page.keyboard.press('Home'); await page.keyboard.press('Enter');
   const settings = page.getByRole('dialog', { name: 'Conversation settings', exact: true });
   await settings.waitFor(); await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
   if (!await menuButton.evaluate(el => el === document.activeElement)) throw Error('Settings did not restore menu focus');

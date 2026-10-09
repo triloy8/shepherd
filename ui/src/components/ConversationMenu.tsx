@@ -52,7 +52,6 @@ export function ConversationMenu({ conversation, title, status, disabled, active
         const next = event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
         if (next !== null) { event.preventDefault(); items[next]?.focus(); }
       }}>
-        <button role="menuitem" tabIndex={-1} onClick={() => show("details")}><Icon name="folder" /><span>Conversation details</span></button>
         <button role="menuitem" tabIndex={-1} disabled={disabled} onClick={() => show("settings")}><Icon name="settings" /><span>Conversation settings</span></button>
         <button role="menuitem" tabIndex={-1} disabled={disabled} onClick={() => show("actions")}><Icon name="chat" /><span>Conversation actions</span></button>
         <div role="separator" className="my-1 border-t border-line" />

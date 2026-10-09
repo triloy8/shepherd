@@ -1,10 +1,11 @@
 import { imageDataParts } from "../../../shared/protocol/image_input";
-import { createContext, memo, useContext, useId, useState, type MouseEvent } from "react";
+import { createContext, isValidElement, memo, useDeferredValue, useContext, useId, useState, type MouseEvent, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkChatMath from "../remark-chat-math";
 import rehypeKatex from "rehype-katex";
 import type { ChatMessage } from "../chat-state";
+import { CodeBlock } from "./CodeBlock";
 import { Icon } from "./Icon";
 import type { WebImage } from "../../../shared/protocol/web";
 import { resolveImageArtifact } from "../image-artifacts";
@@ -17,8 +18,8 @@ const FootnotePrefix = createContext("");
 function navigateFootnote(event: MouseEvent<HTMLAnchorElement>) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   const link = event.currentTarget;
-  const message = link.closest(".message");
-  const scroll = link.closest<HTMLElement>(".chat-scroll");
+  const message = link.closest(".message, .draft-preview");
+  const scroll = link.closest<HTMLElement>(".chat-scroll, .draft-preview");
   const href = link.getAttribute("href");
   if (!scroll || !href?.startsWith("#")) return;
   const target = link.ownerDocument.getElementById(decodeURIComponent(href.slice(1)));
@@ -32,6 +33,11 @@ function navigateFootnote(event: MouseEvent<HTMLAnchorElement>) {
 }
 
 const markdownComponents: Components = {
+  pre: function MarkdownCodeBlock({ children }) {
+    if (!isValidElement<{ className?: string; children?: ReactNode }>(children)) return <pre>{children}</pre>;
+    const language = /(?:^|\s)language-([^\s]+)/.exec(children.props.className ?? "")?.[1] ?? "";
+    return <CodeBlock code={String(children.props.children ?? "").replace(/\n$/, "")} language={language} />;
+  },
   h2: function MarkdownHeading({ id, node: _node, ...props }) {
     const prefix = useContext(FootnotePrefix);
     return <h2 {...props} id={id === "footnote-label" ? `${prefix}footnote-label` : id} />;
@@ -59,7 +65,7 @@ const markdownComponents: Components = {
 const emptyImages: readonly WebImage[] = [];
 // History snapshots recreate objects. Compare text and artifact metadata so
 // unchanged Markdown stays cached while new image references still resolve.
-const MessageMarkdown = memo(function MessageMarkdown({ text, images, prefix }: { text: string; images: readonly WebImage[]; prefix: string }) {
+export const MessageMarkdown = memo(function MessageMarkdown({ text, images, prefix }: { text: string; images: readonly WebImage[]; prefix: string }) {
   return <MessageImages.Provider value={images}><FootnotePrefix.Provider value={prefix}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkChatMath]} rehypePlugins={[rehypeKatex]}
     remarkRehypeOptions={{ clobberPrefix: prefix, footnoteBackContent: "↩\uFE0E" }} components={markdownComponents}>{text}</Markdown></div></FootnotePrefix.Provider></MessageImages.Provider>;
 }, (previous, next) => previous.text === next.text && previous.prefix === next.prefix &&
@@ -78,6 +84,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const footnotePrefix = `message-${useId()}-`;
+  const renderedText = useDeferredValue(message.text);
   return <article className={`message timeline-entry ${message.role === "user" ? "message-user" : "message-assistant"}`}>
     {!progress && showAuthor && <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
       {message.role === "user" && <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
@@ -86,8 +93,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
-      : !message.complete ? <div className="prose-chat whitespace-pre-wrap break-words">{message.text}</div>
-      : <MessageMarkdown text={message.text} images={images} prefix={footnotePrefix} />}
+      : <MessageMarkdown text={renderedText} images={images} prefix={footnotePrefix} />}
     {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {
         void navigator.clipboard.writeText(message.text).then(() => { setCopied(true); setCopyError(false); }, () => setCopyError(true));

@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { WebSettingsResponse, WebContextResponse } from "../../../shared/protocol/web";
+import type { WebSettingsResponse } from "../../../shared/protocol/web";
 import type { ModelSummary } from "../../../shared/protocol/requests";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
-import { ConversationSkills } from "./ConversationSkills";
-import { ContextUsage } from "./Usage";
 
-export function ConversationSettings({ id, activeTurnId, disabled, open: controlledOpen, onOpenChange }: { id: string; activeTurnId: string | null; disabled: boolean; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+export function ConversationSettings({ id, activeTurnId, disabled, open: controlledOpen, onOpenChange, onSaved }: { id: string; activeTurnId: string | null; disabled: boolean; open?: boolean; onOpenChange?: (open: boolean) => void; onSaved?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -19,7 +17,6 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
   const seenCursors = useRef(new Set<string>());
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
-  const [context, setContext] = useState<WebContextResponse | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -30,9 +27,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
   const dirty = useRef({ model: false, effort: false });
   const session = useRef(0);
   const [notice, setNotice] = useState<string | null>(null);
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [usageOpen, setUsageOpen] = useState(false);
-  useEffect(() => { session.current++; dirty.current = { model: false, effort: false }; setNotice(null); setSkillsOpen(false); setUsageOpen(false); }, [id, open]);
+  useEffect(() => { session.current++; dirty.current = { model: false, effort: false }; setNotice(null); }, [id, open]);
 
   useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close(); }, [open]);
   useEffect(() => {
@@ -65,16 +60,6 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
     return () => abort.abort();
   }, [id, open, revision]);
 
-  useEffect(() => {
-    if (!open || !usageOpen) return;
-    const abort = new AbortController();
-    setContext(null);
-    setErrors((current) => { const { context: _context, ...rest } = current; return rest; });
-    const fail = (key: string, error: unknown) => { if (!abort.signal.aborted) setErrors((current) => ({ ...current, [key]: explainError(error) })); };
-    void api.context(id, abort.signal).then((value) => { if (!abort.signal.aborted) setContext(value); }).catch((error) => fail("context", error));
-    return () => abort.abort();
-  }, [id, open, usageOpen, revision, activeTurnId]);
-
   async function loadMore() {
     if (!cursor || paging) return;
     const version = generation.current; const next = cursor;
@@ -98,6 +83,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
       if (kind === "model") await api.setModel(id, model); else await api.setEffort(id, effort);
       if (version !== session.current) return;
       if (edit === edits.current[kind]) dirty.current[kind] = false;
+      onSaved?.();
       setNotice("Saved. Applies to the next new turn and subsequent turns.");
       setRevision((value) => value + 1);
     } catch (error) { if (version === session.current) setErrors((current) => ({ ...current, save: explainError(error) })); }
@@ -110,13 +96,12 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
   return <>
     {controlledOpen === undefined && <button className="icon-button" aria-label="Conversation settings" disabled={disabled} onClick={() => setOpen(true)}><Icon name="settings" /></button>}
     <dialog ref={dialog} className="project-dialog settings-dialog" onCancel={() => setOpen(false)} onClose={() => setOpen(false)} aria-labelledby="settings-title">
-      <div className="mb-5 flex items-center justify-between"><h2 id="settings-title" className="text-lg font-medium">Conversation settings</h2><button className="icon-button" aria-label="Close settings" onClick={() => setOpen(false)}><Icon name="close" /></button></div>
+      <div className="mb-5 flex items-center justify-between"><h2 id="settings-title" className="text-lg font-medium">Model and effort</h2><button className="icon-button" aria-label="Close settings" onClick={() => setOpen(false)}><Icon name="close" /></button></div>
       <p className="mb-5 text-xs text-muted">Model and effort changes apply to the next new turn, including while a response is running.</p>
       {notice && <p role="status" className="mb-4 text-xs text-muted">{notice}</p>}
       {errors.save && <p role="alert" className="notice mb-4">{errors.save}</p>}
       <section className="space-y-3" aria-label="Model settings">
         <h3 className="text-sm font-medium">Model</h3>
-        {settings && <dl className="settings-facts"><dt>Current</dt><dd>{settings.model.currentModel ?? "Default"}</dd><dt>Next turn</dt><dd>{settings.model.pendingModel ?? "Unchanged"}</dd></dl>}
         {errors.settings && <p role="alert" className="notice">{errors.settings}</p>}
         {errors.models && <p role="alert" className="notice">{errors.models}</p>}
         <label className="block text-xs text-muted">Model for next turn<select aria-label="Model for next turn" value={model} disabled={blocked} onChange={(event) => { edits.current.model++; dirty.current.model = true; setModel(event.target.value); }}>
@@ -128,7 +113,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
       </section>
       <section className="mt-6 space-y-3" aria-label="Reasoning effort">
         <h3 className="text-sm font-medium">Reasoning effort</h3>
-        {settings && <><p className="text-xs text-muted">Options for {settings.effort.model}. Apply a model change first to update these options.</p><dl className="settings-facts"><dt>Current</dt><dd>{settings.effort.currentEffort ?? "Unknown"}</dd><dt>Next turn</dt><dd>{settings.effort.pendingEffort ?? "Unchanged"}</dd><dt>Model default</dt><dd>{settings.effort.defaultEffort ?? "Unknown"}</dd></dl></>}
+        {model !== effectiveModel && <p className="text-xs text-muted">Apply the model change first to see its effort options.</p>}
         <label className="block text-xs text-muted">Effort for next turn<select aria-label="Effort for next turn" value={effort} disabled={blocked || !settings || !supported.length || model !== effectiveModel} onChange={(event) => { edits.current.effort++; dirty.current.effort = true; setEffort(event.target.value); }}>
           <option value="" disabled>Choose effort</option>{effort && effort !== "default" && !supported.some((option) => option.reasoningEffort === effort) && <option value={effort} disabled>{effort} (not supported)</option>}{defaultSupported && <option value="default">Model default ({settings?.effort.defaultEffort})</option>}
           {supported.map((option) => <option key={option.reasoningEffort} value={option.reasoningEffort}>{option.reasoningEffort}</option>)}
@@ -137,11 +122,8 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
         {!supported.length && !loading && <p className="text-xs text-muted">No effort controls available for this model.</p>}
         <button className="button-secondary" disabled={blocked || !settings || !supported.length || model !== effectiveModel || !(effort === "default" ? defaultSupported : supported.some((option) => option.reasoningEffort === effort))} onClick={() => void save("effort")}>Use effort</button>
       </section>
-      <details className="mt-6 border-t border-line pt-4" onToggle={(event) => setSkillsOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm">Skills</summary>{skillsOpen && <ConversationSkills key={id} id={id} disabled={disabled || saving} />}</details>
-      <details className="mt-6 border-t border-line pt-4" onToggle={(event) => setUsageOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm">Conversation context</summary>{usageOpen && <div className="mt-4 space-y-5">
-        {errors.context ? <p role="alert" className="notice">{errors.context}</p> : context ? <ContextUsage usage={context.tokenUsage} /> : <p className="text-xs text-muted">Loading context…</p>}
-      </div>}</details>
-      <button className="button-secondary mt-5" disabled={saving || loading} onClick={() => setRevision((value) => value + 1)}>Refresh settings and usage</button>
+      {settings && <details className="mt-5 border-t border-line pt-4"><summary className="cursor-pointer text-xs text-muted">Current and pending values</summary><dl className="settings-facts mt-3"><dt>Current model</dt><dd>{settings.model.currentModel ?? "Default"}</dd><dt>Next model</dt><dd>{settings.model.pendingModel ?? "Unchanged"}</dd><dt>Current effort</dt><dd>{settings.effort.currentEffort ?? "Unknown"}</dd><dt>Next effort</dt><dd>{settings.effort.pendingEffort ?? "Unchanged"}</dd><dt>Default effort</dt><dd>{settings.effort.defaultEffort ?? "Unknown"}</dd></dl></details>}
+      <button className="button-secondary mt-5" disabled={saving || loading} onClick={() => setRevision((value) => value + 1)}>Refresh settings</button>
     </dialog>
   </>;
 }

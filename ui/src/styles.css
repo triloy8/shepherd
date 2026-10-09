@@ -36,7 +36,7 @@
   .sidebar-open { @apply translate-x-0; }
   .drawer-backdrop { @apply fixed inset-0 z-20 bg-black/60 lg:hidden; }
   .main-pane { @apply flex min-w-0 flex-1 flex-col; }
-  .main-header { @apply relative z-10 flex h-14 shrink-0 items-center gap-2 px-3 sm:h-16 sm:px-6; }
+  .main-header { @apply relative z-10 flex h-14 shrink-0 items-center gap-2 border-b border-line/60 bg-panel px-3 sm:h-16 sm:px-6; }
   .icon-button { @apply inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-raised hover:text-ink; }
   .new-conversation { @apply flex w-full items-center gap-3 rounded-xl border border-line bg-raised/50 px-3.5 py-3 text-sm text-ink hover:border-accent/50 hover:bg-raised; }
   .thread-button { @apply mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[13px] text-muted hover:bg-raised/60 hover:text-ink; }
@@ -70,6 +70,15 @@
   .prose-chat a { @apply text-accent underline underline-offset-4 hover:text-accent-hover; }
   .prose-chat pre { @apply my-4 max-w-full overflow-x-auto rounded-xl border border-line bg-panel p-4 text-xs leading-6; }
   .prose-chat code { @apply rounded bg-raised px-1 py-0.5 text-[.85em]; }
+  .code-block { @apply my-4 min-w-0 overflow-hidden rounded-xl border border-line bg-panel; }
+  .code-block-toolbar { @apply flex min-h-11 items-center justify-between gap-3 border-b border-line/60 pl-4 pr-2 text-xs text-muted; }
+  .prose-chat .code-block pre { @apply m-0 rounded-none border-0; }
+  .hljs-keyword, .hljs-selector-tag, .hljs-literal { color: var(--color-heading); }
+  .hljs-string, .hljs-attr, .hljs-addition { color: var(--color-quote); }
+  .hljs-number, .hljs-built_in, .hljs-type { color: var(--color-warning); }
+  .hljs-title, .hljs-attribute { color: var(--color-accent); }
+  .hljs-comment, .hljs-quote { color: var(--color-dim); font-style: italic; }
+  .hljs-deletion { color: #cc6666; }
   .prose-chat pre code { @apply bg-transparent p-0; }
   .prose-chat blockquote { @apply my-3 border-l-2 border-quote/50 pl-4 text-quote; }
   .prose-chat hr { @apply my-5 border-line; }
@@ -85,7 +94,10 @@
   .prose-chat .katex-display > .katex { text-align: left; }
   .composer-area { @apply pointer-events-none absolute inset-x-0 bottom-0 z-10 pb-3 pt-5; padding-bottom: var(--composer-bottom-gap, max(.75rem, env(safe-area-inset-bottom))); background: linear-gradient(to top, var(--color-canvas) 0%, color-mix(in srgb, var(--color-canvas) 94%, transparent) 40%, transparent 100%); }
   .composer-dock { @apply pointer-events-auto mx-auto w-full max-w-3xl px-3 sm:px-6; }
-  .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 100px)); @apply overflow-y-auto rounded-2xl border border-line/80 bg-panel shadow-xl shadow-black/20 focus-within:border-accent/45; }
+  .latest-dock { @apply pointer-events-none absolute inset-x-0 z-20 mx-auto flex max-w-3xl justify-center px-3 sm:px-6; bottom: min(calc(var(--composer-space, 150px) - 12px), calc(100% - 52px)); }
+  .reading-history .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 192px - var(--composer-bottom-gap, max(.75rem, env(safe-area-inset-bottom))))); }
+  .latest-button { @apply pointer-events-auto flex size-11 items-center justify-center rounded-lg border border-line bg-panel text-muted shadow-lg shadow-black/30 hover:bg-raised hover:text-ink; }
+  .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 148px)); @apply overflow-y-auto rounded-2xl border border-line/80 bg-panel shadow-xl shadow-black/20 focus-within:border-accent/45; }
   .composer-input { @apply grid grid-cols-[44px_minmax(0,1fr)_44px] items-end gap-x-2 p-2; }
   .composer textarea { grid-area: 1 / 2; @apply block w-full min-w-0 resize-none overflow-y-auto bg-transparent py-2.5 text-base leading-6 text-ink outline-none placeholder:text-dim; min-height: 44px; max-height: min(30dvh, 240px); }
   .attach-button { grid-area: 1 / 1; @apply rounded-full text-ink; }

@@ -10,17 +10,21 @@ function renderAssistantMarkdown(text: string) {
   } }));
 }
 
-test("streaming text defers math and Markdown until canonical completion", () => {
-  const text = "**Energy**: $E = mc^2$";
+test("streaming renders math and Markdown with an unfinished code fence", () => {
+  const text = "**Energy**: $E = mc^2$\n\n```ts\nconst energy =";
   const partial = renderToStaticMarkup(createElement(Message, { message: {
     id: "stream", turnId: "turn", role: "assistant", complete: false, text,
   } }));
-  expect(partial).toContain(text);
-  expect(partial).not.toContain('class="katex"');
-  expect(partial).not.toContain("<strong>");
-  const completed = renderAssistantMarkdown(text);
+  expect(partial).toContain("<strong>Energy</strong>");
+  expect(partial).toContain('class="katex"');
+  expect(partial).toContain('<code class="language-ts">const energy =</code>');
+  expect(partial).toContain("Writing…");
+  expect(partial).not.toContain('aria-label="Copy response"');
+  const completed = renderAssistantMarkdown(`${text} 42;\n\`\`\``);
   expect(completed).toContain("<strong>Energy</strong>");
   expect(completed).toContain('class="katex"');
+  expect(completed).toContain('<code class="language-ts">const energy = 42;</code>');
+  expect(completed).toContain('aria-label="Copy response"');
 });
 
 test("dollar prices preserve Markdown formatting instead of becoming math", () => {

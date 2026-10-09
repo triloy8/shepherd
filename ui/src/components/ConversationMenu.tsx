@@ -1,17 +1,23 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import type { WebConversation } from "../../../shared/protocol/web";
 import { Icon } from "./Icon";
+import { HostBattery } from "./HostBattery";
+import { api, explainError } from "../api";
 
 const ConversationActions = lazy(() => import("./ConversationActions").then((module) => ({ default: module.ConversationActions })));
-const ConversationSettings = lazy(() => import("./ConversationSettings").then((module) => ({ default: module.ConversationSettings })));
+const ConversationSkills = lazy(() => import("./ConversationSkills").then((module) => ({ default: module.ConversationSkills })));
 
-export function ConversationMenu({ conversation, title, status, disabled, active, activeTurnId, detaching, onHistoryChange, onRename, onArchive, onFork, onDetach }: {
-  conversation: WebConversation; title: string; status: string; disabled: boolean; active: boolean; activeTurnId: string | null; detaching: boolean;
+export function ConversationMenu({ conversation, title, status, disabled, active, detaching, onHistoryChange, onRename, onArchive, onFork, onDetach }: {
+  conversation: WebConversation; title: string; status: string; disabled: boolean; active: boolean; detaching: boolean;
   onHistoryChange: () => Promise<void>; onRename: (name: string) => void; onArchive: () => void;
   onFork: (conversation: WebConversation) => void; onDetach: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [panel, setPanel] = useState<"details" | "settings" | "actions" | null>(null);
+  const [panel, setPanel] = useState<"details" | "skills" | "rename" | "archive" | "compact" | null>(null);
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
+  const forkLock = useRef(false);
+  const titleTrigger = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const firstFocus = useRef<"first" | "last">("first");
   const statusTrigger = useRef<HTMLButtonElement>(null);
@@ -20,11 +26,14 @@ export function ConversationMenu({ conversation, title, status, disabled, active
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const details = useRef<HTMLDialogElement>(null);
+  const skills = useRef<HTMLDialogElement>(null);
   function close(focus = false) { setOpen(false); if (focus) trigger.current?.focus(); }
-  function show(next: typeof panel) { returnFocus.current = document.activeElement === statusTrigger.current ? statusTrigger.current : trigger.current; close(); setPanel(next); }
-  function closePanel() { setPanel(null); (returnFocus.current ?? trigger.current)?.focus(); }
+  function show(next: typeof panel) { returnFocus.current = document.activeElement === statusTrigger.current ? statusTrigger.current : document.activeElement === titleTrigger.current ? titleTrigger.current : trigger.current; close(); setPanel(next); }
+  function closePanel() { setPanel(null); }
   useEffect(() => {
     if (panel === "details") details.current?.showModal(); else details.current?.close();
+    if (panel === "skills") skills.current?.showModal(); else skills.current?.close();
+    if (panel === null) { returnFocus.current?.focus(); returnFocus.current = null; }
   }, [panel]);
   useEffect(() => {
     if (!open) return;
@@ -34,7 +43,16 @@ export function ConversationMenu({ conversation, title, status, disabled, active
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
+  async function fork() {
+    if (forkLock.current || disabled || active) return;
+    forkLock.current = true; setForking(true); setForkError(null);
+    try { onFork(await api.fork(conversation.id)); close(); }
+    catch (error) { setForkError(`${explainError(error)} If the connection dropped, the fork may have succeeded. Refresh the conversation list before retrying.`); }
+    finally { forkLock.current = false; setForking(false); }
+  }
   return <>
+    <div className="min-w-0 flex-1"><h1 aria-label={title} className="min-w-0 text-sm font-medium"><button ref={titleTrigger} className="block min-h-11 w-full truncate rounded-lg text-left hover:text-accent" title={`${title} — Rename conversation`} aria-label="Rename conversation" disabled={disabled || forking} onClick={() => show("rename")}>{title}</button></h1></div>
+    <HostBattery />
     <div role="status" aria-label={status} aria-live="polite" className="shrink-0">
       <button ref={statusTrigger} className="icon-button" aria-label={`Connection details: ${status}`} title={status} onClick={() => show("details")}>
         <span className={`status-dot ${status === "Working" ? "working-dot" : status === "Connected" ? "" : "status-dot-muted"}`} />
@@ -52,11 +70,13 @@ export function ConversationMenu({ conversation, title, status, disabled, active
         const next = event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
         if (next !== null) { event.preventDefault(); items[next]?.focus(); }
       }}>
-        <button role="menuitem" tabIndex={-1} onClick={() => show("details")}><Icon name="folder" /><span>Conversation details</span></button>
-        <button role="menuitem" tabIndex={-1} disabled={disabled} onClick={() => show("settings")}><Icon name="settings" /><span>Conversation settings</span></button>
-        <button role="menuitem" tabIndex={-1} disabled={disabled} onClick={() => show("actions")}><Icon name="chat" /><span>Conversation actions</span></button>
+        <button role="menuitem" tabIndex={-1} disabled={disabled || forking} onClick={() => show("skills")}><Icon name="skills" /><span>Skills</span></button>
+        <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking} onClick={() => void fork()}><Icon name="fork" /><span>{forking ? "Forking conversation…" : "Fork conversation"}</span></button>
+        <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking} onClick={() => show("compact")}><Icon name="compact" /><span>Compact conversation</span></button>
         <div role="separator" className="my-1 border-t border-line" />
-        <button role="menuitem" tabIndex={-1} disabled={detaching} onClick={() => { close(); onDetach(); }}><Icon name="detach" /><span>Detach conversation<span className="mt-0.5 block text-[11px] text-dim">Keep agent work running</span></span></button>
+        <button role="menuitem" tabIndex={-1} disabled={detaching || forking} onClick={() => { close(); onDetach(); }}><Icon name="detach" /><span>Detach conversation<span className="mt-0.5 block text-[11px] text-dim">Keep agent work running</span></span></button>
+        <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking} onClick={() => show("archive")}><Icon name="archive" /><span>Archive conversation</span></button>
+        {forkError && <p role="alert" className="notice mt-2">{forkError}</p>}
       </div>}
     </div>
     <dialog ref={details} className="project-dialog settings-dialog" aria-labelledby="conversation-details-title" onCancel={closePanel} onClose={() => { if (panel === "details") closePanel(); }}>
@@ -64,7 +84,10 @@ export function ConversationMenu({ conversation, title, status, disabled, active
       <p className="mb-5 break-words text-sm font-medium">{title}</p>
       <dl className="space-y-4 text-sm"><div><dt className="mb-1 text-xs text-dim">Connection</dt><dd>{panel === "details" ? status : null}</dd></div><div><dt className="mb-1 text-xs text-dim">Project</dt><dd className="break-all">{conversation.project}</dd></div><div><dt className="mb-1 text-xs text-dim">Conversation ID</dt><dd className="break-all font-mono text-xs">{conversation.threadId}</dd></div></dl>
     </dialog>
-    {panel === "actions" && <Suspense fallback={null}><ConversationActions conversation={conversation} title={title} disabled={disabled} active={active} open onOpenChange={(value) => { if (!value) closePanel(); }} onHistoryChange={onHistoryChange} onRename={onRename} onArchive={onArchive} onFork={onFork} /></Suspense>}
-    {panel === "settings" && <Suspense fallback={null}><ConversationSettings id={conversation.id} activeTurnId={activeTurnId} disabled={disabled} open onOpenChange={(value) => { if (!value) closePanel(); }} /></Suspense>}
+    {(panel === "rename" || panel === "archive" || panel === "compact") && <Suspense fallback={null}><ConversationActions action={panel} conversation={conversation} title={title} disabled={disabled} active={active} onOpenChange={(value) => { if (!value) closePanel(); }} onHistoryChange={onHistoryChange} onRename={onRename} onArchive={onArchive} /></Suspense>}
+    <dialog ref={skills} className="project-dialog settings-dialog" aria-labelledby="skills-title" onCancel={closePanel} onClose={() => { if (panel === "skills") closePanel(); }}>
+      <div className="mb-5 flex items-center justify-between"><h2 id="skills-title" className="text-lg font-medium">Skills</h2><button className="icon-button" aria-label="Close skills" onClick={closePanel}><Icon name="close" /></button></div>
+      {panel === "skills" && <Suspense fallback={<p className="text-xs text-muted">Loading skills…</p>}><ConversationSkills id={conversation.id} disabled={disabled || forking} /></Suspense>}
+    </dialog>
   </>;
 }

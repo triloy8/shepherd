@@ -1,3 +1,5 @@
+import { UnsupportedProviderOperationError } from "../../core/agent_session.js";
+import type { AgentProvider } from "../../../shared/protocol/requests.js";
 import { presentHistoryItem } from "./history.js";
 import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import { WebHostControls } from "./host_controls.js";
@@ -150,8 +152,10 @@ export class WebSurfaceApi {
       if (url.pathname === `${WEB_API_PREFIX}/conversations`) {
         if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });
         if (request.method === "POST") {
-          const data = await body(request, ["project", "threadId"]);
-          return json(201, await this.create(optionalString(data, "project", 4096), optionalString(data, "threadId", 256)));
+          const data = await body(request, ["project", "threadId", "provider"]);
+          if (data.provider !== undefined && data.provider !== "codex" && data.provider !== "claude") throw new WebRequestError(400, "invalid_request", "provider must be codex or claude.");
+          if (data.threadId && data.provider !== undefined) throw new WebRequestError(400, "invalid_request", "An existing thread determines its provider.");
+          return json(201, await this.create(optionalString(data, "project", 4096), optionalString(data, "threadId", 256), undefined, undefined, data.provider as AgentProvider | undefined));
         }
       }
       const restore = /^\/api\/v1\/threads\/([A-Za-z0-9_-]{1,256})\/unarchive$/.exec(url.pathname);
@@ -303,6 +307,7 @@ export class WebSurfaceApi {
       }
       return fail(405, "method_not_allowed", "Method is not supported for this route.");
     } catch (error) {
+      if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
       if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
       if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");
       if (error instanceof ThreadBindingConflictError) return fail(409, "thread_in_use", error.message);
@@ -338,7 +343,7 @@ export class WebSurfaceApi {
     this.entries.delete(entry.id);
     this.application.disposeSurface(entry.id);
   }
-  private async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string): Promise<WebConversation> {
+  private async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider): Promise<WebConversation> {
     this.available();
     if (!threadId && !project) throw new WebRequestError(400, "invalid_request", "A project is required for a new conversation.");
     if (threadId && !/^[A-Za-z0-9_-]+$/.test(threadId)) {
@@ -367,7 +372,7 @@ export class WebSurfaceApi {
         entry.threadId = fork.threadId;
       } else entry.threadId = threadId
         ? await this.application.switchSurfaceThread(entry.id, threadId)
-        : await this.application.createSurfaceThread(entry.id);
+        : await this.application.createSurfaceThread(entry.id, provider);
       this.available();
       if (threadId) entry.project = this.application.getSurfaceProject(entry.id) ?? "";
       return this.summary(entry);

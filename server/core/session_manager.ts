@@ -10,6 +10,7 @@ import type {
   ConsumeRateLimitResetRequest,
   ConsumeRateLimitResetResponse,
   ApprovalPolicy,
+  AgentProvider,
   AccountRateLimitsResponse,
   ArchiveThreadResponse,
   CompactThreadResponse,
@@ -52,11 +53,12 @@ import type {
   UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
-import { CodexSession } from "./codex_session.js";
+import type { AgentSession } from "./agent_session.js";
+import { createAgentSession, providerForThread, hasProviderThreads, type AgentSessionFactory } from "./agent_provider.js";
 import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
 
 interface ManagedSession {
-  session: CodexSession;
+  session: AgentSession;
   createdAt: string;
 }
 
@@ -122,15 +124,16 @@ export class SessionManager {
   private cwdByThread = new Map<string, string>();
   private effortStateByThread = new Map<string, { current: string | null; pending: string | null }>();
   private modelStateByThread = new Map<string, ManagedModelState>();
-  private controlSession: CodexSession | null = null;
-  private controlSessionStarting: Promise<CodexSession> | null = null;
-  private readonly ownedSessions = new Set<CodexSession>();
+  private controlSessions = new Map<AgentProvider, AgentSession>();
+  private controlSessionStarting = new Map<AgentProvider, Promise<AgentSession>>();
+  private readonly ownedSessions = new Set<AgentSession>();
   private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
   private stopped = false;
 
   constructor(
     private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
-    private readonly sessionFactory = (policy: ApprovalPolicy, tools: DynamicToolRegistry) => new CodexSession(policy, tools),
+    private readonly sessionFactory: AgentSessionFactory = createAgentSession,
+    private readonly providerHasStoredThreads = hasProviderThreads,
   ) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
@@ -139,25 +142,26 @@ export class SessionManager {
 
   async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ResumeThreadResponse> {
     this.assertRunning();
+    this.threadProvider(threadId, request.provider);
     const existing = this.sessionsByThread.get(threadId);
     if (existing) return { threadId, sessionId: existing.session.sessionId };
     const pending = this.resuming.get(threadId);
     if (pending) return pending;
-    const operation = this.bootstrap(request, (session) => session.resumeThread(threadId, request));
+    const operation = this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session) => session.resumeThread(threadId, request));
     this.resuming.set(threadId, operation);
     try { return await operation; }
     finally { this.resuming.delete(threadId); }
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
-    return this.bootstrap(request, (session) => session.forkThread(threadId, request));
+    return this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session) => session.forkThread(threadId, request));
   }
 
   private async bootstrap(
-    request: { approvalPolicy?: ApprovalPolicy; cwd?: string },
-    start: (session: CodexSession) => ReturnType<CodexSession["startThread"]>,
+    request: { approvalPolicy?: ApprovalPolicy; cwd?: string; provider?: AgentProvider },
+    start: (session: AgentSession) => ReturnType<AgentSession["startThread"]>,
   ): Promise<CreateThreadResponse> {
-    const session = this.allocateSession(request.approvalPolicy ?? "on-request");
+    const session = this.allocateSession(request.approvalPolicy ?? "on-request", request.provider ?? "codex");
     try {
       const created = await start(session);
       this.assertRunning();
@@ -194,14 +198,60 @@ export class SessionManager {
   }
 
   async listStoredThreads(request: ListStoredThreadsRequest): Promise<ListStoredThreadsResponse> {
-    const session = await this.getControlSession();
-    const raw = (await session.listStoredThreads(request)) as ThreadListRawResponse;
-    const data = Array.isArray(raw.data) ? raw.data : [];
-    const archived = request.archived === true;
+    const prefix = "shepherd-providers:";
+    type Position = { cursor?: string; skip: number; done: boolean; size?: number };
+    const combined = request.cursor?.startsWith(prefix);
+    if (!combined && !this.providerHasStoredThreads("claude", request)) {
+      const session = await this.getControlSession();
+      const raw = await session.listStoredThreads(request) as ThreadListRawResponse;
+      return {
+        threads: (raw.data ?? []).map((entry) => extractThreadSummary(entry, request.archived === true)).filter((entry) => entry.threadId !== "unknown"),
+        nextCursor: asString(raw.nextCursor), backwardsCursor: asString(raw.backwardsCursor),
+      };
+    }
+    let positions: Record<AgentProvider, Position> = {
+      codex: { cursor: request.cursor, skip: 0, done: false },
+      claude: { skip: 0, done: false },
+    };
+    if (combined) {
+      try {
+        positions = JSON.parse(Buffer.from(request.cursor!.slice(prefix.length), "base64url").toString());
+        for (const id of ["codex", "claude"] as const) {
+          const position = positions[id];
+          if (!position || (position.size !== undefined && (!Number.isSafeInteger(position.size) || position.size < 1)) || !Number.isSafeInteger(position.skip) || position.skip < 0 || typeof position.done !== "boolean" || (position.cursor !== undefined && typeof position.cursor !== "string")) throw new Error();
+        }
+      } catch { throw new Error("Invalid provider thread cursor."); }
+    }
+    const limit = request.limit ?? 20;
+    const pages = await Promise.all((["codex", "claude"] as const).map(async (provider) => {
+      const position = positions[provider];
+      if (position.done) return { provider, data: [] as ThreadRecord[], nextCursor: null as string | null };
+      const session = await this.getControlSession(provider);
+      position.size ??= limit;
+      const raw = await session.listStoredThreads({ ...request, cursor: position.cursor, limit: position.size }) as ThreadListRawResponse;
+      const data = Array.isArray(raw.data) ? raw.data : [];
+      if (position.skip > data.length) throw new Error("Provider thread page changed; reload the conversation list.");
+      if (!data.length && !asString(raw.nextCursor)) position.done = true;
+      return { provider, data, nextCursor: asString(raw.nextCursor) };
+    }));
+    const candidates = pages.flatMap((page) => page.data.slice(positions[page.provider].skip).map((thread) => ({ provider: page.provider, thread })));
+    const key = request.sortKey === "created_at" ? "createdAt" : "updatedAt";
+    candidates.sort((a, b) => (request.sortDirection === "asc" ? 1 : -1) * ((asNumber(a.thread[key]) ?? 0) - (asNumber(b.thread[key]) ?? 0)));
+    const selected = candidates.slice(0, limit);
+    for (const { provider } of selected) positions[provider].skip++;
+    for (const page of pages) {
+      const position = positions[page.provider];
+      if (position.skip === page.data.length && !position.done) {
+        position.cursor = page.nextCursor ?? undefined;
+        position.skip = 0;
+        delete position.size;
+        position.done = page.nextCursor === null;
+      }
+    }
     return {
-      threads: data.map((entry) => extractThreadSummary(entry, archived)).filter((entry) => entry.threadId !== "unknown"),
-      nextCursor: asString(raw.nextCursor),
-      backwardsCursor: asString(raw.backwardsCursor),
+      threads: selected.map(({ thread }) => extractThreadSummary(thread, request.archived === true)).filter((thread) => thread.threadId !== "unknown"),
+      nextCursor: Object.values(positions).some((position) => !position.done) ? prefix + Buffer.from(JSON.stringify(positions)).toString("base64url") : null,
+      backwardsCursor: null,
     };
   }
 
@@ -226,12 +276,12 @@ export class SessionManager {
   }
 
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession();
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(providerForThread(threadId));
     return session.listThreadTurns(threadId, request);
   }
 
   async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession();
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(providerForThread(threadId));
     return session.listThreadItems(threadId, request);
   }
 
@@ -257,7 +307,7 @@ export class SessionManager {
   }
 
   async unarchiveThread(threadId: string): Promise<UnarchiveThreadResponse> {
-    const session = this.mustGet(threadId).session;
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(providerForThread(threadId));
     await session.unarchiveThread(threadId);
     return { ok: true };
   }
@@ -296,7 +346,7 @@ export class SessionManager {
   }
 
   async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
-    const session = await this.getControlSession();
+    const session = await this.getControlSession(request.provider ?? "codex");
     const raw = asRecord(await session.listModels(request));
     const items = Array.isArray(raw.data) ? raw.data : [];
     return {
@@ -360,7 +410,7 @@ export class SessionManager {
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
-      const result = await this.listModels({ cursor, limit: 100, includeHidden: true });
+      const result = await this.listModels({ cursor, limit: 100, includeHidden: true, provider: providerForThread(threadId) });
       const entry = result.data.find((entry) => model ? entry.model === model : entry.isDefault);
       if (entry) {
         const state = this.effortStateByThread.get(threadId);
@@ -400,7 +450,7 @@ export class SessionManager {
   }
 
   setThreadCwd(threadId: string, cwd: string): void {
-    this.mustGet(threadId);
+    this.mustGet(threadId).session.setCwd?.(cwd);
     this.cwdByThread.set(threadId, cwd);
   }
 
@@ -521,26 +571,26 @@ export class SessionManager {
     this.cwdByThread.clear();
     this.modelStateByThread.clear();
     this.effortStateByThread.clear();
-    this.controlSession = null;
+    this.controlSessions.clear();
   }
 
   private assertRunning(): void {
     if (this.stopped) throw new Error("Session manager is stopped.");
   }
 
-  private allocateSession(approvalPolicy: ApprovalPolicy): CodexSession {
+  private allocateSession(approvalPolicy: ApprovalPolicy, provider: AgentProvider = "codex"): AgentSession {
     this.assertRunning();
-    const session = this.sessionFactory(approvalPolicy, this.dynamicTools);
+    const session = this.sessionFactory(approvalPolicy, this.dynamicTools, provider);
     this.ownedSessions.add(session);
     this.attachSessionSubscriptions(session);
     return session;
   }
 
-  private releaseSession(session: CodexSession): void {
+  private releaseSession(session: AgentSession): void {
     if (this.ownedSessions.delete(session)) session.stop();
   }
 
-  private attachSessionSubscriptions(session: CodexSession): void {
+  private attachSessionSubscriptions(session: AgentSession): void {
     session.eventBus.subscribe((event) => {
       if (event.type === "approval.requested") {
         this.approvals.create(event.payload as ApprovalRequestPayload, {
@@ -558,6 +608,10 @@ export class SessionManager {
         this.approvals.expireUserInput(event.threadId, (event.payload as { turnId?: string }).turnId);
       }
 
+      if (event.type === "approval.failed") {
+        const payload = event.payload as { approvalId: string };
+        if (this.approvals.listByThread(event.threadId).some((a) => a.approvalId === payload.approvalId && a.status === "pending")) this.approvals.markFailed(event.threadId, payload.approvalId);
+      }
       if (event.type === "thread.tokenUsage.updated") {
         const payload = event.payload as ThreadTokenUsageUpdatedEvent["payload"];
         if (!payload.tokenUsage) return;
@@ -566,25 +620,33 @@ export class SessionManager {
     });
   }
 
-  private async getControlSession(): Promise<CodexSession> {
+  private threadProvider(threadId: string, requested?: AgentProvider): AgentProvider {
+    const provider = providerForThread(threadId);
+    if (requested && requested !== provider) throw new Error("Cannot change the provider of an existing thread.");
+    return provider;
+  }
+
+  private async getControlSession(provider: AgentProvider = "codex"): Promise<AgentSession> {
     this.assertRunning();
-    if (this.controlSession) return this.controlSession;
-    if (this.controlSessionStarting) return this.controlSessionStarting;
-    const session = this.allocateSession("on-request");
+    const existing = this.controlSessions.get(provider);
+    if (existing) return existing;
+    const pending = this.controlSessionStarting.get(provider);
+    if (pending) return pending;
+    const session = this.allocateSession("on-request", provider);
     const starting = (async () => {
       try {
         await session.initialize();
         this.assertRunning();
-        this.controlSession = session;
+        this.controlSessions.set(provider, session);
         return session;
       } catch (error) {
         this.releaseSession(session);
         throw error;
       }
     })();
-    this.controlSessionStarting = starting;
+    this.controlSessionStarting.set(provider, starting);
     try { return await starting; }
-    finally { this.controlSessionStarting = null; }
+    finally { this.controlSessionStarting.delete(provider); }
   }
 
   private mustGet(threadId: string): ManagedSession {
@@ -600,7 +662,7 @@ export class SessionManager {
     const cached = this.cwdByThread.get(threadId);
     if (cached) return cached;
 
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession();
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(providerForThread(threadId));
     const raw = asRecord(await session.readThread(threadId, false));
     const thread = asRecord(raw.thread);
     const cwd = asString(thread.cwd);

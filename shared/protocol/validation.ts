@@ -105,6 +105,7 @@ function parseOptionalEnum<T extends string>(
 
 function parseCommonThreadOverrides(value: Record<string, unknown>) {
   return {
+    provider: parseOptionalEnum(value.provider, "provider", ["codex", "claude"] as const),
     baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
     developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
     config: parseOptionalObject(value.config, "config"),

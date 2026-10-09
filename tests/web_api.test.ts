@@ -195,3 +195,17 @@ test("stored conversation pages explicitly use most recently updated first", asy
     ]);
   } finally { h.api.dispose(); }
 });
+
+
+test("conversation creation passes the provider and rejects provider changes on resume", async () => {
+  const h = webHarness(); const providers: unknown[] = [];
+  const create = h.application.createSurfaceThread;
+  h.application.createSurfaceThread = async (id: string, provider?: string) => { providers.push(provider); return create(id); };
+  try {
+    expect((await h.request("/conversations", "POST", { project: "~", provider: "claude" })).status).toBe(201);
+    expect(providers).toEqual(["claude"]);
+    expect((await h.request("/conversations", "POST", { project: "~", provider: "unknown" })).status).toBe(400);
+    expect((await h.request("/conversations", "POST", { threadId: "stored", provider: "claude" })).status).toBe(400);
+    expect(providers).toHaveLength(1);
+  } finally { h.api.dispose(); }
+});

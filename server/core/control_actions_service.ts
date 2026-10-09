@@ -1,3 +1,4 @@
+import { providerForThread } from "./agent_provider.js";
 import { ApplicationActionError, type ActionFailure } from "./action_error.js";
 import type {
   AccountRateLimitsResponse,
@@ -23,7 +24,7 @@ type ControlConversation = {
     threadId: string,
     request: { path: string; enabled: boolean },
   ) => Promise<SkillsConfigWriteResponse>;
-  listModels: (request: { cursor?: string; limit?: number; includeHidden?: boolean }) => Promise<ListModelsResponse>;
+  listModels: (request: import("../../shared/protocol/requests.js").ListModelsRequest) => Promise<ListModelsResponse>;
   getThreadModel: (threadId: string) => ThreadModelState;
   setThreadModel: (threadId: string, model: string) => ThreadModelState;
   consumeRateLimitReset: (request: ConsumeRateLimitResetRequest) => Promise<ConsumeRateLimitResetResponse>;
@@ -169,6 +170,7 @@ export async function executeControlAction(
     const models = await context.conversation.listModels({
       cursor: request.cursor,
       limit: request.limit ?? 20,
+      ...(threadId && providerForThread(threadId) !== "codex" ? { provider: providerForThread(threadId) } : {}),
     });
     return {
       type: "models.list",
@@ -191,7 +193,7 @@ export async function executeControlAction(
     let resolved: ModelSummary | null = null;
     const seenCursors = new Set<string>();
     do {
-      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true });
+      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, ...(providerForThread(threadId) !== "codex" ? { provider: providerForThread(threadId) } : {}) });
       resolved = resolveModelArgument(models.data, request.requestedModel);
       if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
       seenCursors.add(models.nextCursor);

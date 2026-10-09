@@ -36,6 +36,7 @@ import {
   InvalidDynamicToolCallError,
   UnknownDynamicToolError,
 } from "./dynamic_tool_registry.js";
+import type { AgentSession } from "./agent_session.js";
 import { EventBus } from "./event_bus.js";
 import {
   extractCompletedAgentMessage,
@@ -242,7 +243,7 @@ function isApprovalServerRequest(method: string): boolean {
   );
 }
 
-export class CodexSession {
+export class CodexSession implements AgentSession {
   readonly sessionId = randomUUID();
   readonly createdAt = new Date().toISOString();
 

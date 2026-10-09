@@ -27,7 +27,10 @@ export type ThreadSourceKind =
   | "subAgentOther"
   | "unknown";
 
+export type AgentProvider = "codex" | "claude";
+
 export interface CreateThreadRequest {
+  provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
@@ -136,6 +139,7 @@ export interface ReadThreadResponse {
 }
 
 export interface ResumeThreadRequest {
+  provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
@@ -153,6 +157,7 @@ export interface ResumeThreadResponse {
 }
 
 export interface ForkThreadRequest {
+  provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
@@ -265,6 +270,7 @@ export interface ReadThreadTokenUsageResponse {
 }
 
 export interface ListModelsRequest {
+  provider?: AgentProvider;
   cursor?: string;
   limit?: number;
   includeHidden?: boolean;

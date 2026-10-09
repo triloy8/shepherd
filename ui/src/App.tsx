@@ -205,12 +205,13 @@ export default function App() {
       if (version === selectionVersion.current) setResuming(false);
     }
   }
+  const [provider, setProvider] = useState<"codex" | "claude">("codex");
   async function createConversation() {
     if (creating || !project.trim() || !dialog) return;
     selectionVersion.current++; setResuming(false);
     setCreating(true); setError(null);
     try {
-      const conversation = await api.create({ project: project.trim() });
+      const conversation = await api.create({ project: project.trim(), provider });
       setConversations((items) => [...items.filter((item) => item.id !== conversation.id), conversation]);
       select(conversation); setDialog(null); void refreshList();
     } catch (error) { setError(`${explainError(error)} Refresh the conversation list before retrying if the connection dropped.`); }
@@ -344,6 +345,8 @@ export default function App() {
     <dialog ref={dialogRef} className="project-dialog" onCancel={(event) => { if (creating) event.preventDefault(); else setDialog(null); }} onClose={() => { if (!creating) setDialog(null); }}>
       <form onSubmit={(event) => { event.preventDefault(); void createConversation(); }}>
         <div className="mb-6 flex items-center justify-between"><h2 className="text-lg font-medium">{dialog?.title ?? "New conversation"}</h2><button type="button" className="icon-button" aria-label="Close" disabled={creating} onClick={() => setDialog(null)}><Icon name="close" /></button></div>
+        <label htmlFor="provider" className="mb-2 block text-sm font-medium">Agent</label>
+        <select id="provider" className="mb-4" value={provider} disabled={creating} onChange={(event) => setProvider(event.target.value as "codex" | "claude")}><option value="codex">Codex</option><option value="claude">Claude</option></select>
         <label htmlFor="project" className="mb-2 block text-sm font-medium">Project</label>
         <input id="project" autoFocus value={project} onChange={(event) => setProject(event.target.value)} placeholder="owner/repo or ~/project" required maxLength={4096} disabled={creating} />
         <p className="mt-3 text-xs leading-6 text-muted">Use a GitHub repository, a path starting with ~/ or ~ for a new local workspace.</p>

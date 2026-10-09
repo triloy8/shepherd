@@ -74,6 +74,41 @@ CODEX_APPROVAL_POLICY=on-request
 CODEX_SANDBOX=workspace-write
 ```
 
+Choose **Codex** or **Claude** in the web UI's new-conversation dialog. The choice
+belongs to the conversation; resume and fork preserve it. Codex remains the
+default. Core/API callers can pass `provider: "claude"` in `CreateThreadRequest`.
+This is separate from `modelProvider`, which configures a model backend within
+Codex.
+
+For Claude, configure authentication as described in the
+[Claude Agent SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart)
+(for example, `ANTHROPIC_API_KEY`). Optional shared environment settings are:
+
+```env
+CLAUDE_MODEL=sonnet
+# Shepherd metadata and UI history; SDK transcripts stay in Claude's own storage.
+SHEPHERD_CLAUDE_STATE_DIR=/absolute/path/to/claude-state
+# Optional override of the SDK's bundled executable:
+# CLAUDE_EXECUTABLE=/absolute/path/to/claude
+```
+
+Use an absolute path for `SHEPHERD_CLAUDE_STATE_DIR` in an environment file; its
+default is `.shepherd/claude` under the current user's home directory. Preserve
+both that directory and Claude's transcript storage to resume after restarting.
+The compiled Shepherd binary includes the SDK executable for the build host.
+
+Claude supports text and image messages, streaming, follow-up input, interruption,
+approvals, model/effort selection, stored history, rename, archive, resume, fork,
+and Shepherd dynamic tools through MCP. The common approval policy applies to
+both providers: `never` runs Claude with permission bypass; `on-request` and
+`untrusted` use Claude's normal permission checks and Shepherd approval prompts.
+See the [SDK permission modes](https://code.claude.com/docs/en/agent-sdk/permissions).
+Claude currently accepts only an unset sandbox or `danger-full-access`; it
+rejects Codex's restricted sandbox modes rather than treating them as enforced.
+Manual compaction, turn revert, audio/file input, and skill management controls
+are unavailable for Claude. Claude loads its own configured project skills.
+Account limit/reset controls continue to describe the Codex account.
+
 Install the shared GitHub and browser skills using the
 [skills installation guide](.docs/shared-skills-location.md). That guide also
 covers the private GitHub identity and repository policy.

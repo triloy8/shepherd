@@ -13,6 +13,7 @@ Shepherd uses `codex app-server` to run the agent.
 - Create and resume conversations in GitHub checkouts or local directories.
 - Stream responses, separate progress from final answers, and display tool activity.
 - Send PNG, JPEG, GIF, and WebP images and view generated images.
+- Render Mermaid diagrams in web responses and draft previews using fenced `mermaid` code blocks, with source viewing and copying.
 - Steer an active turn with a follow-up or interrupt it.
 - Answer structured agent questions with choices or custom text; blocking questions wait for your submission.
 - Rename, fork, archive, restore, compact, and roll back conversations.

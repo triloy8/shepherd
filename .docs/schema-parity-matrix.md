@@ -10,8 +10,8 @@ Status legend:
 
 Generated baseline:
 
-- Codex version: `codex-cli 0.160.0`
-- Last refreshed: `2026-10-04`
+- Codex version: `codex-cli 0.160.1`
+- Last refreshed: `2026-10-09`
 - Implementation notes reviewed: `2026-10-04`
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
@@ -23,7 +23,7 @@ Generated baseline:
 Legacy note:
 
 - The legacy-named `execCommandApproval` and `applyPatchApproval` server requests
-  remain in the 0.160.0 generated schema and are supported directly. They are
+  remain in the 0.160.1 generated schema and are supported directly. They are
   not Shepherd compatibility shims. The three legacy client methods and two
   legacy notification names listed below are inventory entries, not dedicated
   wrappers or translations.
@@ -236,17 +236,17 @@ Legacy note:
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
 | Account usage/reset DTOs | Partial | Typed reset summary/details, consume params, and validated outcomes are exposed through shared controls and web. Per-bucket usage remains `unknown`; broader top-level account metadata is not exposed |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.160.0`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is retired in favor of implemented revert |
+| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.160.1`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is retired in favor of implemented revert |
 
 
-## Refresh to 0.160.0
+## Refresh to 0.160.1
 
-The local standalone updater resolved `0.160.0`, which was already installed.
-Fresh TypeScript and JSON-schema output from `0.160.0` was compared recursively
-with fresh output from the retained `0.159.2` binary: all 1,048 default generated
-files are identical. The full experimental output is also identical between
-these versions. There are no schema additions, removals, or field changes in
-this refresh; no Shepherd request migration is required.
+Both schema formats were regenerated with the installed `codex-cli 0.160.1`.
+Fresh output was compared recursively with fresh output from the retained
+`0.160.0` binary: all 1,048 default generated files are identical. All 1,315
+experimental generated files are also identical between these versions. There
+are no schema additions, removals, or field changes in this refresh; existing
+implementation notes still apply and no Shepherd request migration is required.
 
 All default request and notification method names were checked against the
 matrix: 107 TypeScript client methods / 104 JSON methods, 10 server requests,
@@ -259,6 +259,9 @@ Shepherd advertises dynamic tools and handles `item/tool/call`; it does not
 implement the other experimental client methods or `currentTime/read` (unknown
 server requests receive an explicit JSON-RPC unsupported response). These are
 not part of the default inventory counts.
+
+The previous `0.160.0` refresh also found identical default and experimental
+output compared with `0.159.2`.
 
 ## Banked reset coverage
 
@@ -327,12 +330,12 @@ additions alone do not create new Discord or web controls.
 
 ## Deployment version
 
-Ubuntu setup, Docker, and Compose default to `codex-cli 0.160.0`, matching this
+Ubuntu setup, Docker, and Compose default to `codex-cli 0.160.1`, matching this
 inventory. Both schema generation commands were rerun with that exact CLI.
 Operators can override `CODEX_VERSION` during installation, but that selects a
 different protocol baseline. Updating the checkout alone does not upgrade an
 already-installed host CLI; rerun `deploy/ubuntu/setup.sh` as the deployment
-user. Schema generation itself does not update the CLI. This refresh also ran
-`codex update` on the local standalone installation; it confirmed `0.160.0` was
-already current. Already-running processes retain their old binary until
-restarted. Generated files under `schemas/` remain intentionally ignored by Git.
+user. Schema generation itself does not update the CLI; this refresh used the
+already-installed `0.160.1` binary. Already-running processes retain their old
+binary until restarted. Generated files under `schemas/` remain intentionally
+ignored by Git.

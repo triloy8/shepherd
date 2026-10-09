@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SHEPHERD_PROJECT_DIR:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
-CODEX_VERSION="${CODEX_VERSION:-0.160.0}"
+CODEX_VERSION="${CODEX_VERSION:-0.160.1}"
 
 WITH_TAILSCALE=false
 case "${1:-}" in

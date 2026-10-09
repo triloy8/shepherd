@@ -10,7 +10,11 @@ async (page) => {
   await send('answer screenshot');
   const answer = page.locator('.message-assistant').filter({ has: page.locator('img[alt="Desktop view"]') });
   await answer.locator('img').waitFor();
-  await answer.locator('xpath=ancestor::section').locator('.progress-disclosure > summary').click();
+  await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
+  // Viewed-image events can follow the final answer in a separate activity group.
+  for (const disclosure of await page.locator('.progress-disclosure').all()) {
+    if (!await disclosure.evaluate(node => node.open)) await disclosure.locator(':scope > summary').click();
+  }
   await page.locator('.viewed-image-disclosure > summary').click();
   await page.waitForFunction(() => [...document.querySelectorAll('.message-assistant img, .viewed-image-disclosure img')].every(img => img.complete && img.naturalWidth > 0));
   await page.evaluate(() => {

@@ -82,7 +82,8 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   const progress = { id: `progress-${sequence}`, type: "agentMessage", phase: "commentary", text: "I’ll check the project first." };
   turn.items.push(progress);
   publish(threadId, "turn.message.completed", { itemId: progress.id, turnId, phase: progress.phase, text: progress.text });
-  const response = text.includes("generate unicorn") ? "Your unicorn is ready." : text.includes("answer screenshot")
+  const markdownResponse = "## Streaming Markdown\n\n**Formatted while writing.**\n\n```ts\nconst answer = 42;\n```";
+  const response = text.includes("markdown streaming") ? markdownResponse : text.includes("generate unicorn") ? "Your unicorn is ready." : text.includes("answer screenshot")
     ? `Here is the desktop view:\n\n![Desktop view](${viewedImagePath})\n\n[Open the original screenshot](${viewedImagePath})`
     : "Let’s make it happen.\n\nI’ll keep the UI connected to the same shared core, with a clear path back to your conversation if the connection drops.\n\n```ts\nconst surface = \"web\";\n```";
   later(120, () => {
@@ -91,7 +92,10 @@ h.context.ingress.submitTurn = async (threadId, request) => {
       const image = { id: `generated-${sequence}`, type: "imageGeneration", status: "completed", savedPath: generatedImagePath, revisedPrompt: "A white unicorn in an enchanted meadow" };
       turn.items.push(image);
       publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: image.savedPath, revisedPrompt: image.revisedPrompt });
-    } else publish(threadId, "turn.stream.delta", { method: "item/agentMessage/delta", itemId, turnId, phase: "final_answer", textDelta: "Let’s make it happen." });
+    } else publish(threadId, "turn.stream.delta", { method: "item/agentMessage/delta", itemId, turnId, phase: "final_answer", textDelta: text.includes("markdown streaming") ? markdownResponse.slice(0, markdownResponse.indexOf("42")) : "Let’s make it happen." });
+  });
+  if (text.includes("markdown streaming")) later(350, () => {
+    if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { method: "item/agentMessage/delta", itemId, turnId, phase: "final_answer", textDelta: "42;\n" });
   });
   later(650, () => {
     if (!h.active.get(threadId)) return;

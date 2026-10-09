@@ -316,7 +316,7 @@ export default function App() {
               return { ...all, [selected.threadId]: { text: "", revision: revision + 1 } };
             })}
             send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
-          <ConversationControls key={`controls:${selected.id}`} conversation={selected} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
+          <ConversationControls key={`controls:${selected.id}`} conversation={selected} draft={drafts[selected.threadId]?.text ?? ""} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
         </div></div>
       </section>}
     </main>

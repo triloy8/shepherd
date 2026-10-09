@@ -59,6 +59,7 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [composerSpace, setComposerSpace] = useState(150);
+  const [showLatest, setShowLatest] = useState(false);
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
@@ -144,10 +145,23 @@ export default function App() {
   useEffect(() => {
     if (selected) { try { localStorage.setItem("shepherd.selection", JSON.stringify(selected)); } catch { /* Browser storage may be disabled. */ } }
     follow.current = true;
+    setShowLatest(false);
   }, [selected]);
   useEffect(() => {
     if (follow.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [controller.chat.messages, controller.approvals, controller.chat.activity, composerSpace]);
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (follow.current) element.scrollTop = element.scrollHeight;
+      setShowLatest(element.scrollHeight - element.scrollTop - element.clientHeight >= 120);
+    });
+    observer.observe(element);
+    const content = element.querySelector(".chat-content");
+    if (content) observer.observe(content);
+    return () => observer.disconnect();
+  }, [selected?.id]);
   useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
     const change = () => setDesktop(query.matches);
@@ -292,8 +306,8 @@ export default function App() {
       {!selected ? <section className="empty-screen">
         <button className="button-primary" disabled={creating} onClick={() => { setDialog({ title: "New conversation" }); setProject("~"); }}><Icon name="plus" />Start a conversation</button>
         {saved && <button className="mt-5 text-sm text-muted underline decoration-line underline-offset-4" onClick={() => openThread(saved.threadId)}>Resume your last conversation</button>}
-      </section> : <section className="conversation-stage" style={{ "--composer-space": `${composerSpace}px` } as CSSProperties}>
-        <div className="chat-scroll" ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}>
+      </section> : <section className={`conversation-stage${showLatest ? " reading-history" : ""}`} style={{ "--composer-space": `${composerSpace}px` } as CSSProperties}>
+        <div className="chat-scroll" ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) { follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; setShowLatest(!follow.current); } }}>
           <div className="chat-width chat-content pt-4 sm:pt-6">
             {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
             <Timeline key={selected.id} chat={controller.chat} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.revert} onReload={controller.recoverHistory} />
@@ -302,6 +316,12 @@ export default function App() {
             <div className="mt-6"><Approvals approvals={controller.approvals} busy={controller.busy || controller.connection !== "online"} decide={(id, choice) => { void controller.decide(id, choice); }} /></div>
           </div>
         </div>
+        {showLatest && <div className="latest-dock"><button className="latest-button" aria-label="Go to latest message" title="Go to latest message" onClick={() => {
+          follow.current = true;
+          if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          setShowLatest(false);
+          composerRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
+        }}><Icon name="down" className="size-5!" /></button></div>}
         <div ref={composerRef} className="composer-area"><div className="composer-dock">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
           {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); void openThread(selected.threadId, true); }}>Resume conversation</button>}

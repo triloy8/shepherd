@@ -55,8 +55,7 @@ async (page) => {
   await page.getByText('Attach up to four images per message.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Remove pasted.png', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Conversation actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Fork conversation', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Fork conversation', exact: true }).click();
   await page.getByRole('heading', { name: 'Fork copy', exact: true }).waitFor();
   if (await page.getByRole('button', { name: 'Remove pasted.png', exact: true }).count()) throw Error('Draft leaked into fork');
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();

@@ -7,7 +7,7 @@ async page => {
   const composer = page.getByRole('textbox', { name: 'Message Shepherd', exact: true });
   const menuButton = page.getByRole('button', { name: 'Conversation menu', exact: true });
   const details = page.getByRole('dialog', { name: 'Conversation details', exact: true });
-  if (await page.locator('.main-header').getByRole('button').count() !== 3) throw Error('Header contains extra controls');
+  if (await page.locator('.main-header').getByRole('button').count() !== 4) throw Error('Header contains extra controls');
   if (await page.locator('.main-header').getByText('Connected', { exact: true }).evaluate(el => !el.classList.contains('sr-only'))) throw Error('Status label still consumes header space');
   if (await page.getByText('A little context goes a long way', { exact: true }).count()) throw Error('Composer helper remains');
   await page.screenshot({ path: '/tmp/shepherd-layout-desktop.png' });
@@ -16,7 +16,7 @@ async page => {
   await menuButton.focus(); await page.keyboard.press('ArrowDown');
   if (!await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).evaluate(el => el === document.activeElement)) throw Error('Menu did not focus first option');
   await page.keyboard.press('End');
-  if (!await page.getByRole('menuitem', { name: 'Detach conversation', exact: false }).evaluate(el => el === document.activeElement)) throw Error('Menu End navigation failed');
+  if (!await page.getByRole('menuitem', { name: 'Archive conversation', exact: true }).evaluate(el => el === document.activeElement)) throw Error('Menu End navigation failed');
   await page.keyboard.press('Home'); await page.keyboard.press('Enter');
   const settings = page.getByRole('dialog', { name: 'Conversation settings', exact: true });
   await settings.waitFor(); await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
@@ -25,7 +25,7 @@ async page => {
   if (await page.getByRole('menu', { name: 'Conversation options', exact: true }).count()) throw Error('Escape left menu open');
   if (!await menuButton.evaluate(el => el === document.activeElement)) throw Error('Menu Escape lost focus');
   await menuButton.focus(); await page.keyboard.press('ArrowUp');
-  if (!await page.getByRole('menuitem', { name: 'Detach conversation', exact: false }).evaluate(el => el === document.activeElement)) throw Error('ArrowUp did not open at the final option');
+  if (!await page.getByRole('menuitem', { name: 'Archive conversation', exact: true }).evaluate(el => el === document.activeElement)) throw Error('ArrowUp did not open at the final option');
   await page.keyboard.press('Shift+Tab');
   if (!await page.getByRole('button', { name: 'Connection details: Connected', exact: true }).evaluate(el => el === document.activeElement)) throw Error('Menu Tab did not return to header navigation');
   await menuButton.click(); await composer.click();

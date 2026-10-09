@@ -36,7 +36,7 @@
   .sidebar-open { @apply translate-x-0; }
   .drawer-backdrop { @apply fixed inset-0 z-20 bg-black/60 lg:hidden; }
   .main-pane { @apply flex min-w-0 flex-1 flex-col; }
-  .main-header { @apply relative z-10 flex h-14 shrink-0 items-center gap-2 px-3 sm:h-16 sm:px-6; }
+  .main-header { @apply relative z-10 flex h-14 shrink-0 items-center gap-2 border-b border-line/60 bg-panel px-3 sm:h-16 sm:px-6; }
   .icon-button { @apply inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-raised hover:text-ink; }
   .new-conversation { @apply flex w-full items-center gap-3 rounded-xl border border-line bg-raised/50 px-3.5 py-3 text-sm text-ink hover:border-accent/50 hover:bg-raised; }
   .thread-button { @apply mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[13px] text-muted hover:bg-raised/60 hover:text-ink; }

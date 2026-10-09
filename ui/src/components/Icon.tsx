@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 const paths = {
+  skills: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z",
   fork: "M6 3v12a6 6 0 0 0 6 6M6 9h6a6 6 0 0 0 6-6m-3 3 3-3 3 3",
   compact: "M4 4h16M4 20h16M8 8l4 4 4-4M8 16l4-4 4 4",
   archive: "M3 3h18v4H3ZM5 7v14h14V7M9 11h6",

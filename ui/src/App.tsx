@@ -1,6 +1,7 @@
 import { useImageDrafts } from "./use-image-drafts";
 import { HostControls } from "./components/HostControls";
 import { HostBattery } from "./components/HostBattery";
+import { ConversationControls } from "./components/ConversationControls";
 import { ConversationMenu } from "./components/ConversationMenu";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { StoredThreadSummary } from "../../shared/protocol/requests";
@@ -279,7 +280,7 @@ export default function App() {
       <header className="main-header">
         <button ref={sidebarTrigger} className="icon-button" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
         {!selected && <><div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">Workspace</h1></div><HostBattery /></>}
-        {selected && <ConversationMenu key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} activeTurnId={controller.chat.activeTurnId} detaching={detaching || controller.busy} onDetach={() => void detach()}
+        {selected && <ConversationMenu key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} detaching={detaching || controller.busy} onDetach={() => void detach()}
           onHistoryChange={controller.refresh}
           onRename={(name) => { setNames((current) => ({ ...current, [selected.threadId]: name })); setThreads((items) => items.map((item) => item.threadId === selected.threadId ? { ...item, name } : item)); void refreshList(); }}
           onArchive={() => { setSelected(null); setSaved(null); setConversations((items) => items.filter((item) => item.id !== selected.id)); try { localStorage.removeItem("shepherd.selection"); } catch {} void refreshList(); }}
@@ -315,6 +316,7 @@ export default function App() {
               return { ...all, [selected.threadId]: { text: "", revision: revision + 1 } };
             })}
             send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
+          <ConversationControls key={`controls:${selected.id}`} conversation={selected} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
         </div></div>
       </section>}
     </main>

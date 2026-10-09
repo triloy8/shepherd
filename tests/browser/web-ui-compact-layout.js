@@ -14,12 +14,12 @@ async page => {
 
   // Keyboard navigation, Escape and focus restoration in the consolidated menu.
   await menuButton.focus(); await page.keyboard.press('ArrowDown');
-  if (!await page.getByRole('menuitem', { name: 'Conversation settings', exact: true }).evaluate(el => el === document.activeElement)) throw Error('Menu did not focus first option');
+  if (!await page.getByRole('menuitem', { name: 'Skills', exact: true }).evaluate(el => el === document.activeElement)) throw Error('Menu did not focus first option');
   await page.keyboard.press('End');
   if (!await page.getByRole('menuitem', { name: 'Archive conversation', exact: true }).evaluate(el => el === document.activeElement)) throw Error('Menu End navigation failed');
   await page.keyboard.press('Home'); await page.keyboard.press('Enter');
-  const settings = page.getByRole('dialog', { name: 'Conversation settings', exact: true });
-  await settings.waitFor(); await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Skills', exact: true });
+  await settings.waitFor(); await settings.getByRole('button', { name: 'Close skills', exact: true }).click();
   if (!await menuButton.evaluate(el => el === document.activeElement)) throw Error('Settings did not restore menu focus');
   await menuButton.click(); await page.keyboard.press('Escape');
   if (await page.getByRole('menu', { name: 'Conversation options', exact: true }).count()) throw Error('Escape left menu open');
@@ -85,7 +85,7 @@ async page => {
     }, offset);
     await page.waitForFunction(offset => {
       const app = document.querySelector('.app-shell').getBoundingClientRect();
-      const composer = document.querySelector('.composer').getBoundingClientRect();
+      const composer = document.querySelector('.composer-dock').getBoundingClientRect();
       const visibleBottom = offset + window.visualViewport.height;
       return Math.abs(app.top - offset) < 1 && Math.abs(app.bottom - visibleBottom) < 1 &&
         Math.abs(visibleBottom - composer.bottom - 4) < 1;

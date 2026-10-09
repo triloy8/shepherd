@@ -1,3 +1,4 @@
+import { validateUserQuestionAnswers } from "../../shared/protocol/user_questions.js";
 import type {
   ApprovalDecisionRequest,
   ApprovalRecord,
@@ -63,10 +64,23 @@ export class ApprovalsStore {
     if (!approval.choices.some((choice) => choice.value === payload.decision)) {
       throw new ApprovalDecisionError("invalid_decision", "Decision must match one of the approval choices.");
     }
-    approval.status = this.stateFromDecision(payload.decision);
+    if (approval.userInput && payload.decision === "submit") {
+      try { validateUserQuestionAnswers(approval.userInput.questions, payload.answers); }
+      catch (error) { throw new ApprovalDecisionError("invalid_decision", (error as Error).message); }
+    }
+    approval.status = payload.decision === "submit" ? "approved" : this.stateFromDecision(payload.decision);
     approval.updatedAt = new Date().toISOString();
     approval.decisionReason = payload.reason;
     return { approval: this.toPublicRecord(approval) };
+  }
+
+  expireUserInput(threadId: string, turnId?: string): ApprovalRecord[] {
+    return this.listByThread(threadId).filter(a => a.status === "pending" && a.userInput && (!turnId || a.userInput.turnId === turnId))
+      .map(a => this.transition(threadId, a.approvalId, "expired"));
+  }
+
+  markExpired(threadId: string, approvalId: string): ApprovalRecord {
+    return this.transition(threadId, approvalId, "expired");
   }
 
   markApplied(threadId: string, approvalId: string): ApprovalRecord {

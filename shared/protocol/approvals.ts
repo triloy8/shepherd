@@ -1,3 +1,5 @@
+import type { UserQuestionRequest, UserQuestionAnswers } from "./user_questions.js";
+
 export type ApprovalState = "pending" | "approved" | "rejected" | "expired" | "applied" | "failed";
 
 export interface ApprovalChoice {
@@ -11,11 +13,13 @@ export interface ApprovalRequestPayload {
   prompt: string;
   choices: ApprovalChoice[];
   params: unknown;
+  userInput?: UserQuestionRequest;
 }
 
 export interface ApprovalDecisionRequest {
   decision: string;
   reason?: string;
+  answers?: UserQuestionAnswers;
 }
 
 export interface ApprovalRecord extends ApprovalRequestPayload {

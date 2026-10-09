@@ -1,3 +1,4 @@
+import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import { startTransition, useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
 import type { BridgeEvent } from "../../shared/protocol/events";
@@ -220,7 +221,7 @@ export function useConversation(conversation: WebConversation | null) {
   return { chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
     error: selected ? error : null, busy: selected && busy, historyCursor: selected ? historyCursor : null, loadingHistory: selected && loadingHistory, send, loadOlder,
     interrupt: () => action((id) => api.interrupt(id)),
-    decide: (approvalId: string, decision: string) => action((id) => api.decide(id, approvalId, decision)),
+    decide: (approvalId: string, decision: string, answers?: UserQuestionAnswers) => action((id) => api.decide(id, approvalId, decision, answers)),
     revert: async (beforeTurnId: string) => {
       const id = conversation?.id;
       if (!id || actionRef.current || connection !== "online" || chat.activeTurnId || approvals.length) {

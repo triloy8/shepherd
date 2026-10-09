@@ -1,5 +1,5 @@
 import { loadSkillsPage } from "../../core/skills_page_service.js";
-import { MessageFlags, type ButtonInteraction } from "discord.js";
+import { MessageFlags, ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle, type ModalSubmitInteraction, type ButtonInteraction } from "discord.js";
 
 import type { InteractionConversation } from "../../core/conversation_ports.js";
 import {
@@ -19,12 +19,28 @@ import {
 import { decodeApprovalButtonId, formatApprovalDecisionReply } from "./message_renderer.js";
 import { decodeHistoryPageId, loadHistoryPage } from "./history_pagination.js";
 
-async function replyEphemeralText(interaction: ButtonInteraction, text: string): Promise<void> {
+async function replyEphemeralText(interaction: ButtonInteraction | ModalSubmitInteraction, text: string): Promise<void> {
   const page = buildMarkdownPages(text)[0]!;
   await interaction.reply({
     ...componentsV2Payload(page),
     flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
   });
+}
+
+export async function handleModalInteraction(
+  interaction: ModalSubmitInteraction,
+  conversation: InteractionConversation,
+): Promise<void> {
+  const parsed = decodeApprovalButtonId(interaction.customId);
+  if (!parsed || parsed.decision !== "submit") return;
+  try {
+    const request = conversation.listApprovals(parsed.threadId).find(a => a.approvalId === parsed.approvalId && a.status === "pending");
+    if (!request?.userInput) throw new Error("These questions are no longer pending.");
+    const answers = Object.fromEntries(request.userInput.questions.map((q, index) => [q.id, { answers: [interaction.fields.getTextInputValue(`answer-${index}`)] }]));
+    await conversation.applyApprovalDecision(parsed.threadId, parsed.approvalId, { decision: "submit", answers });
+    await replyEphemeralText(interaction, "Answers submitted.");
+  } catch (error) { await replyEphemeralText(interaction, (error as Error).message); }
+  return;
 }
 
 export async function handleInteraction(
@@ -143,12 +159,27 @@ export async function handleInteraction(
   const parsed = decodeApprovalButtonId(interaction.customId);
   if (!parsed) return;
 
+  const request = ["submit", "cancel"].includes(parsed.decision) ? conversation.listApprovals(parsed.threadId).find(a => a.approvalId === parsed.approvalId && a.status === "pending") : undefined;
+  if (request?.userInput && parsed.decision === "submit") {
+    if (request.userInput.questions.length > 5 || request.userInput.questions.some(q => q.isSecret)) {
+      await replyEphemeralText(interaction, "Please answer these questions in the Shepherd web UI.");
+      return;
+    }
+    const modal = new ModalBuilder().setCustomId(interaction.customId).setTitle("Answer Shepherd’s questions");
+    request.userInput.questions.forEach((q, index) => {
+      const input = new TextInputBuilder().setCustomId(`answer-${index}`).setLabel(q.header.slice(0, 45)).setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000).setPlaceholder((q.options?.map(o => o.label).join(" / ") || q.question).slice(0, 100));
+      modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    });
+    await interaction.showModal(modal);
+    return;
+  }
+
   let responseText: string;
   try {
     await conversation.applyApprovalDecision(parsed.threadId, parsed.approvalId, {
       decision: parsed.decision,
     });
-    responseText = formatApprovalDecisionReply(parsed.decision);
+    responseText = request?.userInput ? "Questions skipped." : formatApprovalDecisionReply(parsed.decision);
   } catch (error) {
     responseText = error instanceof Error ? error.message : "Failed to submit decision";
   }

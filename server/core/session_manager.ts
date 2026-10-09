@@ -550,6 +550,14 @@ export class SessionManager {
         return;
       }
 
+      if (event.type === "approval.expired") {
+        this.approvals.markExpired(event.threadId, (event.payload as { approvalId: string }).approvalId);
+      }
+
+      if (event.type === "turn.completed" || event.type === "turn.failed") {
+        this.approvals.expireUserInput(event.threadId, (event.payload as { turnId?: string }).turnId);
+      }
+
       if (event.type === "thread.tokenUsage.updated") {
         const payload = event.payload as ThreadTokenUsageUpdatedEvent["payload"];
         if (!payload.tokenUsage) return;

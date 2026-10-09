@@ -11,7 +11,7 @@ import {
 
 import { readBoolean } from "../../config/environment.js";
 import type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition } from "../../runtime/surface_adapter.js";
-import { handleInteraction } from "./interactions.js";
+import { handleInteraction, handleModalInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { presentDiscordSignalNotice } from "./signal_notice.js";
 import { createDiscordThreadEventHandler } from "./thread_event_handler.js";
@@ -104,8 +104,11 @@ export function createDiscordAdapter(
 
   client.on("interactionCreate", async (interaction) => {
     if (context.isQuiescing() || stopping) return;
-    if (!interaction.isButton()) return;
-    try { await handleInteraction(interaction, context.interactions, commandContext); }
+    if (!interaction.isButton() && !interaction.isModalSubmit()) return;
+    try {
+      if (interaction.isModalSubmit()) await handleModalInteraction(interaction, context.interactions);
+      else await handleInteraction(interaction, context.interactions, commandContext);
+    }
     catch (error) { console.error("Discord interaction failed:", error); }
   });
 

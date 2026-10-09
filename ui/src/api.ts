@@ -1,3 +1,4 @@
+import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
 import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse, WebResetRequest, WebResetResponse } from "../../shared/protocol/web";
 import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
@@ -46,7 +47,7 @@ export const api = {
   approvals: (id: string, signal?: AbortSignal) => request<WebApprovalsResponse>(`${conversationPath(id)}/approvals`, "GET", undefined, signal),
   send: (id: string, text: string, images: string[] = []) => request<WebMessageResponse>(`${conversationPath(id)}/messages`, "POST", { text, images }),
   interrupt: (id: string) => request(`${conversationPath(id)}/interrupt`, "POST", {}),
-  decide: (id: string, approvalId: string, decision: string) => request(`${conversationPath(id)}/approvals/${encodeURIComponent(approvalId)}`, "POST", { decision }),
+  decide: (id: string, approvalId: string, decision: string, answers?: UserQuestionAnswers) => request(`${conversationPath(id)}/approvals/${encodeURIComponent(approvalId)}`, "POST", { decision, answers }),
   rename: (id: string, name: string) => request(`${conversationPath(id)}/rename`, "POST", { name }),
   archive: (id: string) => request(`${conversationPath(id)}/archive`, "POST", {}),
   fork: (id: string) => request<WebConversation>(`${conversationPath(id)}/fork`, "POST", {}),

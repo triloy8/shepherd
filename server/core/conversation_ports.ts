@@ -16,7 +16,7 @@ export type ConversationControls = Pick<ConversationService, typeof controlMetho
 export type ApplicationConversation = ConversationReads & ConversationControls;
 export type InteractionConversation = Pick<ConversationReads,
   "listStoredThreads" | "listLoadedThreads" | "listModels" | "getThreadModel" | "listSkills" | "listThreadTurns" | "listThreadItems"
-> & Pick<ConversationService, "applyApprovalDecision">;
+> & Pick<ConversationService, "applyApprovalDecision" | "listApprovals">;
 
 /** Bind methods so callers receive capabilities, not the service instance. */
 function bindMethods<T extends object, K extends keyof T>(source: T, keys: readonly K[]): Pick<T, K> {
@@ -37,7 +37,7 @@ export function createIngressConversation(source: TurnRoutingConversation): Turn
 export function createInteractionConversation(source: InteractionConversation): InteractionConversation {
   return bindMethods(source, [
     "listStoredThreads", "listLoadedThreads", "listModels", "getThreadModel",
-    "listSkills", "listThreadTurns", "listThreadItems", "applyApprovalDecision",
+    "listSkills", "listThreadTurns", "listThreadItems", "applyApprovalDecision", "listApprovals",
   ]);
 }
 

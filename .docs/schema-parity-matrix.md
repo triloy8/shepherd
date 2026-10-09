@@ -12,7 +12,8 @@ Generated baseline:
 
 - Codex version: `codex-cli 0.160.1`
 - Last refreshed: `2026-10-09`
-- Implementation notes reviewed: `2026-10-04`
+- Implementation notes reviewed: `2026-10-04`; user-input handling reviewed
+  `2026-10-09` against `7e30d66` ([PR #88](https://github.com/triloy8/shepherd/pull/88))
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
   - `codex app-server generate-json-schema --out ./schemas`
@@ -149,7 +150,7 @@ Legacy note:
 | `item/fileChange/requestApproval` | Typed approval choices and generated decision response | Core |
 | `execCommandApproval` | Typed legacy approval response, including structured denial reasons | Core (Legacy) |
 | `applyPatchApproval` | Typed legacy approval response, including structured denial reasons | Core (Legacy) |
-| `item/tool/requestUserInput` | Explicit JSON-RPC unsupported response; Shepherd has no structured-answer surface | Maybe Later |
+| `item/tool/requestUserInput` | Typed thread/turn identity and question validation; pending web forms and Discord text modals; exact question-ID answer response or explicit empty-map skip; honors blocking/nonblocking requests | Core |
 | `mcpServer/elicitation/request` | Explicit JSON-RPC unsupported response; Shepherd has no form/URL elicitation surface | Maybe Later |
 | `item/permissions/requestApproval` | Explicit JSON-RPC unsupported response; Discord buttons cannot return permission profiles | Maybe Later |
 | `item/tool/call` | Typed identity/JSON validation and explicit registered-tool dispatch; stale turns, wrong threads, and unknown tools are rejected | Core (Experimental) |
@@ -196,7 +197,7 @@ Legacy note:
 | `item/commandExecution/terminalInteraction` | Generic | Maybe Later |
 | `item/fileChange/outputDelta` | Partially interpreted via text delta | Maybe Later |
 | `item/fileChange/patchUpdated` | Generic | Maybe Later |
-| `serverRequest/resolved` | Generic | Maybe Later |
+| `serverRequest/resolved` | Matches pending user-input request IDs and emits `approval.expired`; no general resolution tracking for other request methods | Core (User input) |
 | `item/mcpToolCall/progress` | Generic | Out of Scope (for now) |
 | `mcpServer/oauthLogin/completed` | Generic | Out of Scope (for now) |
 | `mcpServer/startupStatus/updated` | Generic | Out of Scope (for now) |
@@ -235,6 +236,7 @@ Legacy note:
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
 | Account usage/reset DTOs | Partial | Typed reset summary/details, consume params, and validated outcomes are exposed through shared controls and web. Per-bucket usage remains `unknown`; broader top-level account metadata is not exposed |
+| User-input request/response DTOs | Partial | `UserQuestionRequest` preserves identity, questions, `isBlocking`, `isOther`, `isSecret`, and options; answers use question-ID maps of string arrays. One nonempty answer per question; deprecated `autoResolutionMs` is not used for a client timer |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
 | Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.160.1`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is retired in favor of implemented revert |
 
@@ -262,6 +264,33 @@ not part of the default inventory counts.
 
 The previous `0.160.0` refresh also found identical default and experimental
 output compared with `0.159.2`.
+
+## Structured user questions
+
+`item/tool/requestUserInput` is a server **request**, not a notification. Shepherd
+keeps its original JSON-RPC ID pending through the shared decision lifecycle and
+responds only after an explicit submission or skip. `isBlocking` controls whether
+Codex waits for the answer; a missing flag is treated as blocking for older requests.
+Shepherd does not start a timer from deprecated `autoResolutionMs`. If Codex resolves
+a request itself, `serverRequest/resolved` removes it and expires its form.
+
+Submission uses `{ answers: { [questionId]: { answers: [text] } } }`. Shepherd
+requires one nonempty answer for every question, rejects extra IDs, and restricts
+answers to offered option labels when custom text is not allowed. Explicit skip
+returns `{ answers: {} }`. Invalid submissions leave the request pending for retry;
+resolved, interrupted/completed-turn, and stopped-session questions cannot accept
+stale responses. Answers are not copied into pending decision records or events.
+
+Web supports selectable options, custom/free text, multiple questions, and masked
+secret fields. Discord offers text modals for up to five nonsecret questions;
+secret or larger requests direct users to the web UI. MCP elicitation remains
+unsupported. Ordinary assistant prose does not create a question request.
+
+Coverage: `tests/user_questions.test.ts` verifies wire responses, validation,
+lifecycle cleanup, API errors, waiting indicators, secret fields, and Discord
+modals. Firefox fixture checks verified pending state, reload recovery, custom
+submission and its exact HTTP payload. These are not live Codex completion tests.
+See the [question guide](user-questions.md) and [surface matrix](surface-parity-matrix.md).
 
 ## Banked reset coverage
 

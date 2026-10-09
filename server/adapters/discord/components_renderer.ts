@@ -98,6 +98,7 @@ export function buildApprovalPages(
 ): DiscordSurfacePage[] {
   const details = [
     approval.prompt.trim(),
+    ...(approval.userInput ? approval.userInput.questions.map(q => [q.header, ...(q.options ?? []).map(o => `• ${o.label}: ${o.description}`)].join("\n")) : []),
     "",
     `**Action:** \`${approval.method}\``,
     `**Thread:** \`${threadId}\``,
@@ -106,7 +107,7 @@ export function buildApprovalPages(
       : []),
   ].join("\n");
   return buildCardPages({
-    title: "Approval required",
+    title: approval.userInput ? "Your answer is needed" : "Approval required",
     text: details,
     tone: "warning",
     actionRows,

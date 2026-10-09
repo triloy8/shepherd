@@ -3,7 +3,7 @@
 The web surface serves the built-in UI and a private conversation API from the
 same loopback listener. It runs alone or alongside Discord using the shared core.
 It supports text and image input, conversation management and history, live events,
-approvals, model/effort settings, usage, skills, and host restart/deployment controls.
+approvals, structured agent questions, model/effort settings, usage, skills, and host restart/deployment controls.
 It does not expose arbitrary Codex RPC. See the [surface parity matrix](surface-parity-matrix.md)
 for implemented features and differences between surfaces.
 
@@ -35,7 +35,7 @@ forwarded headers do not override this. CORS is not authentication.
 
 There is no application authentication or token. Network reachability grants full
 operator access: listing stored threads, choosing workspaces, submitting agent
-work under host policy, and answering approvals. Local processes on the host and
+work under host policy, and answering approvals or user questions. Local processes on the host and
 all clients allowed to reach the endpoint share this access and navigation state.
 There is no per-user authorization or isolation.
 
@@ -98,8 +98,8 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | POST | `/conversations/:id/model` | `{ model }`; resolve model ID/name through shared controls; `{ ok: true }` |
 | POST | `/conversations/:id/effort` | `{ effort }`; supported level or `default`; `{ ok: true }` |
 | GET | `/conversations/:id/context` | `{ threadId, tokenUsage }`; telemetry may be null |
-| GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices and status |
-| POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason? }`; `{ ok: true }` |
+| GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices/status and optional `userInput` question request |
+| POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason?, answers? }`; `{ ok: true }` |
 | GET | `/conversations/:id/events` | SSE stream; optional `Last-Event-ID` |
 
 `project` is required only for new conversations and accepts the shared project-target
@@ -135,7 +135,8 @@ Use streaming `fetch` to supply a saved `Last-Event-ID` explicitly, or native
 EventSource for its automatic reconnection. Neither needs credentials. SSE has `id`, `event` and JSON `data` fields. Events are:
 
 - `bridge`: the shared `BridgeEvent` union, including agent deltas, completion,
-  errors and approval notifications.
+  errors and pending decision notifications, including `approval.expired` for
+  withdrawn user questions.
 - `signal`: a shared `SignalEnvelope` delivered to this surface.
 - `reset`: `{ reason: "event_too_large" }`; reload state, history and approvals.
 
@@ -315,6 +316,31 @@ reports effective-state overrides, distinguishes empty discovery from failure, a
 requires reloading after a failed update before offering another toggle. Requests
 from a closed settings panel cannot overwrite a newly opened panel. This adds no
 skill installation, file editing, or per-conversation configuration semantics.
+
+### Answering agent questions
+
+Structured Codex questions appear as a form in the selected transcript. Blocking
+requests display **Waiting for your answer** and suppress the working/writing
+indicators while the request is pending. Nonblocking requests display **Shepherd
+has a question** while the agent continues working.
+
+Select an option, choose **Write another answer** when custom text is allowed, or
+fill a free-text field. Secret answers use a password input. No option is selected
+automatically; **Submit answers** stays disabled until every question has a
+nonempty answer. Multiple questions submit together. **Skip questions** explicitly
+returns no answers, rather than accepting a recommended choice. Answer and skip
+controls are disabled while disconnected or another write is busy.
+
+Reload/reconnect restores pending questions from the API, but unsubmitted answer
+drafts are not persisted. Submitted, skipped, withdrawn, interrupted/completed-turn,
+and stopped-session requests disappear. A host restart does not restore pending
+forms. Ordinary questions in assistant prose do not create interactive requests.
+Pending questions use the same lifecycle guards as approvals.
+
+See [desktop/mobile examples](user-questions.md) and the
+[API answer contract](web-api.md#structured-user-questions). This feature was
+reviewed on 2026-10-09 against `7e30d66` in
+[PR #88](https://github.com/triloy8/shepherd/pull/88).
 
 ### Compact layout and navigation
 

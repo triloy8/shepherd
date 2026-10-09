@@ -82,6 +82,20 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   const progress = { id: `progress-${sequence}`, type: "agentMessage", phase: "commentary", text: "I’ll check the project first." };
   turn.items.push(progress);
   publish(threadId, "turn.message.completed", { itemId: progress.id, turnId, phase: progress.phase, text: progress.text });
+  if (text.includes("provider question")) {
+    const userInput = { threadId, turnId, itemId: `question-${sequence}`, isBlocking: true, questions: [{
+      id: "provider", header: "Provider", question: "How should users select the agent provider?", isOther: true, isSecret: false,
+      options: [
+        { label: "Select per conversation (Recommended)", description: "Keep Codex as the default and choose Claude when creating a conversation." },
+        { label: "Set one provider for the entire server", description: "All conversations use the same provider." },
+      ],
+    }] };
+    const approval = { approvalId: `question-${sequence}`, method: "item/tool/requestUserInput", prompt: userInput.questions[0]!.question,
+      choices: [{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }], params: userInput, userInput };
+    h.approvals.create(approval, { threadId, sessionId: "fixture" });
+    publish(threadId, "approval.requested", approval);
+    return { ok: true, turnId };
+  }
   const markdownResponse = "## Streaming Markdown\n\n**Formatted while writing.**\n\n```ts\nconst answer = 42;\n```";
   const response = text.includes("markdown streaming") ? markdownResponse : text.includes("generate unicorn") ? "Your unicorn is ready." : text.includes("answer screenshot")
     ? `Here is the desktop view:\n\n![Desktop view](${viewedImagePath})\n\n[Open the original screenshot](${viewedImagePath})`
@@ -152,9 +166,20 @@ Object.assign(h.application.conversation, {
     return { ok: true };
   },
 });
-h.application.conversation.interruptTurn = async (threadId) => finish(threadId, "interrupted");
+h.application.conversation.interruptTurn = async (threadId) => {
+  for (const approval of h.approvals.expireUserInput(threadId)) publish(threadId, "approval.expired", { approvalId: approval.approvalId });
+  finish(threadId, "interrupted");
+};
 h.context.approvals.applyApprovalDecision = async (threadId, id, decision) => {
+  const request = h.approvals.listByThread(threadId).find(a => a.approvalId === id);
   h.approvals.markDecided(threadId, id, decision); h.approvals.markApplied(threadId, id);
+  if (request?.userInput) {
+    const turn = histories.get(threadId)!.at(-1)!;
+    const text = decision.decision === "cancel" ? "Questions skipped. No provider choice was submitted." : `Thanks. I’ll use your answer: **${decision.answers?.provider?.answers[0]}**.`;
+    const message = { id: `answer-${++sequence}`, type: "agentMessage", phase: "final_answer", text };
+    turn.items.push(message);
+    publish(threadId, "turn.message.completed", { itemId: message.id, turnId: turn.id, phase: "final_answer", text });
+  }
   publish(threadId, "approval.applied", { approvalId: id }); finish(threadId);
 };
 let fixtureCheckout = "fixture-initial";

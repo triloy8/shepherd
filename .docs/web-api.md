@@ -3,7 +3,7 @@
 The web surface serves the built-in UI and a private conversation API from the
 same loopback listener. It runs alone or alongside Discord using the shared core.
 It supports text and image input, conversation management and history, live events,
-approvals, model/effort settings, usage, skills, and host restart/deployment controls.
+approvals, structured agent questions, model/effort settings, usage, skills, and host restart/deployment controls.
 It does not expose arbitrary Codex RPC. See the [surface parity matrix](surface-parity-matrix.md)
 for implemented features and differences between surfaces.
 
@@ -35,7 +35,7 @@ forwarded headers do not override this. CORS is not authentication.
 
 There is no application authentication or token. Network reachability grants full
 operator access: listing stored threads, choosing workspaces, submitting agent
-work under host policy, and answering approvals. Local processes on the host and
+work under host policy, and answering approvals or user questions. Local processes on the host and
 all clients allowed to reach the endpoint share this access and navigation state.
 There is no per-user authorization or isolation.
 
@@ -98,8 +98,8 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | POST | `/conversations/:id/model` | `{ model }`; resolve model ID/name through shared controls; `{ ok: true }` |
 | POST | `/conversations/:id/effort` | `{ effort }`; supported level or `default`; `{ ok: true }` |
 | GET | `/conversations/:id/context` | `{ threadId, tokenUsage }`; telemetry may be null |
-| GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices and status |
-| POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason? }`; `{ ok: true }` |
+| GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices/status and optional `userInput` question request |
+| POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason?, answers? }`; `{ ok: true }` |
 | GET | `/conversations/:id/events` | SSE stream; optional `Last-Event-ID` |
 
 `project` is required only for new conversations and accepts the shared project-target
@@ -124,6 +124,47 @@ from a pending approval. Invalid choices return 400 without consuming it; missin
 approvals return 404; already-decided approvals return 409. Approvals must belong
 to the handle's thread.
 
+### Structured user questions
+
+The existing approvals routes also carry `item/tool/requestUserInput` requests.
+Records include `userInput: { threadId, turnId, itemId, isBlocking, questions }`;
+each question has `id`, `header`, `question`, `isOther`, `isSecret`, and nullable
+`options: [{ label, description }]`. Use `status === "pending"` to decide whether
+the request can still be answered. Submit to the record's `approvalId` using:
+
+```json
+{
+  "decision": "submit",
+  "answers": {
+    "provider": { "answers": ["Select per conversation (Recommended)"] },
+    "notes": { "answers": ["Remember my last choice."] }
+  }
+}
+```
+
+Use exact question IDs and one nonempty string per question (at most 16,000
+characters). Custom text is accepted for free-text questions or when `isOther`
+is true; otherwise use an exact option label. Missing/extra IDs, empty answers,
+and disallowed choices return `400 invalid_decision` without consuming the
+request. The overall 64 KiB body limit still applies. Already answered or expired
+requests return `409 approval_decided`. Cross-thread/missing IDs return
+`404 approval_not_found`.
+
+To explicitly skip, send `{ "decision": "cancel" }`. Shepherd returns an empty
+answer map to Codex, without selecting an option. It does not interpret ordinary
+chat messages as answers to this form. Submitted answer text is not copied into
+approval records or bridge events.
+
+Requests remain pending until submitted/skipped, the turn ends, the session
+stops, or Codex withdraws the request with `serverRequest/resolved`. The provider's
+`isBlocking` flag governs whether Codex waits; Shepherd starts no answer timer.
+Refresh the approvals snapshot on reconnect and after decision/lifecycle events.
+Pending question records are process-local, not a durable journal. They count as
+pending decisions for the existing conversation and host lifecycle guards.
+
+See [question workflows and screenshots](user-questions.md) for the built-in UI
+and Discord limits. MCP elicitation remains a separate unsupported request type.
+
 Before the first user message, a newly created thread has no persisted history.
 Its first turns page returns 200 with empty `data` and null pagination cursors.
 This applies only to Codex's explicit not-yet-materialized thread response;
@@ -135,7 +176,8 @@ Use streaming `fetch` to supply a saved `Last-Event-ID` explicitly, or native
 EventSource for its automatic reconnection. Neither needs credentials. SSE has `id`, `event` and JSON `data` fields. Events are:
 
 - `bridge`: the shared `BridgeEvent` union, including agent deltas, completion,
-  errors and approval notifications.
+  errors and pending decision notifications, including `approval.expired` for
+  withdrawn user questions.
 - `signal`: a shared `SignalEnvelope` delivered to this surface.
 - `reset`: `{ reason: "event_too_large" }`; reload state, history and approvals.
 

@@ -76,3 +76,35 @@ The package timeout regression runs a fast child test and verifies the executed
 wall-clock probes can fail under host load independently of application behavior.
 Its subprocess watchdog is 60 seconds, with a 90-second outer cleanup budget; these
 are test-harness limits, not changes to deployment or normal test timeouts.
+
+## Structured user questions returned as unsupported
+
+Previously, `item/tool/requestUserInput` received JSON-RPC error `-32601` with
+`Shepherd does not support server request item/tool/requestUserInput.` The error
+resolved the request immediately; Shepherd displayed no form and could not keep
+it pending for the human's answer. A question in assistant prose followed by
+continued work alone does not establish that this RPC occurred; inspect the turn's
+request/error logs to distinguish the two cases.
+
+Implemented in `7e30d66` ([PR #88](https://github.com/triloy8/shepherd/pull/88)):
+valid structured requests now display pending forms, accept answers or an explicit
+skip, and respect blocking/nonblocking behavior. Deploy the change and reload the
+web page to load its UI assets. Existing unsupported requests are not resurrected;
+ask the agent to ask again. Discord directs secret/large requests to the web UI.
+
+See [question workflows](user-questions.md), the [surface matrix](surface-parity-matrix.md),
+and the [schema matrix](schema-parity-matrix.md). MCP elicitation remains unsupported.
+
+## Screenshot Markdown shows an image placeholder
+
+`[Image: ...]` is the web renderer's fallback for an image source that does not
+match a registered conversation artifact. A relative path such as
+`docs/images/example.png` does not match the artifact's absolute local path.
+Open the image with `view_image` and reference the exact absolute source path
+(or its scoped asset URL) in the assistant's Markdown. The file must still be
+readable, and its artifact metadata must be loaded in the conversation. A plain
+Markdown image reference does not register or read a new file.
+
+See [image delivery and embedding](web-api.md#turn-activity-and-images). This is
+separate from structured question handling; PR screenshots also remain available
+as repository images.

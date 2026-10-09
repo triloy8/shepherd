@@ -1,10 +1,10 @@
 <h1 align="center">🐕 Shepherd 🐑</h1>
 
 Shepherd runs Codex conversations through Discord and a private web UI.
-Both surfaces use the same core for workspaces, conversation routing, approvals,
+Both surfaces use the same core for workspaces, conversation routing, approvals, user questions,
 model settings, and host operations. Run either surface or both in one process.
 
-You can send text and images, follow agent activity, approve actions, switch
+You can send text and images, follow agent activity, approve actions, answer questions, switch
 conversations, and manage the host without opening a terminal for each turn.
 Shepherd uses `codex app-server` to run the agent.
 
@@ -14,6 +14,7 @@ Shepherd uses `codex app-server` to run the agent.
 - Stream responses, separate progress from final answers, and display tool activity.
 - Send PNG, JPEG, GIF, and WebP images and view generated images.
 - Steer an active turn with a follow-up or interrupt it.
+- Answer structured agent questions with choices or custom text; blocking questions wait for your submission.
 - Rename, fork, archive, restore, compact, and roll back conversations.
 - Select models and reasoning effort; inspect context usage and account limits.
 - Discover skills, reload them, and enable or disable them.
@@ -162,6 +163,12 @@ Use **Load earlier messages** within the transcript to read older turns. Text an
 image drafts survive switching conversations within the page, but not a reload.
 Web accepts up to four images, 5 MiB each and 10 MiB combined.
 
+When Shepherd shows **Waiting for your answer**, select or enter answers and choose
+**Submit answers**, or explicitly **Skip questions**. No option is chosen automatically.
+Pending questions return after a reload, but unsubmitted question-answer drafts do not.
+See [answering questions](.docs/user-questions.md) for desktop/mobile examples and
+blocking versus nonblocking behavior.
+
 ### Discord workflow
 
 ```text
@@ -179,6 +186,11 @@ Discord accepts supported images up to 10 MiB each. Audio attachments are not
 supported. Final-answer token streaming is off by default; typing, activity, and
 completed commentary provide progress feedback. Set
 `SHEPHERD_DISCORD_STREAMING=true` to enable an editable final-answer preview.
+
+Question cards offer **Submit answers** to open a Discord modal and **Skip questions**
+to decline answering. Modals support up to five nonsecret questions; enter exact
+option labels or custom text when offered. Secret questions and larger forms direct
+you to the web UI.
 
 Use `!help` for the command list:
 
@@ -202,7 +214,8 @@ Use `!help` for the command list:
 ## Restart and deployment
 
 Use Discord commands or **Host controls** in the web sidebar. These operations affect
-all surfaces. Active turns and pending approvals block restart/deployment.
+all surfaces. Active turns, pending approvals, and pending user questions block
+restart/deployment.
 
 Deploy requires a clean checkout. It fetches `origin/main` by default, or the
 selected branch, checks out the fetched commit, and runs:
@@ -285,6 +298,7 @@ route lifetime, and delivery behavior.
 - [Surface selection and lifecycle](.docs/surface-launch.md)
 - [Web API and private access](.docs/web-api.md)
 - [Web UI reference](.docs/web-ui.md)
+- [Answering questions and examples](.docs/user-questions.md)
 - [Host deployment](deploy/README.md)
 - [Shared skills installation](.docs/shared-skills-location.md)
 - [Architecture](.docs/architecture.md)

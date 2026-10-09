@@ -9,6 +9,12 @@ archive when historical reasoning is useful.
 - [Surface parity matrix](surface-parity-matrix.md) — feature-by-feature Discord
   and web support, interaction differences and recovery limits.
 
+- [Answering questions](user-questions.md) — structured Codex questions, web
+  and Discord answer workflows, limits, and desktop/mobile screenshots.
+
+- [Web API](web-api.md) — HTTP request shapes, private access, and event recovery.
+- [Web UI](web-ui.md) — browser controls and presentation.
+
 - [Surface launch and lifecycle](surface-launch.md) — selection, shared host ownership, adapter health, and startup/shutdown behavior.
 
 - [Shared skills installation](shared-skills-location.md) — host setup,

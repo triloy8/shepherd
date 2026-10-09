@@ -320,6 +320,11 @@ develop in an isolated workspace
 → copy the posted !repo and !thread recovery commands
 ```
 
+Active turns and pending approvals or structured user questions block normal
+restart/deployment. Answer or explicitly skip pending questions, or interrupt the
+turn, before requesting a deploy. Question records are not persisted across a host
+restart. See the [question guide](../.docs/user-questions.md).
+
 Deployment validation includes `bun run check:config`, which opens no clients
 or listeners and checks only enabled surfaces. The next restart reuses the
 saved selection; no surface menu appears at boot.

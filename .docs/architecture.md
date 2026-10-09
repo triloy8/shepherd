@@ -182,7 +182,7 @@ These files are also in `server/core/*`, but they are better understood as runti
 - `server/core/conversation_signal_executor.ts`
   Resolves live surface bindings and bridges dispatcher work into Codex turns.
 - `server/core/approvals.ts`
-  Approval record storage and approval lifecycle support.
+  Pending approval and structured-question record storage, validation, and lifecycle support.
 - `server/core/deployment_service.ts`
   Git checkout update, dependency validation, and rollback infrastructure used
   by runtime deployment orchestration.
@@ -235,7 +235,7 @@ So the simplest mental model is:
 - `server/adapters/discord/message_renderer.ts`
   Owns Discord-specific text formatting and approval button id encoding.
 - `server/adapters/discord/interactions.ts`
-  Owns Discord button interaction handling.
+  Owns Discord button and user-question modal interaction handling.
 
 ## Webhook Signal Modules
 
@@ -270,6 +270,22 @@ So the simplest mental model is:
 3. `thread_event_handler.ts` feeds events into `response_stream_reducer.ts`
 4. `stream_delivery.ts` updates Discord messages
 5. `message_renderer.ts` handles event/approval text formatting
+
+### Structured user questions
+
+1. App-server sends `item/tool/requestUserInput`; `CodexSession` validates the active thread/turn and questions, retains the original RPC ID, and emits `approval.requested` with typed `userInput` metadata.
+2. `SessionManager` creates a pending record in `ApprovalsStore`. The existing routing delivers it to the selected surface.
+3. Web renders `UserQuestions`; Discord renders a question card and opens a text modal for supported requests. The provider's `isBlocking` flag distinguishes waiting from background questions.
+4. The surface submits `decision: "submit"` plus the question-ID answer map through the bound decision port. Core validates every answer before consuming the pending record; explicit `cancel` returns an empty map.
+5. `CodexSession` resolves the retained RPC ID exactly once. Answer text is not copied into decision records or bridge events.
+6. Provider `serverRequest/resolved` and session cleanup expire pending question records through `approval.expired`; turn completion/failure also expires their pending state. Stale answers cannot resolve another request.
+
+`shared/protocol/user_questions.ts` owns adapter-independent question/answer
+contracts and validation. Question handling reuses the existing pending decision
+API, routing, and lifecycle guards; it is distinct from command/file-change
+permission decisions and unsupported MCP elicitation. The narrower interaction
+capability includes `listApprovals` so Discord can load a pending question form.
+See [question workflows](user-questions.md) and the [wire contract](web-api.md#structured-user-questions).
 
 ### Local webhook signals
 

@@ -28,7 +28,7 @@ return an allow or deny decision with a user-facing reason.
 The policy should cover:
 
 - every `!` command;
-- approval button interactions;
+- approval button interactions and structured-question button/modal submissions;
 - guild, channel, thread, user, and role context;
 - process-wide actions such as restart and deployment;
 - conversation and workspace actions such as repo selection, skill changes,
@@ -56,7 +56,7 @@ The policy should cover:
 
 ### Completion criteria
 
-Authorization is considered unified when all command and approval entry points
+Authorization is considered unified when all command, approval, and structured-question entry points
 delegate to the same policy service, no individual command contains its own
 identity allowlist, and the behavior is documented and covered by integration
 tests.

@@ -3,6 +3,8 @@
 Full surface review: 2026-09-20 against `35cd417` (PR #70). Account usage/reset
 coverage reviewed 2026-10-04 against `c49d4a3` plus the implementation in this
 change, using Codex CLI `0.160.0`.
+User-question coverage reviewed 2026-10-09 against `7e30d66`
+([PR #88](https://github.com/triloy8/shepherd/pull/88)), using Codex CLI `0.160.1`.
 Current registered surfaces:
 **Discord** and **web**. This is an inventory of implemented user-facing behavior,
 not a roadmap requiring identical interfaces. Provider capabilities that neither
@@ -56,7 +58,11 @@ Sources: [Discord commands](../server/adapters/discord/commands.ts),
 | Current surface status | Yes — `!status` | Partial — status dot/details, settings, sidebar host controls | No single equivalent status report |
 | Command/file-change approval decisions | Yes — approval buttons | Yes — approval cards | Both use shared allowed choices |
 | Approval request details | Yes — rendered approval request | Yes — expandable request details | Presentation differs |
-| Arbitrary questionnaire/form answers | No general form renderer | No general form renderer | Approval choices are not a questionnaire UI |
+| Structured Codex questions (`requestUserInput`) | Partial — Submit answers opens a text modal for up to five nonsecret questions | Yes — choice cards, permitted custom text, multiple questions, masked secret fields | Shared validation and exact question-ID answer map; Discord requires exact option labels; no automatic selection or submission |
+| Blocking/nonblocking question requests | Yes — request stays pending until answered/skipped or withdrawn | Yes — Waiting for your answer for blocking requests; nonblocking requests allow continued work | Provider `isBlocking` determines whether agent work waits; ordinary assistant prose does not create a form |
+| Explicitly skip questions | Yes — Skip questions | Yes — Skip questions | Sends an empty answer map, never the recommended option |
+| Restore pending questions after browser reconnect/reload | N/A — existing card remains, stale submissions rejected | Yes — pending requests refetched | Unsubmitted answer drafts are not persisted; interrupted/completed turns, session shutdown, and provider resolution expire requests |
+| Arbitrary questionnaire/form answers outside Codex user input | No general form renderer | No general form renderer | MCP form/URL elicitation remains unsupported |
 | Image-only prompts | Yes | Yes | Text is optional when images are present |
 | Text plus images | Yes — attachments | Yes — attachments | PNG, JPEG, GIF, WebP |
 | Image attachment picker | Client | Yes | Web also supports paste/drop |
@@ -71,6 +77,7 @@ Sources: [Discord commands](../server/adapters/discord/commands.ts),
 Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 [Discord interactions](../server/adapters/discord/interactions.ts),
 [web composer](../ui/src/components/Composer.tsx), [web approvals](../ui/src/components/Approvals.tsx),
+[question forms](../ui/src/components/UserQuestions.tsx), [question guide](user-questions.md),
 [Discord image input](../server/adapters/discord/image_input.ts),
 [web image limits](../shared/protocol/image_input.ts).
 
@@ -147,7 +154,7 @@ Sources: [Discord commands](../server/adapters/discord/commands.ts),
 | Explicit host-action confirmation UI | No — command submits action | Yes — confirmation step | Interaction difference, not different lifecycle authority |
 | Reconnect transport after disruption | Yes — Discord client reconnect | Yes — SSE reconnect and snapshot refresh | Does not promise durable delivery of every intermediate event |
 | Replay/deduplicate browser events | N/A | Yes — bounded SSE replay and snapshot fallback | Replay buffer is in-memory |
-| Reconcile pending approvals after browser reconnect | N/A | Yes | Shared pending approval state; host restart is different |
+| Reconcile pending approvals after browser reconnect | N/A | Yes | Shared pending approval/question state; host restart is different |
 | Recover after surface-initiated host restart | Partial — recovery instructions | Partial — pending operation in session storage, resume when possible | Neither guarantees full host reboot recovery |
 | Resume after unrelated host restart | Partial — restore channel binding | Partial — manually resume stored conversation when needed | Ephemeral bindings/handles are not durable sessions |
 | Durable host operation journal | No | No | Web operation tracking is bounded and in-memory |

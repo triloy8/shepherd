@@ -45,12 +45,14 @@ adapter and surface ID; navigation/listening state remains separate.
 
 Existing exclusive thread binding is preserved: attempting to attach a thread
 already active on another surface still fails. This change does not implement
-shared-thread browsing or simultaneous cross-surface approvals. The web API
+shared-thread browsing or simultaneous cross-surface approvals/user-question forms. The web API
 exposes these application operations through a versioned, private-network
 HTTP/event contract. Detach a thread before attaching it through another surface.
 
 The host owns process signals, global restart/deploy, quiescing and final session
-shutdown. An adapter exposes start, stop, and optional signal presentation; it
+shutdown. Active turns and pending decisions, including structured user questions,
+block normal restart/deployment. Question state is process-local, and shutdown
+expires pending question records. An adapter exposes start, stop, and optional signal presentation; it
 reports ready/degraded health through its context and receives a shutdown abort
 signal. Adapter construction must not start network activity. Stop must release
 partially started resources, tolerate repeated calls, and prevent pending startup

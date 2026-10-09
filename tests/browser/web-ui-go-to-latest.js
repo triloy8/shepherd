@@ -19,7 +19,8 @@ async page => {
   await latest.click();
   await latest.waitFor({state:'hidden'});
   if (await composer.inputValue() !== 'Keep this draft') throw Error('Jump changed the draft');
-  if (!await composer.evaluate(el => el === document.activeElement)) throw Error('Jump did not restore composer focus');
+  if (await composer.evaluate(el => el === document.activeElement)) throw Error('Jump focused the composer');
+  if (!await scroll.evaluate(el => el === document.activeElement)) throw Error('Jump did not keep focus in the conversation');
   await page.waitForFunction(() => { const el = document.querySelector('.chat-scroll'); return el.scrollHeight - el.scrollTop - el.clientHeight < 2; });
   for (const width of [320,390,768,1280]) {
     await page.setViewportSize({width,height:844});

@@ -96,7 +96,7 @@
   .composer-dock { @apply pointer-events-auto mx-auto w-full max-w-3xl px-3 sm:px-6; }
   .latest-dock { @apply pointer-events-none absolute inset-x-0 z-20 mx-auto flex max-w-3xl justify-end px-3 sm:px-6; bottom: min(calc(var(--composer-space, 150px) - 12px), calc(100% - 52px)); }
   .reading-history .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 192px - var(--composer-bottom-gap, max(.75rem, env(safe-area-inset-bottom))))); }
-  .latest-button { @apply pointer-events-auto flex size-11 items-center justify-center rounded-full border border-line bg-panel text-muted shadow-lg shadow-black/30 hover:bg-raised hover:text-ink; }
+  .latest-button { @apply pointer-events-auto flex size-11 items-center justify-center rounded-lg border border-line bg-panel text-muted shadow-lg shadow-black/30 hover:bg-raised hover:text-ink; }
   .composer { max-height: min(520px, calc(var(--app-height, 100dvh) - 148px)); @apply overflow-y-auto rounded-2xl border border-line/80 bg-panel shadow-xl shadow-black/20 focus-within:border-accent/45; }
   .composer-input { @apply grid grid-cols-[44px_minmax(0,1fr)_44px] items-end gap-x-2 p-2; }
   .composer textarea { grid-area: 1 / 2; @apply block w-full min-w-0 resize-none overflow-y-auto bg-transparent py-2.5 text-base leading-6 text-ink outline-none placeholder:text-dim; min-height: 44px; max-height: min(30dvh, 240px); }

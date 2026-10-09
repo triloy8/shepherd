@@ -39,7 +39,8 @@ export type BridgeEventType =
   | "approval.requested"
   | "approval.decided"
   | "approval.applied"
-  | "approval.failed";
+  | "approval.failed"
+  | "approval.expired";
 
 export interface BridgeEvent<TPayload = unknown> {
   id: string;

@@ -1,9 +1,10 @@
+import { UserQuestions, type DecideQuestion } from "./UserQuestions";
 import type { ApprovalRecord } from "../../../shared/protocol/approvals";
 import { Icon } from "./Icon";
-export function Approvals({ approvals, busy, decide }: { approvals: ApprovalRecord[]; busy: boolean; decide: (id: string, decision: string) => void }) {
+export function Approvals({ approvals, busy, decide }: { approvals: ApprovalRecord[]; busy: boolean; decide: DecideQuestion }) {
   if (!approvals.length) return null;
-  return <section aria-label="Pending approvals" className="space-y-3">
-    {approvals.map((approval) => <div className="approval-card" key={approval.approvalId}>
+  return <section aria-label="Pending requests" className="space-y-3">
+    {approvals.map((approval) => approval.userInput ? <UserQuestions key={approval.approvalId} request={approval} busy={busy} decide={decide} /> : <div className="approval-card" key={approval.approvalId}>
       <div className="mb-3 flex items-center gap-2 text-sm font-medium text-accent"><Icon name="shield" />Your approval is needed</div>
       <p className="whitespace-pre-wrap break-words text-sm leading-6">{approval.prompt}</p>
       <details className="mt-3 text-xs text-muted"><summary className="cursor-pointer">Request details</summary><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-canvas p-3">{JSON.stringify(approval.params, null, 2)}</pre></details>

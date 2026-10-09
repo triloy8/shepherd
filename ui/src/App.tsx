@@ -255,7 +255,8 @@ export default function App() {
   }
 
   const active = Boolean(controller.chat.activeTurnId);
-  const status = controller.connection === "online" ? active ? "Working" : "Connected" : controller.connection === "detached" ? "Needs attention" : controller.connection === "reconnecting" ? "Reconnecting" : "Connecting";
+  const waitingForAnswer = controller.approvals.some(a => a.userInput?.isBlocking);
+  const status = controller.connection === "online" ? waitingForAnswer ? "Waiting for your answer" : active ? "Working" : "Connected" : controller.connection === "detached" ? "Needs attention" : controller.connection === "reconnecting" ? "Reconnecting" : "Connecting";
   const visibleHandles = (archived ? [] : conversations).filter((item) => !threads.some((thread) => thread.threadId === item.threadId));
   return <div className="app-shell">
     {drawer && <button className="drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)} />}
@@ -310,10 +311,10 @@ export default function App() {
         <div className="chat-scroll" tabIndex={-1} ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) { follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; setShowLatest(!follow.current); } }}>
           <div className="chat-width chat-content pt-4 sm:pt-6">
             {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
-            <Timeline key={selected.id} chat={controller.chat} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.revert} onReload={controller.recoverHistory} />
-            {active && <div role="status" className="mt-7 flex items-center gap-2 text-xs text-muted"><span className="working-dot" />{controller.chat.activity || "Working"}</div>}
+            <Timeline key={selected.id} chat={controller.chat} waitingForAnswer={waitingForAnswer} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.revert} onReload={controller.recoverHistory} />
+            {active && !waitingForAnswer && <div role="status" className="mt-7 flex items-center gap-2 text-xs text-muted"><span className="working-dot" />{controller.chat.activity || "Working"}</div>}
             {controller.chat.error && <p role="alert" className="notice mt-5">{controller.chat.error}</p>}
-            <div className="mt-6"><Approvals approvals={controller.approvals} busy={controller.busy || controller.connection !== "online"} decide={(id, choice) => { void controller.decide(id, choice); }} /></div>
+            <div className="mt-6"><Approvals approvals={controller.approvals} busy={controller.busy || controller.connection !== "online"} decide={(id, choice, answers) => controller.decide(id, choice, answers)} /></div>
           </div>
         </div>
         {showLatest && <div className="latest-dock"><button className="latest-button" aria-label="Go to latest message" title="Go to latest message" onClick={() => {

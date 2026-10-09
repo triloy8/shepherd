@@ -1,3 +1,4 @@
+import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../shared/protocol/user_questions.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline, { type Interface as ReadlineInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
@@ -561,7 +562,15 @@ export class CodexSession {
     }
 
     const method = rawRequest.method;
-    const payload = this.mapDecisionPayload(method, decision);
+    let payload: unknown;
+    if (method === "item/tool/requestUserInput") {
+      const input = parseUserQuestionRequest(rawRequest.params);
+      if (decision.decision === "submit") {
+        validateUserQuestionAnswers(input.questions, decision.answers);
+        payload = { answers: decision.answers };
+      } else if (decision.decision === "cancel") payload = { answers: {} };
+      else throw new Error("Invalid user input decision.");
+    } else payload = this.mapDecisionPayload(method, decision);
     const envelope = {
       id: rawRequest.id,
       result: payload,
@@ -642,6 +651,9 @@ export class CodexSession {
       pending.reject(new Error("Session terminated."));
     }
     this.pendingRequests.clear();
+    for (const [approvalId, request] of this.serverRequestsByApprovalId) {
+      if (request.method === "item/tool/requestUserInput") this.publish("approval.expired", asString(asRecord(request.params).threadId) ?? "unbound", { approvalId });
+    }
     this.serverRequestsByApprovalId.clear();
     this.initialized = false;
     this.activeTurnId = null;
@@ -718,6 +730,23 @@ export class CodexSession {
   private onServerRequest(request: RawServerRequest): void {
     if (request.method.toLowerCase() === "item/tool/call") {
       this.handleDynamicToolCall(request);
+      return;
+    }
+
+    if (request.method === "item/tool/requestUserInput") {
+      try {
+        const userInput = parseUserQuestionRequest(request.params);
+        if (userInput.threadId !== this.threadId || userInput.turnId !== this.activeTurnId) throw new Error("User question targets a stale turn or the wrong thread.");
+        const approvalId = randomUUID();
+        this.serverRequestsByApprovalId.set(approvalId, request);
+        this.publish("approval.requested", userInput.threadId, {
+          approvalId, method: request.method, prompt: userInput.questions.map(q => q.question).join("\n\n"),
+          choices: [{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }],
+          params: request.params, userInput,
+        } satisfies ApprovalRequestPayload);
+      } catch (error) {
+        this.writeLine({ id: request.id, error: { code: -32602, message: (error as Error).message } });
+      }
       return;
     }
 
@@ -798,9 +827,22 @@ export class CodexSession {
     const threadId = asString(payload.threadId) ?? this.threadId ?? "unbound";
     const lower = method.toLowerCase();
 
+    if (lower === "serverrequest/resolved") {
+      for (const [approvalId, request] of this.serverRequestsByApprovalId) {
+        if (request.method === "item/tool/requestUserInput" && request.id === payload.requestId && asRecord(request.params).threadId === threadId) {
+          this.serverRequestsByApprovalId.delete(approvalId);
+          this.publish("approval.expired", threadId, { approvalId });
+        }
+      }
+      return;
+    }
+
     if (lower === "turn/completed") {
       const turnId = extractTurnId(params) ?? this.activeTurnId;
       this.activeTurnId = null;
+      for (const [id, request] of this.serverRequestsByApprovalId) {
+        if (request.method === "item/tool/requestUserInput" && asRecord(request.params).turnId === turnId) this.serverRequestsByApprovalId.delete(id);
+      }
       this.messagePhaseByItemId.clear();
       const turn = asRecord(payload.turn);
       if (turn.status === "failed") {

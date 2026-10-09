@@ -6,18 +6,18 @@ import { timelineGroups, type TimelineGroup } from "../timeline";
 import { ImageArtifact } from "./ImageArtifact";
 import { Message } from "./Message";
 
-export function Timeline({ chat, revertDisabled = true, onRevert, onReload }: { chat: ChatState; revertDisabled?: boolean; onRevert?: (turnId: string) => Promise<void>; onReload?: () => Promise<void> }) {
+export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true, onRevert, onReload }: { chat: ChatState; waitingForAnswer?: boolean; revertDisabled?: boolean; onRevert?: (turnId: string) => Promise<void>; onReload?: () => Promise<void> }) {
   const [target, setTarget] = useState<ChatMessage | null>(null);
   const images = useMemo(() => chat.messages.flatMap((message) => message.image ? [message.image] : []), [chat.messages]);
   const groups = useMemo(() => timelineGroups(chat), [chat.messages, chat.turns, chat.activeTurnId]);
   return <><div className="space-y-8">{groups.map((group) => <TimelineGroupView key={group.id} group={group} images={images}
-    turnStatus={chat.turns[group.messages[0]!.turnId]?.status} revertDisabled={revertDisabled} canRevert={!!onRevert} setTarget={setTarget} />)}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
+    waiting={waitingForAnswer && group.messages[0]!.turnId === chat.activeTurnId} turnStatus={chat.turns[group.messages[0]!.turnId]?.status} revertDisabled={revertDisabled} canRevert={!!onRevert} setTarget={setTarget} />)}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
     available={!!target && chat.messages.some((message) => message.id === target.id && message.turnId === target.turnId)}
     onClose={() => setTarget(null)} revert={onRevert} reload={onReload} />}</>;
 }
 
-const TimelineGroupView = memo(function TimelineGroupView({ group, images, turnStatus, revertDisabled, canRevert, setTarget }: {
-  group: TimelineGroup; images: readonly WebImage[]; turnStatus?: string; revertDisabled: boolean; canRevert: boolean;
+const TimelineGroupView = memo(function TimelineGroupView({ group, images, waiting, turnStatus, revertDisabled, canRevert, setTarget }: {
+  group: TimelineGroup; images: readonly WebImage[]; waiting: boolean; turnStatus?: string; revertDisabled: boolean; canRevert: boolean;
   setTarget: Dispatch<SetStateAction<ChatMessage | null>>;
 }) {
     if (group.messages[0]!.role === "user") return <Message message={group.messages[0]!} revertDisabled={revertDisabled} onRevert={canRevert ? () => setTarget(group.messages[0]!) : undefined} />;
@@ -32,17 +32,17 @@ const TimelineGroupView = memo(function TimelineGroupView({ group, images, turnS
     </DeferredDetails> : message.activity ? <details key={message.id} className={message.activity.status === "failed" ? "notice" : "text-xs text-muted"}>
       <summary className="cursor-pointer">{message.activity.label} · {message.activity.status === "started" && turnStatus && turnStatus !== "inProgress" ? "Stopped" : message.activity.status === "started" ? "Running" : message.activity.status === "failed" ? "Failed" : "Done"}</summary>
       {message.activity.detail && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{message.activity.detail.slice(0, 16384)}</pre>}
-    </details> : <Message key={message.id} message={message} images={images} progress showCopy={false} />)}</div>;
+    </details> : <Message key={message.id} message={message} images={images} writingPaused={waiting} progress showCopy={false} />)}</div>;
     return <section className="timeline-entry space-y-5" aria-label="Assistant turn">
       {progress.length > 0 && (group.settled ?
         <DeferredDetails summary={<>{group.label}{failures > 0 && <span className="text-amber-400"> · {failures} failed {failures === 1 ? "step" : "steps"}</span>}</>} >{updates}</DeferredDetails> :
-        <div><p className="mb-3 text-xs text-muted">{group.label}</p>{updates}</div>)}
+        <div><p className="mb-3 text-xs text-muted">{waiting ? "Waiting for your answer…" : group.label}</p>{updates}</div>)}
       {finals.length > 0 && <div className="assistant-response space-y-5">
         {hasGeneratedImage && <div className="text-xs font-medium text-muted">Shepherd</div>}
-        {finals.map((message) => message.image ? <ImageArtifact key={message.id} image={message.image} collapsePrompt /> : <Message key={message.id} message={message} images={images} showAuthor={!hasGeneratedImage} showCopy={group.settled} />)}
+        {finals.map((message) => message.image ? <ImageArtifact key={message.id} image={message.image} collapsePrompt /> : <Message key={message.id} message={message} images={images} writingPaused={waiting} showAuthor={!hasGeneratedImage} showCopy={group.settled} />)}
       </div>}
     </section>;
-}, (previous, next) => previous.turnStatus === next.turnStatus && previous.revertDisabled === next.revertDisabled && previous.canRevert === next.canRevert &&
+}, (previous, next) => previous.waiting === next.waiting && previous.turnStatus === next.turnStatus && previous.revertDisabled === next.revertDisabled && previous.canRevert === next.canRevert &&
   previous.group.settled === next.group.settled && previous.group.label === next.group.label &&
   previous.group.finalIds.length === next.group.finalIds.length && previous.group.finalIds.every((id, index) => id === next.group.finalIds[index]) &&
   previous.group.messages.length === next.group.messages.length && previous.group.messages.every((message, index) => message === next.group.messages[index]) &&

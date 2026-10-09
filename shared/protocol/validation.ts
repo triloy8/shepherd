@@ -1,3 +1,4 @@
+import type { UserQuestionAnswers } from "./user_questions.js";
 import type {
   ApprovalDecisionApiRequest,
   ApprovalPolicy,
@@ -395,6 +396,7 @@ export function validateApprovalDecisionRequest(value: unknown): ApprovalDecisio
   return {
     decision: value.decision.trim(),
     reason: typeof value.reason === "string" ? value.reason.trim() : undefined,
+    ...(value.answers !== undefined ? { answers: value.answers as UserQuestionAnswers } : {}),
   };
 }
 

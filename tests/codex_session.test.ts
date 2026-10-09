@@ -273,8 +273,8 @@ describe("CodexSession app-server contract", () => {
 
     internals(session).onServerRequest({
       id: 7,
-      method: "item/tool/requestUserInput",
-      params: { questions: [] },
+      method: "unsupported/request",
+      params: {},
     });
 
     expect(writes).toEqual([
@@ -282,7 +282,7 @@ describe("CodexSession app-server contract", () => {
         id: 7,
         error: {
           code: -32601,
-          message: "Shepherd does not support server request item/tool/requestUserInput.",
+          message: "Shepherd does not support server request unsupported/request.",
         },
       },
     ]);

@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { WEB_API_PREFIX, WEB_API_VERSION, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 import { ApplicationActionError } from "../../core/action_error.js";
+import type { UserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import { ApprovalDecisionError } from "../../core/approvals.js";
 import { ThreadBindingConflictError } from "../../core/conversation_routing_service.js";
 import { executeTurnRouting } from "../../core/turn_routing_service.js";
@@ -291,13 +292,13 @@ export class WebSurfaceApi {
         return json(200, { ok: true });
       }
       if (action === "approvals" && match[3] && request.method === "POST") {
-        const data = await body(request, ["decision", "reason"]);
+        const data = await body(request, ["decision", "reason", "answers"]);
         const decision = requiredString(data, "decision", 128);
         const reason = optionalString(data, "reason");
         let approvalId: string;
         try { approvalId = decodeURIComponent(match[3]); } catch { throw new WebRequestError(400, "invalid_request", "Malformed approval identifier."); }
         if (approvalId.length > 256) throw new WebRequestError(400, "invalid_request", "Approval identifier is too long.");
-        await this.mutate(entry, () => this.context.approvals.applyApprovalDecision(threadId, approvalId, { decision, ...(reason ? { reason } : {}) }));
+        await this.mutate(entry, () => this.context.approvals.applyApprovalDecision(threadId, approvalId, { decision, ...(reason ? { reason } : {}), ...(data.answers !== undefined ? { answers: data.answers as UserQuestionAnswers } : {}) }));
         return json(200, { ok: true });
       }
       return fail(405, "method_not_allowed", "Method is not supported for this route.");

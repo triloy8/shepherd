@@ -97,9 +97,10 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Wait/sleep activity | Yes | Yes | Shared activity mapping |
 | Per-item completed activity state | Partial — live lines emphasize started/failed | Yes — Running/Done/Failed/Stopped labels | Not identical lifecycle presentation |
 | Turn failure/context-limit feedback | Yes | Yes | Shared events with surface-specific rendering |
-| Markdown response rendering | Yes — Discord normalization/rendering | Yes — basic Markdown | Markdown dialects differ; web has no table extension or syntax highlighter |
+| Markdown response rendering | Yes — Discord normalization/rendering | Yes — GFM tables, syntax highlighting, math, and Mermaid diagrams | Markdown dialects differ; web also renders Markdown in draft previews |
+| Mermaid diagrams | Source code blocks | Rendered diagrams with source toggle and copy | Invalid or oversized diagrams fall back to source; diagram links are disabled |
 | Copy assistant response button | Client | Yes | Web copies response text |
-| Dedicated per-code-block copy | Client | No | No custom web code toolbar |
+| Dedicated per-code-block copy | Client | Yes | Web copies the original source, including Mermaid diagram source |
 | Generated image display | Yes — attachment delivery | Yes — scoped image viewer | Shared artifact handling; different delivery |
 | Viewed image display (including screenshots) | Activity only | Yes — scoped image viewer, live and from history | Requires a completed provider `imageView` item with a readable local file |
 | Input image previews in transcript | Client for original attachment | Yes — bounded valid inline images | Unavailable images get a placeholder |

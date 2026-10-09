@@ -6,6 +6,7 @@ import remarkChatMath from "../remark-chat-math";
 import rehypeKatex from "rehype-katex";
 import type { ChatMessage } from "../chat-state";
 import { CodeBlock } from "./CodeBlock";
+import { MermaidBlock } from "./MermaidBlock";
 import { Icon } from "./Icon";
 import type { WebImage } from "../../../shared/protocol/web";
 import { resolveImageArtifact } from "../image-artifacts";
@@ -36,7 +37,8 @@ const markdownComponents: Components = {
   pre: function MarkdownCodeBlock({ children }) {
     if (!isValidElement<{ className?: string; children?: ReactNode }>(children)) return <pre>{children}</pre>;
     const language = /(?:^|\s)language-([^\s]+)/.exec(children.props.className ?? "")?.[1] ?? "";
-    return <CodeBlock code={String(children.props.children ?? "").replace(/\n$/, "")} language={language} />;
+    const code = String(children.props.children ?? "").replace(/\n$/, "");
+    return language.toLowerCase() === "mermaid" ? <MermaidBlock code={code} /> : <CodeBlock code={code} language={language} />;
   },
   h2: function MarkdownHeading({ id, node: _node, ...props }) {
     const prefix = useContext(FootnotePrefix);

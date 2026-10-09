@@ -48,7 +48,9 @@ export function serveUiAsset(request: Request, assets: UiAssets): Response {
   const headers = new Headers({
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
-    "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    // Mermaid measures labels using generated styles; KaTeX also uses inline
+    // layout styles. Scripts remain restricted to our own bundled assets.
+    "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
     "cache-control": "no-store",
   });
   if (!["GET", "HEAD"].includes(request.method)) {

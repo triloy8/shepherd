@@ -317,6 +317,17 @@ requires reloading after a failed update before offering another toggle. Request
 from a closed settings panel cannot overwrite a newly opened panel. This adds no
 skill installation, file editing, or per-conversation configuration semantics.
 
+### Markdown diagrams
+
+Assistant responses and draft previews render fenced `mermaid` code blocks as
+diagrams, including flowcharts and sequence diagrams. **Show source** switches
+to the original diagram code, and **Copy** copies that source in either view.
+
+Incomplete, invalid, or oversized diagrams display their source instead. Rendering
+is deferred briefly while text streams. Diagrams use the dark theme, fit the
+transcript width, and scroll within their container on narrow screens. Diagram
+links are disabled; SVG images isolate diagram styles from the surrounding UI.
+
 ### Answering agent questions
 
 Structured Codex questions appear as a form in the selected transcript. Blocking

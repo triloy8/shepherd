@@ -1,539 +1,864 @@
 # Provider abstraction
 
-## Status
+## Status and decisions
 
-Proposed on 2026-10-10, for review before implementation. It will be implemented on
-[PR #90](https://github.com/triloy8/shepherd/pull/90) (`feat/multiple-agent-providers`).
-This document describes the target design. [Architecture](architecture.md) describes
-the code as it is today; update it as each stage lands. When the last stage is
-merged, move this document to `archive/` and keep the rules in
-[Architecture](architecture.md).
+Proposed on 2026-10-10 and revised after the design audit, for implementation on
+[PR #90](https://github.com/triloy8/shepherd/pull/90)
+(`feat/multiple-agent-providers`). This is the target contract, not a description
+of shipped behavior. [Architecture](architecture.md) describes the current code.
+Update maintained references with each landed workflow; archive this proposal
+when the migration is complete.
 
-Decisions already agreed:
+The goal is a completely provider-neutral application boundary. Choosing Claude
+or Codex changes the adapter and available capabilities, not the conversation,
+interaction, rendering, history, or account-limit model. A third adapter must not
+require provider-specific branches in core or surfaces.
 
-- Shepherd presents one conversation model for every provider, built as a
-  re-architecture on PR #90 rather than a follow-up PR. Native provider formats
-  stop at the provider adapter.
-- Codex history stays in the Codex app-server. The Codex adapter converts it to
-  Shepherd items when it is read (option 2). Shepherd does not store a copy.
+Decisions:
 
-Everything else here is proposed and open for review, in particular the item
-types, interaction options using the provider's own IDs, and moving to web API
-version 2 without a compatibility layer (see [Open questions](#open-questions)).
+- Native protocols, SDK types, credentials, native response values, and legacy
+  snapshot decoding belong to `server/providers/<id>/`.
+- Codex history stays in app-server. Its adapter projects native history on read;
+  Shepherd does not persist a second Codex transcript.
+- Live and recovered items use the same typed model. Recoverable information is
+  preserved; unavailable and transient information is declared explicitly.
+- Interaction option IDs are Shepherd-issued opaque tokens. Native replies stay
+  private in an adapter-owned token-to-response map.
+- Optional ports define application capabilities. Security and input constraints
+  are declared separately, validated by core, and enforced by the adapter.
+- Web API v2 gets a temporary v1 translation boundary for the current browser.
+  The translation is surface compatibility code, not the application model.
+- Attachment extraction from existing Claude snapshots is deferred. The generic
+  protocol carries asset references now; private legacy storage can remain inline.
 
-## Problem
+## Problem and scope
 
-PR #90 added Claude beside Codex, but the shared layer is still Codex's format.
-Claude imitates Codex to fit into it.
+PR #90 introduces two providers, but shared history still uses Codex item names.
+Claude stores root tools as `mcpToolCall` records; surfaces interpret native item
+names and approval methods. Completed tool rows lose output and diffs. Stream
+consumers now use the neutral assistant-text kind, with native-method fallbacks
+for older events. Account limits still use two response shapes.
 
-| Area | Today | Effect |
-| --- | --- | --- |
-| History items | `CodexSession.listThreadTurns` returns Codex `ThreadItem`s unchanged. `shared/protocol/history_presentation.ts` switches on Codex type names (`commandExecution`, `fileChange`, `mcpToolCall`). | Claude saves every tool call as `{ type: "mcpToolCall", server: "claude" }`. After a reload, a Bash call reads `Running command · claude.Bash`. |
-| Live tool activity | `turn.activity` carries `{ kind, label, detail, status }`. Codex builds it with the shared mapper; Claude builds it by hand. | The live view and reloaded history differ. Claude's completion event replaces the detail with `null`, so a finished call shows only `Bash · Done`. Neither provider shows command output or diffs. |
-| Raw events | `turn.notification` forwards Codex `method` and `params`. `turn.stream.delta.method` holds native method names, and `ui/src/chat-state.ts` checks `"item/agentMessage/delta"`. | Discord renders `Event: <native method>`. Each provider supplies the other's strings. |
-| Approvals | `ApprovalRequestPayload.method` and `params` are native. Choices are native decision strings. | Discord shows `Action: item/fileChange/requestApproval`. The web card cannot show what is being approved without native knowledge. |
-| Session port | `AgentSession` includes compaction, revert, skills, and Codex rate-limit resets. Claude implements them by throwing `UnsupportedProviderOperationError`. | Each provider difference is a method that throws plus a capability flag kept in sync by hand. |
-| Account limits | Codex uses `readAccountRateLimits` (native shape). Claude uses the neutral `ProviderAccountLimits`. | Two UI paths for one concept; Discord `!limits` is Codex-only. |
-| Records and requests | `ThreadRecord.source` is `"appServer"`. Requests carry Codex `config`, `personality`, `modelProvider`, and `ephemeral`. | Claude has to reject or ignore Codex fields. |
+This design replaces those leaks across the whole boundary, including creation,
+bootstrap, settings, catalogs, thread reads, revert responses, lists, inputs,
+interactions, live events, and history. It retains explicit provider bindings,
+shared routing, structured questions, and context/token telemetry.
 
-Already neutral and kept: turn start, completion, and failure; streamed answer text
-with phase; token usage; provider capabilities; structured questions
-(`shared/protocol/user_questions.ts`); the thread/provider directory; and the
-provider account-limits DTO.
+Non-goals: changing existing thread IDs, switching provider within a conversation,
+context handoff, filesystem rollback, a general execution graph, event sourcing,
+a durable command receipt log, and a Shepherd-owned Codex transcript. Nesting and
+background correlation below are presentation/lifecycle relations, not a new
+agent orchestration engine.
 
-## Goals
-
-1. One item model for live events and history, for every provider.
-2. Tool calls show what ran and what happened: the command and its output, the
-   changed files and their diffs, the search, the URL, the subagent's report.
-3. Approval and question requests describe the action in Shepherd terms and keep
-   the provider's own reply options.
-4. A provider port with optional parts, so missing features are absent, not
-   methods that throw.
-5. One account-limits model and UI path for every provider.
-6. Native names, method strings, and SDK types appear only in
-   `server/providers/<name>/`, enforced by tests.
-7. Adapter tests replay recorded provider sessions.
-
-## Non-goals
-
-These [T3 Code](https://github.com/pingdotgg/t3code) features were considered and
-deferred. Each can be added later without changing this design.
-
-- An execution graph of runs, nodes, and subagent threads
-  (T3 `docs/orchestration-v2/core-graph-and-data-model.md`).
-- Filesystem checkpoints and rollback.
-- Switching provider inside a conversation, or context handoff between providers.
-- Event sourcing, command receipts, and Shepherd-owned Codex history (option 1).
-- Changing thread ID formats. IDs stay opaque; existing IDs keep working.
-
-## Rules
-
-1. **Native formats stop at the adapter.** Nothing outside
-   `server/providers/<name>/` imports a provider SDK, names a native item type or
-   RPC method, or reads a native payload.
-2. **A provider is never made to look like another provider.** Adapters convert
-   to Shepherd items; they do not emit another provider's names or shapes.
-3. **Live and stored items share one model.** An item seen live and the same
-   item read from history have the same type and fields.
-4. **Capabilities describe reality.** A capability is reported only when the
-   provider performs it natively. Shepherd does not imitate a missing sandbox,
-   approval mode, or rollback.
-5. **Provider reply options pass through.** An interaction option carries the
-   provider's own ID. Shepherd adds a display label and an intent, and the
-   adapter validates the reply. When the provider's reply is not an option list
-   (Claude's `canUseTool` callback, Codex permission grants), the adapter defines
-   the options and validates them the same way.
-6. **Every payload is bounded.** Text fields that can grow (command output,
-   diffs, tool input and output) have a size cap and a `truncated` marker. The
-   cap applies to stored history, live events, and API responses alike.
-
-## Layers
+## Ownership and invariants
 
 ```text
-Surfaces (web UI and API, Discord, webhook)
-  render only shared/protocol types
-        │
-Application core (server/core)
-  routing, sessions, interactions store, account limits
-  depends on provider ports and shared/protocol
-        │
-Provider ports (server/core/agent_session.ts, server/ports)
-        │
-Provider adapters (server/providers/codex, server/providers/claude)
-  the only code that sees native protocols and SDKs
-        │
-Runtime composition (server/runtime/provider_services.ts)
-  constructs adapters, stores, and readers
+Surfaces -> core -> provider ports and shared/protocol
+Provider adapters -> provider ports and shared/protocol
+Storage -> storage ports and shared/protocol
+Runtime composition -> core, adapters, storage
 ```
 
-Storage implementations (`server/storage`) implement ports and import neither SDK.
+1. Core and surfaces never decode native payloads or branch on provider identity,
+   tool names, native item names, native approval values, or native RPC methods.
+   Provider selection and lookup use an injected registry. Display labels may
+   contain native tool names as opaque text; they are not discriminators.
+2. Adapters normalize both native history and native events using the same
+   mapper. Neither adapter imitates another provider's wire format.
+3. Public IDs are opaque. Native IDs and credential/account identifiers remain
+   private. Item identity is stable within a thread across reads and restarts.
+4. A capability promises a Shepherd operation with documented semantics. An
+   adapter may implement rename/archive using its metadata store. It must not
+   claim sandboxing, permission enforcement, or file rollback it cannot provide.
+5. Unsupported operations or settings fail before work starts. The adapter also
+   validates them when called directly. Missing ports are never methods that throw.
+6. Persisted and live projections have the same discriminated union and available
+   semantic fields. Missing provider data is null or explicitly incomplete;
+   adapters never invent exit codes, timestamps, diffs, or recovered plan steps.
+7. All generic output is bounded after serialization. Truncation is visible and
+   does not change the original input submitted to the model or the native context.
+8. Diagnostic raw frames stay adapter-local and out of ordinary conversation
+   events. Recoverable warnings and final errors use typed neutral events.
+
+## Registry, inputs, requests, and records
+
+`ProviderId` is a validated registry key, not a closed `"codex" | "claude"` union.
+The runtime registers descriptors, session factories, history access, model
+catalogs, account readers, and shutdown hooks. Public provider enumeration returns
+`{ id, displayName, capabilities }`; picker options come from this enumeration.
+Neither UI nor core contains a provider switch. Bindings remain immutable and
+legacy prefix recognition remains confined to runtime composition.
+
+New neutral `ConversationInput` replaces native-shaped `UserInput` at the port:
+
+```ts
+type ProviderId = string; // validated against the injected registry
+type InputPart =
+  | { type: "text"; text: string }
+  | { type: "asset"; assetId: string; media: "image" | "audio" | "file" }
+  | { type: "skill"; name: string; referenceId: string }
+  | { type: "mention"; name: string; referenceId: string };
+type ConversationInput = InputPart[];
+interface ThreadSettings {
+  cwd: string;
+  model: string | null;
+  effort: string | null;
+  approvalMode: ApprovalMode;
+  sandboxMode: SandboxMode;
+}
+interface ThreadRecord {
+  id: string;
+  provider: ProviderId;
+  name: string | null;
+  preview: BoundedText;
+  cwd: string;
+  createdAt: number | null; // epoch seconds
+  updatedAt: number | null;
+  archived: boolean;
+}
+interface ThreadBootstrapInfo {
+  thread: ThreadRecord;
+  sessionId: string;
+  settings: ThreadSettings;
+  capabilities: ProviderCapabilities;
+}
+```
+
+Asset IDs resolve through a generic asset port. It supplies authorized, bounded
+media bytes to the selected adapter and scoped URLs to surfaces. It does not
+expose arbitrary remote fetches, host paths, native file IDs, or data URLs in
+items/events. Reference IDs resolve through shared skill/mention ports; the
+adapter alone builds native input annotations. Unsupported media/reference types
+are rejected before submitting any part of a request. New input limits reject
+oversized input; they never silently truncate a user's prompt or attachment.
+Existing surface image limits remain unchanged.
+
+Create/resume/fork requests contain a provider selection where applicable, cwd,
+model, effort, approvalMode, sandboxMode, and instructions
+`{ base: string | null, additional: string | null }`. The adapter documents how
+instructions are combined; no shared contract claims a native developer role.
+Resume/fork cannot change provider. Native config overrides, personality,
+modelProvider, and ephemeral requests are removed in v2. Operational defaults
+stay adapter-local; no opaque native configuration bag crosses the shared port.
+
+Boundary migration inventory:
+
+| Current boundary | Target |
+| --- | --- |
+| Create/resume/fork, bootstrap | Neutral settings and instructions above; no native model-provider field |
+| `ThreadRecord`, stored summaries | Same metadata fields, including provider; no open index signature |
+| `readThread(includeTurns)` | Metadata-only read plus paginated turns/items in v2; the v1 translator preserves `includeTurns` with bounded pagination or an explicit size error |
+| Revert response | Neutral thread metadata plus existing opaque history cursors; caller fetches new history |
+| Thread/model/effort state | Model and effort IDs from the neutral catalog; no `modelProvider` |
+| Model summary | Display fields and supported effort IDs/default; remove `supportsPersonality` |
+| Stored-thread filters | Provider IDs, cwd, archived, search, created/updated order; remove native `modelProviders`, `sourceKinds`, `useStateDbOnly`, and `recency_at` in v2 |
+| Turn/item pages | Typed `ConversationTurn`/`ConversationItem` and opaque cursors, including size-limited partial item pages |
+| User input and image decoration | Neutral input/asset references; scoped asset URLs are surface decorations |
+| Limits/resets | Neutral DTO and optional reset port below |
+
+The v1 translator explicitly supports existing built-in-client behavior. Native
+filters without a neutral meaning are either translated inside the relevant
+adapter compatibility entry point or rejected with a documented version error;
+they are not forwarded into generic core as native settings. Inventory external
+clients before removing v1, not before deciding the core model.
 
 ## Conversation items
 
-New module: `shared/protocol/conversation_items.ts`. It replaces
-`HistoryItem`'s open shape and `shared/protocol/history_presentation.ts`.
+New module: `shared/protocol/conversation_items.ts`.
 
 ```ts
-type ItemStatus = "in_progress" | "completed" | "failed" | "interrupted" | "declined";
-
-/** Text that can grow is bounded everywhere it is stored or sent. */
+type ItemStatus = "in_progress" | "completed" | "failed" | "interrupted" | "declined" | "unknown";
 interface BoundedText {
   text: string;
   truncated: boolean;
-  /** Original length in UTF-16 code units, when known. */
-  totalLength?: number;
+  totalBytes: number | null; // original UTF-8 bytes, when known
 }
-
 interface ItemBase {
   id: string;
   turnId: string;
-  /** Set for work done inside a subagent; null for the main agent. */
-  parentItemId: string | null;
+  parentItemId: string | null; // subagent containment only
+  relatedItemIds: string[];   // e.g. a stop/monitor call targeting background work
   status: ItemStatus;
-  startedAt: number | null;    // seconds since the epoch
+  startedAt: number | null;
   completedAt: number | null;
-  error?: string;
+  error: BoundedText | null;
+  recovery: "complete" | "partial" | "transient";
+  unavailableFields: string[];
+  omittedEntries: number;
+  detailAsset: AssetReference | null; // optional full text/detail outside the preview
+  version: { epoch: string; revision: number }; // runtime projection version
 }
-
 type ConversationItem = ItemBase & (
-  | { type: "user_message"; content: UserInput[] }
-  | { type: "assistant_message"; text: string; phase: "commentary" | "final_answer" | null }
-  | { type: "reasoning"; summary: string[] }
-  | { type: "plan"; text: string | null; steps: Array<{ text: string; status: "pending" | "in_progress" | "completed" }> }
-  | { type: "command"; command: string; cwd: string | null; output: BoundedText | null; exitCode: number | null;
-      durationMs: number | null; background: boolean }
-  | { type: "file_change"; changes: Array<{ path: string; kind: "add" | "update" | "delete" | "move"; movePath: string | null;
-      diff: BoundedText | null; additions: number | null; deletions: number | null }> }
-  | { type: "file_read"; path: string; lines: string | null }
-  | { type: "search"; pattern: string; path: string | null; output: BoundedText | null }
-  | { type: "web"; action: "search" | "open_page" | "find_in_page" | "other"; query: string | null; url: string | null;
-      output: BoundedText | null }
-  | { type: "tool"; source: "mcp" | "shepherd" | "provider"; server: string | null; name: string;
-      input: BoundedText; output: BoundedText | null }
-  | { type: "subagent"; description: string; prompt: BoundedText | null; report: BoundedText | null }
-  | { type: "image"; origin: "generated" | "viewed"; path: string; prompt: string | null }
-  | { type: "notice"; kind: "compaction" | "review" | "hook" | "wait" | "other"; text: string }
+  | { type: "user_message"; content: HistoryInputPart[] }
+  | { type: "assistant_message"; text: BoundedText; phase: "commentary" | "final_answer" | null }
+  | { type: "reasoning"; summary: BoundedText[] }
+  | { type: "plan"; text: BoundedText | null; steps: Array<{ text: BoundedText; status: "pending" | "in_progress" | "completed" }> }
+  | { type: "command"; command: BoundedText; description: BoundedText | null; cwd: string | null;
+      actions: Array<{ kind: "read" | "search" | "list" | "other"; path: string | null; query: BoundedText | null }>;
+      output: BoundedText | null; exitCode: number | null; durationMs: number | null;
+      execution: "foreground" | "background" | "unknown"; taskId: string | null }
+  | { type: "file_change"; changes: Array<{ path: string; kind: "add" | "update" | "delete" | "move";
+      movePath: string | null; diff: BoundedText | null; additions: number | null; deletions: number | null;
+      applied: boolean | null }> }
+  | { type: "file_read"; reads: Array<{ path: string; offset: number | null; limit: number | null }>; output: BoundedText | null }
+  | { type: "search"; queries: BoundedText[]; paths: string[]; output: BoundedText | null }
+  | { type: "web"; action: "search" | "open_page" | "find_in_page" | "other";
+      queries: BoundedText[]; url: string | null; pattern: BoundedText | null; output: BoundedText | null }
+  | { type: "tool"; source: "mcp" | "shepherd" | "provider"; server: string | null;
+      name: string; input: BoundedText | null; output: BoundedText | null; assets: AssetReference[] }
+  | { type: "subagent"; action: "spawn" | "wait" | "send" | "stop" | "resume" | "activity" | "other";
+      description: BoundedText; prompt: BoundedText | null; report: BoundedText | null;
+      agents: Array<{ id: string; threadId: string | null; status: ItemStatus; report: BoundedText | null }>;
+      taskId: string | null }
+  | { type: "image"; origin: "generated" | "viewed"; asset: AssetReference; prompt: BoundedText | null }
+  | { type: "notice"; kind: "compaction" | "review" | "hook" | "wait" | "warning" | "other"; text: BoundedText }
 );
+type HistoryInputPart =
+  | { type: "text"; text: BoundedText }
+  | Exclude<InputPart, { type: "text" }>;
+interface AssetReference {
+  id: string;
+  media: "image" | "audio" | "file";
+  mimeType: string | null;
+  name: string | null;
+  availability: "available" | "unavailable";
+}
 ```
 
-Notes:
+`tool.input`/`output` are display text, not machine-readable native objects.
+Surfaces never parse them. Unknown work becomes a `tool` with an opaque display
+name and bounded available input/output, never a dropped record. Media results
+use assets; they are not flattened into base64 or silently discarded.
 
-- `tool.input` is the provider's argument object serialized as JSON and bounded.
-  Surfaces show it as text; they do not interpret it.
-- `file_change` is one item per tool call or Codex item, with one entry per file.
-- `plan` covers Codex plan items and `turn/plan/updated`, and Claude `TodoWrite`.
-- `notice` covers lifecycle markers that are not work: Codex `contextCompaction`,
-  `enteredReviewMode`/`exitedReviewMode`, `hookPrompt`, `sleep`.
-- Unknown native items become `tool` items with `source: "provider"` and the
-  native name. They are never dropped silently.
+One native call normally yields one item. Codex commands remain `command` items,
+with semantic `actions` for friendly read/search summaries: output, status,
+command, and exit information are preserved even for compound commands. Pure
+native read/search tools use the corresponding item types. Adapters do not split
+or merge unrelated records merely to make the two providers look identical.
 
-### Size limits
+`ConversationTurn` retains id, status, error, started/completed times, duration,
+and an item page. Status includes completed/interrupted/failed/in_progress.
+`itemsView` describes summary/full/not_loaded detail, not pagination completeness.
+Each returned turn has `itemsNextCursor`; full detail can still require paging.
+Items across turns return `{ turnId, item }` with forward/backward opaque cursors.
+Omissions, unknown statuses, and unavailable timestamps are preserved explicitly.
 
-| Field | Live and stored cap | Notes |
-| --- | --- | --- |
-| `command.output`, `search.output`, `web.output`, `tool.output` | 16 KiB | Keep the head and the last 2 KiB, so the end of a failing build is visible. |
-| `file_change.changes[].diff` | 32 KiB per file, 128 KiB per item | The `+`/`−` counts are computed before truncation. |
-| `tool.input`, `subagent.prompt` | 8 KiB | |
-| `subagent.report` | 16 KiB | |
+### Identity and recoverability
 
-Discord shortens further when rendering (see Surfaces). The caps live in one
-module, `shared/protocol/item_limits.ts`, with a single `boundText` helper.
+Native item IDs map deterministically to public IDs; synthesized IDs are derived
+from stable native identity plus a role/index, with distinct namespaces to avoid
+collisions. Scope all lookups by thread. Forks retain historical item identity
+inside the new thread; a global item key is `(threadId, itemId)`.
 
-## Live events
+Recoverable fields use one mapper for live and history. If a timestamp is absent
+from persisted native data, keep the canonical field null in both paths; UI
+elapsed-time observations belong to runtime display state. Do not invent a
+persisted timestamp from the time a history page is read.
 
-`shared/protocol/events.ts` keeps `BridgeEvent` and its envelope. Payload types change.
+An adapter declares recoverability per item, not per provider-specific renderer.
+Codex `turn/plan/updated` produces a deterministic turn-plan item with
+`recovery: "transient"` unless native history actually contains that plan state.
+A native `plan` item is a separate text-plan item; never assume it contains the
+update's steps. Transient items appear in an explicitly session-only work view;
+they disappear on process restart and are not represented as durable history.
+Partial recovered items mark unavailable fields, including older Claude results.
 
-| Event | Fate | Payload |
-| --- | --- | --- |
-| `item.started` | New | `{ item: ConversationItem }` |
-| `item.updated` | New | `{ item: ConversationItem }`, complete replacement |
-| `item.completed` | New | `{ item: ConversationItem }`, final state |
-| `item.delta` | New, replaces `turn.stream.delta` | `{ itemId, turnId, field: "text" \| "output" \| "reasoning", delta }` |
-| `turn.activity` | Removed | Replaced by `item.*` |
-| `turn.message.completed` | Removed | `item.completed` with `assistant_message` |
-| `turn.image.generated`, `turn.image.viewed` | Removed | `item.completed` with `image`; the web adapter adds the asset URL |
-| `turn.notification` | Removed | Native frames go to adapter diagnostics only. A native error becomes `session.error`. |
-| `approval.*` | Renamed `interaction.*` | See [Interactions](#interactions) |
-| `turn.started`, `turn.completed`, `turn.failed` | Kept | Unchanged |
-| `thread.*`, `thread.tokenUsage.updated`, `session.started`, `session.error` | Kept | `thread.status.changed` gets a typed payload `{ backgroundTaskCount, state: "idle" \| "active" \| "waiting" }` |
-| `session.limit.context` | Kept | `method` removed from the payload |
+### Size limits and assets
 
-Rules:
+All byte sizes below apply to UTF-8 JSON serialization, including escaping.
+`boundText` respects Unicode boundaries, records original UTF-8 size, and uses
+head/tail previews for output. Caps apply before persistence and publication.
 
-- `item.updated` and `item.completed` always carry the full item, so a client
-  that missed a delta still converges. Deltas are an optimization.
-- The `assistant_message` phase may be `null` while text streams and is set on
-  `item.completed`. (Claude decides the phase when the next block arrives; see
-  the mapping below.)
-- An item ID is stable from `item.started` to history, including after a reload.
+| Value | Maximum |
+| --- | --- |
+| Entire serialized item | 48 KiB |
+| Output/report/text/diff field | 16 KiB; command/tool outputs retain the last 2 KiB |
+| Combined diffs per item | 24 KiB; counts computed before truncation |
+| Tool input, prompt, command | 8 KiB each |
+| Entire serialized interaction | 64 KiB |
+| Bridge/SSE frame, including envelope and surface decoration | 96 KiB |
+| History/list JSON response | 1 MiB |
+| Delta text | 4 KiB; split on Unicode boundaries |
+| Path, URL, ID, label; array entries | 4 KiB per string; at most 100 entries per array, also subject to aggregate budgets |
+
+Array truncation records `omittedEntries`; text fields always use `BoundedText`.
+If metadata alone exceeds an item budget, return a minimal typed summary with
+unavailable fields and fetchable detail where supported. An interaction must
+explain the full effect of each offered grant. If permission details cannot fit,
+provide paged neutral detail and disable grant actions until available, or offer
+only deny/cancel; never approve from a misleading truncated preview.
+
+Large assistant/user history text has a bounded preview and an optional generic
+full-text asset accessed through the asset port; the adapter may back it by
+native storage. Assets preserve images and other large media outside events and
+pages. Missing files or unsupported native retrieval give an unavailable asset,
+not an arbitrary filesystem/remote fetch. Keep existing scoped image authorization.
+Private legacy snapshots may still contain inline input images; public projection
+registers stable asset IDs without sending the data URL back in a history page.
+
+Limit at the item, collection, and encoded-frame levels. A page stops before its
+byte budget and returns a continuation, including within a turn. It must progress
+even when one native record is huge. The web adapter's final serialization check
+remains a defense, but ordinary maximum-sized items/interactions must fit without
+`event_too_large`. Core replay is byte-bounded as well as count-bounded.
+
+Streaming accumulators keep bounded head/tail buffers and byte counts. Once a
+field exceeds its preview budget, stop append deltas for that field and publish
+bounded replacements, coalesced at most once per 100 ms. Subsequent chunks update
+the retained tail. Final state contains the authoritative bounded preview. Never
+accumulate unlimited output merely to truncate it at completion.
+
+## Events, snapshots, and reconciliation
+
+Use a discriminated `BridgeEvent` union with typed payloads, retaining opaque
+event IDs, thread/session IDs, and timestamp. Each projection session has a fresh
+epoch and monotonically increasing sequence. Item revisions are monotonic within
+that epoch; they are not native revisions or a persisted Codex event log.
+
+| Event | Payload/behavior |
+| --- | --- |
+| `item.started`, `item.updated`, `item.completed` | Full bounded `{ item }`; completed means a terminal work state |
+| `item.delta` | `{ itemId, turnId, epoch, baseRevision, revision, field, index, offsetBytes, delta }`; index is required for reasoning summary blocks, null for text/output |
+| `interaction.requested`, `.decided`, `.applied`, `.failed`, `.expired` | Neutral request/record IDs and lifecycle; never native responses or secret answers |
+| `turn.started` | Turn ID |
+| `turn.completed` | Turn ID and `status: "completed" \| "interrupted"`; turn closure does not close background work |
+| `turn.failed` | Turn ID and typed bounded error |
+| `thread.status.changed` | `{ activeTurnId, backgroundTaskCount, state: "idle" \| "active" \| "waiting" \| "error", waitingFor: "approval" \| "user_input" \| null }` |
+| `thread.*`, token/context usage, `session.started` | Existing neutral meanings with typed payloads |
+| `session.warning`, `session.error`, `session.limit.context` | Bounded neutral message, error code and retryable flag; no native method field |
+
+Remove `turn.activity`, native `turn.notification`, completed-message and image
+events; items replace them. Retry warnings never fail a turn. Final provider
+errors retain the distinct session/turn/item scopes and do not mark unrelated
+work failed. Retain revert history invalidation and handle recovery.
+
+Each bridge envelope adds `epoch` and `sequence`. A generic core projection
+assigns those values and item revisions in one serialized publication queue;
+adapters supply normalized mutations, not independently competing revision clocks.
+`GET /api/v2/conversations/:id/snapshot` atomically returns state, pending
+interactions and the first history page with `{ epoch, throughSequence,
+historyRevision }`. Further history pages retain that history revision. The core
+queue owns snapshot assembly and lifecycle changes as well as items.
+Native history supplies recovered terminal work; active work and session-only
+overlays come from that projection. Hydration subscribes before
+loading native history. If an overlapping native read cannot be ordered safely,
+retry/reconcile with full item state or request resync; do not append buffered
+deltas to native text that may already contain them. A native read never overwrites
+newer known active projection state. No database lock is held across SDK waits.
+
+Clients open the stream before fetching the snapshot, buffer events, apply the
+snapshot, then replay only events after `throughSequence` in that epoch. Ignore
+older/equal item revisions. Apply a delta only when baseRevision and byte offset
+match; otherwise refresh the item/snapshot. Duplicate deltas are harmless.
+Replacement events supersede streamed fragments. On epoch change, clear runtime
+revisions/replay cursors and restore stable item IDs from history. History revision
+changes invalidate removed turns and their pending pages so revert cannot restore
+stale work. Unknown/expired cursors trigger this same generic recovery.
+
+Text phases may be null while streaming. Completion sets the adapter's confirmed
+phase; interruption must terminalize emitted text/work or mark state unknown.
+These ordering/recovery requirements are contract-test gates for both adapters.
 
 ## Interactions
 
-Approvals and structured questions become interaction requests. New module:
-`shared/protocol/interactions.ts`, replacing `ApprovalRequestPayload`.
+New module: `shared/protocol/interactions.ts`. Options express application intent;
+they never contain native decision values or arbitrary provider response JSON.
 
 ```ts
+type PermissionScope = "once" | "turn" | "session" | "persistent";
+interface PermissionDetails {
+  cwd: string | null;
+  filesystem: Array<{ path: string; access: "read" | "write" }>;
+  network: Array<{ host: string | null; access: "allow" | "deny" }>;
+  commands: Array<{ match: BoundedText; scope: PermissionScope }>;
+  explanation: BoundedText | null;
+}
 interface InteractionRequest {
-  id: string;                     // Shepherd ID, opaque
+  id: string;
   threadId: string;
   turnId: string | null;
-  itemId: string | null;          // the item the request is about, when known
+  itemId: string | null;
   kind: "command" | "file_change" | "permissions" | "tool" | "user_input";
-  title: string;                  // "Run a command", "Edit files", "Answer questions"
-  item: ConversationItem | null;  // snapshot shown on the card: the command, the diff
-  reason: string | null;          // provider-supplied explanation
+  title: string;
+  item: ConversationItem | null;
+  reason: BoundedText | null;
+  permissions: PermissionDetails | null;
   options: Array<{
-    id: string;                   // provider's own option value, passed back unchanged
+    id: string; // opaque Shepherd token, bound to this request/session
     label: string;
-    intent: "allow" | "allow_session" | "deny" | "cancel" | "submit" | "other";
+    intent: "allow" | "deny" | "cancel" | "submit" | "other";
+    scope: PermissionScope | null;
+    effect: PermissionDetails | null; // especially persistent rules and network amendments
   }>;
-  questions: UserQuestionRequest | null;   // for kind "user_input"
+  questions: UserQuestionRequest | null;
 }
-
-interface InteractionReply { optionId: string; answers?: UserQuestionAnswers; reason?: string }
+interface InteractionReply {
+  optionId: string;
+  answers?: UserQuestionAnswers;
+  reason?: string;
+}
+interface InteractionRecord extends InteractionRequest {
+  sessionId: string;
+  status: "pending" | "decided" | "applied" | "failed" | "expired";
+  selectedOptionId: string | null;
+  selectedIntent: "allow" | "deny" | "cancel" | "submit" | "other" | null;
+  createdAt: string;
+  updatedAt: string;
+}
 ```
 
-- `intent` lets surfaces style and order buttons and lets Discord choose
-  defaults. Replies always send `optionId`.
-- The adapter rejects an `optionId` it did not offer.
-- `interaction.requested`, `.decided`, `.applied`, `.failed`, `.expired` replace
-  `approval.*` with the same lifecycle. `ApprovalsStore` becomes
-  `InteractionsStore`; its rules (one decision, expiry at turn end, stale-answer
-  protection) are unchanged.
+The adapter retains each token's exact native reply (string, object, grant, or
+callback result). Core validates request/thread/session ownership, offered token,
+question answers, and pending status before atomically claiming a decision. It
+uses intent/scope, never substring matching on an option ID. Invalid answers leave
+the request pending. Answers/reply secrets are not stored in records/events/logs.
 
-## Provider port
+The adapter validates again and resolves at most once. Withdrawal, abort, turn
+end for turn-bound requests, and session shutdown expire pending requests. An
+unbound background request must be assigned to a wake turn before being exposed.
+Expired/decided requests cannot be resurrected by late SDK callbacks. Concurrent
+surface decisions have one winner. Application failure records a failed outcome;
+it does not authorize automatic retry of an uncertain native permission response.
+An applied denial still has `selectedIntent: "deny"`; applied is delivery state.
 
-`server/core/agent_session.ts` is restructured. Required parts:
+Surfaces render command/diff and permission effects from shared fields. Persistent
+changes are clearly distinguished from one-time grants. Discord must not infer
+an approval default from provider IDs or silently select an allow option. If it
+cannot present the request completely, it offers a link to the full form plus
+explicit deny/cancel. Question skip is explicit; no preselected answer is submitted.
+
+## Provider ports and capabilities
+
+Required session operations remain initialization, thread start/resume, turn
+start/interrupt, response delivery, cwd change, events, and shutdown. History and
+catalog are provider services usable without a live conversation. Account reads
+also stay outside sessions. Optional workflows use optional ports consistently.
 
 ```ts
 interface ProviderSession {
-  readonly provider: AgentProvider;
+  readonly provider: ProviderId;
   readonly sessionId: string;
   readonly events: AgentEvents;
   readonly activeTurnId: string | null;
   readonly backgroundTaskCount: number;
-  approvalPolicy: ApprovalPolicy;
-
   initialize(): Promise<void>;
   startThread(request: CreateThreadRequest): Promise<ThreadBootstrapInfo>;
   resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ThreadBootstrapInfo>;
-  forkThread(threadId: string, request: ForkThreadRequest): Promise<ThreadBootstrapInfo>;
   startTurn(input: TurnInput): Promise<string>;
-  steerTurn(input: UserInput[], turnId?: string): Promise<string>;
   interruptTurn(turnId?: string): Promise<void>;
   respond(requestId: string, reply: InteractionReply): Promise<void>;
-  setCwd(cwd: string): void;
-  stop(): void;
-
-  readonly history: ProviderHistory;   // list/read threads, turns, items; rename; archive; unarchive
-  readonly models: ProviderModels;     // listModels
-
+  setCwd(cwd: string): Promise<void>;
+  stop(): Promise<void>;
+  readonly steering?: { steer(input: ConversationInput, turnId: string): Promise<string> };
+  readonly fork?: { fork(threadId: string, request: ForkThreadRequest): Promise<ThreadBootstrapInfo> };
   readonly compaction?: { compact(threadId: string): Promise<void> };
   readonly revert?: { revertBefore(threadId: string, turnId: string): Promise<RevertThreadResponse> };
-  readonly skills?: { list(request: SkillsListRequest): Promise<SkillsListResponse>; write(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> };
+}
+interface TurnInput {
+  input: ConversationInput;
+  approvalMode?: ApprovalMode;
+  model?: string;
+  cwd?: string;
+  effort?: string;
+}
+type ApprovalMode = "provider_default" | "review_sensitive" | "review_all" | "bypass";
+type SandboxMode = "read_only" | "workspace_write" | "unrestricted";
+interface ProviderCapabilities {
+  fork: boolean;
+  steering: boolean;
+  compact: boolean;
+  revert: boolean;
+  skills: { list: boolean; configure: boolean };
+  resets: boolean;
+  questions: boolean;
+  backgroundWork: boolean;
+  inputKinds: Array<InputPart["type"]>;
+  assetMedia: Array<AssetReference["media"]>;
+  approvalModes: ApprovalMode[];
+  sandboxModes: SandboxMode[];
 }
 ```
 
-- `ProviderHistory.listThreadTurns` and `listThreadItems` return `ConversationItem`s.
-- `ProviderCapabilities` stays the client contract. `compact`, `revert`, and
-  `skills` are derived from whether the optional part exists; `questions`, `fork`,
-  and `sandboxModes` stay declared by the adapter.
-- `SessionManager` calls an optional part only through its presence check and
-  returns the existing `UnsupportedProviderOperationError` when it is absent.
-- `readAccountRateLimits` and `consumeRateLimitReset` leave the session (see
-  [Account limits](#account-limits)).
-- `startTurn` takes one object, `TurnInput { input, approvalPolicy?, model?, cwd?, effort? }`,
-  instead of five positional arguments.
+`ProviderServices` owns history, models, optional skills discovery/configuration,
+and an optional account reader with optional resets. Derive fork/steer/compact/
+revert/skills/reset capability flags from actual ports. Descriptors also declare
+supported input media/reference kinds, approval modes, sandbox modes, question
+support, and background-work support. Per-model effort options remain catalog
+information. Capabilities may narrow for session/account/model constraints; refresh
+on settings change. Core and direct adapter calls reject unavailable settings.
 
-### Requests and records
+Approval semantics: provider_default uses documented native behavior; review_sensitive
+requires native permission checks for sensitive work; review_all promises a review
+of every supported side-effecting tool; bypass disables interactive tool approval,
+not user questions. Declare a mode only when enforceable. Native granular policy
+objects are not generic approval modes. Existing `untrusted` and `on-request` v1
+values are translated and documented per adapter; do not present them as identical
+security guarantees. Unrestricted means no sandbox guarantee, not no permission
+questions. Claude advertises only unrestricted sandboxing until a real constrained
+execution boundary exists. Filesystem rollback is not implied by conversation revert.
 
-- `CreateThreadRequest`, `ResumeThreadRequest`, and `ForkThreadRequest` keep the
-  neutral fields: `provider`, `cwd`, `model`, `effort`, `approvalPolicy`,
-  `sandbox`, `baseInstructions`, `developerInstructions`.
-- Codex-only fields (`config`, `personality`, `modelProvider`, `ephemeral`) are
-  removed from shared requests. No surface sets them today. The Codex adapter
-  keeps its own defaults from its environment.
-- `ThreadRecord` becomes `{ id, provider, name, preview, cwd, createdAt, updatedAt, archived }`.
-  `source` and `modelProvider` are dropped.
+## Background work and nesting
+
+Adapters retain a private native-task-to-public-task/item map. A launch receipt
+updates execution mode and taskId, not terminal status. Task completion, failure,
+kill, or verified cancellation closes the work item, possibly after its originating
+turn ends. Updates continue to carry the original turnId. A root response/question
+between turns creates a wake turn; child progress alone does not manufacture one.
+
+A generic reducer accepts later revisions for background items in completed turns.
+Turn completion finalizes foreground work only. Shutdown/interruption explicitly
+state which work was canceled and which outcome remains unknown. Restart loses
+process-local tracking: recover native task state if available, otherwise mark
+saved unfinished work interrupted/unknown with partial recovery; never claim a
+background command succeeded merely because its launch call returned.
+
+Ambient watchers are excluded from activity/restart guards. Non-ambient work and
+pending interactions block settings changes/restart as appropriate. Queued steering
+must not execute after a confirmed cancellation; use native cancellation when
+available, otherwise close the transport and recover uncertain work explicitly.
+
+Subagent containment uses parentItemId; control/monitor relations use relatedItemIds.
+Multiple agents per collaboration call retain their individual identities/statuses.
+Public nesting never depends on native thread prefixes. Parents absent from a
+history page are loaded by item lookup or represented as unavailable ancestors;
+children must not disappear because the parent is on another page.
 
 ## Account limits
 
-Both providers implement `ProviderAccountLimitsReader`
-(`server/ports/provider_account_limits.ts`) and return `ProviderAccountLimits`.
-
-Codex mapping (`account/rateLimits/read`):
-
-| Codex | Shepherd |
-| --- | --- |
-| Each `rateLimitsByLimitId` entry's `primary` and `secondary` (or the single `rateLimits` snapshot when the map is null) | One `AccountLimitWindow` each. `id` = `<limitId>:primary` or `<limitId>:secondary`. `label` = catalog model name from `normalModelSlug`, then `limitName`, then a readable ID (today's UI rule moves into the adapter). `usedPercent`, `resetsAt` copied. |
-| `rateLimitReachedType`, `ordinaryUsageAllowed: false` | `status: "limited"` on the affected windows |
-| `planType` | `account.plan` |
-| `credits` (`hasCredits`, `unlimited`, `balance`) | `extraUsage` with `enabled` and a balance label |
-| `account/rateLimits/updated` notifications | Observed updates, as Claude's `rate_limit_event`s are today |
-| `rateLimitResetCredits` | New optional `resets` section (below) |
-
-Banked resets become an optional reader extension:
+Extend the current neutral DTO to carry both adapters' information. All fields
+below are typed shared data; no native JSON escape hatch is allowed.
 
 ```ts
+interface AccountLimitWindow {
+  id: string;
+  groupId: string | null;
+  label: string;
+  subtitle: string | null;
+  durationMinutes: number | null;
+  usedPercent: number | null;
+  resetsAt: number | null;
+  status: "available" | "warning" | "limited" | null;
+  observedAt: number;
+  stale: boolean;
+}
+interface ProviderAccountLimits {
+  provider: ProviderId;
+  account: { plan: string | null; authentication: "subscription" | "api" | "unknown"; signedIn: boolean };
+  availability: "available" | "unavailable" | "not_applicable";
+  source: "provider" | "events" | "none";
+  checkedAt: number | null;
+  stale: boolean;
+  ordinaryUsageAllowed: boolean | null; // independent account-level permission
+  windows: AccountLimitWindow[];
+  extraUsage: {
+    enabled: boolean | null; unlimited: boolean | null; balanceLabel: string | null;
+    usedPercent: number | null; active: boolean | null;
+    status: "available" | "warning" | "limited" | null;
+    observedAt: number; stale: boolean;
+  } | null;
+  spendControls: Array<{
+    id: string; label: string; limitLabel: string | null; usedLabel: string | null;
+    remainingPercent: number | null; resetsAt: number | null;
+    reached: boolean | null; observedAt: number; stale: boolean;
+  }>;
+  resets: { supported: boolean; availableCount: number | null; credits: ResetCredit[] | null };
+  message: BoundedText | null;
+}
+interface ResetCredit {
+  id: string; supported: boolean;
+  status: "available" | "redeeming" | "redeemed" | "unknown";
+  grantedAt: number | null; expiresAt: number | null;
+  title: string | null; description: BoundedText | null;
+}
 interface ProviderLimitResets {
-  list(): Promise<RateLimitResetCredits>;
-  consume(request: ConsumeRateLimitResetRequest): Promise<ConsumeRateLimitResetResponse>;
+  list(): Promise<ProviderAccountLimits["resets"]>;
+  consume(request: { idempotencyKey: string; creditId?: string }): Promise<{
+    outcome: "reset" | "already_redeemed" | "nothing_to_reset" | "no_credit";
+  }>;
 }
 ```
 
-Only Codex provides it. The idempotency contract and outcomes are unchanged.
-`GET /limits?provider=` returns `ProviderAccountLimits` for either provider. The
-Usage panel renders one component with an optional resets section. Discord
-`!limits` gains a provider argument and defaults to the attached conversation's
-provider.
+Codex adapter mapping: primary/secondary windows retain duration, grouped bucket
+IDs, model display label and distinct quota subtitle. Null/empty bucket maps fall
+back to the single snapshot. planType maps to plan. ordinaryUsageAllowed stays
+independent of percentages/windows; rateLimitReachedType supplies bounded display
+explanation and known affected-window/credit states. Unknown affected scope never
+marks every window limited by guesswork. Credits preserve enabled/unlimited/balance
+information in extraUsage; individualLimit/spendControlReached map to spendControls.
+Banked-reset native types map to supported booleans and neutral outcomes.
 
-## Provider mappings
+Claude adapter mapping: canonical rows keep supplied order/labels/groups; legacy
+rows map to the same windows. Unreported durations/credit balances/spend controls
+remain null/empty. Allowance events and failed experimental reads preserve stale
+observations. ordinaryUsageAllowed remains null unless authoritatively reported.
+No reset port means resets.supported=false, not a provider-name check in the UI.
 
-### Codex items
+Example neutral projections: an included five-hour window can have
+`durationMinutes: 300, usedPercent: 42, status: "available"`, while an independently
+reported `ordinaryUsageAllowed: false` still blocks ordinary usage. A reported
+weekly window with unknown duration has `durationMinutes: null` and its known
+percentage/reset time; unsupported resets have null count, not zero available.
 
-| Codex `ThreadItem` | Shepherd item |
+`GET /api/v2/limits?provider=<registry-id>` returns this shape for every provider;
+reset writes select the same registry ID and require its reset port. The shared
+panel renders windows, credits, spend controls, and optional reset actions. Provider
+tabs come from enumeration; Discord `!limits` defaults to the attached provider.
+
+Readers are account-scoped, coalesce/cache bounded reads, observe native events,
+and close on shutdown. Account/auth changes discard old data. No account IDs,
+emails, credentials, or invoices enter the DTO. Missing values remain unknown;
+reset time never implies zero usage or recovered permission. Reset UI stores the
+selected provider, idempotency key, and credit ID for uncertain-outcome retries;
+provider changes cannot retarget a pending redemption. Refresh after a known
+outcome; never infer new limits. Catalog lookup failure cannot hide usage/reset data.
+
+## Adapter mapping requirements
+
+Only this section and adapter-local code/fixtures discuss native schemas. Shared
+contracts above contain no provider-specific discriminator or response value.
+
+### Codex
+
+| Native input | Neutral mapping |
 | --- | --- |
-| `userMessage` | `user_message` |
-| `agentMessage` | `assistant_message` (`phase` copied) |
-| `reasoning` | `reasoning` (`summary`; raw `content` is not shown) |
-| `plan`; `turn/plan/updated` | `plan` |
-| `commandExecution` | `command`. `aggregatedOutput` → `output`; `exitCode`, `durationMs`, `cwd` copied. When every `commandActions` entry is `read`, `file_read`; when every entry is `search` or `listFiles`, `search`. |
-| `item/commandExecution/outputDelta` | `item.delta` with `field: "output"` |
-| `fileChange` | `file_change`. Each `FileUpdateChange { path, kind, diff }` → one change; `move_path` → `kind: "move"`; counts computed from the diff. |
-| `item/fileChange/outputDelta`, `item/fileChange/patchUpdated` | `item.updated` |
-| `mcpToolCall` | `tool` (`source: "mcp"`, `server`, `tool` → `name`, `arguments` → `input`, `result`/`error` → `output`/`error`) |
-| `dynamicToolCall` | `tool` (`source: "shepherd"`, `namespace` + `tool` → `name`, `contentItems` → `output`) |
-| `webSearch` (`WebSearchAction`) | `web` (`search`, `openPage` → `open_page`, `findInPage` → `find_in_page`, `other`) |
-| `collabAgentToolCall`, `subAgentActivity` | `subagent` |
-| `imageGeneration`, `imageView` | `image` (`generated`, `viewed`) |
-| `contextCompaction`, `enteredReviewMode`, `exitedReviewMode`, `hookPrompt`, `sleep` | `notice` |
-| `functionCallOutput` | Merged into the matching `tool` item's output; not shown alone |
-| Anything new | `tool` with `source: "provider"` and the native type name |
+| userMessage / agentMessage | user_message / assistant_message; input assets normalized; confirmed phase retained |
+| reasoning | Indexed bounded summaries; raw content stays private; preserve summaryIndex on deltas |
+| plan / turn/plan/updated | Separate recoverable text plan / transient turn checklist; distinct deterministic IDs |
+| commandExecution | command with full execution metadata and all bounded commandActions; never reclassify away output/exit code |
+| fileChange / patch updates | file_change with proposed/applied state where known; bounded diffs and pre-truncation counts |
+| mcpToolCall / dynamicToolCall | tool with bounded input/output, errors and generic media assets; source distinguishes MCP/Shepherd/other provider tools |
+| webSearch | web preserving queries, URL and find pattern |
+| collabAgentToolCall / subAgentActivity | subagent action and all known target states; unknown parent/report is explicit |
+| imageGeneration / imageView | image backed by authorized asset port |
+| compaction / review / hook / sleep | Typed notice, with known recoverability |
+| functionCallOutput | Standalone tool output item. Merge only with proven correlation; page boundaries never justify dropping unmatched output |
+| New native item | Bounded fallback tool, available fields and assets, with diagnostic native type kept private |
 
-### Codex requests
+Command/file approval strings and compound execution/network policy amendment
+objects are private replies selected by opaque tokens. Show exact rule/scope/effect
+in neutral permissions. Multiple callbacks on one item retain separate request IDs,
+including stdin review. Respect native offered choices when supplied. Permission
+profile requests map requested filesystem/network access and turn/session grant
+scope; grant only the requested subset. Question requests use shared questions.
+Dynamic tool calls dispatch to the Shepherd registry. Unsupported elicitation,
+authentication-refresh, or attestation requests receive native unsupported replies;
+diagnostics remain private, but a resulting user-actionable failure is a neutral
+warning/error, not silently hidden.
 
-| Server request | Interaction |
+### Claude
+
+The CLI emits one assistant message per content block. Text item identity combines
+the API message ID and text-block index; live and recovered mapping use the same
+rule. Pending text becomes commentary when tool use follows, and final_answer
+when the response ends. Interrupted text is terminalized without inventing a final
+answer. Thinking maps to bounded summaries; redacted thinking is not exposed.
+
+| Native input | Neutral mapping |
 | --- | --- |
-| `item/commandExecution/requestApproval` | `kind: "command"`, `item` = the `command` item. Options from `CommandExecutionApprovalDecision`: `accept` (allow), `acceptForSession` (allow_session), `decline` (deny), `cancel` (cancel). Policy-amendment decisions are offered only when the request proposes one (intent `other`). |
-| `item/fileChange/requestApproval` | `kind: "file_change"`, `item` = the `file_change` item with diffs. Options from `FileChangeApprovalDecision`. |
-| `item/permissions/requestApproval` | `kind: "permissions"`, showing the requested network and filesystem access. Currently answered as unsupported. The reply is a granted profile plus a `turn` or `session` scope, not an option list, so the adapter offers Shepherd-defined options (`grant_turn`, `grant_session`, `deny`) and builds the grant from the request. |
-| `execCommandApproval`, `applyPatchApproval` (legacy) | `command`, `file_change` with the legacy option values (`approved`, `approved_for_session`, `denied`, `abort`) |
-| `item/tool/requestUserInput` | `kind: "user_input"` |
-| `item/tool/call` | Not an interaction. Dispatched to the Shepherd tool registry as today. |
-| `mcpServer/elicitation/request`, `account/chatgptAuthTokens/refresh`, `attestation/generate` | Still answered as unsupported, now logged as diagnostics instead of `session.error` noise |
+| Bash / BashOutput | command with description, combined stdout/stderr and known status; absent numeric exit code/duration stays null. interrupted means interruption; timedOutAfterMs plus backgroundTaskId means auto-backgrounding, not timeout failure |
+| TaskStop / Monitor | tool with relatedItemIds; task correlation uses private task map |
+| Edit / Write | file_change from structuredPatch or gitDiff, including user-modified/staged state; staged=true does not mean applied |
+| NotebookEdit | file_change from notebook_path and old/new cell source or original/updated notebook content; bounded generated diff, not nonexistent structuredPatch/gitDiff fields |
+| MultiEdit on older CLI | Validate its actual shape separately or fall back to bounded tool; never assume FileEditOutput |
+| Read | file_read with path, offset/limit and bounded available output |
+| Grep / Glob | search with queries/paths and bounded matches; provider truncation also marks incomplete results |
+| WebSearch / WebFetch and server web blocks | web with query/URL/pattern where available; detachedToolCall is continuing work, not completion |
+| Agent / Task | subagent; completed report versus async_launched/remote_launched receipts handled separately, with task identity and later terminal updates |
+| TodoWrite | plan with validated steps |
+| TaskCreate/Update/List/Get | tool for now, with generic relations where known |
+| AskUserQuestion | user_input interaction, no duplicate work item |
+| MCP and other tools | tool with generic media assets and bounded fallback result |
+| tool_progress / task events | Update neutral background/work state and known correlations; elapsed observations stay runtime display state |
+| compact_boundary | notice |
 
-### Claude items
+Enable forwardSubagentText when supporting nested text; partial-message events
+alone only supply root token streaming. Complete child messages use parent_tool_use_id
+for containment. Unavailable nested history is explicit, not silently portrayed as
+complete. Match tool_result and structured tool_use_result by actual tool identity;
+validate per-tool unknown shapes and fall back to bounded text/assets. A launch or
+detached receipt does not close work. Map task snapshots/run identities to reject
+stale runs and exclude ambient watchers from activity.
 
-The CLI emits one assistant message per content block. Tool calls start from the
-`tool_use` block and complete from the matching `tool_result` plus the message's
-structured `tool_use_result`.
+canUseTool creates an interaction with shared command/file/permission details.
+Suggested session rules get opaque tokens and session scope; unavailable persistent
+choices are not offered. AskUserQuestion supports single/multiple selection,
+explicit submit/cancel, and private callback translation. Bypass retains question
+handling. Never expose callback results or native suggested-rule objects to surfaces.
 
-| SDK input | Shepherd item |
-| --- | --- |
-| User input | `user_message` |
-| `text` blocks | `assistant_message`. Phase `commentary` when a `tool_use` follows, `final_answer` when the response ends (the rule PR #90 already uses). |
-| `thinking` blocks, when present (`redacted_thinking` is skipped) | `reasoning` |
-| `Bash` | `command`. `input.command`, `input.description` (shown as a subtitle). Completion from `BashOutput`: `stdout` and `stderr` → `output`, `interrupted`, `timedOutAfterMs` → `error`, `backgroundTaskId` → `background: true`. |
-| `TaskStop`, `Monitor` | `tool`, linked to the background command's item when the task ID matches |
-| `Edit`, `Write`, `NotebookEdit` (and `MultiEdit` from older CLIs) | `file_change`. From `FileEditOutput`/`FileWriteOutput`/`NotebookEditOutput`: `structuredPatch` → `diff`, or `gitDiff.patch` with `additions`/`deletions`; `type: "create"` → `kind: "add"`. |
-| `Read` | `file_read` (`file_path`, `offset`/`limit` → `lines`) |
-| `Grep`, `Glob` | `search` (`pattern`, `path`; matches from `GrepOutput`/`GlobOutput`) |
-| `WebSearch`, `WebFetch`; server-side `server_tool_use` with `web_search_tool_result`/`web_fetch_tool_result` blocks | `web` (`search` with `query`; `open_page` with `url`) |
-| `Agent` (`Task` in older CLIs) | `subagent` (`description`, `prompt`; `AgentOutput`'s final report → `report`). Messages with this `parent_tool_use_id` become items with `parentItemId` set. |
-| `TodoWrite` | `plan` (`todos` → `steps`) |
-| `TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet` | `tool` in this stage; a later stage can fold them into `plan` |
-| `AskUserQuestion` | No item; becomes a `user_input` interaction |
-| `mcp__<server>__<tool>` | `tool` (`source: "mcp"`, or `"shepherd"` for the Shepherd server) |
-| Any other tool | `tool` (`source: "provider"`) |
-| `tool_progress` | No event. Surfaces show the elapsed time of an `in_progress` item from `startedAt`. |
-| `tool_use_summary` | Not shown in this stage |
-| `system` message with `subtype: "compact_boundary"` | `notice` (`compaction`) |
+## Storage migration and rollback
 
-Existing Claude snapshots store `{ type: "mcpToolCall", server: "claude", tool, arguments, result }`
-and agent messages as `agentMessage`. `server/storage/claude_thread_store.ts`
-converts both on read using the table above (without structured results, so the
-command and file are shown, with output from the stored result preview).
-Snapshots are rewritten in the new format on their next save.
+Generic storage reads/writes versioned neutral snapshots. Claude's adapter owns
+`legacy_snapshot_mapper.ts`: the storage implementation returns version-tagged
+raw legacy data through a private persistence port and does not interpret native
+item names. Current unversioned snapshots are v1; v2 includes schemaVersion=2,
+neutral items and completeness metadata. Runtime-only versions are reassigned in
+the new projection epoch rather than treated as durable native revisions.
 
-### Claude requests
+Reads never rewrite snapshots. Decode/validate an entire v1 snapshot in the adapter,
+including mixed legacy/neutral records left by older transitional builds. Preserve
+IDs, chronology, archived metadata, and native resume metadata. Legacy missing
+structured results stay partial; do not infer successful edits from arguments.
+Malformed/unsupported future versions fail clearly without overwriting the file;
+listing skips unreadable entries with a bounded diagnostic as today.
 
-`canUseTool(name, input, context)` becomes an interaction whose `kind` follows the
-item mapping: `Bash` → `command`; `Edit`/`Write` → `file_change` with the
-proposed change built from `input`; other tools → `tool`. Options: `allow`
-(allow once), `allow_session` (offered only when the SDK supplies suggestions),
-`deny`. `AskUserQuestion` → `user_input` with `submit` and `cancel`. These are
-Shepherd-defined option IDs, because the SDK's reply is a callback result, not
-an option list; the adapter validates them the same way.
+On first successful mutation, preserve a v1 backup before writing a complete v2
+snapshot to a temporary file and atomically replacing the snapshot. Write summary
+metadata second and regenerate stale summaries safely. No partially converted file
+is published. Keep backups through the rollback window. New v2-only threads require
+a neutral-to-v1 adapter exporter before rolling back to an old binary; the old
+binary must never read v2 directly. Stop ingress/work before rollback, export all
+current metadata/history into verified v1 files, and preserve the v2 files. Native
+transcripts, provider bindings, and assets are backed up with snapshots. If an export
+cannot represent new detail, retain that detail in v2 and explicitly report the
+loss in the older viewer; never lose native resume metadata or overwrite newer
+turns with the original backup. Rollback is blocked if a safe resume export fails.
 
-### Claude user images
+Attachment extraction is a later versioned migration. For now adapters register
+stable generic asset references for inline legacy images and resolve them through
+the authorized asset port with existing byte limits. Existing backing snapshots
+must remain available; fork references have explicit source ownership. A private
+asset manifest retains the backing locator across resume/fork and v2 saves; inline
+assets backed by a v1 backup keep that backup beyond the rollback window until
+extraction or another durable backing exists. Public items never contain those
+native locators. Future
+extraction must publish assets before snapshot references, validate hashes/MIME,
+handle missing files and crash recovery, preserve fork references, and define
+backup/garbage-collection rules. It must not restore large data URLs to item pages.
 
-User image parts are stored today as base64 data URLs inside the thread
-snapshot. They move to files beside the snapshot
-(`<state dir>/<threadId>/attachments/<sha256>.<ext>`), and the stored item keeps
-a reference. History reads return the same data URL to surfaces, so this is not
-visible outside the store. Snapshots stop growing by megabytes per screenshot.
+## Surfaces and compatibility
 
-## Surfaces
+One neutral item renderer serves web history and live work. Commands expose
+command/output/status, changes expose diffs/counts/applied state, tools expose
+bounded details/assets, and nested work exposes reports and incomplete ancestors.
+Session-only plans are visibly transient. Shared reducers handle item revisions,
+background updates after turn end, and interaction intents/scopes.
 
-- **Web UI.** `ui/src/chat-state.ts` reduces `item.*` events into items. A new
-  item renderer replaces the generic "label · status" row:
-  command (command, collapsible output, exit code), file change (file list with
-  `+`/`−` counts and collapsible diffs), file read, search, web, tool, subagent
-  (description, nested items, report), plan (checklist), notice. History and
-  live view use the same renderer. Interaction cards show the item snapshot.
-- **Web API.** `WEB_API_VERSION` becomes 2. The UI reads `/health` and asks for a
-  reload when the server's version differs from the version it was built with,
-  so a tab left open during a deploy does not misread events.
-- **Discord.** One line per item: `$ bun test` with exit code, `Edited src/app.ts (+12 −3)`,
-  `Searched "pattern"`. Approval cards show the command or file list instead of a
-  method name. How much output and diff text Discord shows is
-  [open question 2](#open-questions); the proposal is summaries, with longer
-  output as an attachment.
-- **History pages** (`server/core/history_page_service.ts`,
-  `server/adapters/web/history.ts`, `server/adapters/discord/history_pagination.ts`)
-  page `ConversationItem`s directly. `webActivity` disappears; `webImage` remains
-  as the web adapter's asset URL decoration.
+Discord uses the same data: one-line item summaries with optional bounded output
+attachments and a link to full details when available. Permission cards display
+scope/effects; no raw-method labels. Provider selection and optional controls come
+from registry enumeration/capabilities. No provider-specific rendering component
+or native history-presentation helper remains in production surfaces.
 
-## Enforcement
+Web v2 lives at `/api/v2`; bump both version and routing prefix. Add a stable
+unversioned `/health` for protocol negotiation, returning supported API versions
+and server instance identity; retain `/api/v1/health` during the transition.
+New clients negotiate before reads/writes/streams and after instance change.
+Unsupported versions disable mutations and offer reload while retaining drafts.
+A reload requires an explicit warning that in-memory drafts will be lost.
 
-`tests/architecture_boundaries.test.ts` gains rules:
+The currently shipped browser has no version handshake. Therefore serve a
+bounded v1 translator for one release, including old events, history, approvals,
+limits, handle recovery, images and settings. It projects neutral data into the
+old contract; native codecs are confined to adapter compatibility entry points.
+It must never send v2 payloads on v1 streams. New grant types that v1 cannot safely
+explain are shown as an explicit unsupported/full-form action with deny/cancel;
+no fabricated permissive option. A later removal waits for negotiated clients and
+an external-client inventory; old tabs then receive predictable upgrade errors.
+Do not claim a new client handshake automatically upgrades an old bundle.
 
-- Only `server/providers/codex/` may contain Codex item type names, RPC method
-  strings, or import generated Codex types.
-- Only `server/providers/claude/` may import `@anthropic-ai/claude-agent-sdk`.
-- `ui/src`, `server/adapters`, and `server/core` may import provider types only
-  from `shared/protocol`.
-- `shared/protocol` may not import from `server/`.
+Runtime injects legacy codec ports into the web transport, so transport code
+does not import native adapters or inspect their fields. Compatibility codecs
+accept neutral data and encode the old Shepherd wire contract. Frozen v1 DTOs,
+codecs and old-bundle tests have an explicit temporary boundary exception for
+legacy names; v2 core and renderers have none. Remove that exception with v1.
 
-## Testing
+SSE replay remains process-local. Restart changes epoch, invalidates handles and
+cursors, and invokes neutral resume/history/interaction recovery. Test with an
+actual old bundle, not only a mock version value. Preserve current origin checks,
+scoped asset authorization, backpressure, and revert history revisions.
 
-**Replay fixtures** replace hand-written native frames for adapter behavior,
-following T3 Code's approach.
+## Verification and implementation stages
 
-- `scripts/record-codex-fixture.ts` runs a real `codex app-server` and records the
-  JSON-RPC frames in both directions to `tests/fixtures/codex/<scenario>.jsonl`.
-- `scripts/record-claude-fixture.ts` wraps the SDK `query()` and records every
-  `SDKMessage`, every `canUseTool` call with its reply, and the account calls,
-  to `tests/fixtures/claude/<scenario>.jsonl`.
-- Scenarios, per provider: simple answer; tool call with output; file edit with
-  diff; command approval allowed and denied; question answered and skipped;
-  interrupt; steering; resume after restart; background task (Claude).
-- A replay harness feeds the recording through the real adapter and
-  `SessionManager`, then asserts the item stream and the stored history.
-- Recordings are reviewed before commit for secrets and personal data. The
-  recorders strip auth headers, emails, and account IDs.
+Recorded sessions and deterministic synthetic frames complement each other.
+Build recorders/harness before changing behavior. Record exact SDK/CLI/schema
+versions, scenario, outbound requests, inbound frames, callbacks, and terminal
+history reads so Codex recovery can be replayed without assuming a second stored
+transcript. Strip credentials/account data and sanitize prompt text, tool args,
+file contents/diffs, paths, URLs, and secret answers. Preserve identity/correlation
+consistently. Review fixtures before commit; live recording is an explicit developer
+workflow, not an automatic test that spends tokens or modifies a real workspace.
 
-Hand-written native frames stay only for failures a real provider cannot produce
-on demand (malformed frames, crashes, timeouts). Contract tests run both
-adapters through the same scenario list and assert the same item types.
+Contract cases run against every adapter according to its declared capabilities:
+text/images, compound read commands, tool outputs/media, file edits, standalone
+outputs, persistent permission options, questions/skip/multi-select, competing
+answers, abort/withdrawal, steering/cancellation, crash/resume, fork, nested agents,
+background launches/detached results/stale task runs, settings/restart guards,
+unknown native items, absent metadata and malformed frames. Unsupported features
+must fail before submission. Shared tests check semantic invariants, not identical
+native event counts or unsupported fabricated behavior.
 
-## Implementation stages
+Recovery tests cover snapshot/replay overlap, duplicates, indexed reasoning,
+delta gaps, epoch changes, history pagination/parent boundaries, revert races,
+maximum escaped Unicode payloads, bounded accumulators, slow clients, and byte
+budgets. Migration tests cover v1/v2/mixed records, malformed/future versions,
+interrupted writes, stale summaries, retained asset references, rollback export,
+and complete native resume metadata. Account tests cover both concrete mappings,
+stale/auth-change behavior, unknown ordinary permission, catalog failures, and
+uncertain reset retry/provider identity. Browser tests use old/new bundles against
+v1/v2; Discord tests ensure no native name determines control behavior.
 
-Each stage is a separate commit on PR #90 and passes `bun test` and `bun run check`.
+Each stage is a coherent commit on PR #90 and passes `bun test` and `bun run check`:
 
-1. **Shared model.** `conversation_items.ts`, `item_limits.ts`, `interactions.ts`,
-   new event payloads, `TurnInput`, neutral `ThreadRecord` and requests. No behavior change yet.
-2. **Ports and core.** Restructured `ProviderSession` with optional parts;
-   `SessionManager`, `InteractionsStore`, account-limits service with
-   `ProviderLimitResets`.
-3. **Codex adapter.** Item, event, interaction, and account mapping;
-   `listThreadTurns`/`listThreadItems` conversion; diagnostics instead of
-   `turn.notification`.
-4. **Claude adapter.** Item mapping from `tool_use_result`; subagent nesting;
-   interactions; snapshot format and read-time conversion; attachment files.
-5. **Surfaces.** Web item renderer and interaction cards; unified Usage panel;
-   API version 2; Discord renderers and `!limits <provider>`.
-6. **Enforcement and replays.** Boundary rules, recorders, fixtures, replay harness.
-7. **Docs.** Update [Architecture](architecture.md), [Web API](web-api.md),
-   [Web UI](web-ui.md), the parity matrices, and the README; archive this document.
+1. Add additive v2 types, registry descriptors, byte-budget helpers and replay
+   harness with fixtures. Existing contracts continue serving current callers.
+2. Implement one vertical text/history/asset projection path in each adapter,
+   snapshot/watermark reconciliation, and the shared renderer behind v2 routing.
+   Compare live and recovered semantic fields; keep v1 translation at the edge.
+3. Migrate tools/files/plans/media and background/nesting with the mapping and
+   bounds tests. Do not finalize background work on launch receipts.
+4. Migrate interactions and neutral settings/input/catalog/optional ports,
+   capability guards, opaque reply tokens, and permission-effect rendering.
+5. Migrate account readers/reset workflows and registry-driven surface controls.
+   Version Claude storage with verified rollback export; defer image extraction.
+6. Switch the built-in client to negotiated v2; run old-client compatibility,
+   restart, packaged executable, and complete regression checks. Update maintained
+   docs throughout; then enforce final boundary rules and archive this proposal.
+7. Remove temporary v1 translation only after the documented compatibility window,
+   client inventory and upgrade tests pass. This removal can be a later release.
 
-## Compatibility and rollout
+Boundary tests scan TS and TSX imports, exports, dynamic imports, and import types.
+Only provider adapters import native SDKs/schemas or interpret native strings.
+Core cannot import providers/storage/runtime; storage cannot import native codecs.
+Surfaces import shared contracts and core ports only. Compatibility tests/fixtures
+have a narrow explicit exception while v1 exists; production compatibility dispatch
+still receives neutral types. Enforce no provider-name branches in reducers,
+renderers, interaction decisions or account widgets. Registry composition and
+provider selection are the intentional identity-based dispatch points.
 
-- Web: the UI and server ship together. An old tab detects API version 2 and
-  asks for a reload. SSE replay buffers are in memory and do not survive the
-  restart, so no old events are replayed to new clients.
-- Discord: renderers ship with the server.
-- Stored data: Claude snapshots convert on read. Codex history is converted on
-  every read and needs no migration. Interaction records are in memory.
-- Assumption to confirm before stage 5 ([open question 1](#open-questions)):
-  nothing outside this repository reads `BridgeEvent`s, approval payloads, or
-  `/api/v1`. If something does, add a translation layer for one release.
+## Acceptance examples and remaining product choices
 
-## Open questions
+- A command approval that remembers an execution rule exposes an opaque option,
+  persistent scope and the exact neutral command match. Selecting it resolves the
+  adapter's private compound reply; core never sees that object.
+- A background command launches in turn A, turn A completes, and a later task
+  notification completes the original item at a higher revision. The same renderer
+  updates it without reopening A or knowing which provider launched it.
+- History includes text already streamed through sequence 10. Replayed deltas up
+  to 10 are discarded; an older replacement cannot undo the snapshot. A missing
+  base revision requests recovery rather than duplicating answer text.
+- Four large diffs produce a <=48 KiB item with original counts and visible
+  truncation. Its full event stays <=96 KiB and reaches SSE as an item event.
+- A standalone native tool output has a stable neutral tool item even when its
+  producing call is absent or on another page.
+- A provider with no reset/skill/fork port hides those actions and rejects direct
+  calls through the same generic capability guards.
 
-1. Does anything outside this repository read `BridgeEvent`s, approval payloads,
-   or `/api/v1`, such as `shepherd-ui` or webhook callers? If not, the event and
-   API changes ship without a translation layer.
-2. Should Discord get the full item detail (output and diffs as attachments), or
-   one-line summaries with a pointer to the web UI?
-3. Are the size caps right for how you use Shepherd? They decide how much command
-   output and diff text history keeps.
-4. Should Claude user images move to attachment files in this PR (stage 4), or
-   in a later one?
-
-## Risks
-
-- **Codex item fields can change between CLI versions.** Mitigation: replay
-  fixtures recorded per refresh; the Codex parity matrix refresh includes
-  re-recording.
-- **`tool_use_result` shapes are per tool and typed `unknown`.** Mitigation:
-  validate each shape in the Claude adapter; on a mismatch, fall back to the
-  `tool_result` text.
-- **Large outputs.** Mitigation: the caps above, and Discord summaries.
-- **Scope.** This roughly doubles PR #90. Mitigation: staged commits with tests
-  at each stage, and per-commit PR comments.
+The contracts above are implementation decisions. Remaining choices are product
+preferences: whether Discord should offer bounded output attachments by default,
+and which full-text/asset retention policy to offer. External client inventory
+controls v1 removal timing, not whether shared protocols are generic. Any change
+to byte caps must re-run encoded-frame/page/accumulator tests.
 
 ## References
 
-- T3 Code, `docs/orchestration-v2/README.md`, `core-graph-and-data-model.md`
-  (turn items), `provider-capability-system.md`, and
-  `docs/internals/adding-a-provider.md`; adapter contract in
-  `packages/provider-core/src/server/ProviderAdapter.ts`. Reviewed at `c77a7b7e`.
-- Codex app-server schema generated from `codex-cli 0.160.1`
-  (`ThreadItem`, `CommandExecutionApprovalDecision`, `FileChangeApprovalDecision`,
-  `GetAccountRateLimitsResponse`).
-- Claude Agent SDK `0.3.296` types: `SDKAssistantMessage`, `SDKUserMessage.tool_use_result`,
-  `SDKToolProgressMessage`, and `sdk-tools.d.ts` (`BashOutput`, `FileEditOutput`, `FileWriteOutput`).
-- [Provider architecture audit](archive/provider-architecture-audit.md): the
-  audit that preceded PR #90's first implementation.
+- Codex 0.160.1 generated normal/experimental schemas: ThreadItem, approval
+  decisions/profiles, plan/reasoning notifications, and account-limit responses.
+  Generate both TS and JSON schemas per [Codex parity matrix](codex-parity-matrix.md).
+- Claude Agent SDK 0.3.296 types: SDK messages, tool_use_result, Options,
+  BashOutput, AgentOutput, NotebookEditOutput, file results and task events.
+- [Provider architecture audit](archive/provider-architecture-audit.md) and
+  [Claude parity matrix](claude-parity-matrix.md) distinguish current support from
+  this proposed contract and distinguish recorded/live evidence from mocks.
+- T3 Code orchestration/provider documents reviewed in the original proposal at
+  c77a7b7e are background context; Shepherd's contracts and acceptance tests above
+  govern this implementation.

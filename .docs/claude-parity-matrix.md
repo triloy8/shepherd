@@ -156,7 +156,8 @@ Account limits use a provider/account-level service distinct from conversation
 context. Native interpretation stays inside the Claude adapter. The account reader
 is shared by all Claude sessions and its processes close on runtime shutdown.
 Remaining gaps include billing controls, a stable public SDK usage contract,
-Claude limits in Discord, and context-window capacity reporting. Do not claim
+and Claude limits in Discord. Context-window capacity reporting is implemented
+when the SDK provides the model window, as recorded above. Do not claim
 automatic API fallback or automatic account switching.
 
 Review this matrix when the SDK version or adapter behavior changes. Preserve the

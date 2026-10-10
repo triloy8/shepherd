@@ -205,7 +205,9 @@ through ports; native protocols and SDKs stay in `server/providers/<name>/`.
 
 - `server/core/agent_session.ts`
   Provider ports: execution, history, catalog, account, and events. Responses use
-  shared types.
+  shared types, but several current types are open containers for native data;
+  this is not yet a fully normalized provider boundary. History items, approval
+  parameters, and Codex account-limit payloads still require native interpretation.
 - `server/core/agent_provider.ts`
   Provider services supplied by composition: session factory, thread/provider
   directory, stored-thread check, and account-limit readers.
@@ -231,8 +233,12 @@ through ports; native protocols and SDKs stay in `server/providers/<name>/`.
 
 Today the shared history and activity formats still follow Codex's item types,
 and Claude is translated into them. The [provider abstraction](provider-abstraction.md)
-design replaces them with one provider-neutral item model; update this section as
-its stages land.
+design replaces the complete boundary with provider-neutral items, interactions,
+inputs/assets, settings, catalogs, history pages, and account limits. Its target
+registry selects adapters; core and renderers use capabilities and typed shared
+data rather than provider-name branches. Background work, recovery completeness,
+and snapshot/event reconciliation are explicit shared contracts. These are proposed
+changes, not current guarantees; update this section as each workflow lands.
 
 ## Discord Adapter Modules
 

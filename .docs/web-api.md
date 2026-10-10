@@ -78,13 +78,13 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | Method | Path | Body or result |
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
-| GET | `/models?cursor=...&limit=100` | Account-wide model catalog; includes hidden quota aliases and supports pagination |
+| GET | `/models?cursor=...&limit=100` | Codex account-wide model catalog; includes hidden quota aliases and supports pagination. Use the conversation-scoped models route for its selected provider. |
 | GET | `/limits` or `/limits?provider=codex` | Existing `{ rateLimits, rateLimitsByLimitId, rateLimitResetCredits }`; Codex account-wide usage and banked resets |
 | GET | `/limits?provider=claude&refresh=true` | Normalized `ProviderAccountLimits`; Claude host account allowances. `refresh` is optional (`true`/`false`). No conversation needed. |
 | POST | `/limits/reset` | `{ idempotencyKey, creditId? }` → `{ outcome }`; redeem one Codex banked reset. Query parameters are rejected. |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
 | GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
-| POST | `/conversations` | `{ project }` creates a thread; `{ threadId }` resumes its saved workspace; 201 with `{ id, threadId, project }` |
+| POST | `/conversations` | `{ project, provider? }` creates a thread (`codex` by default, or `claude`); `{ threadId }` resumes its saved workspace/provider; 201 with `{ id, threadId, project }` |
 | GET | `/conversations/:id` | Handle summary plus `state` with active-turn/session state |
 | DELETE | `/conversations/:id` | Detaches the handle and closes streams; `{ ok: true }` |
 | POST | `/conversations/:id/rename` | `{ name }`; rename through shared controls, `{ ok: true }` |
@@ -105,7 +105,8 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 
 `project` is required only for new conversations and accepts the shared project-target
 syntax (`owner/repo`, `~/path`, or `~`). Resume takes `threadId` and uses the saved
-absolute working directory; a legacy `project` field on resume is ignored. Loaded
+absolute working directory and provider; a provider override on resume is rejected.
+A legacy `project` field on resume is ignored. Loaded
 threads retain their current cwd. Cold resume validates the saved directory without
 creating or cloning a replacement; missing/invalid directories return 409
 `workspace_unavailable`. The resumed handle's `project` displays its restored cwd.
@@ -127,9 +128,10 @@ to the handle's thread.
 
 ### Structured user questions
 
-The existing approvals routes also carry `item/tool/requestUserInput` requests.
+The existing approvals routes carry Codex `item/tool/requestUserInput` requests
+and Claude `AskUserQuestion` callbacks through the same shared question contract.
 Records include `userInput: { threadId, turnId, itemId, isBlocking, questions }`;
-each question has `id`, `header`, `question`, `isOther`, `isSecret`, and nullable
+each question has `id`, `header`, `question`, optional `multiSelect`, `isOther`, `isSecret`, and nullable
 `options: [{ label, description }]`. Use `status === "pending"` to decide whether
 the request can still be answered. Submit to the record's `approvalId` using:
 
@@ -143,8 +145,10 @@ the request can still be answered. Submit to the record's `approvalId` using:
 }
 ```
 
-Use exact question IDs and one nonempty string per question (at most 16,000
-characters). Custom text is accepted for free-text questions or when `isOther`
+Use exact question IDs and one nonempty string per question unless `multiSelect`
+is true. Missing/false `multiSelect` means a single answer; true accepts 1–100
+distinct nonempty strings in the answer array. Each string is at most 16,000
+characters. Custom text is accepted for free-text questions or when `isOther`
 is true; otherwise use an exact option label. Missing/extra IDs, empty answers,
 and disallowed choices return `400 invalid_decision` without consuming the
 request. The overall 64 KiB body limit still applies. Already answered or expired
@@ -152,13 +156,15 @@ requests return `409 approval_decided`. Cross-thread/missing IDs return
 `404 approval_not_found`.
 
 To explicitly skip, send `{ "decision": "cancel" }`. Shepherd returns an empty
-answer map to Codex, without selecting an option. It does not interpret ordinary
+answer map to Codex or denies the Claude question callback, without selecting an
+option. It does not interpret ordinary
 chat messages as answers to this form. Submitted answer text is not copied into
 approval records or bridge events.
 
 Requests remain pending until submitted/skipped, the turn ends, the session
-stops, or Codex withdraws the request with `serverRequest/resolved`. The provider's
-`isBlocking` flag governs whether Codex waits; Shepherd starts no answer timer.
+stops, Codex withdraws the request with `serverRequest/resolved`, or Claude aborts
+the callback. The provider's `isBlocking` flag governs whether the agent waits;
+Claude questions always block. Shepherd starts no answer timer.
 Refresh the approvals snapshot on reconnect and after decision/lifecycle events.
 Pending question records are process-local, not a durable journal. They count as
 pending decisions for the existing conversation and host lifecycle guards.

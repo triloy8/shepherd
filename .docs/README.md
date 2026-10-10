@@ -37,8 +37,9 @@ archive when historical reasoning is useful.
 ## Designs under review
 
 - [Provider abstraction](provider-abstraction.md) — one provider-neutral
-  conversation model over Codex and Claude: items, events, interactions, ports,
-  account limits, mappings, and implementation stages (PR #90).
+  application boundary over Codex and Claude: registry/capabilities, inputs/assets,
+  items/history, event reconciliation, opaque interactions, account limits,
+  background work, migration/rollback, compatibility and staged verification (PR #90).
 
 ## Historical design material
 

@@ -1,3 +1,4 @@
+import { readProviderDefaults } from "../runtime/provider_defaults.js";
 import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
 import { readApprovalPolicy } from "./environment.js";
 import { readSignalRuntimeConfig, type SignalRuntimeConfig } from "./signal_environment.js";
@@ -10,7 +11,8 @@ export type RuntimeConfig = {
 };
 
 export function readRuntimeConfig(environment: Record<string, string | undefined> = process.env): RuntimeConfig {
-  const sandbox = environment.CODEX_SANDBOX;
+  readProviderDefaults(environment);
+  const sandbox = environment.SHEPHERD_SANDBOX_MODE?.trim() ? undefined : environment.CODEX_SANDBOX;
   if (sandbox && !["read-only", "workspace-write", "danger-full-access"].includes(sandbox)) {
     throw new Error("Invalid CODEX_SANDBOX.");
   }
@@ -20,7 +22,7 @@ export function readRuntimeConfig(environment: Record<string, string | undefined
     throw new Error("SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS must be a positive number.");
   }
   return {
-    approvalPolicy: readApprovalPolicy(environment.CODEX_APPROVAL_POLICY),
+    approvalPolicy: environment.SHEPHERD_APPROVAL_MODE?.trim() ? "on-request" : readApprovalPolicy(environment.CODEX_APPROVAL_POLICY),
     defaultSandbox: (sandbox || undefined) as SandboxMode | undefined,
     deploymentCommandTimeoutMs: timeout,
     signals: readSignalRuntimeConfig(environment),

@@ -85,3 +85,6 @@ export interface ThreadFilter {
   cursor?: string;
 }
 export interface RevertThreadResponse { thread: ThreadRecord; historyRevision: string }
+
+export interface SkillSummary { referenceId: string; name: string; description: string; enabled: boolean }
+export interface SkillList { skills: SkillSummary[]; warnings: string[]; omitted: number }

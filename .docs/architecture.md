@@ -231,31 +231,32 @@ through ports; native protocols and SDKs stay in `server/providers/<name>/`.
 - `server/runtime/provider_services.ts`
   The only place that constructs provider adapters, stores, and readers.
 
-Today the shared history and activity formats still follow Codex's item types,
-and Claude is translated into them. The [provider abstraction](provider-abstraction.md)
-design replaces the complete boundary with provider-neutral items, interactions,
-inputs/assets, settings, catalogs, history pages, and account limits. Its target
-registry selects adapters; core and renderers use capabilities and typed shared
-data rather than provider-name branches. Background work, recovery completeness,
-and snapshot/event reconciliation are explicit shared contracts. These are proposed
-changes, not current guarantees; update this section as each workflow lands.
+The default web workflow uses `shared/protocol/v2/`: neutral items, interactions,
+inputs/assets, settings, catalogs, and account limits. `NeutralConversationSource`
+provides native-derived history/events/assets; its `NeutralConversationControls`
+port provides actions. Both adapters normalize native payloads privately. The core
+`conversation_projection.ts` assigns versions, captures bounded immutable
+snapshots, validates actions, and orders replay through `projection_event_log.ts`.
+Native history remains separate and unversioned. Interactions carry opaque option
+IDs; exact SDK/RPC replies are private adapter closures. Invalid question answers
+remain pending, concurrent replies have one winner, and answers never enter replay.
 
-The additive v2 foundation now lives in `shared/protocol/v2/` and
-`server/ports/provider_v2.ts`. `server/core/provider_registry.ts` validates open
-provider IDs, advertised session ports, optional services, and neutral defaults.
-`projection_event_log.ts` supplies bounded process-local ordering/replay;
-`server/runtime/provider_defaults.ts` decodes neutral defaults and legacy aliases.
-Each live session now also exposes a read-only `NeutralConversationSource`.
-Adapter-local native mappers project text/input and generic tool fallbacks without
-reading v1 bridge events. `conversation_projection.ts` assigns versions, captures
-bounded immutable snapshots, and orders replay; native history remains separate
-and unversioned. The web adapter serves `/api/v2/conversations/:id/` snapshot,
-snapshot-items, items, events, and asset routes for existing attached conversations.
-The shared UI reducer reconciles versioned overlays over native history; a generic
-renderer is ready for client cutover. The default UI and Discord still use v1.
-Submission, interactions, settings, catalogs, account limits, richer tool mapping,
-and registry/default integration are still migration work. The read-only source
-is an interim optional execution port, not the final `ProviderSession` contract.
+The web adapter serves `/api/v2`, and the default UI uses the neutral reducer and
+renderer for live work and history. Runtime descriptors drive provider selection,
+skills/reset visibility, and supported approval/sandbox controls. Runtime assembly
+uses an open factory map; account readers/reset ports are selected by provider ID.
+`provider_defaults.ts` reads canonical neutral settings and legacy aliases at
+composition. Catalog and asset references hide native continuations and paths.
+
+This remains an interim session migration. `server/ports/provider_v2.ts` and
+`server/core/provider_registry.ts` define/test the final lifecycle and optional
+service contract, but production creation/resume/fork still uses `AgentSession`.
+Discord, legacy controls, and Claude snapshot storage still use old contracts.
+`/api/v1` is retained for compatibility. A provider implementing only the final v2
+port cannot yet be registered end to end. Full background/nesting and storage
+migration, registry ownership, and retiring the legacy API are tracked in the
+[provider abstraction](provider-abstraction.md) proposal. These remaining steps
+are necessary before claiming the entire application is provider neutral.
 
 ## Discord Adapter Modules
 
@@ -520,13 +521,13 @@ See [surface launch](surface-launch.md) for the operational contract.
 
 ## Web conversation API
 
-The optional `web` surface exposes `/api/v1` on loopback. Transport contracts live
-in `shared/protocol/web.ts`; the adapter keeps only navigation handles, request
-serialization and bounded event feeds. Project targeting and thread orchestration
-use `SurfaceApplicationContext`, messages use `executeTurnRouting`, and approval
-decisions use a bound `ApprovalConversation` port. Core decision validation rejects
-values outside the advertised choices before consuming a pending approval.
-Neither adapter owns process shutdown or duplicates agent policy.
+The optional `web` surface exposes `/api/v2` on loopback for its default UI.
+Content/action contracts live in `shared/protocol/v2`; navigation and host records
+remain in `shared/protocol/web.ts`. Project targeting and thread orchestration use
+`SurfaceApplicationContext`. Messages, settings, skills and replies use bound
+neutral conversation ports. The adapter retains navigation handles, request
+serialization and bounded event feeds. The legacy `/api/v1` API remains available.
+Neither adapter owns process shutdown or duplicates native policy translation.
 
 A web conversation handle maps to an exclusive core surface binding. Detaching
 releases subscriptions, routing and navigation state without terminating the
@@ -553,7 +554,7 @@ hook owns reconnect, request state and history refresh; the pure chat reducer
 reconciles history, live deltas and canonical completion. Components render that
 state without making core policy decisions.
 
-The existing web adapter serves known assets and `/api/v1` from one loopback
+The web adapter serves known assets and both API versions from one loopback
 listener. Source startup snapshots `ui/dist` into memory; the compiled binary
 embeds the same assets. Host and Origin checks use only explicit configuration
 and actual loopback listener addresses, never reflected request headers.

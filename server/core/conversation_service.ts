@@ -80,10 +80,12 @@ export class ConversationService {
   private readonly dynamicTools = new DynamicToolRegistry();
   private readonly manager: SessionManager;
   private readonly routing: ConversationRoutingService;
+  private readonly providerServices: ProviderServices | undefined;
   private readonly accountLimits: AccountLimitsService;
   private readonly subscriptionsBySurface = new Map<string, SurfaceSubscription>();
 
   constructor(options: ConversationServiceOptions = {}) {
+    this.providerServices = options.providers;
     this.accountLimits = new AccountLimitsService(options.providers?.accountLimits);
     this.manager = new SessionManager(this.dynamicTools, options.providers?.createSession, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers);
     this.routing = new ConversationRoutingService(this.manager, options.routing);
@@ -327,6 +329,27 @@ export class ConversationService {
     return this.manager.subscribeToThreadEvents(threadId, listener, cursorOrOptions);
   }
 
+  listNeutralProviders() { return structuredClone(this.providerServices?.descriptors ?? []); }
+  readNeutralAccount(provider: string, refresh?: boolean) {
+    const reader = this.providerServices?.neutralAccounts?.get(provider);
+    if (!reader) throw new Error("Provider account reporting is unavailable.");
+    return reader.read(refresh);
+  }
+  resetNeutralAccount(provider: string, input: { idempotencyKey: string; creditId?: string }) {
+    const reset = this.providerServices?.neutralAccounts?.get(provider)?.reset;
+    if (!reset) throw new Error("Provider reset is unavailable.");
+    return reset(input);
+  }
+  neutralSettings(threadId: string) { return this.manager.neutralSettings(threadId); }
+  configureNeutral(threadId: string, settings: Partial<import("../../shared/protocol/v2/conversations.js").ThreadSettings>) { return this.manager.configureNeutral(threadId, settings); }
+  neutralSkills(threadId: string, reload?: boolean) { return this.manager.neutralSkills(threadId, reload); }
+  configureNeutralSkill(threadId: string, referenceId: string, enabled: boolean) { return this.manager.configureNeutralSkill(threadId, referenceId, enabled); }
+  neutralModels(threadId: string, cursor?: string) { return this.manager.neutralModels(threadId, cursor); }
+  neutralContext(threadId: string) { return this.manager.neutralContext(threadId); }
+  submitNeutral(threadId: string, turn: import("../../shared/protocol/v2/conversations.js").TurnInput) { return this.manager.submitNeutral(threadId, turn); }
+  interruptNeutral(threadId: string, turnId?: string) { return this.manager.interruptNeutral(threadId, turnId); }
+  respondNeutral(threadId: string, id: string, reply: import("../../shared/protocol/v2/interactions.js").InteractionReply) { return this.manager.respondNeutral(threadId, id, reply); }
+  uploadNeutralAsset(threadId: string, media: "image" | "audio", data: import("../ports/neutral_conversation.js").AssetData) { return this.manager.uploadNeutralAsset(threadId, media, data); }
   readNeutralSnapshot(threadId: string) { return this.manager.readNeutralSnapshot(threadId); }
   readNeutralSnapshotItems(threadId: string, cursor: string) { return this.manager.readNeutralSnapshotItems(threadId, cursor); }
   readNeutralItems(threadId: string, cursor?: string) { return this.manager.readNeutralItems(threadId, cursor); }
@@ -363,7 +386,7 @@ export class ConversationService {
     }
     this.subscriptionsBySurface.clear();
     try { this.manager.stopAll(); }
-    finally { this.accountLimits.stop(); }
+    finally { this.accountLimits.stop(); this.providerServices?.shutdown?.(); }
   }
 
   private rebindSurfaceSubscription(adapter: string, surfaceId: string, threadId: string): void {

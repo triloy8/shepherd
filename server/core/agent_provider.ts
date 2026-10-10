@@ -12,6 +12,9 @@ export interface ThreadProviderDirectory {
 }
 
 export interface ProviderServices {
+  shutdown?: () => void;
+  descriptors?: import("../../shared/protocol/v2/conversations.js").ProviderDescriptor[];
+  neutralAccounts?: ReadonlyMap<string, { read(refresh?: boolean): Promise<import("../../shared/protocol/v2/account_limits.js").ProviderAccountLimits>; reset?: (input: { idempotencyKey: string; creditId?: string }) => Promise<{ outcome: "reset" | "already_redeemed" | "nothing_to_reset" | "no_credit" }> }>;
   providers: readonly AgentProvider[];
   createSession: AgentSessionFactory;
   hasStoredThreads: (provider: AgentProvider, request: ListStoredThreadsRequest) => boolean;

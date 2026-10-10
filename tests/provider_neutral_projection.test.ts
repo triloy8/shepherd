@@ -3,7 +3,7 @@ import { NativeConversationSource } from "../server/providers/neutral_source.js"
 import { ConversationProjection } from "../server/core/conversation_projection.js";
 import { assistantItem, capabilities } from "./helpers/provider_v2.js";
 import { jsonBytes, V2_BUDGETS } from "../shared/protocol/v2/budgets.js";
-import { hydrateNeutral, mergeNeutralHistory, neutralTimeline, reduceNeutralEvent } from "../ui/src/neutral-chat-state.js";
+import { hydrateNeutral, recaptureNeutral, mergeNeutralHistory, neutralTimeline, reduceNeutralEvent } from "../ui/src/neutral-chat-state.js";
 import type { BridgeEvent, ProviderMutation } from "../shared/protocol/v2/events.js";
 
 function harness() {
@@ -143,5 +143,19 @@ test("new captures expire old cursors while each retained capture stays immutabl
   projection.snapshot();
   expect(() => projection.snapshotItems(old.itemsNextCursor!)).toThrow("expired");
   expect(projection.snapshotItems(retained.itemsNextCursor!).items.length).toBeGreaterThan(0);
+  projection.close(); source.close();
+});
+
+test("recapture preserves terminal overlays without putting live items ahead of forward-paged history", () => {
+  const source = new NativeConversationSource(capabilities(), async () => ({ data: [], nextCursor: null })); source.bind("thread");
+  const projection = new ConversationProjection("thread", "session", source), snapshot = projection.snapshot();
+  let state = hydrateNeutral(snapshot);
+  state = mergeNeutralHistory(state, { data: [{ turnId: "old", item: { ...assistantItem("old", "old"), status: "completed" } }], nextCursor: "more", backwardsCursor: null, historyRevision: snapshot.historyRevision });
+  state.overlays.set("recent", { item: { ...assistantItem("recent", "recent"), status: "completed" }, revision: 1 });
+  let next = recaptureNeutral(state, snapshot);
+  next = mergeNeutralHistory(next, { data: [{ turnId: "middle", item: { ...assistantItem("middle", "middle"), status: "completed" } }], nextCursor: null, backwardsCursor: null, historyRevision: snapshot.historyRevision });
+  expect(neutralTimeline(next).map(item => item.id)).toEqual(["old", "middle", "recent"]);
+  expect(next.history.has("recent")).toBe(false);
+  expect(recaptureNeutral(next, { ...snapshot, historyRevision: "changed" }).retained.size).toBe(0);
   projection.close(); source.close();
 });

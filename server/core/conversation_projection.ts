@@ -1,3 +1,7 @@
+import type { InteractionRecord, InteractionReply } from "../../shared/protocol/v2/interactions.js";
+import type { ThreadSettings, TurnInput } from "../../shared/protocol/v2/conversations.js";
+import { ProviderCapabilityError, validateThreadSettings, validateTurnInput } from "./provider_registry.js";
+import { validateUserQuestionAnswers } from "../../shared/protocol/user_questions.js";
 import { randomUUID } from "node:crypto";
 import type { NeutralConversationSource } from "../ports/neutral_conversation.js";
 import type { ConversationItem, VersionedItem, BoundedText } from "../../shared/protocol/v2/conversation_items.js";
@@ -11,6 +15,7 @@ const CAPTURE_TTL_MS = 60_000;
 /** One synchronous owner orders mutations and captures. SDK history stays outside it. */
 export class ConversationProjection {
   private readonly log: ProjectionEventLog;
+  private readonly interactions = new Map<string, InteractionRecord>();
   private readonly overlays = new Map<string, VersionedItem>();
   private postRevertTurns: Set<string> | null = null;
   private readonly listeners = new Set<{ listener: (event: BridgeEvent) => void; onClose?: () => void }>();
@@ -22,7 +27,7 @@ export class ConversationProjection {
   private closed = false;
   private readonly unsubscribe: () => void;
 
-  constructor(threadId: string, sessionId: string, private readonly source: NeutralConversationSource) {
+  constructor(private readonly threadId: string, private readonly sessionId: string, private readonly source: NeutralConversationSource) {
     this.log = new ProjectionEventLog(threadId, sessionId);
     this.capabilities = structuredClone(source.capabilities);
     this.historyRevision = source.historyRevision;
@@ -54,7 +59,7 @@ export class ConversationProjection {
     if (this.captures.size >= 2) this.captures.delete(this.captures.keys().next().value!);
     this.captures.set(id, { at: Date.now(), epoch: cursor.epoch, sequence: cursor.sequence, revision: this.historyRevision, items });
     const base = { epoch: cursor.epoch, throughSequence: cursor.sequence, historyRevision: this.historyRevision,
-      state: structuredClone(this.state), capabilities: structuredClone(this.capabilities), interactions: [], itemsNextCursor: null };
+      state: structuredClone(this.state), capabilities: structuredClone(this.capabilities), interactions: structuredClone([...this.interactions.values()].filter(record => record.status === "pending")), itemsNextCursor: null };
     const page = this.page(id, 0, jsonBytes(base) + 128);
     const snapshot = { ...base, items: page.items, itemsNextCursor: page.nextCursor };
     assertJsonBudget(snapshot, V2_BUDGETS.pageBytes, "snapshot");
@@ -73,12 +78,50 @@ export class ConversationProjection {
     // This page is unversioned native history. Never seed the delta base from it.
     return page;
   }
+  private controls() { if (this.closed || !this.source.controls) throw new ProjectionRecoveryError("Conversation actions are unavailable."); return this.source.controls; }
+  settings() { return structuredClone(this.controls().settings()); }
+  async configure(patch: Partial<ThreadSettings>) {
+    validateThreadSettings(this.capabilities, { ...this.settings(), ...patch });
+    const settings = await this.controls().configure(patch);
+    this.deliver(this.log.publish("thread.capabilities.changed", { capabilities: this.capabilities }));
+    return settings;
+  }
+  skills(reload?: boolean) { const skills = this.controls().skills; if (!skills || !this.capabilities.skills.list) throw new ProviderCapabilityError("skills.list"); return skills.list(reload); }
+  configureSkill(referenceId: string, enabled: boolean) { const skills = this.controls().skills; if (!skills || !this.capabilities.skills.configure) throw new ProviderCapabilityError("skills.configure"); return skills.configure(referenceId, enabled); }
+  models(cursor?: string) { return this.controls().models(cursor); }
+  context() { return this.controls().context(); }
+  async submit(turn: TurnInput) {
+    validateTurnInput(this.capabilities, turn);
+    assertJsonBudget(turn, 64 * 1024, "turn input");
+    if (!turn.input.length || turn.input.length > 100) throw new Error("Add a message or an asset.");
+    const controls = this.controls(), activeTurnId = this.state.activeTurnId;
+    if (activeTurnId) {
+      if (!this.capabilities.steering || !controls.steer) throw new ProviderCapabilityError("steering");
+      return { turnId: await controls.steer(turn.input, activeTurnId), steered: true };
+    }
+    return { turnId: await controls.submit(turn), steered: false };
+  }
+  interrupt(turnId?: string) { return this.controls().interrupt(turnId); }
+  async respond(id: string, reply: InteractionReply) {
+    const request = this.interactions.get(id);
+    const option = request?.options.find(option => option.id === reply.optionId);
+    if (!request || request.threadId !== this.threadId || request.sessionId !== this.sessionId || request.status !== "pending" || !option) throw new Error("Interaction is unavailable or option is invalid.");
+    if (request.questions && option.intent === "submit") validateUserQuestionAnswers(request.questions.questions, reply.answers);
+    if (reply.answers && option.intent !== "submit") throw new Error("Only submission options accept answers.");
+    // Adapter claims synchronously before its first native await; its decided event
+    // enters this projection before a concurrent surface can choose another token.
+    await this.controls().respond(id, reply);
+  }
+  uploadAsset(media: "image" | "audio", data: import("../ports/neutral_conversation.js").AssetData) {
+    if (this.closed || !this.source.uploadAsset || !this.capabilities.inputMedia.includes(media)) throw new Error("Input media is unavailable.");
+    return this.source.uploadAsset(media, data);
+  }
   readAsset(id: string) { return this.source.readAsset(id); }
   close(): void {
     if (this.closed) return;
     this.closed = true; this.unsubscribe();
     for (const { onClose } of [...this.listeners]) { try { onClose?.(); } catch { /* Teardown continues for other transports. */ } }
-    this.listeners.clear(); this.captures.clear(); this.overlays.clear(); this.overlayBytes = 0;
+    this.listeners.clear(); this.captures.clear(); this.interactions.clear(); this.overlays.clear(); this.overlayBytes = 0;
   }
   private accept(mutation: ProviderMutation): void {
     if (this.closed) return;
@@ -110,9 +153,19 @@ export class ConversationProjection {
       const revision = this.log.cursor().sequence + 1;
       const event = this.log.publish("item.delta", { ...delta, baseRevision: previous.revision, revision });
       this.retain({ item, revision }, evictions); this.deliver(event);
+    } else if (mutation.type.startsWith("interaction.")) {
+      const record = mutation.payload as InteractionRecord, previous = this.interactions.get(record.id);
+      if (mutation.type !== `interaction.${record.status === "pending" ? "requested" : record.status}`) throw new Error("Interaction status does not match its event.");
+      if (record.threadId !== this.threadId || record.sessionId !== this.sessionId) throw new Error("Interaction ownership changed.");
+      if (previous && ["applied", "failed", "expired"].includes(previous.status)) return;
+      if (previous && mutation.type === "interaction.requested") return;
+      if (!previous && mutation.type !== "interaction.requested") return;
+      const event = this.log.publish(mutation.type as "interaction.requested", record);
+      if (this.interactions.size >= 128) for (const [id, entry] of this.interactions) if (entry.status !== "pending" && entry.status !== "decided") { this.interactions.delete(id); break; }
+      this.interactions.set(record.id, structuredClone(record)); this.deliver(event);
     } else if (mutation.type === "thread.reverted") {
       this.historyRevision = mutation.payload.historyRevision;
-      this.overlays.clear(); this.overlayBytes = 0; this.captures.clear();
+      this.overlays.clear(); this.overlayBytes = 0; this.captures.clear(); this.interactions.clear();
       this.postRevertTurns = new Set();
       this.deliver(this.log.invalidateHistory(this.historyRevision));
     } else {

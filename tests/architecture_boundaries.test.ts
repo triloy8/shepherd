@@ -100,7 +100,7 @@ test("provider SDKs and persistence stay outside application and transport layer
 test("additive v2 contracts and ports cannot import v1/native provider contracts", async () => {
   const files = [
     ...await sourceFiles(path.join(root, "shared/protocol/v2")),
-    ...["server/ports/provider_v2.ts", "server/core/provider_registry.ts", "server/runtime/provider_defaults.ts", "server/core/projection_event_log.ts"].map(file => path.join(root, file)),
+    ...["server/ports/provider_v2.ts", "server/core/provider_registry.ts", "server/runtime/provider_defaults.ts", "server/core/projection_event_log.ts", "server/core/conversation_projection.ts", "server/ports/neutral_controls.ts", "server/ports/neutral_conversation.ts"].map(file => path.join(root, file)),
   ];
   const violations: string[] = [];
   for (const file of files) {

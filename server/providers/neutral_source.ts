@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { NeutralConversationControls } from "../ports/neutral_controls.js";
 import type { AssetData, NeutralConversationSource } from "../ports/neutral_conversation.js";
 import type { AssetReference, ConversationItem } from "../../shared/protocol/v2/conversation_items.js";
 import type { HistoryPage, ProviderCapabilities } from "../../shared/protocol/v2/conversations.js";
@@ -12,6 +13,7 @@ type NativePage = { data: Array<{ turnId: string; item: ConversationItem }>; nex
 
 /** Shared adapter plumbing; all native decoding is supplied by the individual adapter. */
 export class NativeConversationSource implements NeutralConversationSource {
+  controls?: NeutralConversationControls;
   private boundThread: string | null = null;
   private revision = randomUUID();
   private readonly listeners = new Set<(mutation: ProviderMutation) => void>();
@@ -50,7 +52,9 @@ export class NativeConversationSource implements NeutralConversationSource {
     // Fetch three records at a time: three maximum-sized messages fit a 1 MiB page.
     if (page.data.length > 3 || page.nextCursor === continuation?.native) throw new Error("Provider history pagination did not progress.");
     for (const { item } of page.data) assertItemBudget(item);
-    const nextCursor = page.nextCursor ? randomUUID() : null;
+    // Repeated first-page reads reuse the same continuation instead of evicting
+    // the reader’s expanded-history cursor during foreground refreshes.
+    const nextCursor = page.nextCursor ? [...this.cursors].find(([, entry]) => entry.native === page.nextCursor && entry.revision === revision)?.[0] ?? randomUUID() : null;
     const result: HistoryPage = { data: page.data, nextCursor, backwardsCursor: null, historyRevision: revision };
     assertJsonBudget(result, V2_BUDGETS.pageBytes, "history page");
     if (nextCursor) {
@@ -76,6 +80,12 @@ export class NativeConversationSource implements NeutralConversationSource {
       this.assets.delete(oldest);
     }
     return structuredClone(reference);
+  }
+  uploadAsset(media: "image" | "audio", data: AssetData): AssetReference {
+    if (this.closed || !this.boundThread || !this.capabilities.inputMedia.includes(media)) throw new Error("Input media is unavailable.");
+    const asset = this.asset(randomUUID(), media, data.mimeType, data.name, data.bytes);
+    if (asset.availability !== "available") throw new Error("Asset exceeds the upload limit.");
+    return asset;
   }
   async readAsset(id: string): Promise<AssetData> {
     if (this.closed) throw new Error("Asset is unavailable.");

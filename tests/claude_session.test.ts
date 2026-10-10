@@ -594,3 +594,31 @@ test("thread listing reads summaries, rebuilds legacy summaries, and skips unrea
   expect(existsSync(join(directory, `${threadId}.meta.json`))).toBe(true);
   expect(warnings).toHaveLength(1); expect(storage.hasThreads()).toBe(true);
 });
+
+test("Claude neutral actions validate catalog settings and apply opaque permission options to the SDK", async () => {
+  const asked = signal(), decisions: PermissionResult[] = [];
+  const fake = sdk(async function* (_input, options) {
+    const pending = options.canUseTool!("Read", { file_path: "/project/readme.md" }, { signal: new AbortController().signal, suggestions: [] } as Parameters<CanUseTool>[2]);
+    asked.resolve(); decisions.push(await pending); yield result;
+  });
+  const session = new ClaudeSession("on-request", undefined, store(), fake), manager = new SessionManager(undefined, () => session);
+  const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
+  await expect(manager.configureNeutral(threadId, { sandboxMode: "workspace_write" })).rejects.toThrow("capability");
+  await expect(manager.configureNeutral(threadId, { model: "missing" })).rejects.toThrow("available model");
+  const next = await manager.configureNeutral(threadId, { model: "sonnet", effort: "low", approvalMode: "review_sensitive" });
+  expect(next).toMatchObject({ model: "sonnet", effort: "low", sandboxMode: "unrestricted" });
+  const observed: import("../shared/protocol/v2/events.js").BridgeEvent[] = [];
+  manager.subscribeNeutralEvents(threadId, event => observed.push(event));
+  await manager.submitNeutral(threadId, { input: [{ type: "text", text: "read" }] }); await asked.promise;
+  expect(fake.calls.at(-1)!.options).toMatchObject({ cwd: "/project", model: "sonnet", effort: "low", permissionMode: "default" });
+  const pending = manager.readNeutralSnapshot(threadId).interactions[0];
+  expect(pending.permissions?.filesystem).toEqual([{ path: "/project/readme.md", access: "read" }]);
+  expect(pending.options.map(option => option.scope)).toEqual(["once", "once"]);
+  await manager.respondNeutral(threadId, pending.id, { optionId: pending.options.find(option => option.intent === "allow")!.id });
+  await done(session);
+  expect(decisions).toEqual([{ behavior: "allow", updatedInput: { file_path: "/project/readme.md" } }]);
+  expect(observed.filter(event => event.type.startsWith("interaction.")).map(event => event.type)).toEqual(["interaction.requested", "interaction.decided", "interaction.applied"]);
+  expect(manager.listApprovals(threadId).every(record => record.status !== "pending")).toBe(true);
+  await expect(manager.respondNeutral(threadId, pending.id, { optionId: pending.options[0].id })).rejects.toThrow("unavailable");
+  manager.stopAll();
+});

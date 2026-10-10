@@ -386,6 +386,16 @@ export class SessionManager {
     if (!projection) throw new ProjectionRecoveryError("Neutral projection is unavailable for this session.");
     return projection;
   }
+  neutralSettings(threadId: string) { return this.neutralProjection(threadId).settings(); }
+  configureNeutral(threadId: string, settings: Partial<import("../../shared/protocol/v2/conversations.js").ThreadSettings>) { return this.neutralProjection(threadId).configure(settings); }
+  neutralSkills(threadId: string, reload?: boolean) { return this.neutralProjection(threadId).skills(reload); }
+  configureNeutralSkill(threadId: string, referenceId: string, enabled: boolean) { return this.neutralProjection(threadId).configureSkill(referenceId, enabled); }
+  neutralModels(threadId: string, cursor?: string) { return this.neutralProjection(threadId).models(cursor); }
+  neutralContext(threadId: string) { return this.neutralProjection(threadId).context(); }
+  submitNeutral(threadId: string, turn: import("../../shared/protocol/v2/conversations.js").TurnInput) { return this.neutralProjection(threadId).submit(turn); }
+  interruptNeutral(threadId: string, turnId?: string) { return this.neutralProjection(threadId).interrupt(turnId); }
+  respondNeutral(threadId: string, id: string, reply: import("../../shared/protocol/v2/interactions.js").InteractionReply) { return this.neutralProjection(threadId).respond(id, reply); }
+  uploadNeutralAsset(threadId: string, media: "image" | "audio", data: import("../ports/neutral_conversation.js").AssetData) { return this.neutralProjection(threadId).uploadAsset(media, data); }
   readNeutralSnapshot(threadId: string) { return this.neutralProjection(threadId).snapshot(); }
   readNeutralSnapshotItems(threadId: string, cursor: string) { return this.neutralProjection(threadId).snapshotItems(cursor); }
   readNeutralItems(threadId: string, cursor?: string) { return this.neutralProjection(threadId).readItems(cursor); }
@@ -529,6 +539,10 @@ export class SessionManager {
         this.approvals.expireUserInput(event.threadId, (event.payload as { turnId?: string }).turnId);
       }
 
+      if (event.type === "approval.applied") {
+        const payload = event.payload as { approvalId: string };
+        if (this.approvals.listByThread(event.threadId).some(a => a.approvalId === payload.approvalId && a.status === "pending")) this.approvals.markApplied(event.threadId, payload.approvalId);
+      }
       if (event.type === "approval.failed") {
         const payload = event.payload as { approvalId: string };
         if (this.approvals.listByThread(event.threadId).some((a) => a.approvalId === payload.approvalId && a.status === "pending")) this.approvals.markFailed(event.threadId, payload.approvalId);

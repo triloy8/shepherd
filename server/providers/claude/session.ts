@@ -1,7 +1,11 @@
 import { claudeDefaults } from "./defaults.js";
+import { NeutralInteractions } from "../neutral_interactions.js";
+import { configured, modelCatalog, nativeInput } from "../neutral_controls.js";
+import type { ThreadSettings } from "../../../shared/protocol/v2/conversations.js";
 import { NativeConversationSource } from "../neutral_source.js";
 import { ClaudeNeutralMapper, claudeTextItemId } from "./neutral_mapper.js";
 import { userItem } from "../neutral_inputs.js";
+import { fallbackItem, publicItemId } from "../neutral_items.js";
 import { boundText } from "../../../shared/protocol/v2/budgets.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
@@ -57,8 +61,8 @@ function storedToolResult(content: unknown): unknown {
 }
 
 export class ClaudeSession implements AgentSession {
-  readonly neutral: NativeConversationSource = new NativeConversationSource({ fork: false, steering: false, compact: false, revert: false,
-    skills: { list: false, configure: false }, resets: false, questions: false, backgroundWork: false,
+  readonly neutral: NativeConversationSource = new NativeConversationSource({ fork: false, steering: true, compact: false, revert: false,
+    skills: { list: false, configure: false }, resets: false, questions: true, backgroundWork: false,
     inputKinds: ["text", "asset"], inputMedia: ["image"], approvalModes: ["provider_default", "review_sensitive", "bypass"], sandboxModes: ["unrestricted"] },
     async (threadId, cursor) => {
       const page = await this.listThreadItems(threadId, { cursor, limit: 3, sortDirection: "asc" });
@@ -98,7 +102,22 @@ export class ClaudeSession implements AgentSession {
     private readonly store: ClaudeThreadRepository,
     private readonly sdk = { query, forkSession },
     private readonly accountLimits?: ClaudeLimitsObserver,
-  ) {}
+  ) {
+    this.defaultApprovalPolicy = approvalPolicy;
+    this.neutral.controls = {
+      settings: () => ({ ...this.neutralSettings, cwd: this.thread?.cwd ?? process.cwd(), model: this.neutralSettings.model ?? this.thread?.model ?? null, effort: this.neutralSettings.model === null ? this.thread?.effort ?? null : this.neutralSettings.effort }),
+      configure: async patch => this.neutralSettings = await configured(this.neutral.controls!.settings(), patch, this.neutral.controls!.models),
+      models: modelCatalog(cursor => this.listModels({ cursor, limit: 100 })),
+      context: async () => this.thread?.tokenUsage ? structuredClone({ ...this.thread.tokenUsage, modelContextWindow: this.thread.tokenUsage.modelContextWindow ?? null }) : null,
+      submit: async turn => { const settings = this.neutral.controls!.settings(); return this.startTurn(await nativeInput(this.neutral, turn.input), (turn.approvalMode ?? settings.approvalMode) === "bypass" ? "never" : (turn.approvalMode ?? settings.approvalMode) === "review_sensitive" ? "on-request" : this.defaultApprovalPolicy, turn.model ?? settings.model ?? undefined, turn.cwd ?? settings.cwd, turn.effort ?? settings.effort); },
+      steer: async (input, turnId) => this.steerTurn(await nativeInput(this.neutral, input), turnId),
+      interrupt: turnId => this.interruptTurn(turnId),
+      respond: (id, reply) => this.neutralInteractions.respond(id, reply),
+    };
+  }
+  private readonly defaultApprovalPolicy: P.ApprovalPolicy;
+  private neutralSettings: ThreadSettings = { cwd: process.cwd(), model: null, effort: null, approvalMode: "provider_default", sandboxMode: "unrestricted" };
+  private readonly neutralInteractions = new NeutralInteractions(this.neutral, this.sessionId);
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
   private bootstrap(): ThreadBootstrapInfo {
     const thread = this.requireThread();
@@ -149,7 +168,7 @@ export class ClaudeSession implements AgentSession {
     if (request.config || request.modelProvider || request.personality) throw new UnsupportedProviderOperationError("Claude", "Codex config, modelProvider, or personality overrides");
     if ("ephemeral" in request && request.ephemeral) throw new UnsupportedProviderOperationError("Claude", "ephemeral threads");
   }
-  async startTurn(input: UserInput[], policy?: P.ApprovalPolicy, model?: string, cwd?: string, effort?: string): Promise<string> {
+  async startTurn(input: UserInput[], policy?: P.ApprovalPolicy, model?: string, cwd?: string, effort?: string | null): Promise<string> {
     await this.initialize();
     if (this.activeTurnId) throw new Error("A Claude turn is already active.");
     const thread = this.requireThread();
@@ -157,7 +176,7 @@ export class ClaudeSession implements AgentSession {
     if (effort && !isClaudeEffort(effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
     const message = this.userMessage(input);
     const nextPolicy = policy ?? this.approvalPolicy;
-    const settingsChanged = (cwd && cwd !== thread.cwd) || (model && model !== thread.model) || (effort && effort !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
+    const settingsChanged = (cwd && cwd !== thread.cwd) || (model && model !== thread.model) || (effort !== undefined && effort !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
     // The SDK fixes MCP tools when its process starts; reopen when Shepherd tools change.
     const tools = JSON.stringify(this.dynamicTools.specifications());
     const toolsChanged = this.runningTools !== null && tools !== this.runningTools;
@@ -168,7 +187,7 @@ export class ClaudeSession implements AgentSession {
     }
     this.approvalPolicy = nextPolicy;
     const options: Options = {
-      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: (effort as ClaudeThread["effort"]) ?? thread.effort,
+      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: effort === null ? undefined : (effort as ClaudeThread["effort"]) ?? thread.effort,
       ...(thread.materialized ? { resume: thread.nativeId } : { sessionId: thread.nativeId }),
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
       includePartialMessages: true, settingSources: ["user", "project", "local"],
@@ -315,6 +334,7 @@ export class ClaudeSession implements AgentSession {
       item.status = status === "completed" ? "unknown" : status;
       this.neutral.emit({ type: "item.completed", payload: this.neutralMapper.historyItem(this.requireThread().id, turn.id, item) });
     }
+    this.neutralInteractions.expire(undefined, turn.id);
     this.currentTurn = null; this.activeTurnId = null; this.denyPendingApprovals();
     turn.status = status;
     if (error && status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
@@ -368,9 +388,26 @@ export class ClaudeSession implements AgentSession {
     const questions = name === "AskUserQuestion" ? claudeQuestions(input, this.requireThread().id, this.activeTurnId!, approvalId) : undefined;
     const suggestions = context.suppressAlwaysAllowRule ? undefined : context.suggestions?.map(update => ({ ...update, destination: "session" as const }));
     return new Promise((resolve) => {
-      const deny = () => { if (this.approvals.delete(approvalId)) this.publish("approval.expired", { approvalId }); resolve({ behavior: "deny", message: "Approval interrupted." }); };
+      const deny = () => { if (this.approvals.delete(approvalId)) { this.neutralInteractions.expire(approvalId); this.publish("approval.expired", { approvalId }); } resolve({ behavior: "deny", message: "Approval interrupted." }); };
       context.signal.addEventListener("abort", deny, { once: true });
       this.approvals.set(approvalId, { input, suggestions, questions, resolve: (result) => { context.signal.removeEventListener("abort", deny); resolve(result); } });
+      try {
+        const threadId = this.requireThread().id, turnId = this.activeTurnId!;
+        const filesystem = typeof input.file_path === "string" ? [{ path: input.file_path, access: ["Edit", "Write"].includes(name) ? "write" as const : "read" as const }] : [];
+        this.neutralInteractions.request({ id: approvalId, threadId, turnId, itemId: null,
+          kind: questions ? "user_input" : name === "Bash" ? "command" : ["Edit", "Write"].includes(name) ? "file_change" : "tool",
+          title: questions ? "Answer the agent’s questions" : `Review ${name}`,
+          item: questions ? null : fallbackItem(threadId, turnId, approvalId, name, JSON.stringify(input), null, "in_progress"),
+          reason: null, permissions: questions ? null : { cwd: this.requireThread().cwd, filesystem, network: [], commands: [], explanation: null },
+          questions: questions ? { ...questions, itemId: publicItemId(threadId, questions.itemId) } : null,
+        }, questions ? [
+          { label: "Submit answers", intent: "submit", scope: null, effect: null, apply: async reply => { await this.applyApprovalDecision(approvalId, { decision: "submit", answers: reply.answers }); } },
+          { label: "Skip questions", intent: "cancel", scope: null, effect: null, apply: async () => { await this.applyApprovalDecision(approvalId, { decision: "cancel" }); } },
+        ] : [
+          { label: "Allow once", intent: "allow", scope: "once", effect: null, apply: async () => { await this.applyApprovalDecision(approvalId, { decision: "accept" }); } },
+          { label: "Deny", intent: "deny", scope: "once", effect: null, apply: async reply => { await this.applyApprovalDecision(approvalId, { decision: "decline", reason: reply.reason }); } },
+        ]);
+      } catch { this.approvals.delete(approvalId); context.signal.removeEventListener("abort", deny); resolve({ behavior: "deny", message: "Request could not be presented completely." }); this.neutral.warn(); return; }
       this.publish("approval.requested", { approvalId, method: questions ? "claude/question" : "claude/tool/requestApproval", prompt: questions ? questions.questions.map(q => q.question).join("\n") : `Allow Claude to use ${name}?`,
         choices: questions ? [{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }] : [{ value: "accept", label: "Allow once" }, ...(suggestions?.length ? [{ value: "acceptForSession", label: "Allow for session" }] : []), { value: "decline", label: "Deny" }],
         params: { tool: name, input }, ...(questions ? { userInput: questions } : {}) });
@@ -383,6 +420,8 @@ export class ClaudeSession implements AgentSession {
       if (decision.decision !== "submit" && decision.decision !== "cancel") throw new Error("Invalid Claude question decision.");
       const answers = decision.decision === "submit" ? claudeQuestionAnswers(pending.questions, decision.answers) : null;
       this.approvals.delete(approvalId);
+      this.neutralInteractions.external(approvalId, decision.decision === "submit" ? "submit" : "cancel");
+      this.publish("approval.applied", { approvalId });
       this.publishNeutralStatus();
       pending.resolve(answers ? { behavior: "allow", updatedInput: { ...pending.input, answers } } : { behavior: "deny", message: "User skipped the questions." });
       return { method: "claude/question", approvalId };
@@ -390,6 +429,8 @@ export class ClaudeSession implements AgentSession {
     if (decision.decision === "acceptForSession" && !pending.suggestions?.length) throw new Error("Session approval is unavailable for this request.");
     if (!["accept", "acceptForSession", "decline", "cancel"].includes(decision.decision)) throw new Error("Invalid Claude approval decision.");
     this.approvals.delete(approvalId);
+    this.neutralInteractions.external(approvalId, ["accept", "acceptForSession"].includes(decision.decision) ? "allow" : decision.decision === "cancel" ? "cancel" : "deny");
+    this.publish("approval.applied", { approvalId });
     this.publishNeutralStatus();
     pending.resolve(decision.decision === "accept" || decision.decision === "acceptForSession" ? { behavior: "allow", updatedInput: pending.input, ...(decision.decision === "acceptForSession" ? { updatedPermissions: pending.suggestions } : {}) } : { behavior: "deny", message: decision.reason ?? "Denied by user." });
     return { method: "claude/tool/requestApproval", approvalId };
@@ -482,6 +523,7 @@ export class ClaudeSession implements AgentSession {
     for (const running of this.ownedQueries.keys()) this.closeQuery(running);
     this.denyPendingApprovals(); this.finishTurn("interrupted"); this.backgroundTasks.reset();
     if (this.persistTimer) { try { this.persist(); } catch { /* Shutdown continues; the SDK transcript is authoritative. */ } }
+    this.neutralInteractions.expire();
     this.neutral.close();
   }
   private openQuery(input: InputQueue<SDKUserMessage>, options: Options): Query {

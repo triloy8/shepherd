@@ -28,7 +28,7 @@ export type ThreadSourceKind =
   | "subAgentOther"
   | "unknown";
 
-export type AgentProvider = "codex" | "claude";
+export type AgentProvider = string;
 
 export interface CreateThreadRequest {
   provider?: AgentProvider;

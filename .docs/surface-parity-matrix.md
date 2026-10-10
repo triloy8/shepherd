@@ -31,15 +31,15 @@ They must not be read as a promise that every row is available with Claude.
 | Resume/fork with saved provider | Yes | Yes | Identity is preserved; no in-place provider switch |
 | Text/images, follow-ups, interruption | Yes | Yes, with adapter input/queue limits | Shared controls; see each provider inventory for limits |
 | Tool approvals | Yes | Yes, native permission mapping differs | Shared decision cards; not identical sandbox/policy semantics |
-| Tool call detail | Command text, file summaries, tool names; no output | Tool name and JSON input while running; tool name only once finished and in history | Both are replaced by typed items with output and diffs; see [provider abstraction](provider-abstraction.md) |
+| Tool call detail | Command text, file summaries, tool names; no output | Tool name and JSON input while running; tool name only once finished and in history | Web now uses neutral typed items with output and bounded Codex diffs; Discord retains legacy presentation. Other variants remain explicit partial fallbacks; see [provider abstraction](provider-abstraction.md) |
 | Structured questions | Yes | Yes | Web supports multiple selections; Discord redirects Claude multiple-selection questions to web |
 | Stored history and metadata actions | Yes | Yes, Shepherd-created snapshots | Shared navigation, rename, archive, restore, and detach |
 | Model and effort controls | Yes | Yes, model-dependent | Discovery follows the conversation provider; account catalog remains Codex |
 | Manual compaction | Yes | No | Hidden for Claude in web; unsupported calls rejected |
 | Turn-based conversation revert | Yes | No | Hidden for Claude in web; unsupported calls rejected |
 | Skill discovery and toggles | Yes | No | Hidden for Claude in web; native Claude skill loading is separate |
-| Restricted sandbox selection | Yes | No | Claude accepts only unset or danger-full-access |
-| Sidebar account usage and resets | Codex account and resets | Claude account allowances | Same Usage & limits panel with provider tabs; opens on the conversation provider; resets are Codex-only |
+| Restricted sandbox selection | Web neutral settings | No | Web offers advertised sandbox modes; Claude offers unrestricted only |
+| Sidebar account usage and resets | Codex account and resets | Claude account allowances | Shared Usage & limits panel with a descriptor-driven provider selector; opens on the conversation provider; resets are Codex-only |
 | Context-window percentage | When reported | Yes, from the SDK model context window | Shown in web conversation settings for both providers |
 
 These are implemented distinctions, not approval for every missing feature.

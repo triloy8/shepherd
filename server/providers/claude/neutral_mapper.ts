@@ -1,6 +1,7 @@
+import { boundText } from "../../../shared/protocol/v2/budgets.js";
 import type { ConversationItem, ItemStatus } from "../../../shared/protocol/v2/conversation_items.js";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { assistantItem, displayText, fallbackItem, phase, record, status, string, validItem } from "../neutral_items.js";
+import { assistantItem, itemBase, displayText, fallbackItem, phase, record, status, string, validItem } from "../neutral_items.js";
 import { userItem } from "../neutral_inputs.js";
 import type { NativeConversationSource } from "../neutral_source.js";
 import { TextProjection } from "../text_projection.js";
@@ -24,10 +25,15 @@ export class ClaudeNeutralMapper {
       return validItem(mapped);
     }
     if (item.type === "userMessage") return validItem(userItem(this.source, threadId, turnId, id, item.content, "completed"));
-    const result = fallbackItem(threadId, turnId, id, string(item.tool) ?? string(item.type) ?? "Tool",
-      item.arguments === undefined ? null : JSON.stringify(item.arguments), displayText(item.result), status(item.status));
+    const args = record(item.arguments), output = displayText(item.result), tool = string(item.tool);
+    const base = itemBase(threadId, turnId, id, status(item.status));
+    let result: ConversationItem;
+    if (tool === "Read" && typeof args.file_path === "string") result = { ...base, type: "file_read", reads: [{ path: boundText(args.file_path, 4096).text, offset: typeof args.offset === "number" ? args.offset : null, limit: typeof args.limit === "number" ? args.limit : null }], output: output === null ? null : boundText(output), recovery: "partial" };
+    else if (tool === "Bash" && typeof args.command === "string") result = { ...base, type: "command", command: boundText(args.command, 8192), description: typeof args.description === "string" ? boundText(args.description, 2048) : null, cwd: null, actions: [], output: output === null ? null : boundText(output), exitCode: null, durationMs: null, execution: "unknown", taskId: null, unavailableFields: [...base.unavailableFields, "cwd", "actions", "exitCode", "durationMs", "execution", "taskId"], recovery: "partial" };
+    else result = fallbackItem(threadId, turnId, id, tool ?? string(item.type) ?? "Tool",
+      item.arguments === undefined ? null : JSON.stringify(item.arguments), output, status(item.status));
     // Legacy snapshots may already contain shortened tool results. Their native size is unknown.
-    if (result.type === "tool" && result.output) {
+    if ("output" in result && result.output) {
       result.output.totalBytes = null;
       result.output.truncated ||= /\n\[\d+ characters omitted\](?:\n|$)/.test(result.output.text);
     }

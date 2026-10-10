@@ -5,6 +5,9 @@ const readMethods = [
   "getThreadState",
   "getThreadProvider", "getThreadModel", "listStoredThreads", "listLoadedThreads",
   "listModels", "listSkills", "listThreadTurns", "listThreadItems",
+  "listNeutralProviders", "readNeutralAccount", "resetNeutralAccount",
+  "neutralSkills", "configureNeutralSkill",
+  "neutralSettings", "configureNeutral", "neutralModels", "neutralContext", "submitNeutral", "interruptNeutral", "respondNeutral", "uploadNeutralAsset",
   "readNeutralSnapshot", "readNeutralSnapshotItems", "readNeutralItems", "readNeutralAsset", "subscribeNeutralEvents",
 ] as const;
 const controlMethods = [

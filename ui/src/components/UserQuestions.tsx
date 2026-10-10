@@ -1,13 +1,13 @@
 import { useId, useState } from "react";
-import type { ApprovalRecord } from "../../../shared/protocol/approvals";
+import type { InteractionRecord } from "../../../shared/protocol/v2/interactions";
 import type { UserQuestionAnswers } from "../../../shared/protocol/user_questions";
 import { Icon } from "./Icon";
 
 export type DecideQuestion = (id: string, decision: string, answers?: UserQuestionAnswers) => void | Promise<boolean>;
 
-export function UserQuestions({ request, busy, decide }: { request: ApprovalRecord; busy: boolean; decide: DecideQuestion }) {
+export function UserQuestions({ request, busy, decide }: { request: InteractionRecord; busy: boolean; decide: DecideQuestion }) {
   const prefix = useId();
-  const input = request.userInput!;
+  const input = request.questions!;
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [multiple, setMultiple] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
@@ -20,7 +20,8 @@ export function UserQuestions({ request, busy, decide }: { request: ApprovalReco
     event.preventDefault();
     if (busy || !complete) return;
     const answers = Object.fromEntries(input.questions.map(q => [q.id, { answers: answersFor(q) }]));
-    void decide(request.approvalId, "submit", answers);
+    const submit = request.options.find(option => option.intent === "submit");
+    if (submit) void decide(request.id, submit.id, answers);
   }}>
     <div className="flex items-center gap-2 text-sm font-medium text-accent"><Icon name="chat" />{input.isBlocking ? "Waiting for your answer" : "Shepherd has a question"}</div>
     <p className="mt-2 text-xs leading-5 text-muted">{input.isBlocking ? "Choose an answer or write your own. Shepherd will continue after you submit." : "You can answer while Shepherd continues working."}</p>
@@ -49,7 +50,7 @@ export function UserQuestions({ request, busy, decide }: { request: ApprovalReco
     })}</div>
     <div className="mt-5 flex flex-wrap gap-2">
       <button type="submit" className="button-primary" disabled={busy || !complete}>Submit answers</button>
-      <button type="button" className="button-secondary" disabled={busy} onClick={() => { void decide(request.approvalId, "cancel"); }}>Skip questions</button>
+      <button type="button" className="button-secondary" disabled={busy} onClick={() => { const cancel = request.options.find(option => option.intent === "cancel"); if (cancel) void decide(request.id, cancel.id); }}>Skip questions</button>
     </div>
   </form>;
 }

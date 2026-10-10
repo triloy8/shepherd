@@ -6,7 +6,7 @@ import type { SignalEnvelope } from "./signals.js";
 /** Versioned browser contract, independent of adapter implementation. */
 export const WEB_API_VERSION = 1;
 export const WEB_API_PREFIX = "/api/v1";
-export type WebConversation = { id: string; threadId: string; project: string };
+export type WebConversation = { id: string; threadId: string; project: string; provider?: string };
 export type WebCreateConversation = { project: string; threadId?: never; provider?: import("./requests.js").AgentProvider } | { threadId: string; project?: string; provider?: never };
 export type WebMessageRequest = { text: string; images?: string[] };
 export type WebInterruptRequest = { turnId?: string };

@@ -1,3 +1,7 @@
+import { NeutralInputError } from "../../ports/neutral_controls.js";
+import { readNeutralInput, readNeutralSettings, readNeutralReply } from "./neutral_actions.js";
+import { ProviderCapabilityError } from "../../core/provider_registry.js";
+import { Buffer } from "node:buffer";
 import { UnsupportedProviderOperationError } from "../../core/agent_session.js";
 import type { AgentProvider } from "../../../shared/protocol/requests.js";
 import { presentHistoryItem } from "./history.js";
@@ -100,7 +104,10 @@ export class WebSurfaceApi {
     const allowedOrigin = origin !== null && this.config.origins.includes(origin);
     const headers = new Headers({ "cache-control": "no-store", "x-content-type-options": "nosniff", "vary": "Origin" });
     if (allowedOrigin) headers.set("access-control-allow-origin", origin);
-    const json = (status: number, value: unknown) => Response.json(value, { status, headers });
+    const json = (status: number, value: unknown) => {
+      if (new URL(request.url).pathname.startsWith("/api/v2/")) assertJsonBudget(value, V2_BUDGETS.pageBytes, "v2 response");
+      return Response.json(value, { status, headers });
+    };
     const fail = (status: number, code: string, message: string) => json(status, { error: { code, message } } satisfies WebError);
     if (origin !== null && !allowedOrigin) return fail(403, "origin_denied", "Origin is not allowed.");
     const url = new URL(request.url);
@@ -120,6 +127,69 @@ export class WebSurfaceApi {
     if (this.requests >= MAX_REQUESTS) return fail(429, "request_limit", "Too many in-flight requests.");
     this.requests++;
     try {
+      if (url.pathname === "/api/v2/providers" && request.method === "GET") return json(200, { providers: this.application.conversation.listNeutralProviders() });
+      if (url.pathname === "/api/v2/limits" && request.method === "GET") {
+        if ([...url.searchParams.keys()].some(key => !["provider", "refresh"].includes(key)) || ["provider", "refresh"].some(key => url.searchParams.getAll(key).length > 1) || (url.searchParams.has("refresh") && !["true", "false"].includes(url.searchParams.get("refresh")!))) return fail(400, "invalid_query", "Only provider and refresh=true/false are supported.");
+        const provider = url.searchParams.get("provider") ?? this.application.conversation.listNeutralProviders()[0]?.id;
+        if (!provider || !this.application.conversation.listNeutralProviders().some(entry => entry.id === provider)) return fail(400, "invalid_provider", "Choose an available provider.");
+        return json(200, await this.application.conversation.readNeutralAccount(provider, url.searchParams.get("refresh") === "true"));
+      }
+      if (url.pathname === "/api/v2/limits/reset" && request.method === "POST") {
+        const data = await body(request, ["provider", "idempotencyKey", "creditId"]);
+        const provider = requiredString(data, "provider", 64);
+        if (!this.application.conversation.listNeutralProviders().some(entry => entry.id === provider && entry.capabilities.resets)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
+        return json(200, await this.application.conversation.resetNeutralAccount(provider, { idempotencyKey: requiredString(data, "idempotencyKey", 100), ...(data.creditId ? { creditId: requiredString(data, "creditId", 256) } : {}) }));
+      }
+      const v2Request = url.pathname.startsWith("/api/v2/");
+      const actions = /^\/api\/v2\/conversations\/([^/]+)\/(settings|models|context|messages|interrupt|interactions|assets|skills|skills-reload)(?:\/([a-f0-9-]{36}))?$/.exec(url.pathname);
+      if (actions && !(actions[2] === "assets" && request.method === "GET")) {
+        const entry = this.entries.get(actions[1]!);
+        if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found.");
+        const threadId = entry.threadId, action = actions[2];
+        if (actions[3] && action !== "interactions") return fail(404, "not_found", "Route not found.");
+        if (action === "skills" && request.method === "GET") return json(200, await this.application.conversation.neutralSkills(threadId));
+        if (action === "settings" && request.method === "GET") return json(200, this.application.conversation.neutralSettings(threadId));
+        if (action === "models" && request.method === "GET") {
+          if ([...url.searchParams.keys()].some(key => key !== "cursor") || url.searchParams.getAll("cursor").length > 1 || (url.searchParams.get("cursor")?.length ?? 0) > 4096) return fail(400, "invalid_query", "Only an opaque cursor is supported.");
+          return json(200, await this.application.conversation.neutralModels(threadId, url.searchParams.get("cursor") ?? undefined));
+        }
+        if (action === "context" && request.method === "GET") return json(200, { tokenUsage: await this.application.conversation.neutralContext(threadId) });
+        if (action === "interactions" && !actions[3] && request.method === "GET") return json(200, { interactions: this.application.conversation.readNeutralSnapshot(threadId).interactions });
+        if (request.method !== "POST") return fail(405, "method_not_allowed", "Unsupported conversation action.");
+        return await this.mutate(entry, async () => {
+          if (action === "skills-reload") { await body(request, []); return json(200, await this.application.conversation.neutralSkills(threadId, true)); }
+          if (action === "skills") {
+            const data = await body(request, ["referenceId", "enabled"]);
+            if (typeof data.enabled !== "boolean") return fail(400, "invalid_request", "enabled must be a boolean.");
+            return json(200, await this.application.conversation.configureNeutralSkill(threadId, requiredString(data, "referenceId", 64), data.enabled));
+          }
+          if (action === "messages") {
+            const data = await body(request, ["input"]);
+            return json(200, await this.application.conversation.submitNeutral(threadId, { input: readNeutralInput(data.input) }));
+          }
+          if (action === "settings") return json(200, await this.application.conversation.configureNeutral(threadId, readNeutralSettings(await body(request, ["model", "effort", "approvalMode", "sandboxMode"]))));
+          if (action === "interrupt") { const data = await body(request, ["turnId"]); await this.application.conversation.interruptNeutral(threadId, optionalString(data, "turnId", 256)); return json(200, { ok: true }); }
+          if (action === "interactions" && actions[3]) {
+            const reply = readNeutralReply(await body(request, ["optionId", "answers", "reason"]));
+            try { await this.application.conversation.respondNeutral(threadId, actions[3], reply); }
+            catch (error) { throw new WebRequestError(409, "interaction_unavailable", error instanceof Error ? error.message : "Interaction could not be applied."); }
+            return json(200, { ok: true });
+          }
+          if (action === "assets" && !actions[3]) {
+            if (this.messageRequests >= 4) return fail(429, "message_limit", "Too many uploads in progress.");
+            this.messageRequests++;
+            try {
+              const data = await body(request, ["data", "name"], WEB_MESSAGE_MAX_BODY_BYTES);
+              const image = readImageInputs([data.data])[0]!;
+              const [prefix, encoded] = image.split(",", 2);
+              const mimeType = prefix!.slice(5).split(";", 1)[0]!;
+              const name = optionalString(data, "name", 128) ?? "image";
+              return json(200, this.application.conversation.uploadNeutralAsset(threadId, "image", { bytes: Buffer.from(encoded!, "base64"), mimeType, name }));
+            } finally { this.messageRequests--; }
+          }
+          return fail(405, "method_not_allowed", "Unsupported conversation action.");
+        });
+      }
       const neutral = /^\/api\/v2\/conversations\/([^/]+)\/(snapshot|snapshot-items|items|events|assets)(?:\/([a-f0-9]{64}))?$/.exec(url.pathname);
       if (neutral) {
         if (request.method !== "GET") return fail(405, "method_not_allowed", "This v2 projection route is read-only.");
@@ -152,7 +222,11 @@ export class WebSurfaceApi {
         assertJsonBudget(value, V2_BUDGETS.pageBytes, "v2 response");
         return json(200, value);
       }
-      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true, apiVersion: WEB_API_VERSION });
+      // Navigation and host actions retain their existing application operations;
+      // conversation content, settings, and replies above use only neutral ports.
+      if (v2Request && ( /^\/api\/v2\/conversations\/[^/]+\/(approvals|turns|model|effort|images)(?:\/|$)/.test(url.pathname) || url.pathname === "/api/v2/models" )) return fail(404, "not_found", "Use the provider-neutral conversation endpoints.");
+      if (v2Request) url.pathname = WEB_API_PREFIX + url.pathname.slice("/api/v2".length);
+      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true, apiVersion: v2Request ? 2 : WEB_API_VERSION });
       if (url.pathname === `${WEB_API_PREFIX}/host` && request.method === "GET") return json(200, await this.host.status());
       if (url.pathname === `${WEB_API_PREFIX}/host/battery` && request.method === "GET") return json(200, { battery: await readHostBattery() });
       if (url.pathname === `${WEB_API_PREFIX}/host/actions` && request.method === "POST") {
@@ -199,7 +273,7 @@ export class WebSurfaceApi {
         if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });
         if (request.method === "POST") {
           const data = await body(request, ["project", "threadId", "provider"]);
-          if (data.provider !== undefined && data.provider !== "codex" && data.provider !== "claude") throw new WebRequestError(400, "invalid_request", "provider must be codex or claude.");
+          if (data.provider !== undefined && (typeof data.provider !== "string" || (v2Request ? !this.application.conversation.listNeutralProviders().some(entry => entry.id === data.provider) : !["codex", "claude"].includes(data.provider)))) throw new WebRequestError(400, "invalid_request", "Choose an available provider.");
           if (data.threadId && data.provider !== undefined) throw new WebRequestError(400, "invalid_request", "An existing thread determines its provider.");
           return json(201, await this.create(optionalString(data, "project", 4096), optionalString(data, "threadId", 256), undefined, undefined, data.provider as AgentProvider | undefined));
         }
@@ -219,7 +293,7 @@ export class WebSurfaceApi {
       const threadId = entry.threadId;
       const action = match[2];
       if (match[3] && action !== "approvals" && action !== "images") return fail(404, "not_found", "Route not found.");
-      if (!action && request.method === "GET") return json(200, { ...this.summary(entry), state: this.context.ingress.getThreadState(threadId) });
+      if (!action && request.method === "GET") return json(200, { ...this.summary(entry), state: v2Request ? this.application.conversation.readNeutralSnapshot(threadId).state : this.context.ingress.getThreadState(threadId) });
       if (!action && request.method === "DELETE") {
         await this.mutate(entry, async () => this.remove(entry));
         return json(200, { ok: true });
@@ -353,6 +427,8 @@ export class WebSurfaceApi {
       }
       return fail(405, "method_not_allowed", "Method is not supported for this route.");
     } catch (error) {
+      if (error instanceof NeutralInputError) return fail(400, "invalid_input", error.message);
+      if (error instanceof ProviderCapabilityError) return fail(422, "unsupported_capability", error.message);
       if (error instanceof ProjectionRecoveryError) return fail(409, "projection_resync_required", error.message);
       if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
       if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
@@ -380,7 +456,7 @@ export class WebSurfaceApi {
   }
 
   private summary(entry: Entry): WebConversation {
-    return { id: entry.id, threadId: entry.threadId!, project: entry.project };
+    return { id: entry.id, threadId: entry.threadId!, project: entry.project, ...(this.application.conversation.getThreadProvider ? { provider: this.application.conversation.getThreadProvider(entry.threadId!) } : {}) };
   }
   private available(): void {
     if (this.stopping || this.context.isQuiescing()) throw new WebRequestError(503, "unavailable", "Shepherd is stopping.");

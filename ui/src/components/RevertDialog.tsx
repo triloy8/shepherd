@@ -5,7 +5,7 @@ import { Icon } from "./Icon";
 
 /** One confirmation per conversation; uncertainty survives closing and reopening. */
 export function RevertDialog({ target, disabled, available, onClose, revert, reload }: {
-  target: ChatMessage | null; disabled: boolean; available: boolean;
+  target: Pick<ChatMessage, "id" | "turnId" | "text"> | null; disabled: boolean; available: boolean;
   onClose: () => void; revert: (turnId: string) => Promise<void>; reload: () => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);

@@ -21,14 +21,16 @@ export function threadSummary(thread: ThreadRecord, archived: boolean) {
 /** Merge sorted provider pages. Refill a depleted source before selecting the next row. */
 export async function listProviderThreads(sources: Sources, request: ListStoredThreadsRequest): Promise<ListStoredThreadsResponse> {
   const combined = request.cursor?.startsWith(prefix);
-  const additional = sources.providers.filter(provider => provider !== "codex");
+  const primary = sources.providers[0];
+  if (!primary) return { threads: [], nextCursor: null, backwardsCursor: null };
+  const additional = sources.providers.filter(provider => provider !== primary);
   if (!combined && !additional.some(provider => sources.hasStoredThreads(provider, request))) {
-    const page = await sources.listPage("codex", request);
-    return { threads: page.data.map(thread => { sources.directory.bind(thread.id, "codex"); return threadSummary(thread, request.archived === true); }), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor ?? null };
+    const page = await sources.listPage(primary, request);
+    return { threads: page.data.map(thread => { sources.directory.bind(thread.id, primary); return threadSummary(thread, request.archived === true); }), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor ?? null };
   }
   const limit = request.limit ?? 20;
   if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid provider thread page size.");
-  let positions = Object.fromEntries(sources.providers.map(provider => [provider, { ...(provider === "codex" ? { cursor: request.cursor } : {}), skip: 0, done: false }])) as Record<AgentProvider, Position>;
+  let positions = Object.fromEntries(sources.providers.map(provider => [provider, { ...(provider === primary ? { cursor: request.cursor } : {}), skip: 0, done: false }])) as Record<AgentProvider, Position>;
   if (combined) {
     try {
       positions = JSON.parse(Buffer.from(request.cursor!.slice(prefix.length), "base64url").toString());

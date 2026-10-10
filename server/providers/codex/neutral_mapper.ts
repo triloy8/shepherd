@@ -1,6 +1,7 @@
+import { imageItem } from "../neutral_media.js";
 import type { ConversationItem, ItemStatus } from "../../../shared/protocol/v2/conversation_items.js";
 import { boundText } from "../../../shared/protocol/v2/budgets.js";
-import { assistantItem, displayText, errorText, fallbackItem, phase, record, status, string, validItem } from "../neutral_items.js";
+import { assistantItem, itemBase, displayText, errorText, fallbackItem, phase, record, status, string, validItem } from "../neutral_items.js";
 import { userItem } from "../neutral_inputs.js";
 import type { NativeConversationSource } from "../neutral_source.js";
 import { TextProjection } from "../text_projection.js";
@@ -22,7 +23,36 @@ export class CodexNeutralMapper {
       return validItem(mapped);
     }
     if (item.type === "userMessage") return validItem(userItem(this.source, threadId, turnId, id, item.content, "completed"));
-    // Structured command/file/media variants land in stage three. Preserve available output now.
+    const base = itemBase(threadId, turnId, id, state);
+    const finite = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
+    if (item.type === "commandExecution") {
+      const actions = Array.isArray(item.commandActions) ? item.commandActions : [];
+      return validItem({ ...base, type: "command", command: boundText(string(item.command) ?? "", 8192), description: null,
+        cwd: typeof item.cwd === "string" ? boundText(item.cwd, 4096).text : null, actions: actions.slice(0, 10).map(value => { const action = record(value); return {
+          kind: action.type === "read" ? "read" : action.type === "search" ? "search" : action.type === "listFiles" ? "list" : "other",
+          path: typeof action.path === "string" ? boundText(action.path, 512).text : null, query: typeof action.query === "string" ? boundText(action.query, 512) : null,
+        }; }), output: typeof item.aggregatedOutput === "string" ? boundText(item.aggregatedOutput) : null,
+        exitCode: finite(item.exitCode), durationMs: finite(item.durationMs), execution: "unknown", taskId: null,
+        omitted: actions.length > 10 ? { actions: actions.length - 10 } : {},
+        unavailableFields: [...base.unavailableFields, "execution", "taskId", "description"], recovery: "partial" });
+    }
+    if (item.type === "fileChange") {
+      const changes = Array.isArray(item.changes) ? item.changes : [];
+      return validItem({ ...base, type: "file_change", changes: changes.slice(0, 20).map(value => {
+        const change = record(value), kind = record(change.kind), move = string(kind.move_path);
+        return { path: boundText(string(change.path) ?? "Unknown path", 1024).text, kind: move ? "move" : kind.type === "add" ? "add" : kind.type === "delete" ? "delete" : "update",
+          movePath: move === null ? null : boundText(move, 1024).text, diff: typeof change.diff === "string" ? boundText(change.diff, 1000) : null,
+          additions: null, deletions: null, applied: state === "completed" ? true : state === "failed" || state === "declined" ? false : null };
+      }), omitted: changes.length > 20 ? { changes: changes.length - 20 } : {}, recovery: "partial" });
+    }
+    if (item.type === "reasoning") {
+      const summary = Array.isArray(item.summary) ? item.summary.filter((value): value is string => typeof value === "string") : [];
+      return validItem({ ...base, type: "reasoning", summary: summary.slice(0, 20).map(text => boundText(text, 2048)), omitted: summary.length > 20 ? { summary: summary.length - 20 } : {} });
+    }
+    if (item.type === "plan") return validItem({ ...base, type: "plan", text: typeof item.text === "string" ? boundText(item.text) : null, steps: [], unavailableFields: [...base.unavailableFields, "steps"], recovery: "partial" });
+    if (item.type === "imageView" || item.type === "imageGeneration") return validItem(imageItem(this.source, threadId, turnId, id, item.type === "imageView" ? "viewed" : "generated", string(item.path) ?? string(item.savedPath), string(item.revisedPrompt), state));
+    if (item.type === "contextCompaction" || item.type === "enteredReviewMode" || item.type === "exitedReviewMode") return validItem({ ...base, type: "notice", kind: item.type === "contextCompaction" ? "compaction" : "review", text: boundText(string(item.review) ?? "Conversation context compacted.") });
+    // Unknown native variants preserve available output as an explicit partial tool.
     const output = (item.type === "reasoning" && Array.isArray(item.summary) ? item.summary.filter((value): value is string => typeof value === "string").join("\n") : null) ?? string(item.aggregatedOutput) ?? displayText(item.output) ?? displayText(item.result) ?? string(item.text);
     const input = string(item.command) ?? (item.arguments === undefined ? null : JSON.stringify(item.arguments));
     return validItem(fallbackItem(threadId, turnId, id, string(item.name) ?? string(item.tool) ?? string(item.type) ?? "Tool", input, output, state));
@@ -78,5 +108,6 @@ export class CodexNeutralMapper {
     if (this.endedTurns.size >= 512) this.endedTurns.delete(this.endedTurns.values().next().value!);
     this.endedTurns.add(turnId);
   }
+  hasEndedTurn(turnId: string): boolean { return this.endedTurns.has(turnId); }
   turnStarted(turnId: string): void { if (this.endedTurns.has(turnId)) return; this.activeTurn = turnId; this.source.emit({ type: "turn.started", payload: { turnId } }); }
 }

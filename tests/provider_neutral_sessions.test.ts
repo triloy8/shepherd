@@ -132,7 +132,7 @@ test("recorded Codex sandbox failure preserves live/history text and failed tool
   const actualThread = codexRecorded.requests.find(request => request.method === "turn/start")!.params.threadId!;
   const recovered = codexRecorded.history.data.map(entry => mapper.item(actualThread, entry.turnId, entry.item, "completed"));
   expect(neutralTimeline(state)).toEqual(recovered);
-  expect(recovered).toContainEqual(expect.objectContaining({ type: "tool", status: "failed", output: expect.objectContaining({ text: expect.stringContaining("bwrap") }) }));
+  expect(recovered).toContainEqual(expect.objectContaining({ type: "command", status: "failed", output: expect.objectContaining({ text: expect.stringContaining("bwrap") }) }));
   expect(state.needsResync).toBe(false);
   projection.close(); source.close();
 });
@@ -170,5 +170,17 @@ test("legacy shortened Claude tool output is marked incomplete with unknown nati
   expect(mapper.historyItem("thread", "turn", { id: "tool", type: "mcpToolCall", tool: "Read", result: "preview\n[500 characters omitted]", status: "completed" })).toMatchObject({
     recovery: "partial", output: { truncated: true, totalBytes: null },
   });
+  source.close();
+});
+
+test("large native command and diff records stay renderable within encoded item budgets", () => {
+  const source = new NativeConversationSource(capabilities(), async () => ({ data: [], nextCursor: null })); source.bind("thread");
+  const mapper = new CodexNeutralMapper(source);
+  const command = mapper.item("thread", "turn", { id: "command", type: "commandExecution", command: "x".repeat(20000), cwd: "/workspace", aggregatedOutput: "output".repeat(20000), status: "completed", commandActions: Array.from({ length: 100 }, () => ({ type: "search", path: "🦊".repeat(1000), query: "🦊".repeat(1000) })) });
+  expect(command).toMatchObject({ type: "command", omitted: { actions: 90 }, output: { truncated: true } });
+  expect(JSON.stringify(command).length).toBeLessThan(V2_BUDGETS.itemBytes);
+  const diff = mapper.item("thread", "turn", { id: "diff", type: "fileChange", status: "completed", changes: Array.from({ length: 50 }, () => ({ path: "🦊".repeat(2000), kind: { type: "update", move_path: null }, diff: "+line\n".repeat(10000) })) });
+  expect(diff).toMatchObject({ type: "file_change", omitted: { changes: 30 } });
+  expect(diff.type === "file_change" && diff.changes.every(change => change.diff?.truncated)).toBe(true);
   source.close();
 });

@@ -291,6 +291,7 @@ describe("CodexSession app-server contract", () => {
 
   test("maps legacy denial to the generated structured decision", async () => {
     const session = new CodexSession("on-request");
+    session.threadId = "thread-1"; session.neutral.bind("thread-1");
     const writes: unknown[] = [];
     const events: BridgeEvent[] = [];
     internals(session).writeLine = (payload) => writes.push(payload);

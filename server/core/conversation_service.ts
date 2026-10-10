@@ -327,6 +327,14 @@ export class ConversationService {
     return this.manager.subscribeToThreadEvents(threadId, listener, cursorOrOptions);
   }
 
+  readNeutralSnapshot(threadId: string) { return this.manager.readNeutralSnapshot(threadId); }
+  readNeutralSnapshotItems(threadId: string, cursor: string) { return this.manager.readNeutralSnapshotItems(threadId, cursor); }
+  readNeutralItems(threadId: string, cursor?: string) { return this.manager.readNeutralItems(threadId, cursor); }
+  readNeutralAsset(threadId: string, id: string) { return this.manager.readNeutralAsset(threadId, id); }
+  subscribeNeutralEvents(threadId: string, listener: (event: import("../../shared/protocol/v2/events.js").BridgeEvent) => void, cursor?: import("./projection_event_log.js").ProjectionCursor, onClose?: () => void) {
+    return this.manager.subscribeNeutralEvents(threadId, listener, cursor, onClose);
+  }
+
   submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     return this.manager.submitTurn(threadId, request);
   }

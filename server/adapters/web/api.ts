@@ -21,11 +21,14 @@ import { BodyTooLargeError, readBoundedJson } from "../http/body.js";
 import type { WebConfig } from "./config.js";
 import { WebRequestError } from "./errors.js";
 import { WebEventFeed } from "./event_feed.js";
+import { NeutralEventStreams } from "./neutral_events.js";
+import { ProjectionRecoveryError } from "../../core/projection_event_log.js";
+import { assertJsonBudget, V2_BUDGETS } from "../../../shared/protocol/v2/budgets.js";
 
 export const WEB_MAX_BODY_BYTES = 64 * 1024;
 const MAX_CONVERSATIONS = 32;
 const MAX_REQUESTS = 32;
-type Entry = { id: string; threadId: string | null; project: string; busy: boolean; historyRevision: number; feed: WebEventFeed; images: WebImages };
+type Entry = { id: string; threadId: string | null; project: string; busy: boolean; historyRevision: number; feed: WebEventFeed; images: WebImages; neutral: NeutralEventStreams };
 
 function requiredString(object: Record<string, unknown>, key: string, max = 4096): string {
   const value = object[key];
@@ -102,7 +105,7 @@ export class WebSurfaceApi {
     if (origin !== null && !allowedOrigin) return fail(403, "origin_denied", "Origin is not allowed.");
     const url = new URL(request.url);
     if (request.method === "OPTIONS") {
-      if (!allowedOrigin || !url.pathname.startsWith(`${WEB_API_PREFIX}/`)) return fail(403, "origin_denied", "Preflight is not allowed.");
+      if (!allowedOrigin || ![`${WEB_API_PREFIX}/`, "/api/v2/"].some(prefix => url.pathname.startsWith(prefix))) return fail(403, "origin_denied", "Preflight is not allowed.");
       const method = request.headers.get("access-control-request-method");
       const requestedHeaders = (request.headers.get("access-control-request-headers") ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
       if (!method || !["GET", "POST", "DELETE"].includes(method) || requestedHeaders.some((s) => !["content-type", "last-event-id"].includes(s))) {
@@ -117,6 +120,38 @@ export class WebSurfaceApi {
     if (this.requests >= MAX_REQUESTS) return fail(429, "request_limit", "Too many in-flight requests.");
     this.requests++;
     try {
+      const neutral = /^\/api\/v2\/conversations\/([^/]+)\/(snapshot|snapshot-items|items|events|assets)(?:\/([a-f0-9]{64}))?$/.exec(url.pathname);
+      if (neutral) {
+        if (request.method !== "GET") return fail(405, "method_not_allowed", "This v2 projection route is read-only.");
+        const entry = this.entries.get(neutral[1]!);
+        if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found.");
+        if (typeof this.application.conversation.readNeutralSnapshot !== "function") return fail(422, "projection_unavailable", "Neutral projection is unavailable for this session.");
+        const action = neutral[2];
+        if ((action === "assets") !== !!neutral[3]) return fail(404, "not_found", "Route not found.");
+        if (action === "events") {
+          if (url.search) return fail(400, "invalid_query", "Use Last-Event-ID for event replay.");
+          headers.set("content-type", "text/event-stream"); headers.set("x-accel-buffering", "no");
+          return new Response(entry.neutral.open(this.application.conversation, entry.threadId, request.headers.get("last-event-id"), request.signal), { headers });
+        }
+        if (action === "assets") {
+          if (url.search) return fail(400, "invalid_query", "Asset queries are not supported.");
+          try {
+            const asset = await this.application.conversation.readNeutralAsset(entry.threadId, neutral[3]!);
+            headers.set("content-type", asset.mimeType); headers.set("content-security-policy", "default-src 'none'; sandbox");
+            headers.set("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(asset.name)}`);
+            return new Response(asset.bytes as BodyInit, { headers });
+          } catch { return fail(404, "asset_unavailable", "Asset is unavailable. Refresh conversation history."); }
+        }
+        if ([...url.searchParams.keys()].some(key => key !== "cursor") || (url.searchParams.get("cursor")?.length ?? 0) > 4096) return fail(400, "invalid_query", "Only an opaque cursor is supported.");
+        const cursor = url.searchParams.get("cursor") ?? undefined;
+        if (action === "snapshot" && cursor) return fail(400, "invalid_query", "Snapshot capture does not take a cursor.");
+        if (action === "snapshot-items" && !cursor) return fail(400, "invalid_query", "A snapshot cursor is required.");
+        const value = action === "snapshot" ? this.application.conversation.readNeutralSnapshot(entry.threadId)
+          : action === "snapshot-items" ? this.application.conversation.readNeutralSnapshotItems(entry.threadId, cursor!)
+          : await this.application.conversation.readNeutralItems(entry.threadId, cursor);
+        assertJsonBudget(value, V2_BUDGETS.pageBytes, "v2 response");
+        return json(200, value);
+      }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true, apiVersion: WEB_API_VERSION });
       if (url.pathname === `${WEB_API_PREFIX}/host` && request.method === "GET") return json(200, await this.host.status());
       if (url.pathname === `${WEB_API_PREFIX}/host/battery` && request.method === "GET") return json(200, { battery: await readHostBattery() });
@@ -318,6 +353,7 @@ export class WebSurfaceApi {
       }
       return fail(405, "method_not_allowed", "Method is not supported for this route.");
     } catch (error) {
+      if (error instanceof ProjectionRecoveryError) return fail(409, "projection_resync_required", error.message);
       if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
       if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
       if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");
@@ -351,6 +387,7 @@ export class WebSurfaceApi {
   }
   private remove(entry: Entry): void {
     entry.feed.close();
+    entry.neutral.close();
     this.entries.delete(entry.id);
     this.application.disposeSurface(entry.id);
   }
@@ -363,7 +400,7 @@ export class WebSurfaceApi {
     if (this.entries.size >= MAX_CONVERSATIONS) throw new WebRequestError(429, "conversation_limit", "Detach an existing conversation before opening another.");
     if (threadId && this.resuming.has(threadId)) throw new WebRequestError(409, "thread_in_use", "Thread resume is already in progress.");
     const id = randomUUID();
-    const entry: Entry = { id, images: new WebImages(id), threadId: null, project: project ?? "", busy: false, historyRevision: 0, feed: new WebEventFeed() };
+    const entry: Entry = { id, images: new WebImages(id), threadId: null, project: project ?? "", busy: false, historyRevision: 0, feed: new WebEventFeed(), neutral: new NeutralEventStreams() };
     this.entries.set(entry.id, entry);
     if (threadId) this.resuming.add(threadId);
     try {

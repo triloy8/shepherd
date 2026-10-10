@@ -1,0 +1,26 @@
+{
+  "evidence": "synthetic",
+  "versions": { "cli": "0.160.1", "schemas": "0.160.1" },
+  "scenario": "root text before and after a tool call",
+  "notifications": [
+    { "method": "turn/started", "params": { "threadId": "thread-1", "turn": { "id": "turn-1", "status": "inProgress" } } },
+    { "method": "item/completed", "params": { "threadId": "thread-1", "turnId": "turn-1", "item": { "id": "user-1", "type": "userMessage", "clientId": null, "content": [{ "type": "text", "text": "Read the synthetic fixture.", "text_elements": [] }] } } },
+    { "method": "item/started", "params": { "threadId": "thread-1", "turnId": "turn-1", "item": { "id": "before", "type": "agentMessage", "text": "", "phase": null } } },
+    { "method": "item/agentMessage/delta", "params": { "threadId": "thread-1", "turnId": "turn-1", "itemId": "before", "delta": "Reading the fixture." } },
+    { "method": "item/completed", "params": { "threadId": "thread-1", "turnId": "turn-1", "item": { "id": "before", "type": "agentMessage", "text": "Reading the fixture.", "phase": "commentary" } } },
+    { "method": "item/started", "params": { "threadId": "thread-1", "turnId": "turn-1", "item": { "id": "answer", "type": "agentMessage", "text": "", "phase": null } } },
+    { "method": "item/agentMessage/delta", "params": { "threadId": "thread-1", "turnId": "turn-1", "itemId": "answer", "delta": "The fixture " } },
+    { "method": "item/agentMessage/delta", "params": { "threadId": "thread-1", "turnId": "turn-1", "itemId": "answer", "delta": "contains 🦊." } },
+    { "method": "item/completed", "params": { "threadId": "thread-1", "turnId": "turn-1", "item": { "id": "answer", "type": "agentMessage", "text": "The fixture contains 🦊.", "phase": "final_answer" } } },
+    { "method": "turn/completed", "params": { "threadId": "thread-1", "turn": { "id": "turn-1", "status": "completed", "error": null } } }
+  ],
+  "history": {
+    "data": [
+      { "turnId": "turn-1", "item": { "id": "user-1", "type": "userMessage", "clientId": null, "content": [{ "type": "text", "text": "Read the synthetic fixture.", "text_elements": [] }] } },
+      { "turnId": "turn-1", "item": { "id": "before", "type": "agentMessage", "text": "Reading the fixture.", "phase": "commentary", "memoryCitation": null, "delivery": null, "questions": null } },
+      { "turnId": "turn-1", "item": { "id": "answer", "type": "agentMessage", "text": "The fixture contains 🦊.", "phase": "final_answer", "memoryCitation": null, "delivery": null, "questions": null } }
+    ],
+    "nextCursor": null,
+    "backwardsCursor": null
+  }
+}

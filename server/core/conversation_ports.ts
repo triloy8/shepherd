@@ -5,6 +5,7 @@ const readMethods = [
   "getThreadState",
   "getThreadProvider", "getThreadModel", "listStoredThreads", "listLoadedThreads",
   "listModels", "listSkills", "listThreadTurns", "listThreadItems",
+  "readNeutralSnapshot", "readNeutralSnapshotItems", "readNeutralItems", "readNeutralAsset", "subscribeNeutralEvents",
 ] as const;
 const controlMethods = [
   "getThreadEffort", "setThreadEffort", "writeSkillConfig", "setThreadModel",

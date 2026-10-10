@@ -15,9 +15,22 @@ the `server/ports/provider_v2.ts` port, an identity-independent registry, neutra
 default parsing, encoded-byte helpers, and process-local event ordering/replay.
 The default parser lives in runtime composition (`provider_defaults.ts`), so
 legacy native configuration aliases do not enter core.
-Current adapters and surfaces still use v1. Native mapper recordings, the
-snapshot assembler, asset serving, and the vertical text/history path are next;
-the new contracts alone do not advertise runtime v2 support.
+The first native-derived read path is now wired alongside v1. Codex app-server
+frames and Claude SDK text blocks feed adapter-local mappers; core owns item
+versions, immutable snapshots, replay, and history invalidation. Attached web
+conversations expose read-only v2 snapshots, history, events, and scoped assets.
+A shared reducer and generic item renderer are implemented and tested, but the
+default UI and Discord still use v1. This stage does not replace submission,
+approvals/questions, settings, catalogs, account limits, or runtime composition.
+Optional v2 action capabilities remain disabled until those ports are migrated.
+Tool records currently use a partial generic fallback; structured tools/diffs,
+background activity, and richer relationships remain the next mapping work.
+
+Synthetic and sanitized live fixtures cover text identity and recovery for both
+adapters. The recorded Claude fixture includes a successful read. The recorded
+Codex fixture includes a command that failed to initialize its host sandbox,
+followed by a completed text answer; it proves failure/output recovery, not
+successful sandboxed execution. See the [fixture guide](../tests/fixtures/provider-neutral/README.md).
 
 The goal is a completely provider-neutral application boundary. Choosing Claude
 or Codex changes the adapter and available capabilities, not the conversation,

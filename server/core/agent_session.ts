@@ -3,6 +3,7 @@ import type { ApprovalDecisionRequest } from "../../shared/protocol/approvals.js
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
+import type { NeutralConversationSource } from "../ports/neutral_conversation.js";
 
 export interface AgentEvents {
   publish(event: BridgeEvent): void;
@@ -19,6 +20,7 @@ export type ThreadBootstrapInfo = {
 
 /** Provider boundary. Implementations translate native SDK traffic into BridgeEvents. */
 export interface AgentExecution {
+  readonly neutral?: NeutralConversationSource;
   readonly capabilities: ProviderCapabilities;
   readonly backgroundTaskCount?: number;
   readonly sessionId: string;

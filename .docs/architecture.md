@@ -245,8 +245,17 @@ The additive v2 foundation now lives in `shared/protocol/v2/` and
 provider IDs, advertised session ports, optional services, and neutral defaults.
 `projection_event_log.ts` supplies bounded process-local ordering/replay;
 `server/runtime/provider_defaults.ts` decodes neutral defaults and legacy aliases.
-These modules are tested independently. Existing adapters, routes, and surfaces
-still use v1; the native projection and snapshot assembler are not wired yet.
+Each live session now also exposes a read-only `NeutralConversationSource`.
+Adapter-local native mappers project text/input and generic tool fallbacks without
+reading v1 bridge events. `conversation_projection.ts` assigns versions, captures
+bounded immutable snapshots, and orders replay; native history remains separate
+and unversioned. The web adapter serves `/api/v2/conversations/:id/` snapshot,
+snapshot-items, items, events, and asset routes for existing attached conversations.
+The shared UI reducer reconciles versioned overlays over native history; a generic
+renderer is ready for client cutover. The default UI and Discord still use v1.
+Submission, interactions, settings, catalogs, account limits, richer tool mapping,
+and registry/default integration are still migration work. The read-only source
+is an interim optional execution port, not the final `ProviderSession` contract.
 
 ## Discord Adapter Modules
 

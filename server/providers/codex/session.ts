@@ -1,4 +1,6 @@
 import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
+import { NativeConversationSource } from "../neutral_source.js";
+import { CodexNeutralMapper } from "./neutral_mapper.js";
 import { decodeResetOutcome } from "./account_usage.js";
 import { codexCapabilities } from "../capabilities.js";
 import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
@@ -247,6 +249,34 @@ function isApprovalServerRequest(method: string): boolean {
 }
 
 export class CodexSession implements AgentSession {
+  readonly neutral: NativeConversationSource = new NativeConversationSource({ fork: false, steering: false, compact: false, revert: false,
+    skills: { list: false, configure: false }, resets: false, questions: false, backgroundWork: false,
+    inputKinds: ["text", "asset", "skill", "mention"], inputMedia: ["image", "audio"],
+    approvalModes: ["provider_default", "review_sensitive", "bypass"], sandboxModes: ["read_only", "workspace_write", "unrestricted"] },
+    async (threadId, cursor) => {
+      let page;
+      try { page = await this.listThreadItems(threadId, { cursor, limit: 3, sortDirection: "asc" }); }
+      catch (error) {
+        if (!cursor && error instanceof Error && error.message === `thread ${threadId} is not materialized yet; thread/items/list is unavailable before first user message`) return { data: [], nextCursor: null };
+        throw error;
+      }
+      const ids = new Set(page.data.map(entry => entry.turnId));
+      const states = new Map<string, "in_progress" | "completed" | "failed" | "interrupted">();
+      let turnCursor: string | undefined;
+      const seen = new Set<string>();
+      do {
+        const turns = await this.listThreadTurns(threadId, { cursor: turnCursor, limit: 100, itemsView: "notLoaded", sortDirection: "asc" });
+        for (const turn of turns.data) if (ids.has(turn.id)) states.set(turn.id, turn.status === "inProgress" ? "in_progress" : turn.status);
+        if (states.size === ids.size || !turns.nextCursor) break;
+        if (seen.has(turns.nextCursor)) throw new Error("Repeated native turn cursor.");
+        seen.add(turns.nextCursor); turnCursor = turns.nextCursor;
+      } while (true);
+      // Terminal turn metadata must precede the authoritative item read. A completion
+      // between the first two reads cannot turn an older text prefix into a full answer.
+      if ([...states.values()].some(state => state !== "in_progress")) page = await this.listThreadItems(threadId, { cursor, limit: 3, sortDirection: "asc" });
+      return { data: page.data.map(entry => ({ turnId: entry.turnId, item: this.neutralMapper.item(threadId, entry.turnId, entry.item, states.get(entry.turnId)) })), nextCursor: page.nextCursor };
+    });
+  private readonly neutralMapper: CodexNeutralMapper = new CodexNeutralMapper(this.neutral);
   readonly capabilities = codexCapabilities;
   readonly sessionId = randomUUID();
   readonly createdAt = new Date().toISOString();
@@ -295,6 +325,7 @@ export class CodexSession implements AgentSession {
     this.child.on("exit", (code, signal) => {
       const message = `codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
       this.publish("session.error", this.threadId ?? "unbound", { message });
+      if (!this.stopped) this.neutralMapper.disconnected(this.threadId);
       this.cleanup();
     });
 
@@ -527,6 +558,7 @@ export class CodexSession implements AgentSession {
 
     const turnId = extractTurnId(result);
     this.activeTurnId = turnId;
+    if (turnId) this.neutralMapper.turnStarted(turnId);
     this.publish("turn.started", threadId, { turnId });
     return turnId;
   }
@@ -589,6 +621,7 @@ export class CodexSession implements AgentSession {
   stop(): void {
     this.stopped = true;
     this.cleanup();
+    this.neutral.close();
   }
 
   private mustSetThreadIdFromResult(result: unknown, method: string): string {
@@ -597,6 +630,7 @@ export class CodexSession implements AgentSession {
       throw new Error(`${method} returned an invalid thread id.`);
     }
     this.threadId = threadId;
+    this.neutral.bind(threadId);
     return threadId;
   }
 
@@ -828,6 +862,7 @@ export class CodexSession implements AgentSession {
   }
 
   private onNotification(method: string, params: unknown): void {
+    this.neutralMapper.notification(method, params, this.threadId, this.activeTurnId);
     const payload = asRecord(params);
     const threadId = asString(payload.threadId) ?? this.threadId ?? "unbound";
     const lower = method.toLowerCase();

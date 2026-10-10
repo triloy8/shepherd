@@ -1,4 +1,8 @@
 import { claudeDefaults } from "./defaults.js";
+import { NativeConversationSource } from "../neutral_source.js";
+import { ClaudeNeutralMapper, claudeTextItemId } from "./neutral_mapper.js";
+import { userItem } from "../neutral_inputs.js";
+import { boundText } from "../../../shared/protocol/v2/budgets.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
@@ -34,7 +38,7 @@ const storedResultChars = 8_000;
 type RequestUsage = { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
 
 /** The CLI emits one assistant message per content block. Later text blocks of one API message need distinct item IDs. */
-function textItemId(messageId: string, index: number): string { return index === 0 ? messageId : `${messageId}:${index}`; }
+const textItemId = claudeTextItemId;
 
 /** Context fill of one model request, not the turn aggregate on the result message. */
 function requestBreakdown(usage: RequestUsage): P.TokenUsageBreakdown {
@@ -53,6 +57,18 @@ function storedToolResult(content: unknown): unknown {
 }
 
 export class ClaudeSession implements AgentSession {
+  readonly neutral: NativeConversationSource = new NativeConversationSource({ fork: false, steering: false, compact: false, revert: false,
+    skills: { list: false, configure: false }, resets: false, questions: false, backgroundWork: false,
+    inputKinds: ["text", "asset"], inputMedia: ["image"], approvalModes: ["provider_default", "review_sensitive", "bypass"], sandboxModes: ["unrestricted"] },
+    async (threadId, cursor) => {
+      const page = await this.listThreadItems(threadId, { cursor, limit: 3, sortDirection: "asc" });
+      const thread = this.requireThread();
+      return { data: page.data.map(entry => {
+        const state = thread.turns.find(turn => turn.id === entry.turnId)?.status;
+        return { turnId: entry.turnId, item: this.neutralMapper.historyItem(threadId, entry.turnId, entry.item, state === "inProgress" ? "in_progress" : state) };
+      }), nextCursor: page.nextCursor };
+    });
+  private readonly neutralMapper: ClaudeNeutralMapper = new ClaudeNeutralMapper(this.neutral);
   readonly capabilities = claudeCapabilities;
   readonly sessionId = randomUUID();
   readonly eventBus = new EventBus();
@@ -86,6 +102,7 @@ export class ClaudeSession implements AgentSession {
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
   private bootstrap(): ThreadBootstrapInfo {
     const thread = this.requireThread();
+    this.neutral.bind(thread.id);
     return { threadId: thread.id, model: thread.model, modelProvider: "anthropic", reasoningEffort: thread.effort ?? null, approvalPolicy: this.approvalPolicy };
   }
   async startThread(request: P.CreateThreadRequest): Promise<ThreadBootstrapInfo> {
@@ -175,6 +192,7 @@ export class ClaudeSession implements AgentSession {
       throw error;
     }
     this.publish("turn.started", { turnId: turn.id });
+    this.neutral.emit({ type: "item.completed", payload: userItem(this.neutral, thread.id, turn.id, message.uuid!, input, "completed") });
     queue.push(message);
     if (!existing) { this.runningTools = tools; this.backgroundTasks.reset(); void this.consume(running, queue); }
     return turn.id;
@@ -214,6 +232,7 @@ export class ClaudeSession implements AgentSession {
           this.beginWakeTurn();
         }
         const turn = this.currentTurn;
+        this.neutralMapper.message(this.requireThread().id, turn?.id ?? null, message);
         if (message.type === "system" && message.subtype === "init") {
           this.requireThread().nativeId = message.session_id; this.requireThread().materialized = true; this.persist();
         }
@@ -234,12 +253,15 @@ export class ClaudeSession implements AgentSession {
         if (message.type === "assistant" && !message.parent_tool_use_id && turn) this.assistantMessage(message, turn);
         if (message.type === "user" && !message.parent_tool_use_id && turn && Array.isArray(message.message.content)) {
           for (const block of message.message.content) if (block.type === "tool_result") {
-            const item = turn.items.find((item) => item.id === block.tool_use_id);
-            if (item) {
-              item.status = block.is_error ? "failed" : "completed";
-              item.result = storedToolResult(block.content);
-              this.publish("turn.activity", { itemId: item.id, turnId: turn.id, kind: item.activityKind ?? "mcp_tool", label: String(item.tool), detail: null, status: item.status });
+            let item = turn.items.find((item) => item.id === block.tool_use_id);
+            if (!item) {
+              item = { id: block.tool_use_id, type: "mcpToolCall", tool: "Tool result", activityKind: "mcp_tool" };
+              turn.items.push(item);
             }
+            item.status = block.is_error ? "failed" : "completed";
+            item.result = storedToolResult(block.content);
+            this.neutral.emit({ type: "item.completed", payload: this.neutralMapper.historyItem(this.requireThread().id, turn.id, item) });
+            this.publish("turn.activity", { itemId: item.id, turnId: turn.id, kind: item.activityKind ?? "mcp_tool", label: String(item.tool), detail: null, status: item.status });
           }
           this.persistSoon();
         }
@@ -288,6 +310,11 @@ export class ClaudeSession implements AgentSession {
     const turn = this.currentTurn;
     if (!turn) return;
     this.flushText(status === "completed" ? "final_answer" : "commentary"); this.textBlocks.clear(); this.requestUsage = null;
+    this.neutralMapper.finish(this.requireThread().id, turn.id, status === "completed" ? "unknown" : status);
+    for (const item of turn.items) if (item.type === "mcpToolCall" && (!item.status || item.status === "inProgress")) {
+      item.status = status === "completed" ? "unknown" : status;
+      this.neutral.emit({ type: "item.completed", payload: this.neutralMapper.historyItem(this.requireThread().id, turn.id, item) });
+    }
     this.currentTurn = null; this.activeTurnId = null; this.denyPendingApprovals();
     turn.status = status;
     if (error && status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
@@ -307,7 +334,9 @@ export class ClaudeSession implements AgentSession {
       if (block.type === "tool_use") {
         this.flushText("commentary");
         const kind = block.name === "Bash" ? "command" : ["Edit", "Write"].includes(block.name) ? "file_change" : "mcp_tool";
-        turn.items.push({ id: block.id, type: "mcpToolCall", server: "claude", tool: block.name, arguments: block.input, activityKind: kind });
+        turn.items.push({ id: block.id, type: "mcpToolCall", server: "claude", tool: block.name, arguments: block.input, activityKind: kind, status: "inProgress" });
+        this.neutral.emit({ type: "item.started", payload: this.neutralMapper.historyItem(this.requireThread().id, turn.id,
+          { id: block.id, type: "mcpToolCall", tool: block.name, arguments: block.input, status: "inProgress" }) });
         this.publish("turn.activity", { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" });
       }
     }
@@ -315,7 +344,10 @@ export class ClaudeSession implements AgentSession {
   }
   private flushText(phase: "commentary" | "final_answer"): void {
     for (const pending of this.pendingText.splice(0)) {
-      pending.turn.items.push({ id: pending.itemId, type: "agentMessage", text: pending.text, phase });
+      pending.turn.items.push({ id: pending.itemId, type: "agentMessage", text: pending.text, phase,
+        status: this.interrupted || this.stopped ? "interrupted" : "completed" });
+      this.neutralMapper.completeText(this.requireThread().id, pending.turn.id, pending.itemId, pending.text, phase,
+        this.interrupted || this.stopped ? "interrupted" : "completed");
       if (!this.stopped) this.publish("turn.message.completed", { itemId: pending.itemId, turnId: pending.turn.id, phase, text: pending.text });
     }
   }
@@ -351,12 +383,14 @@ export class ClaudeSession implements AgentSession {
       if (decision.decision !== "submit" && decision.decision !== "cancel") throw new Error("Invalid Claude question decision.");
       const answers = decision.decision === "submit" ? claudeQuestionAnswers(pending.questions, decision.answers) : null;
       this.approvals.delete(approvalId);
+      this.publishNeutralStatus();
       pending.resolve(answers ? { behavior: "allow", updatedInput: { ...pending.input, answers } } : { behavior: "deny", message: "User skipped the questions." });
       return { method: "claude/question", approvalId };
     }
     if (decision.decision === "acceptForSession" && !pending.suggestions?.length) throw new Error("Session approval is unavailable for this request.");
     if (!["accept", "acceptForSession", "decline", "cancel"].includes(decision.decision)) throw new Error("Invalid Claude approval decision.");
     this.approvals.delete(approvalId);
+    this.publishNeutralStatus();
     pending.resolve(decision.decision === "accept" || decision.decision === "acceptForSession" ? { behavior: "allow", updatedInput: pending.input, ...(decision.decision === "acceptForSession" ? { updatedPermissions: pending.suggestions } : {}) } : { behavior: "deny", message: decision.reason ?? "Denied by user." });
     return { method: "claude/tool/requestApproval", approvalId };
   }
@@ -365,6 +399,7 @@ export class ClaudeSession implements AgentSession {
     const message = this.userMessage(input);
     this.input.push(message); this.steeredMessages++;
     this.requireThread().turns.at(-1)!.items.push({ id: message.uuid!, type: "userMessage", content: input });
+    this.neutral.emit({ type: "item.completed", payload: userItem(this.neutral, this.requireThread().id, this.activeTurnId, message.uuid!, input, "completed") });
     this.persist(); return this.activeTurnId;
   }
   async interruptTurn(turnId?: string): Promise<void> {
@@ -447,6 +482,7 @@ export class ClaudeSession implements AgentSession {
     for (const running of this.ownedQueries.keys()) this.closeQuery(running);
     this.denyPendingApprovals(); this.finishTurn("interrupted"); this.backgroundTasks.reset();
     if (this.persistTimer) { try { this.persist(); } catch { /* Shutdown continues; the SDK transcript is authoritative. */ } }
+    this.neutral.close();
   }
   private openQuery(input: InputQueue<SDKUserMessage>, options: Options): Query {
     const running = this.sdk.query({ prompt: input, options: { ...options, ...claudeAuthenticationOptions() } });
@@ -473,5 +509,19 @@ export class ClaudeSession implements AgentSession {
     }, persistDelayMs);
     this.persistTimer.unref?.();
   }
-  private publish(type: BridgeEventType, payload: unknown, id = this.requireThread().id) { this.eventBus.publish({ id: `${this.sessionId}:${++this.counter}`, type, payload, threadId: id, sessionId: this.sessionId, ts: new Date().toISOString() }); }
+  private publish(type: BridgeEventType, payload: unknown, id = this.requireThread().id) {
+    const value = payload as Record<string, unknown>;
+    if (type === "turn.started" && typeof value.turnId === "string") this.neutral.emit({ type: "turn.started", payload: { turnId: value.turnId } });
+    if (type === "turn.completed" && typeof value.turnId === "string") this.neutral.emit({ type: "turn.completed", payload: { turnId: value.turnId, status: this.interrupted ? "interrupted" : "completed" } });
+    if (type === "turn.failed" && typeof value.turnId === "string") this.neutral.emit({ type: "turn.failed", payload: { turnId: value.turnId, error: { code: "turn_failed", message: boundText(String(value.message ?? "Turn failed")), retryable: false } } });
+    if (["turn.started", "turn.completed", "thread.status.changed", "approval.requested", "approval.expired"].includes(type)) this.publishNeutralStatus();
+    this.eventBus.publish({ id: `${this.sessionId}:${++this.counter}`, type, payload, threadId: id, sessionId: this.sessionId, ts: new Date().toISOString() });
+  }
+  private publishNeutralStatus(): void {
+    const pending = [...this.approvals.values()];
+    const waitingFor = pending.length ? pending.some(request => request.questions) ? "user_input" : "approval" : null;
+    this.neutral.emit({ type: "thread.status.changed", payload: { activeTurnId: this.activeTurnId,
+      backgroundTaskCount: this.backgroundTaskCount, waitingFor,
+      state: waitingFor ? "waiting" : this.activeTurnId || this.backgroundTaskCount ? "active" : "idle" } });
+  }
 }

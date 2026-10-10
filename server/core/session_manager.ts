@@ -1,4 +1,6 @@
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
+import { ConversationProjection } from "./conversation_projection.js";
+import { ProjectionRecoveryError, type ProjectionCursor } from "./projection_event_log.js";
 import { ApplicationActionError } from "./action_error.js";
 import type {
   ApprovalDecisionRequest,
@@ -59,6 +61,7 @@ import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
 interface ManagedSession {
   session: AgentSession;
   createdAt: string;
+  projection?: ConversationProjection;
 }
 
 export type RuntimeActivity = {
@@ -130,7 +133,8 @@ export class SessionManager {
       const created = await start(session);
       this.assertRunning();
       this.providerDirectory.bind(created.threadId, request.provider ?? "codex");
-      this.sessionsByThread.set(created.threadId, { session, createdAt: new Date().toISOString() });
+      this.sessionsByThread.set(created.threadId, { session, createdAt: new Date().toISOString(),
+        ...(session.neutral ? { projection: new ConversationProjection(created.threadId, session.sessionId, session.neutral) } : {}) });
       if (request.cwd) this.cwdByThread.set(created.threadId, request.cwd);
       this.effortStateByThread.set(created.threadId, { current: created.reasoningEffort, pending: null });
       this.modelStateByThread.set(created.threadId, {
@@ -377,6 +381,19 @@ export class SessionManager {
     return managed.session.eventBus.subscribe(listener, cursorOrOptions);
   }
 
+  private neutralProjection(threadId: string): ConversationProjection {
+    const projection = this.mustGet(threadId).projection;
+    if (!projection) throw new ProjectionRecoveryError("Neutral projection is unavailable for this session.");
+    return projection;
+  }
+  readNeutralSnapshot(threadId: string) { return this.neutralProjection(threadId).snapshot(); }
+  readNeutralSnapshotItems(threadId: string, cursor: string) { return this.neutralProjection(threadId).snapshotItems(cursor); }
+  readNeutralItems(threadId: string, cursor?: string) { return this.neutralProjection(threadId).readItems(cursor); }
+  readNeutralAsset(threadId: string, id: string) { return this.neutralProjection(threadId).readAsset(id); }
+  subscribeNeutralEvents(threadId: string, listener: (event: import("../../shared/protocol/v2/events.js").BridgeEvent) => void, cursor?: ProjectionCursor, onClose?: () => void) {
+    return this.neutralProjection(threadId).subscribe(listener, cursor, onClose);
+  }
+
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     const managed = this.mustGet(threadId);
     const modelState = this.modelStateByThread.get(threadId);
@@ -488,6 +505,7 @@ export class SessionManager {
 
   private releaseSession(session: AgentSession): void {
     if (this.ownedSessions.delete(session)) {
+      for (const managed of this.sessionsByThread.values()) if (managed.session === session) managed.projection?.close();
       try { session.stop(); }
       finally { this.sessionSubscriptions.get(session)?.(); this.sessionSubscriptions.delete(session); }
     }

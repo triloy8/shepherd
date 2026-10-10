@@ -424,3 +424,42 @@ or remote image URLs become an unavailable-image placeholder, never a browser fe
 Stored conversation pages explicitly use `updated_at` descending, matching Discord
 `!threads`, including archived and later pages. Active means not archived, not
 currently running.
+
+
+## Additive v2 read projection
+
+Existing attached conversation IDs also support these GET routes:
+
+| Route under `/api/v2/conversations/:id/` | Response |
+| --- | --- |
+| `snapshot` | State, capabilities, epoch, watermark, history revision, and versioned overlay items |
+| `snapshot-items?cursor=...` | Continuation from that immutable snapshot capture |
+| `items?cursor=...` | Native-derived, unversioned history; opaque forward cursors |
+| `events` | Core-ordered SSE; `Last-Event-ID: <epoch>:<sequence>` resumes replay |
+| `assets/:assetId` | Authorized conversation asset download; no filesystem path input |
+
+These routes use the same origin, Host, lifecycle, and request-limit policy as
+v1. POST is rejected. Conversation creation/submission and interactions remain
+v1; the default UI has not switched to v2. Snapshots currently contain no neutral
+interactions; approval/question migration remains pending. Optional v2 action
+capabilities are disabled. Generic tool fallbacks explicitly report partial
+recovery until structured mapping lands.
+
+Fetch all snapshot continuation pages before applying buffered events after its
+watermark. Native history does not provide item revisions and must never seed a
+delta base. Overlay items take precedence over history with the same identity.
+A history revert invalidates cursors and requires recapture. Malformed, expired,
+future, or foreign replay cursors return HTTP 409 `projection_resync_required`;
+the client must take a new snapshot. A `projection_incomplete` warning also
+requires refresh. Detached conversations return 404.
+
+History reads fetch up to three native items per page within the 1 MiB encoded
+page limit. Snapshots retain at most two captures for 60 seconds. Replay retains
+at most 512 events / 4 MiB. Each conversation allows four v2 streams, with at
+most 1.25 MiB queued per client; a slow reader is closed and must reconnect or
+recapture. Session teardown, detach, cancellation, and request abort close streams.
+Assets are scoped to the provider source and conversation: individual downloads
+are limited to 10 MiB, retained bytes to 32 MiB / 256 references. Eviction or
+history invalidation can make an asset unavailable; refresh history to obtain a
+current reference. Full text beyond the bounded preview is downloadable when
+it fits these limits.

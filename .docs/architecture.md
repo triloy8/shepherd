@@ -241,9 +241,10 @@ Native history remains separate and unversioned. Interactions carry opaque optio
 IDs; exact SDK/RPC replies are private adapter closures. Invalid question answers
 remain pending, concurrent replies have one winner, and answers never enter replay.
 
-The web adapter serves additive `/api/v2` endpoints. The default `ui/` tree is
-restored from main revision `b5797c1` and uses `/api/v1`, its original timeline,
-and recent-first turn history. The attempted default neutral cutover was reverted
+The web adapter serves additive `/api/v2` endpoints. The default UI retains main revision `b5797c1` as its presentation baseline. Its
+original timeline and recent-first turn history use `/api/v1`. New-conversation
+provider choice and the usage panel use neutral provider descriptors and account
+ports, preserving the existing dialog styles. The attempted default neutral cutover was reverted
 because it changed presentation and pagination behavior. Runtime assembly retains
 an open factory map and neutral account readers/reset ports selected by provider ID.
 `provider_defaults.ts` reads canonical neutral settings and legacy aliases at

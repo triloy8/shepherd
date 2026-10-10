@@ -1,3 +1,4 @@
+import type { ProviderDescriptor } from "../../shared/protocol/v2/conversations";
 import { useImageDrafts } from "./use-image-drafts";
 import { HostControls } from "./components/HostControls";
 import { HostBattery } from "./components/HostBattery";
@@ -205,12 +206,21 @@ export default function App() {
       if (version === selectionVersion.current) setResuming(false);
     }
   }
+  const [providers, setProviders] = useState<ProviderDescriptor[]>([]);
+  const [provider, setProvider] = useState("");
+  useEffect(() => {
+    const abort = new AbortController();
+    void api.providers(abort.signal).then(value => {
+      if (!abort.signal.aborted) { setProviders(value.providers); setProvider(current => value.providers.some(entry => entry.id === current) ? current : value.providers[0]?.id ?? ""); }
+    }).catch(failure => { if (!abort.signal.aborted) setError(explainError(failure)); });
+    return () => abort.abort();
+  }, []);
   async function createConversation() {
-    if (creating || !project.trim() || !dialog) return;
+    if (creating || !project.trim() || !dialog || !provider) return;
     selectionVersion.current++; setResuming(false);
     setCreating(true); setError(null);
     try {
-      const conversation = await api.create({ project: project.trim() });
+      const conversation = await api.createWithProvider(project.trim(), provider);
       setConversations((items) => [...items.filter((item) => item.id !== conversation.id), conversation]);
       select(conversation); setDialog(null); void refreshList();
     } catch (error) { setError(`${explainError(error)} Refresh the conversation list before retrying if the connection dropped.`); }
@@ -277,7 +287,7 @@ export default function App() {
         {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads || refreshingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
       <div className="sidebar-footer">
-        <UsageLimits onOpen={() => setDrawer(false)} onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} />
+        <UsageLimits defaultProvider={selected?.provider} onOpen={() => setDrawer(false)} onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} />
         <HostControls onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} onOpen={() => setDrawer(false)} onRecovered={async () => {
           const previous = selected ?? savedSelection();
           setSelected(null); setSaved(previous);
@@ -344,11 +354,16 @@ export default function App() {
     <dialog ref={dialogRef} className="project-dialog" onCancel={(event) => { if (creating) event.preventDefault(); else setDialog(null); }} onClose={() => { if (!creating) setDialog(null); }}>
       <form onSubmit={(event) => { event.preventDefault(); void createConversation(); }}>
         <div className="mb-6 flex items-center justify-between"><h2 className="text-lg font-medium">{dialog?.title ?? "New conversation"}</h2><button type="button" className="icon-button" aria-label="Close" disabled={creating} onClick={() => setDialog(null)}><Icon name="close" /></button></div>
+        <label htmlFor="provider" className="mb-2 block text-sm font-medium">Agent</label>
+        <select id="provider" className="mb-4 block w-full rounded-lg border border-line bg-canvas p-3 text-sm text-ink" value={provider} disabled={creating || !providers.length} onChange={event => setProvider(event.target.value)}>
+          {!providers.length && <option value="">Loading agents…</option>}
+          {providers.map(entry => <option key={entry.id} value={entry.id}>{entry.displayName}</option>)}
+        </select>
         <label htmlFor="project" className="mb-2 block text-sm font-medium">Project</label>
         <input id="project" autoFocus value={project} onChange={(event) => setProject(event.target.value)} placeholder="owner/repo or ~/project" required maxLength={4096} disabled={creating} />
         <p className="mt-3 text-xs leading-6 text-muted">Use a GitHub repository, a path starting with ~/ or ~ for a new local workspace.</p>
         {error && <p className="notice mt-4" role="alert">{error}</p>}
-        <button className="button-primary mt-6 w-full justify-center" disabled={creating || !project.trim()}>{creating ? "Preparing workspace…" : "Create conversation"}<Icon name="chevron" /></button>
+        <button className="button-primary mt-6 w-full justify-center" disabled={creating || !project.trim() || !provider}>{creating ? "Preparing workspace…" : "Create conversation"}<Icon name="chevron" /></button>
       </form>
     </dialog>
   </div>;

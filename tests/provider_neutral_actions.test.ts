@@ -257,3 +257,14 @@ test("session-scoped legacy approvals do not invent a native turn identity", asy
   await manager.respondNeutral("thread", snapshot.interactions[0].id, { optionId: snapshot.interactions[0].options.find(option => option.intent === "cancel")!.id });
   expect(manager.readNeutralSnapshot("thread").interactions).toEqual([]); manager.stopAll();
 });
+
+
+test("an unresolved reset survives the provider selector storage upgrade with its exact idempotency key", async () => {
+  const { migrateAccountResetStorage } = await import("../ui/src/account-reset-state.js");
+  const values = new Map<string, string>([["shepherd.usage-reset", JSON.stringify({ idempotencyKey: "previous-request", creditId: "credit" })]]);
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } } as Storage;
+  migrateAccountResetStorage(storage);
+  expect(JSON.parse(values.get("shepherd.account-reset:codex")!)).toEqual({ idempotencyKey: "previous-request", creditId: "credit" });
+  expect(values.has("shepherd.usage-reset")).toBe(false);
+  migrateAccountResetStorage(storage); expect(values.size).toBe(1);
+});

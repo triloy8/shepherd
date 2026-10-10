@@ -39,7 +39,7 @@ They must not be read as a promise that every row is available with Claude.
 | Turn-based conversation revert | Yes | No | Hidden for Claude in web; unsupported calls rejected |
 | Skill discovery and toggles | Yes | No | Hidden for Claude in web; native Claude skill loading is separate |
 | Restricted sandbox selection | Additive v2 API only | No | The restored default UI uses main-branch settings |
-| Sidebar account usage and resets | Codex account and resets | Claude account allowances | Restored main-branch usage panel; neutral account descriptors remain available through the additive v2 API |
+| Sidebar account usage and resets | Codex account and resets | Claude account allowances | Main dialog styling with a neutral provider selector and account allowances; resets appear only when supported |
 | Context-window percentage | When reported | Yes, from the SDK model context window | Shown in web conversation settings for both providers |
 
 These are implemented distinctions, not approval for every missing feature.

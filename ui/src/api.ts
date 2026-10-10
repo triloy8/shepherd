@@ -1,3 +1,5 @@
+import type { ProviderDescriptor } from "../../shared/protocol/v2/conversations";
+import type { ProviderAccountLimits } from "../../shared/protocol/v2/account_limits";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
 import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse, WebResetRequest, WebResetResponse } from "../../shared/protocol/web";
@@ -11,9 +13,9 @@ export async function checked(response: Response): Promise<Response> {
   const data = await response.json().catch(() => null);
   throw new ApiError(response.status, data?.error?.code ?? "request_failed", data?.error?.message ?? `Request failed (${response.status}).`);
 }
-async function request<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
+async function request<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal, prefix: string = WEB_API_PREFIX): Promise<T> {
   const timeout = AbortSignal.timeout(60_000);
-  const response = await fetch(`${WEB_API_PREFIX}${path}`, {
+  const response = await fetch(`${prefix}${path}`, {
     method, credentials: "omit", cache: "no-store",
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
@@ -23,6 +25,10 @@ async function request<T>(path: string, method = "GET", body?: unknown, signal?:
 const conversationPath = (id: string) => `/conversations/${encodeURIComponent(id)}`;
 const page = (cursor?: string) => `?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
 export const api = {
+  providers: (signal?: AbortSignal) => request<{ providers: ProviderDescriptor[] }>("/providers", "GET", undefined, signal, "/api/v2"),
+  account: (provider: string, signal?: AbortSignal, refresh = false) => request<ProviderAccountLimits>(`/limits?provider=${encodeURIComponent(provider)}${refresh ? "&refresh=true" : ""}`, "GET", undefined, signal, "/api/v2"),
+  resetAccount: (provider: string, input: WebResetRequest) => request<{ outcome: "reset" | "already_redeemed" | "nothing_to_reset" | "no_credit" }>("/limits/reset", "POST", { provider, ...input }, undefined, "/api/v2"),
+  createWithProvider: (project: string, provider: string) => request<WebConversation>("/conversations", "POST", { project, provider }, undefined, "/api/v2"),
   host: (signal?: AbortSignal) => request<WebHostStatus>("/host", "GET", undefined, signal),
   hostBattery: (signal?: AbortSignal) => request<WebHostBatteryResponse>("/host/battery", "GET", undefined, signal),
   hostAction: (input: WebHostAction) => request<WebHostOperation>("/host/actions", "POST", input),

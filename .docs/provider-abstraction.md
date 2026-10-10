@@ -31,8 +31,11 @@ the shipped browser client.
 
 The attempted default web cutover was reverted at the user's request because it
 changed timeline presentation and introduced history pagination regressions.
-The entire `ui/` tree is restored from main revision `b5797c1`. The built-in UI
-uses `/api/v1`, its established timeline, and recent-first turn history. Its
+The UI baseline was restored from main revision `b5797c1`. Its timeline and
+recent-first turn history continue to use `/api/v1`. Two requested additions use
+the neutral endpoints: new-conversation provider choice and the account usage
+provider selector. Those choices come from runtime descriptors rather than a
+fixed provider list. Settings and conversation actions retain the main UI. Its
 existing “Load earlier messages” control is retained as part of that exact restore.
 A future neutral client migration must preserve those behaviors and be validated
 with long resumed conversations before becoming the default.

@@ -240,6 +240,14 @@ data rather than provider-name branches. Background work, recovery completeness,
 and snapshot/event reconciliation are explicit shared contracts. These are proposed
 changes, not current guarantees; update this section as each workflow lands.
 
+The additive v2 foundation now lives in `shared/protocol/v2/` and
+`server/ports/provider_v2.ts`. `server/core/provider_registry.ts` validates open
+provider IDs, advertised session ports, optional services, and neutral defaults.
+`projection_event_log.ts` supplies bounded process-local ordering/replay;
+`server/runtime/provider_defaults.ts` decodes neutral defaults and legacy aliases.
+These modules are tested independently. Existing adapters, routes, and surfaces
+still use v1; the native projection and snapshot assembler are not wired yet.
+
 ## Discord Adapter Modules
 
 ### Bootstrap and registration

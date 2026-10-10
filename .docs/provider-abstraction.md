@@ -10,6 +10,15 @@ of shipped behavior. [Architecture](architecture.md) describes the current code.
 Update maintained references with each landed workflow; archive this proposal
 when the migration is complete.
 
+Implementation has started with additive contracts in `shared/protocol/v2/`,
+the `server/ports/provider_v2.ts` port, an identity-independent registry, neutral
+default parsing, encoded-byte helpers, and process-local event ordering/replay.
+The default parser lives in runtime composition (`provider_defaults.ts`), so
+legacy native configuration aliases do not enter core.
+Current adapters and surfaces still use v1. Native mapper recordings, the
+snapshot assembler, asset serving, and the vertical text/history path are next;
+the new contracts alone do not advertise runtime v2 support.
+
 The goal is a completely provider-neutral application boundary. Choosing Claude
 or Codex changes the adapter and available capabilities, not the conversation,
 interaction, rendering, history, or account-limit model. A third adapter must not
@@ -92,7 +101,7 @@ Runtime composition -> core, adapters, storage
 `ProviderId` is a validated registry key, not a closed `"codex" | "claude"` union.
 The runtime registers descriptors, session factories, history access, model
 catalogs, account readers, and shutdown hooks. Public provider enumeration returns
-`{ id, displayName, capabilities }`; picker options come from this enumeration.
+`{ id, displayName, capabilities, defaults }`; picker options come from this enumeration.
 Neither UI nor core contains a provider switch. Bindings remain immutable and
 legacy prefix recognition remains confined to runtime composition.
 
@@ -100,9 +109,10 @@ New neutral `ConversationInput` replaces native-shaped `UserInput` at the port:
 
 ```ts
 type ProviderId = string; // validated against the injected registry
+type InputMedia = "image" | "audio";
 type InputPart =
   | { type: "text"; text: string }
-  | { type: "asset"; assetId: string; media: "image" | "audio" }
+  | { type: "asset"; assetId: string; media: InputMedia }
   | { type: "skill"; name: string; referenceId: string }
   | { type: "mention"; name: string; referenceId: string };
 type ConversationInput = InputPart[];
@@ -226,12 +236,16 @@ type HistoryInputPart =
   | Exclude<InputPart, { type: "text" }>;
 interface AssetReference {
   id: string;
-  media: "image" | "audio"; // add "file" when a surface produces files
+  media: "image" | "audio" | "text" | "file";
   mimeType: string | null;
   name: string | null;
   availability: "available" | "unavailable";
 }
 ```
+
+Output assets include full-text answers and tool detail files. Input attachments
+remain restricted to image/audio; output asset types do not advertise new input
+capabilities. `inputKinds` and `inputMedia` describe accepted inputs separately.
 
 `tool.input`/`output` are display text, not machine-readable native objects.
 Surfaces never parse them. Unknown work becomes a `tool` with an opaque display
@@ -279,13 +293,13 @@ head/tail previews for output. Caps apply before persistence and publication.
 
 | Value | Maximum |
 | --- | --- |
-| User/assistant message text | 256 KiB, not truncated below that. Web prompts are already limited to 32,768 characters (about 96 KiB UTF-8); model answers stay well under the limit. Larger text uses a preview plus full-text asset. |
-| Entire serialized item, excluding message text | 48 KiB |
+| User/assistant message text | 256 KiB in aggregate across all text parts, including JSON escaping. Larger text uses a preview plus full-text asset. Input submission retains its separate rejection limits. |
+| Entire serialized item, excluding message text | 48 KiB; a complete message item is at most 304 KiB |
 | Output/report/reasoning/diff field | 16 KiB; command/tool outputs retain the last 2 KiB |
 | Combined diffs per item | 24 KiB; counts computed before truncation |
 | Tool input, prompt, command | 8 KiB each |
 | Entire serialized interaction | 64 KiB |
-| Bridge/SSE frame, including envelope and surface decoration | 96 KiB; 288 KiB for message item events |
+| Bridge/SSE frame, including envelope and surface decoration | 96 KiB; 320 KiB for message item events |
 | History/list JSON response | 1 MiB |
 | Delta text | 4 KiB; split on Unicode boundaries |
 | Path, URL, ID, label; array entries | 4 KiB per string; at most 100 entries per array, also subject to aggregate budgets |
@@ -353,18 +367,25 @@ work failed. Retain revert history invalidation and handle recovery.
 Each bridge envelope adds `epoch` and `sequence`. A generic core projection
 assigns those values and item revisions in one serialized publication queue;
 adapters supply normalized mutations, not independently competing revision clocks.
-`GET /api/v2/conversations/:id/snapshot` returns projection state and pending
-interactions as of `throughSequence`, plus the first history page read from the
-provider afterwards, with `{ epoch, throughSequence, historyRevision }`. It is not
-one atomic read: the native history read happens without holding a lock, and the
-overlay rules below reconcile the two. Further history pages retain that history revision. The core
-queue owns snapshot assembly and lifecycle changes as well as items.
-Native history supplies recovered terminal work; active work and session-only
-overlays come from that projection. Hydration subscribes before
-loading native history. If an overlapping native read cannot be ordered safely,
-retry/reconcile with full item state or request resync; do not append buffered
-deltas to native text that may already contain them. A native read never overwrites
-newer known active projection state. No database lock is held across SDK waits.
+`GET /api/v2/conversations/:id/snapshot` captures projection state, pending
+interactions, and versioned overlays together as of `throughSequence`, with
+`{ epoch, throughSequence, historyRevision }`. Each overlay includes
+`{ item, revision }`; clients need that revision to apply the next delta.
+Overlay pages use opaque cursors bound to this capture and stay within the page
+budget. Expired captures require a fresh snapshot. Buffer events until all overlay
+pages are loaded. The core queue owns capture and lifecycle changes.
+
+Native history is fetched separately; a later SDK read is never described as
+state through an earlier watermark. History supplies recovered terminal work;
+active and session-only items come from versioned overlays, which take precedence
+by item ID. An unversioned history item cannot be the base of a streamed delta.
+Hydration subscribes before native reads and reconciles overlapping items with
+authoritative full replacements, not buffered append deltas. If an overlapping
+native read cannot be ordered safely, retry the read or request resync. History
+pages retain their history revision; revert invalidates both history and overlay
+cursors. No database lock is held across SDK waits. The stage-two assembler must
+test native text ahead of the capture, completion during hydration, and revert
+during pagination before exposing this endpoint.
 
 Clients open the stream before fetching the snapshot, buffer events, apply the
 snapshot, then replay only events after `throughSequence` in that epoch. Ignore
@@ -493,7 +514,7 @@ interface ProviderCapabilities {
   questions: boolean;
   backgroundWork: boolean;
   inputKinds: Array<InputPart["type"]>;
-  assetMedia: Array<AssetReference["media"]>;
+  inputMedia: Array<InputMedia>; // image/audio; separate from output/detail assets
   approvalModes: ApprovalMode[];
   sandboxModes: SandboxMode[];
 }
@@ -507,36 +528,45 @@ support, and background-work support. Per-model effort options remain catalog
 information. Capabilities may narrow for session/account/model constraints; refresh
 on settings change. Core and direct adapter calls reject unavailable settings.
 
-Approval semantics: provider_default uses documented native behavior; review_sensitive
-requires native permission checks for sensitive work; review_all promises a review
-of every supported side-effecting tool; bypass disables interactive tool approval,
-not user questions. Declare a mode only when enforceable. Native granular policy
-objects are not generic approval modes. Existing `untrusted`, `on-request`, and `never`
-values translate as in the table below; the table, not the mode names, states
-each provider's guarantee. Unrestricted means no sandbox guarantee, not no permission
+Approval semantics: provider_default uses documented native behavior;
+review_sensitive keeps native permission checks enabled, subject to configured
+allow rules and the execution boundary; review_all promises a review of every
+supported side-effecting tool not covered by an explicit prior grant; bypass
+disables interactive tool approval, not user questions. Declare a mode only when
+enforceable. Native granular policy objects are not generic approval modes. The
+table maps native settings to these guarantees; it cannot weaken a shared
+guarantee. Native recordings must establish the guarantee for commands, file
+changes, MCP, and Shepherd tools before an adapter advertises review_all.
+Unrestricted means no sandbox guarantee, not no permission
 questions. Claude advertises only unrestricted sandboxing until a real constrained
 execution boundary exists. Filesystem rollback is not implied by conversation revert.
 
-Each adapter declares exactly these modes. A mode not listed for a provider is not
-offered, and a request for it fails before any work starts.
+Each adapter declares only verified modes. A mode not listed or not verified is
+not offered, and a request for it fails before any work starts.
 
 | Neutral mode | Codex (`AskForApproval`, `SandboxMode`) | Claude (SDK `permissionMode`) |
 | --- | --- | --- |
 | `provider_default` | Omit the policy and let the Codex configuration decide | `default` with loaded settings rules (same as `review_sensitive`) |
 | `review_sensitive` | `on-request`: the model asks when it needs to leave the sandbox or judges an action risky; the sandbox does the enforcement | `default`: asks for any tool that loaded user, project, or local settings do not already allow |
-| `review_all` | `untrusted`: asks before every command except Codex's built-in trusted read-only commands; the UI states that exception | Not offered. Settings allow-rules (`settingSources: user, project, local`) approve tools without asking, and Shepherd cannot remove them without dropping project settings |
+| `review_all` | Candidate mapping: `untrusted`. Trusted read-only commands may run without review; all supported side-effecting tool categories must satisfy the guarantee in native contract tests before this mode is offered | Not offered until loaded allow-rules can be represented as explicit prior grants and all tool categories satisfy the guarantee |
 | `bypass` | `never` | `bypassPermissions` with `allowDangerouslySkipPermissions`; `AskUserQuestion` still asks |
 | `read_only` sandbox | `read-only` | Not offered |
 | `workspace_write` sandbox | `workspace-write` | Not offered |
 | `unrestricted` sandbox | `danger-full-access` | The only mode: no sandbox |
 
 Codex granular policy objects stay adapter-local configuration. Claude's
-`acceptEdits`, `plan`, `dontAsk`, and `auto` modes are not used. The existing
-`CODEX_APPROVAL_POLICY` (`untrusted`, `on-request`, `never`) and `CODEX_SANDBOX`
-values translate to `review_all`, `review_sensitive`, `bypass` and the matching
-sandbox modes, and remain the defaults for new conversations of either provider.
-As today, a Claude conversation requested with a restricted sandbox fails before
-it starts; the error names the unsupported mode.
+`acceptEdits`, `plan`, `dontAsk`, and `auto` modes are not used. Canonical v2 defaults
+are `SHEPHERD_APPROVAL_MODE` and `SHEPHERD_SANDBOX_MODE`; they take precedence over
+legacy aliases. Existing `CODEX_APPROVAL_POLICY` (`untrusted`, `on-request`, `never`)
+and `CODEX_SANDBOX` values translate to neutral values only when the corresponding
+neutral variable is absent. These explicit defaults apply to either provider and
+must pass capability validation; never silently downgrade an unsupported mode.
+With no explicit defaults, use adapter-declared defaults and validate them. Each
+registry descriptor includes neutral approval/sandbox defaults and validates them
+against its capabilities during registration. A
+restricted sandbox requested for an adapter without that capability fails before
+work starts; the error names the unsupported mode. The additive parser exists now;
+runtime configuration switches to it during the settings migration.
 
 ## Background work and nesting
 

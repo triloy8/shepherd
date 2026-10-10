@@ -19,7 +19,7 @@ export function createProviderServices(): ProviderServices {
       if (provider === "codex") return new CodexSession(policy, tools);
       throw new Error(`Unknown agent provider: ${provider}`);
     },
-    hasStoredThreads: (provider) => provider === "claude" && store.list().length > 0,
+    hasStoredThreads: (provider) => provider === "claude" && store.hasThreads(),
     directory: new FileThreadProviderDirectory(
       process.env.SHEPHERD_PROVIDER_STATE_DIR ?? join(homedir(), ".shepherd", "providers"),
       // Compatibility for conversations created before explicit bindings existed.

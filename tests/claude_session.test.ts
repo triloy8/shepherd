@@ -14,6 +14,7 @@ import { validateCreateThreadRequest } from "../shared/protocol/validation.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { reduceBridge, emptyChat } from "../ui/src/chat-state.js";
+import { timelineGroups } from "../ui/src/timeline.js";
 
 const directories: string[] = [];
 afterEach(() => { for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -30,7 +31,8 @@ function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) =>
     calls.push({ options: options!, input });
     return Object.assign(script(input, options!), { close: () => { closed++; }, interrupt: async () => { interruptions++; interrupt(); }, supportedModels: async () => [{ value: "sonnet", displayName: "Sonnet", description: "Claude", supportsEffort: true, supportedEffortLevels: ["low", "high"] }] }) as Query;
   }) as typeof query;
-  return { query: queryFn, forkSession: async () => ({ sessionId: "12345678-1234-1234-1234-123456789abc" }), calls, closed: () => closed, interruptions: () => interruptions, onInterrupt: (fn: () => void) => { interrupt = fn; } };
+  const forks: unknown[][] = [];
+  return { query: queryFn, forkSession: async (...args: unknown[]) => { forks.push(args); return { sessionId: "12345678-1234-1234-1234-123456789abc" }; }, forks, calls, closed: () => closed, interruptions: () => interruptions, onInterrupt: (fn: () => void) => { interrupt = fn; } };
 }
 async function done(session: ClaudeSession) {
   if (!session.activeTurnId) return;
@@ -467,4 +469,128 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
     expect(await manager.getThreadEffort(legacy.threadId)).toMatchObject({ model: "opus", currentEffort: "medium" });
     expect((await manager.listModels({ provider: "claude" })).data.map(row => row.model)).toEqual(["claude-opus-5-5"]);
   } finally { manager.stopAll(); }
+});
+
+test("per-block assistant messages mark text before tools as commentary and the last text as the answer", async () => {
+  const stream = (event: unknown) => ({ type: "stream_event", parent_tool_use_id: null, event }) as SDKMessage;
+  const assistant = (id: string, block: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { id, content: [block] } }) as SDKMessage;
+  const fake = sdk(async function* () {
+    yield stream({ type: "message_start", message: { id: "plan", usage: {} } });
+    yield stream({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+    yield stream({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Checking tests." } });
+    yield assistant("plan", { type: "text", text: "Checking tests." });
+    yield assistant("plan", { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "bun test" } });
+    yield { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "tool-1", content: "ok", is_error: false }] } } as SDKMessage;
+    yield stream({ type: "message_start", message: { id: "answer", usage: {} } });
+    yield stream({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+    yield stream({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Tests pass." } });
+    yield stream({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } });
+    yield stream({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Nothing else to do." } });
+    yield assistant("answer", { type: "text", text: "Tests pass." });
+    yield assistant("answer", { type: "text", text: "Nothing else to do." });
+    yield result;
+  });
+  const session = new ClaudeSession("on-request", undefined, store(), fake);
+  const { threadId } = await session.startThread({});
+  const events: BridgeEvent[] = []; session.eventBus.subscribe(event => events.push(event), { replay: false });
+  await session.startTurn([toTextUserInput("run tests")]); await done(session);
+  expect(events.filter(event => event.type === "turn.stream.delta").map(event => (event.payload as { itemId: string }).itemId)).toEqual(["plan", "answer", "answer:1"]);
+  expect(events.filter(event => event.type === "turn.message.completed").map(event => event.payload)).toMatchObject([
+    { itemId: "plan", phase: "commentary" }, { itemId: "answer", phase: "final_answer" }, { itemId: "answer:1", phase: "final_answer" },
+  ]);
+  expect((await session.listThreadTurns(threadId, {})).data[0]!.items.map(item => [item.id, item.phase ?? null])).toEqual([
+    [expect.any(String), null], ["plan", "commentary"], ["tool-1", null], ["answer", "final_answer"], ["answer:1", "final_answer"],
+  ]);
+  const chat = events.reduce(reduceBridge, emptyChat());
+  expect(timelineGroups(chat).flatMap(group => group.finalIds)).toEqual(["answer", "answer:1"]);
+  session.stop();
+});
+
+test("token usage reports the last request's context and the model context window", async () => {
+  const stream = (event: unknown) => ({ type: "stream_event", parent_tool_use_id: null, event }) as SDKMessage;
+  const fake = sdk(async function* () {
+    yield stream({ type: "message_start", message: { id: "m", usage: { input_tokens: 10, cache_read_input_tokens: 1000, cache_creation_input_tokens: 5, output_tokens: 1 } } });
+    yield stream({ type: "message_delta", delta: {}, usage: { output_tokens: 50 } });
+    yield { type: "assistant", parent_tool_use_id: null, message: { id: "m", content: [{ type: "text", text: "Done" }] } } as SDKMessage;
+    yield { ...result, usage: { input_tokens: 9_999, cache_read_input_tokens: 99_999, output_tokens: 999 },
+      modelUsage: { "claude-opus-5-5": { inputTokens: 10, outputTokens: 50, cacheReadInputTokens: 1000, cacheCreationInputTokens: 5, contextWindow: 200_000 } } } as SDKMessage;
+  });
+  const session = new ClaudeSession("on-request", undefined, store(), fake);
+  await session.startThread({ model: "claude-opus-5-5" });
+  const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
+  await session.startTurn([toTextUserInput("hello")]); await done(session);
+  expect(updates).toMatchObject([{ tokenUsage: { last: { inputTokens: 1015, cachedInputTokens: 1000, outputTokens: 50, totalTokens: 1065 }, modelContextWindow: 200_000 } }]);
+  session.stop();
+});
+
+test("forking a materialized thread searches every project directory for its transcript", async () => {
+  const storage = store(); const fake = sdk(async function* () { yield result; });
+  const source = new ClaudeSession("on-request", undefined, storage, fake);
+  const created = await source.startThread({ cwd: "/workspace-a" });
+  const saved = storage.read(created.threadId); saved.materialized = true; saved.cwd = "/workspace-b"; storage.write(saved);
+  const fork = new ClaudeSession("on-request", undefined, storage, fake);
+  const forked = await fork.forkThread(created.threadId, {});
+  expect(fake.forks).toEqual([[created.threadId.slice(7)]]);
+  fork.setCwd("/workspace-c"); await fork.startTurn([toTextUserInput("continue")]); await done(fork);
+  expect(fake.calls[0]!.options).toMatchObject({ cwd: "/workspace-c", resume: forked.threadId.slice(7) });
+  source.stop(); fork.stop();
+});
+
+test("streamed blocks coalesce history writes and stored tool output is bounded", async () => {
+  const storage = store(); let writes = 0;
+  const write = storage.write.bind(storage); storage.write = thread => { writes++; write(thread); };
+  const fake = sdk(async function* () {
+    for (let index = 0; index < 20; index++) {
+      yield { type: "assistant", parent_tool_use_id: null, message: { id: `m${index}`, content: [{ type: "tool_use", id: `tool-${index}`, name: "Read", input: {} }] } } as SDKMessage;
+      yield { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: `tool-${index}`, content: index ? "x".repeat(20_000) : [{ type: "image", source: { type: "base64", data: "AAAA" } }, { type: "text", text: "caption" }], is_error: false }] } } as SDKMessage;
+    }
+    yield result;
+  });
+  const session = new ClaudeSession("on-request", undefined, storage, fake);
+  const { threadId } = await session.startThread({}); writes = 0;
+  await session.startTurn([toTextUserInput("read")]); await done(session);
+  expect(writes).toBeLessThanOrEqual(3);
+  const items = storage.read(threadId).turns[0]!.items;
+  expect(items[1]!.result).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
+  expect(String(items[2]!.result).length).toBeLessThan(8_100);
+  session.stop();
+});
+
+test("the model catalog is cached and concurrent lookups share one CLI process", async () => {
+  const fake = sdk(async function* () { yield result; });
+  const session = new ClaudeSession("on-request", undefined, store(), fake);
+  await Promise.all([session.listModels({}), session.listModels({})]);
+  await session.listModels({ includeHidden: true });
+  expect(fake.calls).toHaveLength(1);
+  session.stop();
+});
+
+test("newly registered Shepherd tools reopen the idle SDK process before the next turn", async () => {
+  const registry = new DynamicToolRegistry();
+  const fake = sdk(async function* (input) { for await (const _message of input) yield result; });
+  const session = new ClaudeSession("on-request", registry, store(), fake);
+  await session.startThread({});
+  await session.startTurn([toTextUserInput("one")]); await done(session);
+  await session.startTurn([toTextUserInput("two")]); await done(session);
+  expect(fake.calls).toHaveLength(1);
+  registry.register({ namespace: "late", namespaceDescription: "Late tools", name: "late", description: "Late tool", inputSchema: { type: "object" }, execute: async () => ({ success: true, contentItems: [] }) });
+  await session.startTurn([toTextUserInput("three")]); await done(session);
+  expect(fake.calls).toHaveLength(2); expect(fake.closed()).toBe(1);
+  expect(Object.keys(fake.calls[1]!.options.mcpServers!)).toEqual(["shepherd"]);
+  session.stop();
+});
+
+test("thread listing reads summaries, rebuilds legacy summaries, and skips unreadable snapshots", async () => {
+  const { writeFileSync, rmSync: remove, existsSync } = await import("node:fs");
+  const directory = mkdtempSync(join(tmpdir(), "shepherd-claude-test-")); directories.push(directory);
+  const warnings: string[] = []; const storage = new ClaudeThreadStore(directory, message => warnings.push(message));
+  expect(storage.hasThreads()).toBe(false);
+  const session = new ClaudeSession("on-request", undefined, storage, sdk(async function* () { yield result; }));
+  const { threadId } = await session.startThread({ cwd: "/project" }); session.stop();
+  remove(join(directory, `${threadId}.meta.json`));
+  writeFileSync(join(directory, "claude-00000000-0000-0000-0000-000000000000.json"), "{");
+  const rows = storage.list();
+  expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ id: threadId, cwd: "/project" }); expect("turns" in rows[0]!).toBe(false);
+  expect(existsSync(join(directory, `${threadId}.meta.json`))).toBe(true);
+  expect(warnings).toHaveLength(1); expect(storage.hasThreads()).toBe(true);
 });

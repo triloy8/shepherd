@@ -5,10 +5,10 @@ import { shepherdMcpServers } from "./mcp_bridge.js";
 import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
 import type { UserQuestionRequest } from "../../../shared/protocol/user_questions.js";
 import { claudeCapabilities } from "../capabilities.js";
-import type { ClaudeThreadRepository, ClaudeThread } from "../../ports/claude_thread_store.js";
+import { claudeEffortLevels, isClaudeEffort, type ClaudeThreadRepository, type ClaudeThread, type ClaudeThreadSummary } from "../../ports/claude_thread_store.js";
 import { InputQueue } from "./input_queue.js";
 import { randomUUID } from "node:crypto";
-import { query, forkSession, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
+import { query, forkSession, type ModelInfo, type ModelUsage, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type * as P from "../../../shared/protocol/requests.js";
 import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals.js";
 import type { BridgeEventType } from "../../../shared/protocol/events.js";
@@ -27,6 +27,31 @@ function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) 
   return { data: values.slice(offset, offset + limit), nextCursor: offset + limit < values.length ? String(offset + limit) : null, backwardsCursor: null };
 }
 
+const modelCacheMs = 60_000;
+const persistDelayMs = 1_000;
+const storedResultChars = 8_000;
+
+type RequestUsage = { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
+
+/** The CLI emits one assistant message per content block. Later text blocks of one API message need distinct item IDs. */
+function textItemId(messageId: string, index: number): string { return index === 0 ? messageId : `${messageId}:${index}`; }
+
+/** Context fill of one model request, not the turn aggregate on the result message. */
+function requestBreakdown(usage: RequestUsage): P.TokenUsageBreakdown {
+  const cached = usage.cache_read_input_tokens ?? 0;
+  const inputTokens = (usage.input_tokens ?? 0) + cached + (usage.cache_creation_input_tokens ?? 0);
+  const outputTokens = usage.output_tokens ?? 0;
+  return { inputTokens, cachedInputTokens: cached, outputTokens, reasoningOutputTokens: 0, totalTokens: inputTokens + outputTokens };
+}
+
+/** The SDK transcript keeps full tool output. Shepherd history keeps a bounded preview. */
+function storedToolResult(content: unknown): unknown {
+  const text = (value: string) => value.length > storedResultChars ? `${value.slice(0, storedResultChars)}\n[${value.length - storedResultChars} characters omitted]` : value;
+  if (typeof content === "string") return text(content);
+  if (!Array.isArray(content)) return content;
+  return content.map((block: { type?: unknown; text?: unknown }) => block?.type === "text" && typeof block.text === "string" ? { type: "text", text: text(block.text) } : { type: typeof block?.type === "string" ? block.type : "unknown", omitted: true });
+}
+
 export class ClaudeSession implements AgentSession {
   readonly capabilities = claudeCapabilities;
   readonly sessionId = randomUUID();
@@ -43,6 +68,13 @@ export class ClaudeSession implements AgentSession {
   private counter = 0;
   private interrupted = false;
   private steeredMessages = 0;
+  private pendingText: Array<{ itemId: string; text: string; turn: P.HistoryTurn }> = [];
+  private readonly textBlocks = new Map<string, number>();
+  private requestUsage: RequestUsage | null = null;
+  private runningTools: string | null = null;
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private models: { value: ModelInfo[]; at: number } | null = null;
+  private loadingModels: Promise<ModelInfo[]> | null = null;
   private approvals = new Map<string, { resolve: (result: PermissionResult) => void; input: Record<string, unknown>; suggestions: Parameters<CanUseTool>[2]["suggestions"]; questions?: UserQuestionRequest }>();
   constructor(
     public approvalPolicy: P.ApprovalPolicy = "on-request",
@@ -84,7 +116,9 @@ export class ClaudeSession implements AgentSession {
     await this.initialize(); this.validateOverrides(request);
     const source = this.store.read(id);
     if (source.turns.some(turn => turn.status === "inProgress")) throw new Error("Cannot fork an active Claude thread.");
-    const nativeId = source.materialized ? (await this.sdk.forkSession(source.nativeId, { dir: source.cwd })).sessionId : randomUUID();
+    // The transcript stays in the project directory where it began. A thread's cwd can
+    // later move to another workspace, so let the SDK search every project directory.
+    const nativeId = source.materialized ? (await this.sdk.forkSession(source.nativeId)).sessionId : randomUUID();
     this.thread = { ...source, id: `claude-${nativeId}`, nativeId, name: null, archived: false, createdAt: Date.now() / 1000, turns: structuredClone(source.turns) };
     if (request.cwd) this.thread.cwd = request.cwd;
     if (request.model) this.thread.model = request.model;
@@ -103,17 +137,21 @@ export class ClaudeSession implements AgentSession {
     if (this.activeTurnId) throw new Error("A Claude turn is already active.");
     const thread = this.requireThread();
     if (typeof policy === "object") throw new UnsupportedProviderOperationError("Claude", "granular approval policies");
-    if (effort && !["low", "medium", "high", "xhigh", "max"].includes(effort)) throw new Error("Unsupported Claude effort.");
+    if (effort && !isClaudeEffort(effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
     const message = this.userMessage(input);
     const nextPolicy = policy ?? this.approvalPolicy;
     const settingsChanged = (cwd && cwd !== thread.cwd) || (model && model !== thread.model) || (effort && effort !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
-    if (this.running && settingsChanged) {
-      if (this.backgroundTaskCount) throw new Error("Wait for background tasks before changing Claude session settings.");
-      this.closeQuery(this.running); this.running = null; this.input = null;
+    // The SDK fixes MCP tools when its process starts; reopen when Shepherd tools change.
+    const tools = JSON.stringify(this.dynamicTools.specifications());
+    const toolsChanged = this.runningTools !== null && tools !== this.runningTools;
+    if (this.running && (settingsChanged || toolsChanged)) {
+      if (this.backgroundTaskCount) {
+        if (settingsChanged) throw new Error("Wait for background tasks before changing Claude session settings.");
+      } else { this.closeQuery(this.running); this.running = null; this.input = null; }
     }
     this.approvalPolicy = nextPolicy;
     const options: Options = {
-      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: (effort as Options["effort"]) ?? thread.effort,
+      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: (effort as ClaudeThread["effort"]) ?? thread.effort,
       ...(thread.materialized ? { resume: thread.nativeId } : { sessionId: thread.nativeId }),
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
       includePartialMessages: true, settingSources: ["user", "project", "local"],
@@ -138,7 +176,7 @@ export class ClaudeSession implements AgentSession {
     }
     this.publish("turn.started", { turnId: turn.id });
     queue.push(message);
-    if (!existing) { this.backgroundTasks.reset(); void this.consume(running, queue); }
+    if (!existing) { this.runningTools = tools; this.backgroundTasks.reset(); void this.consume(running, queue); }
     return turn.id;
   }
   private userMessage(input: UserInput[]): SDKUserMessage {
@@ -156,6 +194,8 @@ export class ClaudeSession implements AgentSession {
   }
   private async consume(running: Query, queue: InputQueue<SDKUserMessage>) {
     let streamItemId: string | null = null;
+    let streamMessageId: string | null = null;
+    let streamTextBlocks = 0;
     const scope = this.accountLimits?.scope();
     const account = this.accountLimits && typeof running.accountInfo === "function"
       ? running.accountInfo().catch(() => null) : Promise.resolve(null);
@@ -177,8 +217,18 @@ export class ClaudeSession implements AgentSession {
         if (message.type === "system" && message.subtype === "init") {
           this.requireThread().nativeId = message.session_id; this.requireThread().materialized = true; this.persist();
         }
+        if (message.type === "stream_event" && !message.parent_tool_use_id) {
+          const event = message.event;
+          if (event.type === "message_start") {
+            streamMessageId = streamItemId = event.message.id; streamTextBlocks = 0;
+            this.requestUsage = { ...event.message.usage };
+          }
+          if (event.type === "content_block_start" && event.content_block.type === "text" && streamMessageId) streamItemId = textItemId(streamMessageId, streamTextBlocks++);
+          if (event.type === "message_delta" && this.requestUsage) {
+            for (const [key, value] of Object.entries(event.usage ?? {})) if (typeof value === "number") (this.requestUsage as Record<string, number>)[key] = value;
+          }
+        }
         if (message.type === "stream_event" && !message.parent_tool_use_id && turn) {
-          if (message.event.type === "message_start") streamItemId = message.event.message.id;
           if (message.event.type === "content_block_delta" && message.event.delta.type === "text_delta") this.publish("turn.stream.delta", { kind: "assistant_text", method: "claude/text_delta", textDelta: message.event.delta.text, itemId: streamItemId, turnId: turn.id, phase: null });
         }
         if (message.type === "assistant" && !message.parent_tool_use_id && turn) this.assistantMessage(message, turn);
@@ -187,15 +237,17 @@ export class ClaudeSession implements AgentSession {
             const item = turn.items.find((item) => item.id === block.tool_use_id);
             if (item) {
               item.status = block.is_error ? "failed" : "completed";
-              item.result = block.content;
+              item.result = storedToolResult(block.content);
               this.publish("turn.activity", { itemId: item.id, turnId: turn.id, kind: item.activityKind ?? "mcp_tool", label: String(item.tool), detail: null, status: item.status });
             }
           }
+          this.persistSoon();
         }
         if (message.type === "result") {
-          const usage = message.usage;
-          const inputTokens = usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
-          const last: P.TokenUsageBreakdown = { inputTokens, cachedInputTokens: usage.cache_read_input_tokens ?? 0, outputTokens: usage.output_tokens, reasoningOutputTokens: 0, totalTokens: inputTokens + usage.output_tokens };
+          // A result ends the response to the queued input, so its last text is an answer.
+          this.flushText("final_answer");
+          const last = requestBreakdown(this.requestUsage ?? message.usage);
+          this.requestUsage = null;
           const total = Object.values(message.modelUsage).reduce((acc, usage) => {
             acc.inputTokens += usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
             acc.cachedInputTokens += usage.cacheReadInputTokens;
@@ -204,8 +256,9 @@ export class ClaudeSession implements AgentSession {
             acc.totalTokens = acc.inputTokens + acc.outputTokens;
             return acc;
           }, { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
-          this.requireThread().tokenUsage = { last, total };
-          this.publish("thread.tokenUsage.updated", { turnId: turn?.id ?? null, tokenUsage: { last, total } });
+          const tokenUsage: P.ThreadTokenUsage = { last, total, modelContextWindow: this.contextWindow(message.modelUsage) };
+          this.requireThread().tokenUsage = tokenUsage;
+          this.publish("thread.tokenUsage.updated", { turnId: turn?.id ?? null, tokenUsage });
           if (message.is_error) throw new Error(message.subtype === "success" ? message.result : message.errors.join("\n"));
           if ((message.queued_turn_count ?? 0) === 0 && turn) this.finishTurn(this.interrupted ? "interrupted" : "completed");
         }
@@ -234,6 +287,7 @@ export class ClaudeSession implements AgentSession {
   private finishTurn(status: "completed" | "interrupted" | "failed", error?: unknown): void {
     const turn = this.currentTurn;
     if (!turn) return;
+    this.flushText(status === "completed" ? "final_answer" : "commentary"); this.textBlocks.clear(); this.requestUsage = null;
     this.currentTurn = null; this.activeTurnId = null; this.denyPendingApprovals();
     turn.status = status;
     if (error && status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
@@ -241,21 +295,38 @@ export class ClaudeSession implements AgentSession {
     try { this.persist(); } catch (error) { turn.status = "failed"; turn.error = { message: String(error) }; }
     if (!this.stopped) this.publish(turn.status === "failed" ? "turn.failed" : "turn.completed", { turnId: turn.id, ...(turn.error ? { message: turn.error.message } : {}) });
   }
+  /** Text is commentary when a tool call follows it and an answer when the response ends. */
   private assistantMessage(message: Extract<SDKMessage, { type: "assistant" }>, turn: P.HistoryTurn) {
-    const phase = message.message.content.some((block) => block.type === "tool_use") ? "commentary" : "final_answer";
-    const text = message.message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
-    if (text) {
-      const itemId = message.message.id;
-      turn.items.push({ id: itemId, type: "agentMessage", text, phase });
-      this.publish("turn.message.completed", { itemId, turnId: turn.id, phase, text });
+    if (!this.requestUsage && message.message.usage) this.requestUsage = { ...message.message.usage };
+    for (const block of message.message.content) {
+      if (block.type === "text") {
+        const index = this.textBlocks.get(message.message.id) ?? 0;
+        this.textBlocks.set(message.message.id, index + 1);
+        if (block.text) this.pendingText.push({ itemId: textItemId(message.message.id, index), text: block.text, turn });
+      }
+      if (block.type === "tool_use") {
+        this.flushText("commentary");
+        const kind = block.name === "Bash" ? "command" : ["Edit", "Write"].includes(block.name) ? "file_change" : "mcp_tool";
+        turn.items.push({ id: block.id, type: "mcpToolCall", server: "claude", tool: block.name, arguments: block.input, activityKind: kind });
+        this.publish("turn.activity", { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" });
+      }
     }
-    for (const block of message.message.content) if (block.type === "tool_use") {
-      const kind = block.name === "Bash" ? "command" : ["Edit", "Write"].includes(block.name) ? "file_change" : "mcp_tool";
-      const item = { id: block.id, type: "mcpToolCall", server: "claude", tool: block.name, arguments: block.input, activityKind: kind };
-      turn.items.push(item);
-      this.publish("turn.activity", { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" });
+    this.persistSoon();
+  }
+  private flushText(phase: "commentary" | "final_answer"): void {
+    for (const pending of this.pendingText.splice(0)) {
+      pending.turn.items.push({ id: pending.itemId, type: "agentMessage", text: pending.text, phase });
+      if (!this.stopped) this.publish("turn.message.completed", { itemId: pending.itemId, turnId: pending.turn.id, phase, text: pending.text });
     }
-    this.persist();
+  }
+  private contextWindow(usage: Record<string, ModelUsage>): number | null {
+    const model = this.requireThread().model;
+    const rows = Object.entries(usage);
+    const main = rows.find(([key, row]) => key === model || row.canonicalModel === model)
+      // Aliases such as "opus" match no key; the main model carries most of the context.
+      ?? rows.sort(([, a], [, b]) => (b.inputTokens + b.cacheReadInputTokens) - (a.inputTokens + a.cacheReadInputTokens))[0];
+    const window = main?.[1].contextWindow;
+    return typeof window === "number" && window > 0 ? window : null;
   }
   private requestApproval(name: string, input: Record<string, unknown>, context: Parameters<CanUseTool>[2]): Promise<PermissionResult> {
     if (context.signal.aborted || this.stopped || !this.running) return Promise.resolve({ behavior: "deny", message: "Turn is no longer active." });
@@ -312,7 +383,7 @@ export class ClaudeSession implements AgentSession {
     }
   }
   async readThread(id: string, includeTurns: boolean) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); return { thread: this.record(thread, includeTurns) }; }
-  private record(thread: ClaudeThread, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, modelProvider: "anthropic", source: "appServer", ...(includeTurns ? { turns: thread.turns } : {}) }; }
+  private record(thread: ClaudeThreadSummary & { turns?: P.HistoryTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, modelProvider: "anthropic", source: "appServer", ...(includeTurns ? { turns: thread.turns ?? [] } : {}) }; }
   async listStoredThreads(request: P.ListStoredThreadsRequest) {
     const threads = this.store.list().filter((t) => t.archived === (request.archived ?? false) && (!request.searchTerm || `${t.name ?? ""} ${t.preview}`.toLowerCase().includes(request.searchTerm.toLowerCase())) && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(t.cwd) : request.cwd === t.cwd)) && (!request.modelProviders || request.modelProviders.includes("anthropic")) && (!request.sourceKinds || request.sourceKinds.includes("appServer")));
     const key = request.sortKey === "created_at" ? "createdAt" : "updatedAt";
@@ -346,19 +417,37 @@ export class ClaudeSession implements AgentSession {
   async listModels(request: P.ListModelsRequest): Promise<P.ListModelsResponse> {
     await this.initialize();
     const defaults = claudeDefaults();
-    const running = this.openQuery(new InputQueue<SDKUserMessage>(), { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? defaults.model, ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" });
-    try {
-      const models = await running.supportedModels();
-      const catalog = claudeModelCatalog(models, defaults).filter(model => request.includeHidden || !model.hidden);
-      const page = paginate(catalog, request);
-      return { data: page.data, nextCursor: page.nextCursor };
-    } finally { this.closeQuery(running); }
+    const catalog = claudeModelCatalog(await this.supportedModels(), defaults).filter(model => request.includeHidden || !model.hidden);
+    const page = paginate(catalog, request);
+    return { data: page.data, nextCursor: page.nextCursor };
+  }
+  /** Model and effort controls look up the catalog often; each uncached lookup starts a CLI process. */
+  private supportedModels(): Promise<ModelInfo[]> {
+    if (this.models && Date.now() - this.models.at < modelCacheMs) return Promise.resolve(this.models.value);
+    if (!this.loadingModels) {
+      const loading = (async () => {
+        const running = this.openQuery(new InputQueue<SDKUserMessage>(), { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? claudeDefaults().model, ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" });
+        try {
+          const value = await running.supportedModels();
+          if (!this.stopped) this.models = { value, at: Date.now() };
+          return value;
+        } finally { this.closeQuery(running); }
+      })();
+      this.loadingModels = loading;
+      void loading.catch(() => {}).finally(() => { if (this.loadingModels === loading) this.loadingModels = null; });
+    }
+    return this.loadingModels;
   }
   async listSkills(_request: P.SkillsListRequest): Promise<P.SkillsListResponse> { throw new UnsupportedProviderOperationError("Claude", "listing skills; Claude loads project skills through its settings"); }
   async writeSkillConfig(_request: P.SkillsConfigWriteRequest): Promise<P.SkillsConfigWriteResponse> { throw new UnsupportedProviderOperationError("Claude", "skill configuration"); }
   async readAccountRateLimits(): Promise<P.AccountRateLimitsResponse> { throw new UnsupportedProviderOperationError("Claude", "Codex account rate limits"); }
   async consumeRateLimitReset(_request: P.ConsumeRateLimitResetRequest): Promise<P.ConsumeRateLimitResetResponse> { throw new UnsupportedProviderOperationError("Claude", "Codex rate limit reset credits"); }
-  stop(): void { this.stopped = true; this.interrupted = true; for (const running of this.ownedQueries.keys()) this.closeQuery(running); this.denyPendingApprovals(); this.finishTurn("interrupted"); this.backgroundTasks.reset(); }
+  stop(): void {
+    this.stopped = true; this.interrupted = true;
+    for (const running of this.ownedQueries.keys()) this.closeQuery(running);
+    this.denyPendingApprovals(); this.finishTurn("interrupted"); this.backgroundTasks.reset();
+    if (this.persistTimer) { try { this.persist(); } catch { /* Shutdown continues; the SDK transcript is authoritative. */ } }
+  }
   private openQuery(input: InputQueue<SDKUserMessage>, options: Options): Query {
     const running = this.sdk.query({ prompt: input, options: { ...options, ...claudeAuthenticationOptions() } });
     this.ownedQueries.set(running, input);
@@ -371,6 +460,18 @@ export class ClaudeSession implements AgentSession {
   }
   private denyPendingApprovals() { for (const [approvalId, pending] of this.approvals) { pending.resolve({ behavior: "deny", message: "Turn ended." }); this.publish("approval.expired", { approvalId }); } this.approvals.clear(); }
   private requireThread(): ClaudeThread { if (!this.thread) throw new Error("Claude thread is not bound."); return this.thread; }
-  private persist() { const thread = this.requireThread(); thread.updatedAt = Date.now() / 1000; this.store.write(thread); }
+  private persist() {
+    if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
+    const thread = this.requireThread(); thread.updatedAt = Date.now() / 1000; this.store.write(thread);
+  }
+  /** Streamed blocks arrive quickly; coalesce their snapshot writes. Turn boundaries persist immediately. */
+  private persistSoon() {
+    if (this.persistTimer) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      try { this.persist(); } catch (error) { if (!this.stopped) this.publish("session.error", { message: `Could not save Claude history: ${String(error)}` }); }
+    }, persistDelayMs);
+    this.persistTimer.unref?.();
+  }
   private publish(type: BridgeEventType, payload: unknown, id = this.requireThread().id) { this.eventBus.publish({ id: `${this.sessionId}:${++this.counter}`, type, payload, threadId: id, sessionId: this.sessionId, ts: new Date().toISOString() }); }
 }

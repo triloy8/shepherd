@@ -63,11 +63,11 @@ login, not a blanket approval for distributing a subscription login product.
 | Start a Claude session | Implemented | SDK `query()` with a native session ID. Shepherd records its thread metadata before the native transcript is materialized. |
 | Continue across turns | Implemented | Keeps the query/input stream open; resumes the native session when a query must restart. |
 | Resume after process restart | Implemented | Uses saved native ID and cwd. Preserve both Shepherd snapshots/provider bindings and Claude's native transcripts. Interrupted saved turns remain interrupted. |
-| Fork | Implemented | SDK `forkSession()` for materialized sessions; a fresh ID for a thread not yet materialized. Rejects a source with an in-progress turn; overrides do not mutate the source. |
+| Fork | Implemented | SDK `forkSession()` for materialized sessions, searching every project directory because a thread's workspace can move after its transcript was written; a fresh ID for a thread not yet materialized. Rejects a source with an in-progress turn; overrides do not mutate the source. |
 | Rename, archive, restore | Implemented | Shepherd metadata operations. They do not constitute a wrapper for every native Claude session mutation API. |
 | Stored thread listing/filtering/pagination | Partial | Lists Shepherd-created snapshots, with name/preview search, cwd/archive/provider/source filters and sorting. Does not import arbitrary existing CLI sessions. Listings are live views, not a frozen snapshot. |
 | Loaded conversation listing | Implemented | Application-owned loaded sessions; catalog discovery queries are also closed on shutdown. |
-| Read turns/items and replay history | Implemented | Normalized persisted turns/items and pagination. Native session storage remains needed for continued model context. |
+| Read turns/items and replay history | Implemented | Normalized persisted turns/items and pagination. Assistant text before a tool call is commentary; text that ends a response is the final answer. Stored tool output is a bounded preview; the native transcript keeps the full output and remains needed for continued model context. Conversation lists read per-thread summaries and skip unreadable snapshots. |
 | Detach from a surface | Implemented | Releases surface attachment without stopping agent work. |
 | Background work | Partial | Tracks non-ambient background task counts using snapshots or older task edges; retains the query and records later root responses/questions as wake turns. No task-management dashboard. |
 | Change model/cwd/policy/effort | Partial | Restarts/resumes the query when needed. Settings changes wait for background work; cwd changes wait for active work. |
@@ -91,10 +91,10 @@ login, not a blanket approval for distributing a subscription login product.
 | Assistant commentary/final output | Partial | Root messages with tool use are marked commentary; other root text is final. Nested subagent text is not a separate transcript. |
 | Tool execution | Native | Uses Claude's built-in tools under its native agent loop. Host permissions and native configuration apply. |
 | Tool activity/results | Partial | Root tool calls are recorded as shared activity; Bash is command activity, Edit/Write are file changes, other tools are MCP/tool activity. Not a detailed native terminal or diff viewer. |
-| Shepherd dynamic tools | Implemented | Exposes the registry through an in-process MCP server; preserves namespace, arguments, result media, and originating turn identity. Rejects results after that turn ends. |
+| Shepherd dynamic tools | Implemented | Exposes the registry through an in-process MCP server; preserves namespace, arguments, result media, and originating turn identity. Rejects results after that turn ends, including calls from background work between turns. Tools registered after the SDK process starts are picked up by reopening it before the next turn; while background tasks run, the process is kept and new tools wait. |
 | External MCP configuration | Native | Claude can load native configuration. No Shepherd MCP server-management, OAuth, resource browser, or elicitation form control. |
 | Tool permission decisions | Partial | `canUseTool` requests translate to allow once, deny, and session-scoped suggested permission updates when available. No arbitrary permission-rule editor. |
-| Never-prompt tool policy | Implemented | Explicit bypass mode with permission flag. Structured user questions still use their own answer callback. |
+| Never-prompt tool policy | Implemented | Explicit bypass mode with permission flag. Structured user questions still use their own answer callback. No sandbox applies: commands and file changes run with the Shepherd host user's full access. |
 | Other shared approval policies | Partial | Maps to Claude's default native permission mode. Does not reproduce every Codex policy distinction; granular policy objects are rejected. |
 | Restricted sandbox modes | Unsupported | Only unset or `danger-full-access` is accepted. Tool approvals do not create an OS sandbox; isolation belongs to the host. |
 | `AskUserQuestion` | Implemented | Maps native questions to stable shared question IDs, validates answers, and returns answers keyed by original question text. |
@@ -106,7 +106,7 @@ login, not a blanket approval for distributing a subscription login product.
 
 | Capability | Status | What Shepherd does / limit |
 | --- | --- | --- |
-| Model discovery and selection | Implemented | SDK `supportedModels()` translated into the shared paginated model catalog; web model picker and routed model controls. New conversations default to explicit `claude-opus-5-5`; `CLAUDE_MODEL` overrides it. Catalog exposes resolved model IDs and retains native aliases as hidden compatibility entries. Actual model availability is plan-dependent. |
+| Model discovery and selection | Implemented | SDK `supportedModels()` translated into the shared paginated model catalog; web model picker and routed model controls. New conversations default to explicit `claude-opus-5-5`; `CLAUDE_MODEL` overrides it. Catalog exposes resolved model IDs and retains native aliases as hidden compatibility entries. The native catalog is cached for one minute so model and effort controls do not start a CLI process per lookup. Actual model availability is plan-dependent. |
 | Reasoning effort | Partial | Passes native effort settings; model catalog supplies supported levels. New conversation metadata defaults to medium; `CLAUDE_EFFORT` overrides it. Saved conversations/forks retain their effort. No global default editor in Shepherd. Not every model supports every level. |
 | Base/developer instructions | Partial | Appended to the Claude Code preset system prompt. No separate Claude developer-message role is created. |
 | User/project/local configuration | Native | Conversation queries load `settingSources: ["user", "project", "local"]`. Shepherd supplies its own per-query permission and subscription credential policy. |
@@ -125,9 +125,9 @@ login, not a blanket approval for distributing a subscription login product.
 | Capability | Status | What Shepherd does / limit |
 | --- | --- | --- |
 | Account allowance scope | Native | Shared by the Claude account across its conversations and other Claude surfaces. Provider selection does not create a per-conversation allowance. |
-| Turn token usage | Partial | Maps SDK result usage into last/total input, cache, output and available model-usage thinking values. These values are not a subscription usage percentage. |
+| Turn token usage | Partial | `last` is the final model request of the turn (from stream usage), so it reflects context fill rather than the turn aggregate. `total` maps SDK model usage, including available thinking values. These values are not a subscription usage percentage. |
 | Cumulative conversation accounting | Partial | Snapshot stores the latest mapped result; it does not implement a separate durable lifetime-cost ledger across resumed SDK queries. |
-| Context-window percentage | Missing | Adapter does not populate the shared `modelContextWindow` field, so the UI cannot calculate a reliable percentage. Token figures alone do not prove remaining context. |
+| Context-window percentage | Implemented | `modelContextWindow` comes from the SDK model usage for the conversation model, so the web UI shows the shared context percentage. |
 | Subscription `rate_limit_event` | Implemented | Native adapter forwards allowance events to one host account collector. Maps status, optional utilization/reset times and extra usage flags. Account lookup and observation cannot block or fail a turn. |
 | Five-hour / weekly / model/app-specific allowance display | Implemented | Claude tab in the existing Usage & limits panel displays native allowance rows. Supports canonical server rows and legacy five-hour/weekly/model fields. Missing utilization is “Not reported”; reported zero is retained. |
 | Limit warning/rejection and reset-time UI | Implemented | Displays event statuses and reported reset times. Labels old values, failed refreshes and passed resets as stale; never calculates zero usage from a reset time. Generic SDK result/transport errors still use the normal turn error path. |

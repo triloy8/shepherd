@@ -135,6 +135,10 @@ approvals, structured questions (including multiple selections), model/effort se
 and Shepherd dynamic tools through MCP. The common approval policy applies to
 both providers: `never` runs Claude with permission bypass; `on-request` and
 `untrusted` use Claude's normal permission checks and Shepherd approval prompts.
+Claude has no sandbox in Shepherd. With `never`, Claude can run any command and
+edit any file the Shepherd host user can, without a prompt. Codex with `never`
+still applies its configured sandbox. Run Claude conversations on an isolated
+host or container, or keep `on-request` when Claude should ask first.
 See the [SDK permission modes](https://code.claude.com/docs/en/agent-sdk/permissions).
 Claude currently accepts only an unset sandbox or `danger-full-access`; it
 rejects Codex's restricted sandbox modes rather than treating them as enforced.

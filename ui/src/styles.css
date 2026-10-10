@@ -59,6 +59,11 @@
   .timeline-entry { content-visibility: auto; contain-intrinsic-size: auto 12rem; }
   .message-user { @apply rounded-2xl border border-line/70 bg-panel px-5 py-4; }
   .message-assistant { @apply px-1; }
+  .neutral-item { overflow-wrap: anywhere; }
+  .neutral-activity { @apply rounded-xl border border-line/60 px-4 py-3; }
+  .neutral-activity-details { @apply mt-3 space-y-2 text-xs leading-6; }
+  .neutral-detail-text { @apply max-h-64 overflow-auto whitespace-pre-wrap text-xs leading-6; overflow-wrap: anywhere; }
+  .neutral-user-text { @apply whitespace-pre-wrap font-sans text-[15px] leading-7; overflow-wrap: anywhere; }
   .prose-chat { @apply break-words text-[15px] leading-7; overflow-wrap: anywhere; }
   .prose-chat p { @apply my-3; }
   .prose-chat p:first-child { @apply mt-0; }

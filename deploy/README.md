@@ -100,6 +100,13 @@ inherit `HOME=/home/nio`, so the standard installation needs no
 `SHEPHERD_SKILLS_DIR` override or launcher change. Install skills once; they are
 not automatically updated when Shepherd starts or deploys.
 
+Claude conversations need one more step: Claude Code does not read
+`~/.agents/skills`. Make `~/.claude/skills` a symbolic link to the whole shared
+skills directory, preserving Claude Code's existing sync state, as described in
+[Claude Code discovery](../.docs/shared-skills-location.md#claude-code-discovery).
+Without the link, Claude conversations have no `github` or `playwright-cli`
+skill.
+
 Verify Shepherd:
 
 ```bash

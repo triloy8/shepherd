@@ -40,6 +40,40 @@ launcher inherits the user's `HOME`, so no override or launcher edit is needed.
 For a custom root, set the override in the launcher environment; an unrelated
 interactive shell setting does not update an already-running service.
 
+## Claude Code discovery
+
+Codex reads `~/.agents/skills`, but Claude Code only discovers skills in
+`~/.claude/skills`. Claude conversations in Shepherd load user settings, so
+they find the shared skills only through a symbolic link. Link the whole
+directory, not individual skills, so skills added to the checkout later are
+discovered too:
+
+```bash
+# Claude Code keeps claude.ai-synced skills here; move them, do not delete them.
+if [ -d ~/.claude/skills ] && [ ! -L ~/.claude/skills ]; then
+  for entry in synced .trash; do
+    [ -e ~/.claude/skills/$entry ] && mv ~/.claude/skills/$entry ~/.agents/skills/
+  done
+  rmdir ~/.claude/skills   # Fails if anything else remains; move it first.
+fi
+mkdir -p ~/.claude
+ln -s ~/.agents/skills ~/.claude/skills
+printf '/synced/\n/.trash/\n' >> ~/.agents/skills/.git/info/exclude
+```
+
+Claude Code writes its sync state (`synced/`, `.trash/`) into the linked
+directory. The local exclude keeps that state out of the skills repository's
+`git status` and commits.
+
+Verify in a new Claude Code process; an already-running session keeps its list:
+
+```bash
+claude -p "List the names of every skill available to you via the Skill tool, comma-separated." --model haiku
+```
+
+The output must include `github` and `playwright-cli`. With a custom
+`SHEPHERD_SKILLS_DIR`, link `~/.claude/skills` to that directory instead.
+
 ## Migrate an existing host
 
 1. Record the old skills revision and local changes. Privately back up
@@ -54,7 +88,9 @@ interactive shell setting does not update an already-running service.
    Remove the old private policy after successful verification. Preserve any
    unrelated local files. Retire old generic skill copies in active workspaces
    too, so they do not cause duplicate-name ambiguity.
-5. Reload skills for the Shepherd repository and active workspaces. Expect
+5. Create the Claude Code link described in
+   [Claude Code discovery](#claude-code-discovery) and verify it.
+6. Reload skills for the Shepherd repository and active workspaces. Expect
    exactly one `github` and one `playwright-cli`, both from the shared location.
    Codex watches skill changes; open a fresh thread if an existing context
    still advertises the retired paths.
@@ -78,4 +114,4 @@ If verification fails, keep or restore the previous checkout and private policy
 and restore any previous launcher override. Do not remove the only working
 installation. Dispose of temporary private backups after verifying the completed
 migration. A successful host migration has one discoverable copy of each generic
-skill, preserved Git history, and one readable, ignored private policy file.
+skill, a `~/.claude/skills` link to the shared checkout, preserved Git history, and one readable, ignored private policy file.

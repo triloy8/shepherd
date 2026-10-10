@@ -161,7 +161,9 @@ for dependency boundaries and validation coverage.
 
 Install the shared GitHub and browser skills using the
 [skills installation guide](.docs/shared-skills-location.md). That guide also
-covers the private GitHub identity and repository policy.
+covers the private GitHub identity and repository policy. Claude conversations
+also need `~/.claude/skills` to be a symbolic link to the shared skills
+directory; see [Claude Code discovery](.docs/shared-skills-location.md#claude-code-discovery).
 
 ### Discord
 

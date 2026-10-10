@@ -293,7 +293,7 @@ test("question cancellation and native abort settle callbacks and expire stale a
 
 test("capabilities reach thread state and reject unsupported controls in the application", async () => {
   const fake = sdk(async function* () { yield result; }); const session = new ClaudeSession("review_sensitive", undefined, store(), fake);
-  const manager = new SessionManager(undefined, () => session); const { threadId } = await manager.createThread({ provider: "claude" });
+  const manager = new SessionManager(undefined, () => session, undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
   expect(manager.getThreadState(threadId)).toMatchObject({ provider: "claude", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: true } });
   expect((await manager.listLoadedThreads({})).threadIds).toContain(threadId);
   await expect(manager.compactThread(threadId)).rejects.toThrow("does not support compact");
@@ -305,7 +305,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   const events = new InputQueue<SDKMessage>();
   const fake = sdk(async function* () { for await (const event of events) yield event; });
   const storage = store(); const session = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const manager = new SessionManager(undefined, () => session); const { threadId } = await manager.createThread({ provider: "claude" });
+  const manager = new SessionManager(undefined, () => session, undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
   function waitFor(type: string) { return new Promise<void>(resolve => { const off = session.eventBus.subscribe(event => { if (event.type === type) { off(); resolve(); } }, { replay: false }); }); }
   await manager.submitTurn(threadId, { input: [toTextUserInput("background work")] });
   const first = done(session);
@@ -363,7 +363,7 @@ test("loaded conversations include every provider and respect page size", async 
     const session = new CodexSession(policy, tools); session.initialize = async () => {};
     session.startThread = async () => ({ threadId: "opaque-codex-id", model: "codex", modelProvider: "openai", reasoningEffort: null });
     session.listLoadedThreads = async () => ({ data: ["opaque-codex-id"], nextCursor: null }); return session;
-  });
+  }, undefined, undefined, ["codex", "claude"]);
   const codex = await manager.createThread({}); const claude = await manager.createThread({ provider: "claude" });
   const first = await manager.listLoadedThreads({ limit: 1 }); const second = await manager.listLoadedThreads({ limit: 1, cursor: first.nextCursor! });
   expect(first.threadIds).toHaveLength(1); expect(second.threadIds).toHaveLength(1); expect(second.nextCursor).toBeNull();
@@ -628,14 +628,14 @@ test("Claude permission modes, typed effort and native defaults survive resume a
     expect(storage.read(created.threadId)).toMatchObject({ approvalMode: approvalPolicy, effort: "high" });
     const resumed = new ClaudeSession("provider_default", undefined, storage, fake);
     try {
-      await resumed.resumeThread(created.threadId, {});
+      await resumed.resumeThread(created.threadId, { approvalPolicy: "provider_default" });
       expect(resumed.approvalPolicy).toBe(approvalPolicy);
-      await resumed.startTurn([toTextUserInput("Resume")]); await done(resumed);
+      await resumed.startTurn([toTextUserInput("Resume")], "provider_default"); await done(resumed);
       expect(fake.calls[0]!.options).toMatchObject({ effort: "high", permissionMode: approvalPolicy === "bypass" ? "bypassPermissions" : "default" });
       expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBe(approvalPolicy === "bypass" ? true : undefined);
       const forked = new ClaudeSession("provider_default", undefined, storage, fake);
       try {
-        const fork = await forked.forkThread(created.threadId, {});
+        const fork = await forked.forkThread(created.threadId, { approvalPolicy: "provider_default" });
         expect(forked.approvalPolicy).toBe(approvalPolicy);
         expect(storage.read(fork.threadId).approvalMode).toBe(approvalPolicy);
       } finally { forked.stop(); }

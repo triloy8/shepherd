@@ -77,7 +77,7 @@ describe("Discord interactions", () => {
     expect(attempts).toBe(1);
   });
 
-  test("loads the next stored-thread page directly from the Codex cursor", async () => {
+  test("loads the next stored-thread page using the application cursor", async () => {
     const updates: unknown[] = [];
     const calls: unknown[] = [];
     const lifecycle: string[] = [];
@@ -171,7 +171,7 @@ describe("Discord interactions", () => {
     );
   });
 
-  test("reverses an ascending Codex page when navigating to newer threads", async () => {
+  test("uses the shared backwards cursor without reversing order or dropping a boundary", async () => {
     const updates: unknown[] = [];
     const interaction = {
       customId: encodeDiscordListPageId({
@@ -180,7 +180,6 @@ describe("Discord interactions", () => {
         page: 2,
         requesterId: "user-1",
         cursor: "backwards-cursor",
-        boundaryId: "current-page-boundary",
       }),
       user: { id: "user-1" },
       channelId: "chan-1",
@@ -194,13 +193,12 @@ describe("Discord interactions", () => {
     };
     const conversation = {
       async listStoredThreads(request: { sortDirection: string; limit: number }) {
-        expect(request.sortDirection).toBe("asc");
-        expect(request.limit).toBe(6);
+        expect(request.sortDirection).toBe("desc");
+        expect(request.limit).toBe(5);
         return {
           threads: [
-            { threadId: "current-page-boundary", name: "boundary", preview: "", updatedAt: 4 },
-            { threadId: "older-in-page", name: "older", preview: "", updatedAt: 5 },
             { threadId: "newer-in-page", name: "newer", preview: "", updatedAt: 6 },
+            { threadId: "older-in-page", name: "older", preview: "", updatedAt: 5 },
           ],
           nextCursor: "newer-page",
           backwardsCursor: "older-page",
@@ -343,4 +341,16 @@ test("model pagination uses explicit conversation provider for opaque IDs", asyn
   };
   await handleInteraction(interaction as never, conversation as never, { getSurfaceThreadId: () => "opaque-native-id" });
   expect(requests).toEqual([{ cursor: "2", limit: 5, provider: "claude" }]);
+});
+
+
+test("Discord list controls retain long application cursors under the component ID limit", async () => {
+  const cursor = "shepherd-providers:" + "opaque/native?".repeat(100);
+  const customId = encodeDiscordListPageId({ target: "threads-active", direction: "desc", page: 2, requesterId: "user", cursor });
+  expect(customId.length).toBeLessThanOrEqual(100);
+  let received: unknown;
+  await handleInteraction({ customId, user: { id: "user" }, channelId: "channel", async deferUpdate() {}, async editReply() {} } as never, {
+    async listStoredThreads(request: unknown) { received = request; return { threads: [], nextCursor: null, backwardsCursor: null }; },
+  } as never);
+  expect(received).toMatchObject({ cursor, sortDirection: "desc", limit: 5 });
 });

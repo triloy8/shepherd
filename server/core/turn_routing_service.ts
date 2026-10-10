@@ -12,7 +12,7 @@ export type TurnRoutingExecutionInput = {
   handled: boolean;
   threadId: string | null;
   input: UserInput[] | null;
-  approvalPolicy: ApprovalPolicy;
+  approvalPolicy?: ApprovalPolicy;
 };
 
 export type TurnRoutingConversation = {

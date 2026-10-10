@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SkillsPage } from "../../core/skills_page_service.js";
 import {
   ActionRowBuilder,
@@ -23,71 +24,27 @@ export type DiscordListPageRequest = {
   page: number;
   requesterId: string;
   cursor: string | null;
-  boundaryId?: string | null;
 };
 
-const TARGET_CODES: Record<DiscordListTarget, string> = {
-  "threads-active": "ta",
-  "threads-archived": "tr",
-  "threads-loaded": "tl",
-  models: "m",
-  skills: "s",
-  "history-turns": "ht",
-  "history-items": "hi",
-};
-
-const TARGETS_BY_CODE = Object.fromEntries(
-  Object.entries(TARGET_CODES).map(([target, code]) => [code, target]),
-) as Record<string, DiscordListTarget>;
-
-const DIRECTION_CODES: Record<DiscordListDirection, string> = {
-  asc: "a",
-  desc: "d",
-  forward: "n",
-  first: "f",
-};
-
-const DIRECTIONS_BY_CODE = Object.fromEntries(
-  Object.entries(DIRECTION_CODES).map(([direction, code]) => [code, direction]),
-) as Record<string, DiscordListDirection>;
+// Keep application cursors server-side: Discord component IDs are limited to 100 characters.
+const controls = new Map<string, { request: DiscordListPageRequest; expiresAt: number }>();
+const CONTROL_TTL_MS = 60 * 60 * 1000;
+const MAX_CONTROLS = 2000;
 
 export function encodeDiscordListPageId(request: DiscordListPageRequest): string {
-  const encodedCursor = request.cursor ? encodeURIComponent(request.cursor) : "";
-  const customId = [
-    "page",
-    TARGET_CODES[request.target],
-    DIRECTION_CODES[request.direction],
-    String(request.page),
-    request.requesterId,
-    encodedCursor,
-    request.boundaryId ? encodeURIComponent(request.boundaryId) : "",
-  ].join("|");
-  if (customId.length > 100) {
-    throw new Error("Provider pagination cursor is too long for a Discord component ID.");
-  }
-  return customId;
+  const now = Date.now();
+  for (const [id, entry] of controls) if (entry.expiresAt <= now) controls.delete(id);
+  while (controls.size >= MAX_CONTROLS) controls.delete(controls.keys().next().value!);
+  const id = `page|${randomUUID()}`;
+  controls.set(id, { request: structuredClone(request), expiresAt: now + CONTROL_TTL_MS });
+  return id;
 }
 
-export function decodeDiscordListPageId(customId: string): DiscordListPageRequest | null {
-  const parts = customId.split("|");
-  if ((parts.length !== 6 && parts.length !== 7) || parts[0] !== "page") return null;
-  const target = TARGETS_BY_CODE[parts[1]!];
-  const direction = DIRECTIONS_BY_CODE[parts[2]!];
-  const page = Number(parts[3]);
-  const requesterId = parts[4] ?? "";
-  if (!target || !direction || !Number.isInteger(page) || page < 1 || !requesterId) return null;
-  try {
-    return {
-      target,
-      direction,
-      page,
-      requesterId,
-      cursor: parts[5] ? decodeURIComponent(parts[5]) : null,
-      boundaryId: parts[6] ? decodeURIComponent(parts[6]) : null,
-    };
-  } catch {
-    return null;
-  }
+export function decodeDiscordListPageId(id: string): DiscordListPageRequest | null {
+  const entry = controls.get(id);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) { controls.delete(id); return null; }
+  return structuredClone(entry.request);
 }
 
 export function navigationRow(options: {
@@ -95,8 +52,8 @@ export function navigationRow(options: {
   requesterId: string;
   page: number;
   encode?: (request: DiscordListPageRequest) => string;
-  previous?: { cursor: string; direction: DiscordListDirection; boundaryId?: string | null } | null;
-  next?: { cursor: string; direction: DiscordListDirection; boundaryId?: string | null } | null;
+  previous?: { cursor: string; direction: DiscordListDirection } | null;
+  next?: { cursor: string; direction: DiscordListDirection } | null;
 }): ActionRowBuilder<ButtonBuilder> {
   const encode = options.encode ?? encodeDiscordListPageId;
   const first = new ButtonBuilder()
@@ -118,7 +75,6 @@ export function navigationRow(options: {
           page: Math.max(1, options.page - 1),
           requesterId: options.requesterId,
           cursor: options.previous.cursor,
-          boundaryId: options.previous.boundaryId,
         })
       : `page-disabled-prev-${options.page}`)
     .setLabel("Previous")
@@ -137,7 +93,6 @@ export function navigationRow(options: {
           page: options.page + 1,
           requesterId: options.requesterId,
           cursor: options.next.cursor,
-          boundaryId: options.next.boundaryId,
         })
       : `page-disabled-next-${options.page}`)
     .setLabel("Next")
@@ -167,9 +122,7 @@ export function buildStoredThreadsListPage(options: {
 }): DiscordSurfacePage {
   const title = options.archived ? "Archived threads" : "Active threads";
   const target: DiscordListTarget = options.archived ? "threads-archived" : "threads-active";
-  const threads = options.requestDirection === "asc"
-    ? [...options.result.threads].reverse()
-    : options.result.threads;
+  const threads = options.result.threads;
   const text = threads.length === 0
     ? (options.archived ? "No archived threads." : "No active threads.")
     : threads.map((thread, index) => {
@@ -178,12 +131,8 @@ export function buildStoredThreadsListPage(options: {
         return `**${number}. ${label}**\n\`${thread.threadId}\` · Updated ${formatTimestamp(thread.updatedAt)}`;
       }).join("\n\n");
 
-  const previousCursor = options.requestDirection === "desc"
-    ? options.result.backwardsCursor
-    : options.result.nextCursor;
-  const nextCursor = options.requestDirection === "desc"
-    ? options.result.nextCursor
-    : options.result.backwardsCursor;
+  const previousCursor = options.result.backwardsCursor;
+  const nextCursor = options.result.nextCursor;
   const row = navigationRow({
     target,
     requesterId: options.requesterId,
@@ -192,7 +141,6 @@ export function buildStoredThreadsListPage(options: {
       ? {
           cursor: previousCursor,
           direction: "asc",
-          boundaryId: options.requestDirection === "desc" ? threads[0]?.threadId : null,
         }
       : null,
     next: nextCursor ? { cursor: nextCursor, direction: "desc" } : null,

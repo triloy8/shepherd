@@ -1,3 +1,4 @@
+import { bridgeEvent, type BridgeEventType, type BridgeEventPayloads } from "../../shared/protocol/events.js";
 import { EventBus } from "../../server/core/event_bus.js";
 import type { ProviderSession } from "../../server/ports/provider_session.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
@@ -33,9 +34,9 @@ export class IndependentSession implements ProviderSession {
   async applyApprovalDecision(approvalId: string) { return { approvalId }; }
   setCwd(cwd: string) { this.cwd = cwd; }
   stop() { this.stopped = true; }
-  private emit(type: Parameters<EventBus["publish"]>[0]["type"], payload: unknown) { this.eventBus.publish({ id: crypto.randomUUID(), type, payload, threadId: this.threadId, sessionId: this.sessionId, ts: new Date().toISOString() }); }
+  private emit<K extends BridgeEventType>(type: K, payload: BridgeEventPayloads[K]) { this.eventBus.publish(bridgeEvent({ id: crypto.randomUUID(), type, payload, threadId: this.threadId, sessionId: this.sessionId, ts: new Date().toISOString() })); }
   async listStoredThreads() { return { data: [{ id: this.threadId, cwd: this.cwd }], nextCursor: null }; }
-  async listLoadedThreads() { return { data: [this.threadId], nextCursor: null }; }
+  async listLoadedThreads() { return { data: this.threadId ? [this.threadId] : [], nextCursor: null }; }
   async readThread(threadId: string) { return { thread: { id: threadId, cwd: this.cwd } }; }
   async listThreadTurns() { return { data: this.turns, nextCursor: null, backwardsCursor: null }; }
   async listThreadItems() { return { data: this.turns.flatMap(turn => turn.items.map(item => ({ turnId: turn.id, item }))), nextCursor: null, backwardsCursor: null }; }

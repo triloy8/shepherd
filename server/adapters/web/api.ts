@@ -85,9 +85,10 @@ export class WebSurfaceApi {
         return;
       }
       if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {
-        const image = event.payload as import("../../../shared/protocol/events.js").TurnImageGeneratedEvent["payload"] | import("../../../shared/protocol/events.js").TurnImageViewedEvent["payload"];
+        const image = event.payload;
         const presentation = entry.images.present(image.turnId, image.itemId, image.path, "revisedPrompt" in image ? image.revisedPrompt : null, event.type === "turn.image.viewed" ? "viewed" : undefined);
-        entry.feed.publish("bridge", { ...event, payload: { ...image, ...presentation } });
+        if (event.type === "turn.image.generated") entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
+        else entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
       } else entry.feed.publish("bridge", event);
     });
     this.host = new WebHostControls(this.application.runtimeLifecycle);
@@ -289,7 +290,7 @@ export class WebSurfaceApi {
             const input = [...(text.trim() ? [toTextUserInput(text)] : []), ...images.map((url) => ({ type: "image" as const, url }))];
             return json(200, await executeTurnRouting({ conversation: this.context.ingress }, {
               surface: { adapter: "web", surfaceId: entry.id, content: text, input, isCommand: false, isDirectAddressed: true },
-              handled: false, threadId, input, approvalPolicy: this.context.approvalPolicy,
+              handled: false, threadId, input,
             }));
           } finally { this.messageRequests--; }
         });

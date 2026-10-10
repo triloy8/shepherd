@@ -18,7 +18,7 @@ import type {
   DynamicToolSpec,
   JsonValue,
 } from "../../../shared/protocol/dynamic_tools.js";
-import type { BridgeEvent, BridgeEventType, MessagePhase } from "../../../shared/protocol/events.js";
+import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType, type MessagePhase } from "../../../shared/protocol/events.js";
 import type {
 
   ApprovalPolicy,
@@ -496,7 +496,7 @@ export class CodexSession implements ProviderSession {
     assertApprovalSupport("Codex", this.capabilities, approvalPolicy ?? this.approvalPolicy);
     assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
-    if (approvalPolicy) {
+    if (approvalPolicy && approvalPolicy !== "provider_default") {
       this.approvalPolicy = approvalPolicy;
     }
     this.messagePhaseByItemId.clear();
@@ -976,15 +976,15 @@ export class CodexSession implements ProviderSession {
     // Unrecognized native notifications remain private.
   }
 
-  private publish(type: BridgeEventType, threadId: string, payload: unknown): void {
-    const event: BridgeEvent = {
+  private publish<K extends BridgeEventType>(type: K, threadId: string, payload: BridgeEventPayloads[K]): void {
+    const event = bridgeEvent({
       id: `${this.sessionId}:${++this.eventCounter}`,
       type,
       threadId,
       sessionId: this.sessionId,
       ts: new Date().toISOString(),
       payload,
-    };
+    });
     this.eventBus.publish(event);
   }
 

@@ -130,7 +130,7 @@ export class ConversationRoutingService {
 
     if (candidate) {
       const resumeRequest = {
-        approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
+        approvalPolicy: input.approvalPolicyHint,
         ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
         cwd: input.cwd,
       };

@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { query, forkSession, type ModelInfo, type ModelUsage, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type * as P from "../../../shared/protocol/requests.js";
 import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals.js";
-import type { BridgeEventType } from "../../../shared/protocol/events.js";
+import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../../shared/protocol/events.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { UnsupportedProviderOperationError, type ProviderSession, type ThreadBootstrapInfo } from "../../ports/provider_session.js";
 import { DynamicToolRegistry } from "../../core/dynamic_tool_registry.js";
@@ -111,7 +111,7 @@ export class ClaudeSession implements ProviderSession {
     if (request.model) this.thread.model = request.model;
     if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
     if (request.baseInstructions !== undefined || request.developerInstructions !== undefined) this.thread.instructions = [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n");
-    this.approvalPolicy = request.approvalPolicy ?? this.thread.approvalMode ?? this.approvalPolicy;
+    this.approvalPolicy = (request.approvalPolicy === "provider_default" ? undefined : request.approvalPolicy) ?? this.thread.approvalMode ?? this.approvalPolicy;
     assertApprovalSupport("Claude", this.capabilities, this.approvalPolicy);
     this.persist();
     if (this.thread.tokenUsage) this.publish("thread.tokenUsage.updated", { turnId: null, tokenUsage: this.thread.tokenUsage });
@@ -120,7 +120,7 @@ export class ClaudeSession implements ProviderSession {
   async forkThread(id: string, request: P.ForkThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize(); this.validateOverrides(request);
     const source = this.store.read(id);
-    const policy = request.approvalPolicy ?? source.approvalMode ?? this.approvalPolicy;
+    const policy = (request.approvalPolicy === "provider_default" ? undefined : request.approvalPolicy) ?? source.approvalMode ?? this.approvalPolicy;
     assertApprovalSupport("Claude", this.capabilities, policy);
     if (source.turns.some(turn => turn.status === "inProgress")) throw new Error("Cannot fork an active Claude thread.");
     // The transcript stays in the project directory where it began. A thread's cwd can
@@ -147,7 +147,7 @@ export class ClaudeSession implements ProviderSession {
     assertInputSupport("Claude", this.capabilities, input);
     if (effort && !isClaudeEffort(effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
     const message = this.userMessage(input);
-    const nextPolicy = policy ?? this.approvalPolicy;
+    const nextPolicy = policy === "provider_default" ? this.approvalPolicy : policy ?? this.approvalPolicy;
     const settingsChanged = (cwd && cwd !== thread.cwd) || (model && model !== thread.model) || (effort && effort !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
     // The SDK fixes MCP tools when its process starts; reopen when Shepherd tools change.
     const tools = JSON.stringify(this.dynamicTools.specifications());
@@ -301,7 +301,10 @@ export class ClaudeSession implements ProviderSession {
     if (error && status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
     turn.completedAt = Date.now() / 1000; turn.durationMs = (turn.completedAt - turn.startedAt!) * 1000;
     try { this.persist(); } catch (error) { turn.status = "failed"; turn.error = { message: String(error) }; }
-    if (!this.stopped) this.publish(turn.status === "failed" ? "turn.failed" : "turn.completed", { turnId: turn.id, ...(turn.error ? { message: turn.error.message } : {}) });
+    if (!this.stopped) {
+      if (turn.status === "failed") this.publish("turn.failed", { turnId: turn.id, message: turn.error?.message ?? "Turn failed." });
+      else this.publish("turn.completed", { turnId: turn.id });
+    }
   }
   /** Text is commentary when a tool call follows it and an answer when the response ends. */
   private assistantMessage(message: Extract<SDKMessage, { type: "assistant" }>, turn: P.HistoryTurn) {
@@ -480,5 +483,5 @@ export class ClaudeSession implements ProviderSession {
     }, persistDelayMs);
     this.persistTimer.unref?.();
   }
-  private publish(type: BridgeEventType, payload: unknown, id = this.requireThread().id) { this.eventBus.publish({ id: `${this.sessionId}:${++this.counter}`, type, payload, threadId: id, sessionId: this.sessionId, ts: new Date().toISOString() }); }
+  private publish<K extends BridgeEventType>(type: K, payload: BridgeEventPayloads[K], id = this.requireThread().id) { this.eventBus.publish(bridgeEvent({ id: `${this.sessionId}:${++this.counter}`, type, payload, threadId: id, sessionId: this.sessionId, ts: new Date().toISOString() })); }
 }

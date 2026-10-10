@@ -18,16 +18,27 @@ export function assembleProviderServices(registrations: readonly ProviderRegistr
   const factories = new Map<string, ProviderRegistration>();
   for (const registration of registrations) {
     if (!registration.id.trim() || registration.id.trim() !== registration.id || factories.has(registration.id)) throw new Error("Invalid or duplicate provider registration.");
-    factories.set(registration.id, registration);
+    factories.set(registration.id, { ...registration, capabilities: structuredClone(registration.capabilities) });
   }
   return {
-    descriptors: registrations.map(({ id, displayName, capabilities, account }) => ({ id, displayName, capabilities: { ...capabilities, resets: !!account.reset } })),
+    descriptors: [...factories.values()].map(({ id, displayName, capabilities, account }) => ({ id, displayName, capabilities: { ...structuredClone(capabilities), resets: !!account.reset } })),
     accounts: new Map(registrations.map(registration => [registration.id, registration.account])),
     providers: [...factories.keys()],
     createSession: (policy, tools, provider) => {
       const registration = factories.get(provider);
       if (!registration) throw new Error(`Unknown agent provider: ${provider}`);
-      return registration.create(policy, tools, provider);
+      const session = registration.create(policy, tools, provider);
+      const expected = registration.capabilities;
+      const actual = session.capabilities;
+      const matches = (["questions", "skills", "compact", "revert", "fork", "sandboxModes", "approvalModes", "inputKinds", "textAnnotations", "imageDetail", "ephemeralThreads"] satisfies Array<keyof ProviderCapabilities>).every(key => {
+        const left = expected[key], right = actual[key];
+        return Array.isArray(left) && Array.isArray(right)
+          ? JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())
+          : left === right;
+      });
+      const methodsPresent = (!expected.fork || !!session.forkThread) && (!expected.compact || !!session.compactThread) && (!expected.revert || !!session.revertThread) && (!expected.skills || (!!session.listSkills && !!session.writeSkillConfig));
+      if (!matches || !methodsPresent) { session.stop(); throw new Error(`Provider capability contract mismatch: ${provider}`); }
+      return session;
     },
     hasStoredThreads: (provider, request) => factories.get(provider)?.hasStoredThreads(provider, request) ?? false,
     shutdown: () => { for (const registration of registrations) registration.shutdown?.(); },

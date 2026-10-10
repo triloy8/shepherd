@@ -135,8 +135,81 @@ test("Codex maps canonical settings privately through every lifecycle operation 
       await session.startTurn([{ type: "text", text: "hello" }], policy);
       expect(requests.at(-1)!.params.approvalPolicy).toBe(native);
     }
+    await session.startThread({ approvalPolicy: "bypass" });
+    await session.startTurn([{ type: "text", text: "Continue saved policy" }], "provider_default");
+    expect(session.approvalPolicy).toBe("bypass");
+    expect(requests.at(-1)!.params.approvalPolicy).toBe("never");
     for (const operation of [() => session.startThread({ approvalPolicy: "provider_default" }), () => session.resumeThread("thread", { approvalPolicy: "provider_default" }), () => session.forkThread("thread", { approvalPolicy: "provider_default" }), () => session.startTurn([{ type: "text", text: "hello" }], "provider_default")]) {
       await operation(); expect(requests.at(-1)!.params).not.toHaveProperty("approvalPolicy");
     }
   } finally { session.stop(); }
+});
+
+
+test("registration rejects conflicting capabilities and missing advertised methods before initialization", () => {
+  for (const capabilities of [{ ...descriptor.capabilities, compact: true }, { ...descriptor.capabilities, inputKinds: ["text"] }]) {
+    const session = new IndependentSession(); let initialized = false;
+    session.initialize = async () => { initialized = true; };
+    const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory());
+    expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
+    expect(session.stopped).toBe(true); expect(initialized).toBe(false);
+  }
+  const session = new IndependentSession();
+  const capabilities = { ...descriptor.capabilities, fork: true };
+  Object.assign(session, { capabilities });
+  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory());
+  expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
+  expect(session.stopped).toBe(true);
+  const equivalent = assembleProviderServices([{ ...registration(), capabilities: { ...descriptor.capabilities, approvalModes: [...descriptor.capabilities.approvalModes].reverse() }, create: () => new IndependentSession() }], directory());
+  const accepted = equivalent.createSession("provider_default", undefined as never, descriptor.id); accepted.stop();
+});
+
+test("loaded discovery queries all registered providers including unmanaged threads, pages and persists owners", async () => {
+  const queried: string[] = [];
+  const registrations = ["first-adapter", "second-adapter"].map(id => ({ ...registration(), id, create: () => {
+    const session = new IndependentSession();
+    session.listLoadedThreads = async (request: { cursor?: string } = {}) => { queried.push(id); return { data: [id + (request.cursor ? "-older" : "-external")], nextCursor: request.cursor ? null : "native-next" }; };
+    return session;
+  } }));
+  const path = directory(), services = assembleProviderServices(registrations, path);
+  const conversation = new ConversationService({ providers: services });
+  try {
+    expect(() => conversation.getThreadState("first-adapter-external")).toThrow();
+    const first = await conversation.listLoadedThreads({ limit: 2 });
+    const second = await conversation.listLoadedThreads({ limit: 2, cursor: first.nextCursor! });
+    expect([...first.threadIds, ...second.threadIds]).toEqual(["first-adapter-external", "first-adapter-older", "second-adapter-external", "second-adapter-older"]);
+    expect(second.nextCursor).toBeNull(); expect(new Set(queried)).toEqual(new Set(registrations.map(r => r.id)));
+    const persisted = new FileThreadProviderDirectory(path);
+    for (const id of [...first.threadIds, ...second.threadIds]) expect(persisted.resolve(id)).toBe(id.startsWith("first-") ? "first-adapter" : "second-adapter");
+    const before = queried.length;
+    for (const cursor of ["native-next", "shepherd-loaded:1junk", "shepherd-loaded:-1"]) await expect(conversation.listLoadedThreads({ cursor })).rejects.toThrow("cursor");
+    expect(queried).toHaveLength(before);
+  } finally { conversation.stopAll(); }
+});
+
+test("stored catalogs always use shared cursors and navigate backwards for one or several providers", async () => {
+  for (const ids of [["one"], ["one", "two"]]) {
+    const registrations = ids.map((id, index) => ({ ...registration(), id, create: () => {
+      const session = new IndependentSession();
+      const rows = Array.from({ length: 6 }, (_, n) => ({ id: `${id}-${n}`, updatedAt: 20 - n * 2 - index }));
+      session.listStoredThreads = async (request: { cursor?: string; limit?: number } = {}) => {
+        const offset = Number(request.cursor ?? 0), limit = request.limit ?? 20;
+        return { data: rows.slice(offset, offset + limit), nextCursor: offset + limit < rows.length ? String(offset + limit) : null };
+      }; return session;
+    } }));
+    const conversation = new ConversationService({ providers: assembleProviderServices(registrations, directory()) });
+    try {
+      const request = { limit: 2, sortDirection: "desc" as const };
+      const first = await conversation.listStoredThreads(request);
+      expect(first.backwardsCursor).toBeNull(); expect(first.nextCursor).toStartWith("shepherd-providers:");
+      const second = await conversation.listStoredThreads({ ...request, cursor: first.nextCursor! });
+      const third = await conversation.listStoredThreads({ ...request, cursor: second.nextCursor! });
+      const back = await conversation.listStoredThreads({ ...request, cursor: third.backwardsCursor! });
+      expect(back.threads).toEqual(second.threads);
+      expect((await conversation.listStoredThreads({ ...request, cursor: back.backwardsCursor! })).threads).toEqual(first.threads);
+      await expect(conversation.listStoredThreads({ ...request, cursor: "native-next" })).rejects.toThrow("Invalid provider thread cursor");
+      await expect(conversation.listStoredThreads({ ...request, archived: true, cursor: first.nextCursor! })).rejects.toThrow("Invalid provider thread cursor");
+      await expect(conversation.listStoredThreads({ ...request, cwd: "/different", cursor: first.nextCursor! })).rejects.toThrow("Invalid provider thread cursor");
+    } finally { conversation.stopAll(); }
+  }
 });

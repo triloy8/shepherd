@@ -209,3 +209,17 @@ test("conversation creation passes the provider and rejects provider changes on 
     expect(providers).toHaveLength(1);
   } finally { h.api.dispose(); }
 });
+
+
+test("ordinary web messages preserve the thread policy instead of applying the host default", async () => {
+  const h = webHarness(); let sent: unknown;
+  const submit = h.context.ingress.submitTurn;
+  h.context.ingress.getThreadState = (id) => ({ threadId: id, sessionId: "saved", provider: "fixture", capabilities: h.application.conversation.listProviders()[0]!.capabilities, approvalPolicy: "bypass", activeTurnId: null });
+  h.context.ingress.submitTurn = async (id, request) => { sent = request; return submit(id, request); };
+  try {
+    const c = await h.create({ threadId: "saved", project: "~" });
+    expect((await h.request(`/conversations/${c.id}/messages`, "POST", { text: "continue" })).status).toBe(200);
+    expect(sent).toMatchObject({ input: [{ type: "text", text: "continue" }] });
+    expect((sent as { approvalPolicy?: string }).approvalPolicy).toBeUndefined();
+  } finally { h.api.dispose(); }
+});

@@ -10,7 +10,7 @@ import {
   formatEventLine,
 } from "../server/adapters/discord/message_renderer.js";
 
-function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): BridgeEvent<TPayload> {
+function makeEvent<K extends BridgeEvent["type"]>(type: K, payload: import("../shared/protocol/events.js").BridgeEventPayloads[K]): import("../shared/protocol/events.js").BridgeEventOf<K> {
   return {
     id: "evt-1",
     type,

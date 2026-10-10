@@ -94,7 +94,9 @@ For existing installations, rename those common settings before redeployment:
 
 Approval and sandbox modes use these same application values throughout core, ports,
 and HTTP. Native policy names are encoded and decoded inside adapters. `provider_default`
-means inherit the provider's existing/default permission policy. `review_sensitive` uses
+uses native defaults for a new conversation and inherits the saved mode on resume, fork,
+and continuation. Host defaults apply at creation; ordinary surface messages do not
+override the saved mode. `review_sensitive` uses
 the provider's normal permission review; `review_untrusted` reviews actions according to
 its trust model and is currently supported only by Codex. `bypass` suppresses permission
 review but retains explicit user questions. None of these modes promises review of every
@@ -115,7 +117,18 @@ Core checks these before bootstrap, submit, or steer, and adapters enforce them 
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
 local-file, audio, skill-reference, annotation, or image-detail support. Model/effort
 options continue to come from each provider's catalog. Thread state includes its provider
-and capabilities, so surfaces do not guess support from identity.
+and capabilities, so surfaces do not guess support from identity. Registration rejects a
+session whose capabilities differ from its descriptor or whose advertised operations
+have no implementation, and stops it before initialization. Shared events form a
+discriminated union: each event name requires its application payload at the session port
+and adapter emitter. Raw native envelopes cannot be published through that contract.
+
+Loaded-thread discovery queries every registered provider, including threads loaded
+outside Shepherd, and persists their owners. Stored-thread listing always merges through
+application pagination, even for one provider; shared cursors retain forward and backward
+positions and validate the listing filters. Native cursor compatibility paths are removed.
+Discord list controls keep these opaque cursors in a bounded, expiring server-side map so
+button IDs stay within Discord limits.
 
 Thread ownership is persisted independently of UI handles using arbitrary provider IDs.
 For an unbound stored conversation, registered adapters identify ownership from native

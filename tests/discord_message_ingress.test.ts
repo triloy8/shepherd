@@ -79,7 +79,6 @@ describe("Discord message ingress", () => {
           return "owner/repo";
         },
       } as never,
-      approvalPolicy: "review_sensitive",
       async handleCommandMessage() {
         return { handled: true, threadId: "thread-1", input: null };
       },
@@ -99,7 +98,6 @@ describe("Discord message ingress", () => {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
-      approvalPolicy: "review_sensitive",
       async handleCommandMessage() {
         handled = true;
         return { handled: true, threadId: null, input: null };
@@ -121,7 +119,6 @@ describe("Discord message ingress", () => {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
-      approvalPolicy: "review_sensitive",
       async handleCommandMessage(_message, _context, contentOverride) {
         seen.content = contentOverride;
         return { handled: false, threadId: "thread-1", input: contentOverride ? [toTextUserInput(contentOverride)] : null };
@@ -150,7 +147,6 @@ describe("Discord message ingress", () => {
           return "open";
         },
       } as never,
-      approvalPolicy: "review_sensitive",
       async handleCommandMessage(_message, _context, contentOverride) {
         return {
           handled: false,
@@ -176,7 +172,6 @@ describe("Discord message ingress", () => {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
-      approvalPolicy: "review_sensitive",
       async handleCommandMessage() {
         return { handled: false, threadId: "thread-1", input: [toTextUserInput("hello from a DM")] };
       },
@@ -201,7 +196,6 @@ describe("Discord message ingress", () => {
           return "paused";
         },
       } as never,
-      approvalPolicy: "review_sensitive",
       async handleCommandMessage() {
         handled = true;
         return { handled: true, threadId: null, input: null };
@@ -227,7 +221,6 @@ describe("Discord message ingress", () => {
           return "paused";
         },
       } as never,
-      approvalPolicy: "review_sensitive",
       async handleCommandMessage() {
         handled = true;
         return { handled: true, threadId: "thread-1", input: null };
@@ -254,7 +247,6 @@ describe("Discord message ingress", () => {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
-      approvalPolicy: "review_sensitive",
       async executeRouting() {
         routed = true;
         return { type: "ignore" } as const;
@@ -282,7 +274,6 @@ describe("Discord message ingress", () => {
           return "thread-1";
         },
       } as never,
-      approvalPolicy: "review_sensitive",
       async fetchImage() {
         return new Response(imageBytes, {
           headers: { "content-type": "image/png" },
@@ -313,7 +304,6 @@ describe("Discord message ingress", () => {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
-      approvalPolicy: "review_sensitive",
       async fetchImage() {
         return new Response(imageBytes, {
           headers: { "content-type": "image/jpeg" },
@@ -354,7 +344,6 @@ describe("Discord message ingress", () => {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
-      approvalPolicy: "review_sensitive",
       async executeRouting() {
         routed = true;
         return { type: "ignore" } as const;
@@ -384,7 +373,6 @@ describe("Discord message ingress", () => {
           return "open";
         },
       } as never,
-      approvalPolicy: "review_sensitive",
     });
 
     expect(replyTexts(replies)).toEqual([
@@ -404,7 +392,6 @@ describe("Discord message ingress", () => {
       botUserId: "bot-1",
       conversation: {} as never,
       commandContext: {} as never,
-      approvalPolicy: "review_sensitive",
       async fetchImage() {
         fetchedImage = true;
         throw new Error("unexpected fetch");
@@ -421,4 +408,18 @@ describe("Discord message ingress", () => {
     expect(fetchedImage).toBe(false);
     expect(routed).toBe(false);
   });
+});
+
+
+test("ordinary Discord messages leave saved approval policy to the conversation", async () => {
+  const { message } = makeMessage("<@bot-1> continue", true);
+  let routed: unknown;
+  await processDiscordMessage(message as never, {
+    botUserId: "bot-1", conversation: {} as never,
+    commandContext: {} as never,
+    handleCommandMessage: async () => ({ handled: false, threadId: "saved", input: null }),
+    executeRouting: async (_context, input) => { routed = input; return { type: "submit", threadId: "saved", turnId: "turn" }; },
+  });
+  expect(routed).toMatchObject({ threadId: "saved", handled: false });
+  expect((routed as { approvalPolicy?: string }).approvalPolicy).toBeUndefined();
 });

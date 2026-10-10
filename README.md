@@ -136,7 +136,9 @@ Claude supports text and image messages, streaming, follow-up input, interruptio
 approvals, structured questions (including multiple selections), model/effort selection, stored history, rename, archive, resume, fork,
 and Shepherd dynamic tools through MCP. The common approval policy applies to
 both providers: `bypass` runs Claude with permission bypass; `review_sensitive` uses Claude's normal permission checks and Shepherd approval prompts.
-`provider_default` inherits native permission behavior. `review_untrusted` is supported
+`provider_default` uses native permission defaults for new conversations and preserves
+the saved permission mode when resuming, forking, or continuing a conversation.
+Host defaults apply when creating a conversation; ordinary messages keep its saved mode. `review_untrusted` is supported
 only by Codex; unsupported modes are rejected rather than silently downgraded.
 Claude has no sandbox in Shepherd. With `bypass`, Claude can run any command and
 edit any file the Shepherd host user can, without a prompt. Codex with `bypass`

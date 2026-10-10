@@ -65,3 +65,21 @@ function assertNeutralConfiguration(create: CreateThreadRequest, list: ListStore
   void approval; void sandbox;
 }
 void assertNeutralConfiguration;
+
+
+import { bridgeEvent, type BridgeEvent } from "../shared/protocol/events.js";
+function assertEventPayloads(session: ProviderSession, event: BridgeEvent) {
+  const metadata = { id: "event", threadId: "thread", sessionId: "session", ts: "now" };
+  session.eventBus.publish({ ...metadata, type: "turn.completed", payload: { turnId: "turn" } });
+  // @ts-expect-error A native envelope cannot replace the semantic stream payload.
+  session.eventBus.publish({ ...metadata, type: "turn.stream.delta", payload: { method: "native/message", params: {} } });
+  // @ts-expect-error Event names and payloads must agree at the adapter emitter too.
+  bridgeEvent({ ...metadata, type: "turn.failed", payload: { turnId: "turn" } });
+  if (event.type === "turn.stream.delta") {
+    const text: string = event.payload.textDelta;
+    // @ts-expect-error Discrimination exposes only this event's payload.
+    event.payload.approvalId;
+    void text;
+  }
+}
+void assertEventPayloads;

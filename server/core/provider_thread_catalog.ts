@@ -20,26 +20,28 @@ export function threadSummary(thread: ThreadRecord, archived: boolean) {
 
 /** Merge sorted provider pages. Refill a depleted source before selecting the next row. */
 export async function listProviderThreads(sources: Sources, request: ListStoredThreadsRequest): Promise<ListStoredThreadsResponse> {
-  const combined = request.cursor?.startsWith(prefix);
-  const primary = sources.providers[0];
-  if (!primary) return { threads: [], nextCursor: null, backwardsCursor: null };
-  const additional = sources.providers.filter(provider => provider !== primary);
-  if (!combined && !additional.some(provider => sources.hasStoredThreads(provider, request))) {
-    const page = await sources.listPage(primary, request);
-    return { threads: page.data.map(thread => { sources.directory.bind(thread.id, primary); return threadSummary(thread, request.archived === true); }), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor ?? null };
-  }
   const limit = request.limit ?? 20;
   if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid provider thread page size.");
-  let positions = Object.fromEntries(sources.providers.map(provider => [provider, { ...(provider === primary ? { cursor: request.cursor } : {}), skip: 0, done: false }])) as Record<AgentProvider, Position>;
-  if (combined) {
+  const query = JSON.stringify({ providers: [...sources.providers].sort(), archived: request.archived ?? false, sortKey: request.sortKey ?? "updated_at", sortDirection: request.sortDirection ?? "desc", searchTerm: request.searchTerm ?? null, cwd: request.cwd ? (Array.isArray(request.cwd) ? [...request.cwd].sort() : [request.cwd]) : null });
+  let positions = Object.fromEntries(sources.providers.map(provider => [provider, { skip: 0, done: false }])) as Record<AgentProvider, Position>;
+  let previous: Array<Record<AgentProvider, Position>> = [];
+  if (request.cursor) {
     try {
-      positions = JSON.parse(Buffer.from(request.cursor!.slice(prefix.length), "base64url").toString());
-      for (const provider of sources.providers) {
-        const position = positions[provider];
-        if (!position || !Number.isSafeInteger(position.skip) || position.skip < 0 || typeof position.done !== "boolean" || (position.cursor !== undefined && typeof position.cursor !== "string") || (position.size !== undefined && (!Number.isSafeInteger(position.size) || position.size < 1))) throw new Error();
+      if (!request.cursor.startsWith(prefix)) throw new Error();
+      const decoded = JSON.parse(Buffer.from(request.cursor.slice(prefix.length), "base64url").toString());
+      if (decoded.query !== query || !Array.isArray(decoded.previous)) throw new Error();
+      positions = decoded.positions; previous = decoded.previous;
+      for (const snapshot of [positions, ...previous]) {
+        if (!snapshot || Object.keys(snapshot).sort().join("\0") !== [...sources.providers].sort().join("\0")) throw new Error();
+        for (const provider of sources.providers) {
+          const position = snapshot[provider];
+          if (!position || !Number.isSafeInteger(position.skip) || position.skip < 0 || typeof position.done !== "boolean" || (position.cursor !== undefined && typeof position.cursor !== "string") || (position.size !== undefined && (!Number.isSafeInteger(position.size) || position.size < 1))) throw new Error();
+        }
       }
     } catch { throw new Error("Invalid provider thread cursor."); }
   }
+  const start = structuredClone(positions);
+  const encode = (positions: Record<AgentProvider, Position>, previous: Array<Record<AgentProvider, Position>>) => prefix + Buffer.from(JSON.stringify({ query, positions, previous })).toString("base64url");
   const pages = new Map<AgentProvider, StoredThreadPage>();
   const visited = new Map<AgentProvider, Set<string>>();
   async function head(provider: AgentProvider): Promise<ThreadRecord | null> {
@@ -51,12 +53,12 @@ export async function listProviderThreads(sources: Sources, request: ListStoredT
         const cursor = position.cursor ?? "";
         if (seen.has(cursor)) throw new Error("Provider returned a repeated thread cursor.");
         seen.add(cursor); position.size ??= limit;
-        page = await sources.listPage(provider, { ...request, cursor: position.cursor, limit: position.size });
+        page = await sources.listPage(provider, { ...request, sortKey: request.sortKey ?? "updated_at", sortDirection: request.sortDirection ?? "desc", cursor: position.cursor, limit: position.size });
         pages.set(provider, page);
         if (position.skip > page.data.length) throw new Error("Provider thread page changed; reload the conversation list.");
       }
       if (position.skip < page.data.length) return page.data[position.skip]!;
-      position.cursor = page.nextCursor ?? undefined; position.skip = 0; position.done = page.nextCursor === null;
+      position.cursor = page.nextCursor ?? undefined; position.skip = 0; position.done = page.nextCursor == null;
       delete position.size; pages.delete(provider);
     }
     return null;
@@ -74,8 +76,8 @@ export async function listProviderThreads(sources: Sources, request: ListStoredT
   for (const [provider, page] of pages) {
     const position = positions[provider];
     if (position.skip === page.data.length) {
-      position.cursor = page.nextCursor ?? undefined; position.skip = 0; position.done = page.nextCursor === null; delete position.size;
+      position.cursor = page.nextCursor ?? undefined; position.skip = 0; position.done = page.nextCursor == null; delete position.size;
     }
   }
-  return { threads: selected, nextCursor: sources.providers.some(provider => !positions[provider].done) ? prefix + Buffer.from(JSON.stringify(positions)).toString("base64url") : null, backwardsCursor: null };
+  return { threads: selected, nextCursor: sources.providers.some(provider => !positions[provider].done) ? encode(positions, [...previous, start]) : null, backwardsCursor: previous.length ? encode(previous.at(-1)!, previous.slice(0, -1)) : null };
 }

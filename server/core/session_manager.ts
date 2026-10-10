@@ -179,25 +179,23 @@ export class SessionManager {
 
   async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<ListLoadedThreadsResponse> {
     const prefix = "shepherd-loaded:";
-    const session = await this.getControlSession();
-    // Accept native cursors issued by versions before application pagination.
-    if (request.cursor && !request.cursor.startsWith(prefix)) {
-      const page = await session.listLoadedThreads(request);
-      return { threadIds: page.data, nextCursor: page.nextCursor };
-    }
+    if (request.cursor && !/^shepherd-loaded:\d+$/.test(request.cursor)) throw new Error("Invalid loaded thread cursor.");
     const offset = request.cursor ? Number(request.cursor.slice(prefix.length)) : 0;
     const limit = request.limit ?? 20;
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid loaded thread page.");
     const ids = new Set(this.sessionsByThread.keys());
-    let cursor: string | undefined;
-    const seen = new Set<string>();
-    do {
-      const page = await session.listLoadedThreads({ cursor, limit: 100 });
-      page.data.forEach(id => ids.add(id));
-      if (!page.nextCursor) break;
-      if (seen.has(page.nextCursor)) throw new Error("Provider returned a repeated loaded thread cursor.");
-      seen.add(page.nextCursor); cursor = page.nextCursor;
-    } while (true);
+    await Promise.all(this.providers.map(async provider => {
+      const session = await this.getControlSession(provider);
+      let cursor: string | undefined;
+      const seen = new Set<string>();
+      do {
+        const page = await session.listLoadedThreads({ cursor, limit: 100 });
+        for (const id of page.data) { this.providerDirectory.bind(id, provider); ids.add(id); }
+        if (!page.nextCursor) break;
+        if (seen.has(page.nextCursor)) throw new Error("Provider returned a repeated loaded thread cursor.");
+        seen.add(page.nextCursor); cursor = page.nextCursor;
+      } while (true);
+    }));
     const sorted = [...ids].sort();
     return { threadIds: sorted.slice(offset, offset + limit), nextCursor: offset + limit < sorted.length ? prefix + (offset + limit) : null };
   }

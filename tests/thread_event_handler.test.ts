@@ -13,7 +13,7 @@ import { formatApprovalText } from "../server/adapters/discord/message_renderer.
 
 let eventCounter = 0;
 
-function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): BridgeEvent<TPayload> {
+function makeEvent<K extends BridgeEvent["type"]>(type: K, payload: import("../shared/protocol/events.js").BridgeEventPayloads[K]): import("../shared/protocol/events.js").BridgeEventOf<K> {
   return {
     id: `evt-${++eventCounter}`,
     type,

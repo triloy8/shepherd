@@ -75,6 +75,10 @@ export async function handleInteraction(
     return;
   }
   const pageRequest = decodeDiscordListPageId(interaction.customId);
+  if (interaction.customId.startsWith("page|") && !pageRequest) {
+    await replyEphemeralText(interaction, "This list expired. Open it again to continue.");
+    return;
+  }
   if (pageRequest && pageRequest.target !== "history-turns" && pageRequest.target !== "history-items") {
     if (interaction.user.id !== pageRequest.requesterId) {
       await replyEphemeralText(interaction, "Only the person who opened this list can change its page.");
@@ -86,17 +90,15 @@ export async function handleInteraction(
     let page: DiscordSurfacePage;
     try {
       if (pageRequest.target === "threads-active" || pageRequest.target === "threads-archived") {
-        const requestDirection = pageRequest.direction === "asc" ? "asc" : "desc";
+        const requestDirection = "desc";
         const result = await conversation.listStoredThreads({
           archived: pageRequest.target === "threads-archived",
           cursor: pageRequest.cursor ?? undefined,
-          limit: DISCORD_LIST_PAGE_SIZE + (pageRequest.boundaryId ? 1 : 0),
+          limit: DISCORD_LIST_PAGE_SIZE,
           sortKey: "updated_at",
           sortDirection: requestDirection,
         });
-        const threads = pageRequest.boundaryId
-          ? result.threads.filter((thread) => thread.threadId !== pageRequest.boundaryId)
-          : result.threads;
+        const threads = result.threads;
         page = buildStoredThreadsListPage({
           result: { ...result, threads: threads.slice(0, DISCORD_LIST_PAGE_SIZE) },
           archived: pageRequest.target === "threads-archived",

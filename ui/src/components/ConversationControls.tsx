@@ -1,3 +1,4 @@
+import type { ProviderCapabilities } from "../../../shared/protocol/provider_capabilities";
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import type { WebConversation, WebContextResponse, WebSettingsResponse } from "../../../shared/protocol/web";
 import { api, explainError } from "../api";
@@ -10,8 +11,8 @@ const noImages = [] as const;
 const ConversationSettings = lazy(() => import("./ConversationSettings").then((module) => ({ default: module.ConversationSettings })));
 const ConversationActions = lazy(() => import("./ConversationActions").then((module) => ({ default: module.ConversationActions })));
 
-export function ConversationControls({ conversation, activeTurnId, disabled, active, draft, onHistoryChange }: {
-  conversation: WebConversation; activeTurnId: string | null; disabled: boolean; active: boolean; draft: string; onHistoryChange: () => Promise<void>;
+export function ConversationControls({ capabilities, conversation, activeTurnId, disabled, active, draft, onHistoryChange }: {
+  capabilities?: ProviderCapabilities; conversation: WebConversation; activeTurnId: string | null; disabled: boolean; active: boolean; draft: string; onHistoryChange: () => Promise<void>;
 }) {
   const [panel, setPanel] = useState<"model" | "context" | "compact" | "preview" | null>(null);
   const [settings, setSettings] = useState<WebSettingsResponse | null>(null);
@@ -69,7 +70,7 @@ export function ConversationControls({ conversation, activeTurnId, disabled, act
     <dialog ref={contextDialog} className="project-dialog settings-dialog" aria-labelledby="context-title" onCancel={close} onClose={() => { if (panel === "context") close(); }}>
       <div className="mb-5 flex items-center justify-between"><h2 id="context-title" className="text-lg font-medium">Conversation context</h2><button className="icon-button" aria-label="Close context" onClick={close}><Icon name="close" /></button></div>
       {errors.context ? <p role="alert" className="notice">{errors.context}</p> : context ? <ContextUsage usage={context.tokenUsage} /> : <p className="text-xs text-muted">Loading context…</p>}
-      <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" disabled={disabled || active} onClick={() => setPanel("compact")}>Compact conversation</button><button className="button-secondary" disabled={disabled} onClick={() => setRevision(value => value + 1)}>Refresh context</button></div>
+      <div className="mt-5 flex flex-wrap gap-2">{capabilities?.compact && <button className="button-secondary" disabled={disabled || active} onClick={() => setPanel("compact")}>Compact conversation</button>}<button className="button-secondary" disabled={disabled} onClick={() => setRevision(value => value + 1)}>Refresh context</button></div>
       {active && <p className="mt-3 text-xs text-muted">Compaction is available after the current turn and approvals finish.</p>}
     </dialog>
     {panel === "compact" && <Suspense fallback={null}><ConversationActions action="compact" conversation={conversation} title="" disabled={disabled} active={active} onOpenChange={value => { if (!value) close(); }} onHistoryChange={onHistoryChange} onRename={() => {}} onArchive={() => {}} /></Suspense>}

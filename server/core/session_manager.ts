@@ -1,4 +1,4 @@
-import { decodeResetCredits, decodeResetOutcome } from "./account_usage.js";
+import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
 import { ApplicationActionError } from "./action_error.js";
 import type {
   ApprovalDecisionRequest,
@@ -48,13 +48,12 @@ import type {
   SteerTurnResponse,
   SubmitTurnRequest,
   SubmitTurnResponse,
-  ThreadRecord,
   ThreadTokenUsage,
   UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
-import type { AgentSession } from "./agent_session.js";
-import { createAgentSession, providerForThread, hasProviderThreads, type AgentSessionFactory } from "./agent_provider.js";
+import { UnsupportedProviderOperationError, type AgentSession } from "./agent_session.js";
+import { missingSessionFactory, memoryProviderDirectory, type ThreadProviderDirectory, type AgentSessionFactory } from "./agent_provider.js";
 import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
 
 interface ManagedSession {
@@ -73,49 +72,11 @@ type ManagedModelState = {
   pendingModel: string | null;
 };
 
-type ThreadListRawResponse = {
-  data?: ThreadRecord[];
-  nextCursor?: unknown;
-  backwardsCursor?: unknown;
-};
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function asNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-export function extractThreadSummary(value: unknown, archived: boolean) {
-  const record = asRecord(value);
-  return {
-    threadId: asString(record.id) ?? "unknown",
-    name: asString(record.name),
-    preview: asString(record.preview) ?? "",
-    archived,
-    createdAt: asNumber(record.createdAt),
-    updatedAt: asNumber(record.updatedAt),
-    source: asString(asRecord(record.source).kind) ?? asString(record.source),
-    cwd: asString(record.cwd),
-  };
-}
-
-function extractThreadRecord(value: unknown): ThreadRecord {
-  const record = asRecord(value);
-  const id = asString(record.id);
-  if (!id) {
-    throw new Error("Thread payload missing id.");
-  }
-  return {
-    ...(record as ThreadRecord),
-    id,
-  };
-}
+export const extractThreadSummary = threadSummary;
 
 export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
@@ -127,13 +88,16 @@ export class SessionManager {
   private controlSessions = new Map<AgentProvider, AgentSession>();
   private controlSessionStarting = new Map<AgentProvider, Promise<AgentSession>>();
   private readonly ownedSessions = new Set<AgentSession>();
+  private readonly sessionSubscriptions = new Map<AgentSession, () => void>();
   private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
   private stopped = false;
 
   constructor(
     private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
-    private readonly sessionFactory: AgentSessionFactory = createAgentSession,
-    private readonly providerHasStoredThreads = hasProviderThreads,
+    private readonly sessionFactory: AgentSessionFactory = missingSessionFactory,
+    private readonly providerHasStoredThreads = (_provider: AgentProvider, _request: ListStoredThreadsRequest) => false,
+    private readonly providerDirectory: ThreadProviderDirectory = memoryProviderDirectory(),
+    private readonly providers: readonly AgentProvider[] = ["codex", "claude"],
   ) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
@@ -165,6 +129,7 @@ export class SessionManager {
     try {
       const created = await start(session);
       this.assertRunning();
+      this.providerDirectory.bind(created.threadId, request.provider ?? "codex");
       this.sessionsByThread.set(created.threadId, { session, createdAt: new Date().toISOString() });
       if (request.cwd) this.cwdByThread.set(created.threadId, request.cwd);
       this.effortStateByThread.set(created.threadId, { current: created.reasoningEffort, pending: null });
@@ -191,78 +156,43 @@ export class SessionManager {
   getRuntimeActivity(): RuntimeActivity {
     return {
       activeTurnThreadIds: [...this.sessionsByThread.entries()]
-        .filter(([, managed]) => managed.session.activeTurnId !== null)
+        .filter(([, managed]) => managed.session.activeTurnId !== null || (managed.session.backgroundTaskCount ?? 0) > 0)
         .map(([threadId]) => threadId),
       pendingApprovalIds: this.approvals.listPending().map((approval) => approval.approvalId),
     };
   }
 
   async listStoredThreads(request: ListStoredThreadsRequest): Promise<ListStoredThreadsResponse> {
-    const prefix = "shepherd-providers:";
-    type Position = { cursor?: string; skip: number; done: boolean; size?: number };
-    const combined = request.cursor?.startsWith(prefix);
-    if (!combined && !this.providerHasStoredThreads("claude", request)) {
-      const session = await this.getControlSession();
-      const raw = await session.listStoredThreads(request) as ThreadListRawResponse;
-      return {
-        threads: (raw.data ?? []).map((entry) => extractThreadSummary(entry, request.archived === true)).filter((entry) => entry.threadId !== "unknown"),
-        nextCursor: asString(raw.nextCursor), backwardsCursor: asString(raw.backwardsCursor),
-      };
-    }
-    let positions: Record<AgentProvider, Position> = {
-      codex: { cursor: request.cursor, skip: 0, done: false },
-      claude: { skip: 0, done: false },
-    };
-    if (combined) {
-      try {
-        positions = JSON.parse(Buffer.from(request.cursor!.slice(prefix.length), "base64url").toString());
-        for (const id of ["codex", "claude"] as const) {
-          const position = positions[id];
-          if (!position || (position.size !== undefined && (!Number.isSafeInteger(position.size) || position.size < 1)) || !Number.isSafeInteger(position.skip) || position.skip < 0 || typeof position.done !== "boolean" || (position.cursor !== undefined && typeof position.cursor !== "string")) throw new Error();
-        }
-      } catch { throw new Error("Invalid provider thread cursor."); }
-    }
-    const limit = request.limit ?? 20;
-    const pages = await Promise.all((["codex", "claude"] as const).map(async (provider) => {
-      const position = positions[provider];
-      if (position.done) return { provider, data: [] as ThreadRecord[], nextCursor: null as string | null };
-      const session = await this.getControlSession(provider);
-      position.size ??= limit;
-      const raw = await session.listStoredThreads({ ...request, cursor: position.cursor, limit: position.size }) as ThreadListRawResponse;
-      const data = Array.isArray(raw.data) ? raw.data : [];
-      if (position.skip > data.length) throw new Error("Provider thread page changed; reload the conversation list.");
-      if (!data.length && !asString(raw.nextCursor)) position.done = true;
-      return { provider, data, nextCursor: asString(raw.nextCursor) };
-    }));
-    const candidates = pages.flatMap((page) => page.data.slice(positions[page.provider].skip).map((thread) => ({ provider: page.provider, thread })));
-    const key = request.sortKey === "created_at" ? "createdAt" : "updatedAt";
-    candidates.sort((a, b) => (request.sortDirection === "asc" ? 1 : -1) * ((asNumber(a.thread[key]) ?? 0) - (asNumber(b.thread[key]) ?? 0)));
-    const selected = candidates.slice(0, limit);
-    for (const { provider } of selected) positions[provider].skip++;
-    for (const page of pages) {
-      const position = positions[page.provider];
-      if (position.skip === page.data.length && !position.done) {
-        position.cursor = page.nextCursor ?? undefined;
-        position.skip = 0;
-        delete position.size;
-        position.done = page.nextCursor === null;
-      }
-    }
-    return {
-      threads: selected.map(({ thread }) => extractThreadSummary(thread, request.archived === true)).filter((thread) => thread.threadId !== "unknown"),
-      nextCursor: Object.values(positions).some((position) => !position.done) ? prefix + Buffer.from(JSON.stringify(positions)).toString("base64url") : null,
-      backwardsCursor: null,
-    };
+    return listProviderThreads({
+      providers: this.providers, directory: this.providerDirectory,
+      hasStoredThreads: this.providerHasStoredThreads,
+      listPage: async (provider, page) => (await this.getControlSession(provider)).listStoredThreads(page),
+    }, request);
   }
 
   async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<ListLoadedThreadsResponse> {
+    const prefix = "shepherd-loaded:";
     const session = await this.getControlSession();
-    const raw = asRecord(await session.listLoadedThreads(request));
-    const data = Array.isArray(raw.data) ? raw.data : [];
-    return {
-      threadIds: data.map((entry) => asString(entry)).filter((entry): entry is string => Boolean(entry)),
-      nextCursor: asString(raw.nextCursor),
-    };
+    // Accept native cursors issued by versions before application pagination.
+    if (request.cursor && !request.cursor.startsWith(prefix)) {
+      const page = await session.listLoadedThreads(request);
+      return { threadIds: page.data, nextCursor: page.nextCursor };
+    }
+    const offset = request.cursor ? Number(request.cursor.slice(prefix.length)) : 0;
+    const limit = request.limit ?? 20;
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid loaded thread page.");
+    const ids = new Set(this.sessionsByThread.keys());
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    do {
+      const page = await session.listLoadedThreads({ cursor, limit: 100 });
+      page.data.forEach(id => ids.add(id));
+      if (!page.nextCursor) break;
+      if (seen.has(page.nextCursor)) throw new Error("Provider returned a repeated loaded thread cursor.");
+      seen.add(page.nextCursor); cursor = page.nextCursor;
+    } while (true);
+    const sorted = [...ids].sort();
+    return { threadIds: sorted.slice(offset, offset + limit), nextCursor: offset + limit < sorted.length ? prefix + (offset + limit) : null };
   }
 
   getThreadState(threadId: string): GetThreadStateResponse {
@@ -270,28 +200,27 @@ export class SessionManager {
     return {
       threadId,
       sessionId: managed.session.sessionId,
+      provider: this.threadProvider(threadId),
+      capabilities: managed.session.capabilities,
+      backgroundTaskCount: managed.session.backgroundTaskCount ?? 0,
       activeTurnId: managed.session.activeTurnId,
       approvalPolicy: managed.session.approvalPolicy,
     };
   }
 
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(providerForThread(threadId));
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
     return session.listThreadTurns(threadId, request);
   }
 
   async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(providerForThread(threadId));
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
     return session.listThreadItems(threadId, request);
   }
 
   async readThread(threadId: string, request: ReadThreadRequest): Promise<ReadThreadResponse> {
     const session = this.mustGet(threadId).session;
-    const raw = asRecord(await session.readThread(threadId, request.includeTurns ?? false));
-    if (!raw.thread) {
-      throw new Error(`Failed to read thread ${threadId}.`);
-    }
-    return { thread: extractThreadRecord(raw.thread) };
+    return session.readThread(threadId, request.includeTurns ?? false);
   }
 
   async setThreadName(threadId: string, request: SetThreadNameRequest): Promise<{ ok: true }> {
@@ -307,70 +236,39 @@ export class SessionManager {
   }
 
   async unarchiveThread(threadId: string): Promise<UnarchiveThreadResponse> {
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(providerForThread(threadId));
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
     await session.unarchiveThread(threadId);
     return { ok: true };
   }
 
   async compactThread(threadId: string): Promise<CompactThreadResponse> {
+    this.requireCapability(threadId, "compact");
     const session = this.mustGet(threadId).session;
     await session.compactThread(threadId);
     return { ok: true };
   }
 
   async revertThread(threadId: string, request: RevertThreadRequest): Promise<RevertThreadResponse> {
+    this.requireCapability(threadId, "revert");
     const session = this.mustGet(threadId).session;
-    const raw = asRecord(await session.revertThread(threadId, request.beforeTurnId));
-    if (!raw.thread) {
-      throw new Error("Revert did not return updated thread state.");
-    }
-    return { thread: extractThreadRecord(raw.thread), turnsBackwardsCursor: asString(raw.turnsBackwardsCursor), itemsBackwardsCursor: asString(raw.itemsBackwardsCursor) };
+    const response = await session.revertThread(threadId, request.beforeTurnId);
+    if (!response.thread) throw new Error("Revert did not return updated thread state.");
+    return response;
   }
 
   async consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<ConsumeRateLimitResetResponse> {
     const session = await this.getControlSession();
-    return decodeResetOutcome(await session.consumeRateLimitReset(request));
+    return session.consumeRateLimitReset(request);
   }
 
   async readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
     const session = await this.getControlSession();
-    const raw = asRecord(await session.readAccountRateLimits());
-    return {
-      rateLimits: raw.rateLimits ?? raw,
-      rateLimitsByLimitId:
-        raw.rateLimitsByLimitId && typeof raw.rateLimitsByLimitId === "object"
-          ? (raw.rateLimitsByLimitId as Record<string, unknown>)
-          : null,
-      rateLimitResetCredits: decodeResetCredits(raw.rateLimitResetCredits),
-    };
+    return session.readAccountRateLimits();
   }
 
   async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
     const session = await this.getControlSession(request.provider ?? "codex");
-    const raw = asRecord(await session.listModels(request));
-    const items = Array.isArray(raw.data) ? raw.data : [];
-    return {
-      data: items.map((item) => {
-        const record = asRecord(item);
-        return {
-          id: asString(record.id) ?? asString(record.model) ?? "unknown",
-          model: asString(record.model) ?? "unknown",
-          displayName: asString(record.displayName) ?? asString(record.model) ?? "unknown",
-          description: asString(record.description) ?? "",
-          hidden: record.hidden === true,
-          isDefault: record.isDefault === true,
-          supportsPersonality: record.supportsPersonality === true,
-          defaultReasoningEffort: asString(record.defaultReasoningEffort),
-          supportedReasoningEfforts: (Array.isArray(record.supportedReasoningEfforts) ? record.supportedReasoningEfforts : [])
-            .map((value) => {
-              const option = asRecord(value);
-              return { reasoningEffort: asString(option.reasoningEffort) ?? "", description: asString(option.description) ?? "" };
-            }).filter((option) => option.reasoningEffort),
-
-        };
-      }),
-      nextCursor: asString(raw.nextCursor),
-    };
+    return session.listModels(request);
   }
 
   getThreadModel(threadId: string): ThreadModelState {
@@ -410,7 +308,7 @@ export class SessionManager {
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
-      const result = await this.listModels({ cursor, limit: 100, includeHidden: true, provider: providerForThread(threadId) });
+      const result = await this.listModels({ cursor, limit: 100, includeHidden: true, provider: this.threadProvider(threadId) });
       const entry = result.data.find((entry) => model ? entry.model === model : entry.isDefault);
       if (entry) {
         const state = this.effortStateByThread.get(threadId);
@@ -440,6 +338,7 @@ export class SessionManager {
   }
 
   async listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
+    this.requireCapability(threadId, "skills");
     const managed = this.mustGet(threadId);
     const cwds = request.cwds ?? [await this.resolveThreadCwd(threadId)];
     return managed.session.listSkills({ ...request, cwds });
@@ -458,6 +357,7 @@ export class SessionManager {
     threadId: string,
     request: SkillsConfigWriteRequest,
   ): Promise<SkillsConfigWriteResponse> {
+    this.requireCapability(threadId, "skills");
     const managed = this.mustGet(threadId);
     await this.resolveThreadCwd(threadId);
     return managed.session.writeSkillConfig(request);
@@ -587,11 +487,14 @@ export class SessionManager {
   }
 
   private releaseSession(session: AgentSession): void {
-    if (this.ownedSessions.delete(session)) session.stop();
+    if (this.ownedSessions.delete(session)) {
+      try { session.stop(); }
+      finally { this.sessionSubscriptions.get(session)?.(); this.sessionSubscriptions.delete(session); }
+    }
   }
 
   private attachSessionSubscriptions(session: AgentSession): void {
-    session.eventBus.subscribe((event) => {
+    this.sessionSubscriptions.set(session, session.eventBus.subscribe((event) => {
       if (event.type === "approval.requested") {
         this.approvals.create(event.payload as ApprovalRequestPayload, {
           threadId: event.threadId,
@@ -617,11 +520,13 @@ export class SessionManager {
         if (!payload.tokenUsage) return;
         this.tokenUsageByThread.set(event.threadId, payload.tokenUsage);
       }
-    });
+    }, { replay: false }));
   }
 
+  getThreadProvider(threadId: string): AgentProvider { return this.threadProvider(threadId); }
+
   private threadProvider(threadId: string, requested?: AgentProvider): AgentProvider {
-    const provider = providerForThread(threadId);
+    const provider = this.providerDirectory.resolve(threadId);
     if (requested && requested !== provider) throw new Error("Cannot change the provider of an existing thread.");
     return provider;
   }
@@ -649,6 +554,10 @@ export class SessionManager {
     finally { this.controlSessionStarting.delete(provider); }
   }
 
+  private requireCapability(threadId: string, operation: "compact" | "revert" | "skills"): void {
+    if (!this.mustGet(threadId).session.capabilities[operation]) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), operation);
+  }
+
   private mustGet(threadId: string): ManagedSession {
     const managed = this.sessionsByThread.get(threadId);
     if (!managed) {
@@ -662,9 +571,9 @@ export class SessionManager {
     const cached = this.cwdByThread.get(threadId);
     if (cached) return cached;
 
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(providerForThread(threadId));
-    const raw = asRecord(await session.readThread(threadId, false));
-    const thread = asRecord(raw.thread);
+    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
+    const raw = await session.readThread(threadId, false);
+    const thread = raw.thread;
     const cwd = asString(thread.cwd);
     if (!cwd) {
       throw new ApplicationActionError({ code: "workspace_unavailable" });

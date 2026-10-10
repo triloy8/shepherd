@@ -1,65 +1,20 @@
+import { BackgroundTasks } from "./background_tasks.js";
+import { shepherdMcpServers } from "./mcp_bridge.js";
+import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
+import type { UserQuestionRequest } from "../../../shared/protocol/user_questions.js";
+import { claudeCapabilities } from "../capabilities.js";
+import type { ClaudeThreadRepository, ClaudeThread } from "../../ports/claude_thread_store.js";
+import { InputQueue } from "./input_queue.js";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { query, forkSession, createSdkMcpServer, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type * as P from "../../shared/protocol/requests.js";
-import type { ApprovalDecisionRequest } from "../../shared/protocol/approvals.js";
-import type { BridgeEventType } from "../../shared/protocol/events.js";
-import type { DynamicToolSpec, JsonValue } from "../../shared/protocol/dynamic_tools.js";
-import type { UserInput } from "../../shared/protocol/user_input.js";
-import { UnsupportedProviderOperationError, type AgentSession, type ThreadBootstrapInfo } from "./agent_session.js";
-import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
+import { query, forkSession, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
+import type * as P from "../../../shared/protocol/requests.js";
+import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals.js";
+import type { BridgeEventType } from "../../../shared/protocol/events.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
+import { UnsupportedProviderOperationError, type AgentSession, type ThreadBootstrapInfo } from "../../core/agent_session.js";
+import { DynamicToolRegistry } from "../../core/dynamic_tool_registry.js";
 import { claudeExecutablePath } from "./claude_executable.js";
-import { EventBus } from "./event_bus.js";
-
-type ClaudeThread = {
-  id: string; nativeId: string; materialized: boolean; cwd: string; model: string;
-  effort: Options["effort"]; name: string | null; preview: string; archived: boolean;
-  createdAt: number; updatedAt: number; instructions: string;
-  turns: P.HistoryTurn[];
-  tokenUsage?: P.ThreadTokenUsage;
-};
-
-/** Shepherd metadata complements the SDK's persisted conversation transcript. */
-export class ClaudeThreadStore {
-  constructor(private readonly directory = process.env.SHEPHERD_CLAUDE_STATE_DIR ?? join(homedir(), ".shepherd", "claude")) {}
-  read(id: string): ClaudeThread {
-    if (!/^claude-[0-9a-f-]{36}$/.test(id)) throw new Error("Invalid Claude thread id.");
-    const value = JSON.parse(readFileSync(join(this.directory, `${id}.json`), "utf8")) as ClaudeThread;
-    if (value.id !== id) throw new Error("Invalid Claude thread metadata.");
-    return value;
-  }
-  write(thread: ClaudeThread): void {
-    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    const file = join(this.directory, `${thread.id}.json`);
-    const temporary = `${file}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, JSON.stringify(thread), { mode: 0o600 });
-    renameSync(temporary, file);
-  }
-  list(): ClaudeThread[] {
-    let files: string[];
-    try { files = readdirSync(this.directory); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
-    return files.filter((file) => /^claude-[0-9a-f-]{36}\.json$/.test(file)).map((file) => this.read(file.slice(0, -5)));
-  }
-}
-
-class InputQueue implements AsyncIterable<SDKUserMessage> {
-  private messages: SDKUserMessage[] = [];
-  private wake: (() => void) | null = null;
-  private ended = false;
-  push(message: SDKUserMessage) { if (this.ended) throw new Error("Turn input is closed."); this.messages.push(message); this.wake?.(); }
-  close() { this.ended = true; this.wake?.(); }
-  async *[Symbol.asyncIterator]() {
-    while (!this.ended || this.messages.length) {
-      const message = this.messages.shift();
-      if (message) yield message;
-      else await new Promise<void>((resolve) => { this.wake = resolve; });
-    }
-  }
-}
+import { EventBus } from "../../core/event_bus.js";
 
 function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) {
   const offset = request.cursor ? Number(request.cursor) : 0;
@@ -69,20 +24,26 @@ function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) 
 }
 
 export class ClaudeSession implements AgentSession {
+  readonly capabilities = claudeCapabilities;
   readonly sessionId = randomUUID();
   readonly eventBus = new EventBus();
   activeTurnId: string | null = null;
+  private readonly backgroundTasks = new BackgroundTasks();
+  get backgroundTaskCount() { return this.backgroundTasks.count; }
+  private currentTurn: P.HistoryTurn | null = null;
   private thread: ClaudeThread | null = null;
   private running: Query | null = null;
-  private input: InputQueue | null = null;
+  private readonly ownedQueries = new Map<Query, InputQueue<SDKUserMessage>>();
+  private input: InputQueue<SDKUserMessage> | null = null;
   private stopped = false;
   private counter = 0;
   private interrupted = false;
-  private approvals = new Map<string, { resolve: (result: PermissionResult) => void; input: Record<string, unknown>; suggestions: Parameters<CanUseTool>[2]["suggestions"] }>();
+  private steeredMessages = 0;
+  private approvals = new Map<string, { resolve: (result: PermissionResult) => void; input: Record<string, unknown>; suggestions: Parameters<CanUseTool>[2]["suggestions"]; questions?: UserQuestionRequest }>();
   constructor(
     public approvalPolicy: P.ApprovalPolicy = "on-request",
     private readonly dynamicTools = new DynamicToolRegistry(),
-    private readonly store = new ClaudeThreadStore(),
+    private readonly store: ClaudeThreadRepository,
     private readonly sdk = { query, forkSession },
   ) {}
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
@@ -114,10 +75,15 @@ export class ClaudeSession implements AgentSession {
     return this.bootstrap();
   }
   async forkThread(id: string, request: P.ForkThreadRequest): Promise<ThreadBootstrapInfo> {
-    await this.resumeThread(id, request);
-    const source = this.requireThread();
+    await this.initialize(); this.validateOverrides(request);
+    const source = this.store.read(id);
+    if (source.turns.some(turn => turn.status === "inProgress")) throw new Error("Cannot fork an active Claude thread.");
     const nativeId = source.materialized ? (await this.sdk.forkSession(source.nativeId, { dir: source.cwd })).sessionId : randomUUID();
     this.thread = { ...source, id: `claude-${nativeId}`, nativeId, name: null, archived: false, createdAt: Date.now() / 1000, turns: structuredClone(source.turns) };
+    if (request.cwd) this.thread.cwd = request.cwd;
+    if (request.model) this.thread.model = request.model;
+    if (request.baseInstructions !== undefined || request.developerInstructions !== undefined) this.thread.instructions = [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n");
+    this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     this.persist(); return this.bootstrap();
   }
   private validateOverrides(request: P.CreateThreadRequest | P.ResumeThreadRequest) {
@@ -128,12 +94,18 @@ export class ClaudeSession implements AgentSession {
   }
   async startTurn(input: UserInput[], policy?: P.ApprovalPolicy, model?: string, cwd?: string, effort?: string): Promise<string> {
     await this.initialize();
-    if (this.activeTurnId || this.running) throw new Error("A Claude turn is already active.");
+    if (this.activeTurnId) throw new Error("A Claude turn is already active.");
     const thread = this.requireThread();
     if (typeof policy === "object") throw new UnsupportedProviderOperationError("Claude", "granular approval policies");
     if (effort && !["low", "medium", "high", "xhigh", "max"].includes(effort)) throw new Error("Unsupported Claude effort.");
     const message = this.userMessage(input);
-    this.approvalPolicy = policy ?? this.approvalPolicy;
+    const nextPolicy = policy ?? this.approvalPolicy;
+    const settingsChanged = (cwd && cwd !== thread.cwd) || (model && model !== thread.model) || (effort && effort !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
+    if (this.running && settingsChanged) {
+      if (this.backgroundTaskCount) throw new Error("Wait for background tasks before changing Claude session settings.");
+      this.closeQuery(this.running); this.running = null; this.input = null;
+    }
+    this.approvalPolicy = nextPolicy;
     const options: Options = {
       cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: (effort as Options["effort"]) ?? thread.effort,
       ...(thread.materialized ? { resume: thread.nativeId } : { sessionId: thread.nativeId }),
@@ -141,23 +113,26 @@ export class ClaudeSession implements AgentSession {
       includePartialMessages: true, settingSources: ["user", "project", "local"],
       systemPrompt: { type: "preset", preset: "claude_code", append: thread.instructions || undefined },
       permissionMode: this.approvalPolicy === "never" ? "bypassPermissions" : "default",
-      ...(this.approvalPolicy === "never" ? { allowDangerouslySkipPermissions: true } : { canUseTool: (name: string, args: Record<string, unknown>, context: Parameters<CanUseTool>[2]) => this.requestApproval(name, args, context) }),
-      mcpServers: this.mcpServers(),
+      ...(this.approvalPolicy === "never" ? { allowDangerouslySkipPermissions: true } : {}),
+      canUseTool: (name, args, context) => this.requestApproval(name, args, context),
+      mcpServers: shepherdMcpServers(this.dynamicTools, () => this.activeTurnId ? { threadId: thread.id, turnId: this.activeTurnId } : null),
     };
-    const queue = new InputQueue(); queue.push(message);
-    const running = this.sdk.query({ prompt: queue, options });
+    const existing = this.running;
+    const queue = this.input ?? new InputQueue<SDKUserMessage>();
+    const running = existing ?? this.openQuery(queue, options);
     thread.cwd = options.cwd!; thread.model = options.model!; thread.effort = options.effort;
     const turn: P.HistoryTurn = { id: randomUUID(), status: "inProgress", itemsView: "full", items: [{ id: message.uuid!, type: "userMessage", content: input }], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
     thread.turns.push(turn); thread.preview ||= input.filter((part) => part.type === "text").map((part) => part.text).join("\n").slice(0, 200);
-    this.input = queue; this.running = running; this.activeTurnId = turn.id; this.interrupted = false;
+    this.input = queue; this.running = running; this.activeTurnId = turn.id; this.currentTurn = turn; this.interrupted = false; this.steeredMessages = 0;
     try { this.persist(); }
     catch (error) {
-      running.close(); queue.close(); thread.turns.pop();
-      this.input = null; this.running = null; this.activeTurnId = null;
+      this.closeQuery(running); thread.turns.pop(); this.backgroundTasks.reset();
+      this.input = null; this.running = null; this.activeTurnId = null; this.currentTurn = null;
       throw error;
     }
     this.publish("turn.started", { turnId: turn.id });
-    void this.consume(running, queue, turn);
+    queue.push(message);
+    if (!existing) { this.backgroundTasks.reset(); void this.consume(running, queue); }
     return turn.id;
   }
   private userMessage(input: UserInput[]): SDKUserMessage {
@@ -173,27 +148,31 @@ export class ClaudeSession implements AgentSession {
     if (!content.length) throw new Error("Claude turn input is empty.");
     return { type: "user", uuid: randomUUID(), session_id: this.requireThread().nativeId, message: { role: "user", content }, parent_tool_use_id: null };
   }
-  private async consume(running: Query, queue: InputQueue, turn: P.HistoryTurn) {
+  private async consume(running: Query, queue: InputQueue<SDKUserMessage>) {
     let streamItemId: string | null = null;
     try {
-      let result = false;
-      for await (const message of running) {
-        if (this.stopped) break;
+      for await (const message of { [Symbol.asyncIterator]: () => running }) {
+        if (this.stopped || this.running !== running) break;
+        if (this.backgroundTasks.accept(message)) this.publish("thread.status.changed", { status: { backgroundTaskCount: this.backgroundTaskCount } });
+        if (!this.currentTurn && ((message.type === "stream_event" && !message.parent_tool_use_id && message.event.type === "message_start") || (message.type === "assistant" && !message.parent_tool_use_id))) {
+          this.beginWakeTurn();
+        }
+        const turn = this.currentTurn;
         if (message.type === "system" && message.subtype === "init") {
           this.requireThread().nativeId = message.session_id; this.requireThread().materialized = true; this.persist();
         }
-        if (message.type === "stream_event" && !message.parent_tool_use_id) {
+        if (message.type === "stream_event" && !message.parent_tool_use_id && turn) {
           if (message.event.type === "message_start") streamItemId = message.event.message.id;
-          if (message.event.type === "content_block_delta" && message.event.delta.type === "text_delta") this.publish("turn.stream.delta", { method: "item/agentMessage/delta", textDelta: message.event.delta.text, itemId: streamItemId, turnId: turn.id, phase: null });
+          if (message.event.type === "content_block_delta" && message.event.delta.type === "text_delta") this.publish("turn.stream.delta", { kind: "assistant_text", method: "claude/text_delta", textDelta: message.event.delta.text, itemId: streamItemId, turnId: turn.id, phase: null });
         }
-        if (message.type === "assistant" && !message.parent_tool_use_id) this.assistantMessage(message, turn);
-        if (message.type === "user" && Array.isArray(message.message.content)) {
+        if (message.type === "assistant" && !message.parent_tool_use_id && turn) this.assistantMessage(message, turn);
+        if (message.type === "user" && !message.parent_tool_use_id && turn && Array.isArray(message.message.content)) {
           for (const block of message.message.content) if (block.type === "tool_result") {
             const item = turn.items.find((item) => item.id === block.tool_use_id);
             if (item) {
               item.status = block.is_error ? "failed" : "completed";
               item.result = block.content;
-              this.publish("turn.activity", { itemId: item.id, turnId: turn.id, kind: "mcp_tool", label: String(item.tool), detail: null, status: item.status });
+              this.publish("turn.activity", { itemId: item.id, turnId: turn.id, kind: item.activityKind ?? "mcp_tool", label: String(item.tool), detail: null, status: item.status });
             }
           }
         }
@@ -210,24 +189,41 @@ export class ClaudeSession implements AgentSession {
             return acc;
           }, { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
           this.requireThread().tokenUsage = { last, total };
-          this.publish("thread.tokenUsage.updated", { turnId: turn.id, tokenUsage: { last, total } });
-          result = true;
+          this.publish("thread.tokenUsage.updated", { turnId: turn?.id ?? null, tokenUsage: { last, total } });
           if (message.is_error) throw new Error(message.subtype === "success" ? message.result : message.errors.join("\n"));
-          if ((message.queued_turn_count ?? 0) === 0) break;
+          if ((message.queued_turn_count ?? 0) === 0 && turn) this.finishTurn(this.interrupted ? "interrupted" : "completed");
         }
       }
-      if (!result && !this.interrupted && !this.stopped) throw new Error("Claude stream ended before a turn result.");
-      turn.status = this.interrupted || this.stopped ? "interrupted" : "completed";
+      if (this.running === running && this.currentTurn && !this.interrupted && !this.stopped) throw new Error("Claude stream ended before a turn result.");
     } catch (error) {
-      turn.status = this.interrupted || this.stopped ? "interrupted" : "failed";
-      if (turn.status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
+      if (this.running === running && this.currentTurn) this.finishTurn(this.interrupted || this.stopped ? "interrupted" : "failed", error);
+      else if (!this.stopped && this.running === running) this.publish("session.error", { message: String(error) });
     } finally {
-      queue.close(); running.close(); this.denyPendingApprovals();
-      this.running = null; this.input = null; this.activeTurnId = null;
-      turn.completedAt = Date.now() / 1000; turn.durationMs = (turn.completedAt - turn.startedAt!) * 1000;
-      try { this.persist(); } catch (error) { turn.status = "failed"; turn.error = { message: String(error) }; }
-      if (!this.stopped) this.publish(turn.status === "failed" ? "turn.failed" : "turn.completed", { turnId: turn.id, ...(turn.error ? { message: turn.error.message } : {}) });
+      this.closeQuery(running);
+      if (this.running === running) {
+        if (this.currentTurn) this.finishTurn("interrupted");
+        this.running = null; this.input = null;
+        const hadBackgroundTasks = this.backgroundTaskCount > 0;
+        this.backgroundTasks.reset();
+        if (hadBackgroundTasks) this.publish("thread.status.changed", { status: { backgroundTaskCount: 0 } });
+      }
     }
+  }
+  private beginWakeTurn(): void {
+    if (this.currentTurn) return;
+    this.currentTurn = { id: randomUUID(), status: "inProgress", itemsView: "full", items: [], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
+    this.requireThread().turns.push(this.currentTurn); this.activeTurnId = this.currentTurn.id; this.interrupted = false;
+    this.persist(); this.publish("turn.started", { turnId: this.currentTurn.id });
+  }
+  private finishTurn(status: "completed" | "interrupted" | "failed", error?: unknown): void {
+    const turn = this.currentTurn;
+    if (!turn) return;
+    this.currentTurn = null; this.activeTurnId = null; this.denyPendingApprovals();
+    turn.status = status;
+    if (error && status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
+    turn.completedAt = Date.now() / 1000; turn.durationMs = (turn.completedAt - turn.startedAt!) * 1000;
+    try { this.persist(); } catch (error) { turn.status = "failed"; turn.error = { message: String(error) }; }
+    if (!this.stopped) this.publish(turn.status === "failed" ? "turn.failed" : "turn.completed", { turnId: turn.id, ...(turn.error ? { message: turn.error.message } : {}) });
   }
   private assistantMessage(message: Extract<SDKMessage, { type: "assistant" }>, turn: P.HistoryTurn) {
     const phase = message.message.content.some((block) => block.type === "tool_use") ? "commentary" : "final_answer";
@@ -238,40 +234,40 @@ export class ClaudeSession implements AgentSession {
       this.publish("turn.message.completed", { itemId, turnId: turn.id, phase, text });
     }
     for (const block of message.message.content) if (block.type === "tool_use") {
-      const item = { id: block.id, type: "mcpToolCall", server: "claude", tool: block.name, arguments: block.input };
+      const kind = block.name === "Bash" ? "command" : ["Edit", "Write"].includes(block.name) ? "file_change" : "mcp_tool";
+      const item = { id: block.id, type: "mcpToolCall", server: "claude", tool: block.name, arguments: block.input, activityKind: kind };
       turn.items.push(item);
-      this.publish("turn.activity", { itemId: block.id, turnId: turn.id, kind: block.name === "Bash" ? "command" : ["Edit", "Write"].includes(block.name) ? "file_change" : "mcp_tool", label: block.name, detail: JSON.stringify(block.input), status: "started" });
+      this.publish("turn.activity", { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" });
     }
     this.persist();
   }
-  private mcpServers(): NonNullable<Options["mcpServers"]> {
-    if (!this.dynamicTools.hasTools()) return {};
-    const server = createSdkMcpServer({ name: "shepherd", version: "1.0.0" });
-    server.instance.server.registerCapabilities({ tools: {} });
-    const specs = this.dynamicTools.specifications().flatMap<Extract<DynamicToolSpec, { type: "function" }> & { namespace: string | null; wireName: string }>((spec) => spec.type === "namespace" ? spec.tools.map((tool) => ({ ...tool, namespace: spec.name, wireName: `${spec.name}__${tool.name}` })) : [{ ...spec, namespace: null, wireName: spec.name }]);
-    if (new Set(specs.map((spec) => spec.wireName)).size !== specs.length) throw new Error("Claude MCP tool names collide.");
-    server.instance.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: specs.map((spec) => ({ name: spec.wireName, description: spec.description, inputSchema: spec.inputSchema as { type: "object" } })) }));
-    server.instance.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const spec = specs.find((spec) => spec.wireName === request.params.name);
-      if (!spec || !this.activeTurnId) throw new Error("Unknown or inactive Shepherd tool call.");
-      const result = await this.dynamicTools.execute({ threadId: this.requireThread().id, turnId: this.activeTurnId, callId: randomUUID(), namespace: spec.namespace, tool: spec.name, arguments: (request.params.arguments ?? {}) as JsonValue });
-      return { isError: !result.success, content: result.contentItems.map((item) => item.type === "inputText" ? { type: "text", text: item.text } : { type: "text", text: JSON.stringify(item) }) };
-    });
-    return { shepherd: server };
-  }
   private requestApproval(name: string, input: Record<string, unknown>, context: Parameters<CanUseTool>[2]): Promise<PermissionResult> {
-    if (this.approvalPolicy === "never" || context.signal.aborted || this.stopped) return Promise.resolve({ behavior: "deny", message: "Tool requires approval." });
+    if (context.signal.aborted || this.stopped || !this.running) return Promise.resolve({ behavior: "deny", message: "Turn is no longer active." });
+    if (!this.activeTurnId) this.beginWakeTurn();
+    if (this.approvalPolicy === "never" && name !== "AskUserQuestion") return Promise.resolve({ behavior: "allow", updatedInput: input });
     const approvalId = randomUUID();
+    const questions = name === "AskUserQuestion" ? claudeQuestions(input, this.requireThread().id, this.activeTurnId!, approvalId) : undefined;
+    const suggestions = context.suppressAlwaysAllowRule ? undefined : context.suggestions?.map(update => ({ ...update, destination: "session" as const }));
     return new Promise((resolve) => {
-      const deny = () => { if (this.approvals.delete(approvalId)) this.publish("approval.failed", { approvalId, message: "Approval interrupted." }); resolve({ behavior: "deny", message: "Approval interrupted." }); };
+      const deny = () => { if (this.approvals.delete(approvalId)) this.publish("approval.expired", { approvalId }); resolve({ behavior: "deny", message: "Approval interrupted." }); };
       context.signal.addEventListener("abort", deny, { once: true });
-      this.approvals.set(approvalId, { input, suggestions: context.suggestions, resolve: (result) => { context.signal.removeEventListener("abort", deny); resolve(result); } });
-      this.publish("approval.requested", { approvalId, method: "claude/tool/requestApproval", prompt: `Allow Claude to use ${name}?`, choices: [{ value: "accept", label: "Allow once" }, { value: "acceptForSession", label: "Allow for session" }, { value: "decline", label: "Deny" }], params: { tool: name, input } });
+      this.approvals.set(approvalId, { input, suggestions, questions, resolve: (result) => { context.signal.removeEventListener("abort", deny); resolve(result); } });
+      this.publish("approval.requested", { approvalId, method: questions ? "claude/question" : "claude/tool/requestApproval", prompt: questions ? questions.questions.map(q => q.question).join("\n") : `Allow Claude to use ${name}?`,
+        choices: questions ? [{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }] : [{ value: "accept", label: "Allow once" }, ...(suggestions?.length ? [{ value: "acceptForSession", label: "Allow for session" }] : []), { value: "decline", label: "Deny" }],
+        params: { tool: name, input }, ...(questions ? { userInput: questions } : {}) });
     });
   }
   async applyApprovalDecision(approvalId: string, decision: ApprovalDecisionRequest) {
     const pending = this.approvals.get(approvalId);
     if (!pending) throw new Error("Unknown Claude approval.");
+    if (pending.questions) {
+      if (decision.decision !== "submit" && decision.decision !== "cancel") throw new Error("Invalid Claude question decision.");
+      const answers = decision.decision === "submit" ? claudeQuestionAnswers(pending.questions, decision.answers) : null;
+      this.approvals.delete(approvalId);
+      pending.resolve(answers ? { behavior: "allow", updatedInput: { ...pending.input, answers } } : { behavior: "deny", message: "User skipped the questions." });
+      return { method: "claude/question", approvalId };
+    }
+    if (decision.decision === "acceptForSession" && !pending.suggestions?.length) throw new Error("Session approval is unavailable for this request.");
     if (!["accept", "acceptForSession", "decline", "cancel"].includes(decision.decision)) throw new Error("Invalid Claude approval decision.");
     this.approvals.delete(approvalId);
     pending.resolve(decision.decision === "accept" || decision.decision === "acceptForSession" ? { behavior: "allow", updatedInput: pending.input, ...(decision.decision === "acceptForSession" ? { updatedPermissions: pending.suggestions } : {}) } : { behavior: "deny", message: decision.reason ?? "Denied by user." });
@@ -280,13 +276,24 @@ export class ClaudeSession implements AgentSession {
   async steerTurn(input: UserInput[], turnId?: string): Promise<string> {
     if (!this.input || !this.activeTurnId || (turnId && turnId !== this.activeTurnId)) throw new Error("No matching active Claude turn.");
     const message = this.userMessage(input);
-    this.input.push(message);
+    this.input.push(message); this.steeredMessages++;
     this.requireThread().turns.at(-1)!.items.push({ id: message.uuid!, type: "userMessage", content: input });
     this.persist(); return this.activeTurnId;
   }
   async interruptTurn(turnId?: string): Promise<void> {
     if (!this.running || !this.activeTurnId || (turnId && turnId !== this.activeTurnId)) throw new Error("No matching active Claude turn.");
-    this.interrupted = true; this.denyPendingApprovals(); this.input?.close(); await this.running.interrupt();
+    this.interrupted = true; this.denyPendingApprovals();
+    const running = this.running;
+    const receipt = await running.interrupt();
+    // The public SDK can report surviving queued inputs but cannot cancel them.
+    // Close that transport so a stopped turn cannot later run queued steering.
+    if ((receipt?.still_queued.length ?? 0) > 0 || (!receipt && this.steeredMessages > 0)) {
+      if (this.running === running) {
+        this.closeQuery(running); this.running = null; this.input = null;
+        this.finishTurn("interrupted"); this.backgroundTasks.reset();
+        this.publish("thread.status.changed", { status: { backgroundTaskCount: 0 } });
+      }
+    }
   }
   async readThread(id: string, includeTurns: boolean) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); return { thread: this.record(thread, includeTurns) }; }
   private record(thread: ClaudeThread, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, modelProvider: "anthropic", source: "appServer", ...(includeTurns ? { turns: thread.turns } : {}) }; }
@@ -307,27 +314,44 @@ export class ClaudeSession implements AgentSession {
     const items = thread.turns.filter((t) => !request.turnId || t.id === request.turnId).flatMap((t) => t.items.map((item) => ({ turnId: t.id, item })));
     if (request.sortDirection === "desc") items.reverse(); return paginate(items, request);
   }
-  async setThreadName(id: string, name: string) { const thread = this.store.read(id); thread.name = name; this.saveMutation(thread); this.publish("thread.name.updated", { threadName: name }, id); }
-  async archiveThread(id: string) { const thread = this.store.read(id); thread.archived = true; this.saveMutation(thread); this.publish("thread.archived", {}, id); }
-  async unarchiveThread(id: string) { const thread = this.store.read(id); thread.archived = false; this.saveMutation(thread); this.publish("thread.unarchived", {}, id); }
-  setCwd(cwd: string): void { this.requireThread().cwd = cwd; this.persist(); }
-  private saveMutation(thread: ClaudeThread) { if (this.thread?.id === thread.id) Object.assign(this.thread, thread); thread.updatedAt = Date.now() / 1000; this.store.write(thread); }
+  async setThreadName(id: string, name: string) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); thread.name = name; this.saveMutation(thread); this.publish("thread.name.updated", { threadName: name }, id); }
+  async archiveThread(id: string) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); thread.archived = true; this.saveMutation(thread); this.publish("thread.archived", {}, id); }
+  async unarchiveThread(id: string) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); thread.archived = false; this.saveMutation(thread); this.publish("thread.unarchived", {}, id); }
+  setCwd(cwd: string): void {
+    const thread = this.requireThread();
+    if (thread.cwd === cwd) return;
+    if (this.activeTurnId || this.backgroundTaskCount) throw new Error("Wait for Claude work to finish before changing the working directory.");
+    if (this.running) { this.closeQuery(this.running); this.running = null; this.input = null; }
+    thread.cwd = cwd; this.persist();
+  }
+  private saveMutation(thread: ClaudeThread) { thread.updatedAt = Date.now() / 1000; this.store.write(thread); }
   async compactThread(_id: string): Promise<void> { throw new UnsupportedProviderOperationError("Claude", "manual compaction"); }
-  async revertThread(_id: string, _before: string): Promise<unknown> { throw new UnsupportedProviderOperationError("Claude", "reverting turns"); }
+  async revertThread(_id: string, _before: string): Promise<P.RevertThreadResponse> { throw new UnsupportedProviderOperationError("Claude", "reverting turns"); }
   async listModels(request: P.ListModelsRequest): Promise<P.ListModelsResponse> {
-    const running = this.sdk.query({ prompt: new InputQueue(), options: { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? "sonnet", ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" } });
+    await this.initialize();
+    const running = this.openQuery(new InputQueue<SDKUserMessage>(), { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? "sonnet", ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" });
     try {
       const models = await running.supportedModels();
       const page = paginate(models.map((m) => ({ id: m.value, model: m.value, displayName: m.displayName, description: m.description, hidden: false, isDefault: m.value === "sonnet", supportsPersonality: false, defaultReasoningEffort: m.supportsEffort ? "high" : null, supportedReasoningEfforts: (m.supportedEffortLevels ?? []).map((e) => ({ reasoningEffort: e, description: "" })) })), request);
       return { data: page.data, nextCursor: page.nextCursor };
-    } finally { running.close(); }
+    } finally { this.closeQuery(running); }
   }
   async listSkills(_request: P.SkillsListRequest): Promise<P.SkillsListResponse> { throw new UnsupportedProviderOperationError("Claude", "listing skills; Claude loads project skills through its settings"); }
   async writeSkillConfig(_request: P.SkillsConfigWriteRequest): Promise<P.SkillsConfigWriteResponse> { throw new UnsupportedProviderOperationError("Claude", "skill configuration"); }
-  async readAccountRateLimits(): Promise<unknown> { throw new UnsupportedProviderOperationError("Claude", "Codex account rate limits"); }
-  async consumeRateLimitReset(_request: P.ConsumeRateLimitResetRequest): Promise<unknown> { throw new UnsupportedProviderOperationError("Claude", "Codex rate limit reset credits"); }
-  stop(): void { this.stopped = true; this.interrupted = true; this.input?.close(); this.running?.close(); this.denyPendingApprovals(); this.activeTurnId = null; }
-  private denyPendingApprovals() { for (const [approvalId, pending] of this.approvals) { pending.resolve({ behavior: "deny", message: "Turn ended." }); this.publish("approval.failed", { approvalId, message: "Turn ended." }); } this.approvals.clear(); }
+  async readAccountRateLimits(): Promise<P.AccountRateLimitsResponse> { throw new UnsupportedProviderOperationError("Claude", "Codex account rate limits"); }
+  async consumeRateLimitReset(_request: P.ConsumeRateLimitResetRequest): Promise<P.ConsumeRateLimitResetResponse> { throw new UnsupportedProviderOperationError("Claude", "Codex rate limit reset credits"); }
+  stop(): void { this.stopped = true; this.interrupted = true; for (const running of this.ownedQueries.keys()) this.closeQuery(running); this.denyPendingApprovals(); this.finishTurn("interrupted"); this.backgroundTasks.reset(); }
+  private openQuery(input: InputQueue<SDKUserMessage>, options: Options): Query {
+    const running = this.sdk.query({ prompt: input, options });
+    this.ownedQueries.set(running, input);
+    return running;
+  }
+  private closeQuery(running: Query): void {
+    const input = this.ownedQueries.get(running);
+    if (!input) return;
+    this.ownedQueries.delete(running); input.close(); running.close();
+  }
+  private denyPendingApprovals() { for (const [approvalId, pending] of this.approvals) { pending.resolve({ behavior: "deny", message: "Turn ended." }); this.publish("approval.expired", { approvalId }); } this.approvals.clear(); }
   private requireThread(): ClaudeThread { if (!this.thread) throw new Error("Claude thread is not bound."); return this.thread; }
   private persist() { const thread = this.requireThread(); thread.updatedAt = Date.now() / 1000; this.store.write(thread); }
   private publish(type: BridgeEventType, payload: unknown, id = this.requireThread().id) { this.eventBus.publish({ id: `${this.sessionId}:${++this.counter}`, type, payload, threadId: id, sessionId: this.sessionId, ts: new Date().toISOString() }); }

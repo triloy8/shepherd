@@ -257,7 +257,7 @@ export default function App() {
 
   const active = Boolean(controller.chat.activeTurnId);
   const waitingForAnswer = controller.approvals.some(a => a.userInput?.isBlocking);
-  const status = controller.connection === "online" ? waitingForAnswer ? "Waiting for your answer" : active ? "Working" : "Connected" : controller.connection === "detached" ? "Needs attention" : controller.connection === "reconnecting" ? "Reconnecting" : "Connecting";
+  const status = controller.connection === "online" ? waitingForAnswer ? "Waiting for your answer" : active || controller.backgroundTaskCount > 0 ? "Working" : "Connected" : controller.connection === "detached" ? "Needs attention" : controller.connection === "reconnecting" ? "Reconnecting" : "Connecting";
   const visibleHandles = (archived ? [] : conversations).filter((item) => !threads.some((thread) => thread.threadId === item.threadId));
   return <div className="app-shell">
     {drawer && <button className="drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)} />}
@@ -296,7 +296,7 @@ export default function App() {
       <header className="main-header">
         <button ref={sidebarTrigger} className="icon-button" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
         {!selected && <><div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">Workspace</h1></div><HostBattery /></>}
-        {selected && <ConversationMenu key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} detaching={detaching || controller.busy} onDetach={() => void detach()}
+        {selected && <ConversationMenu provider={controller.provider} capabilities={controller.capabilities} key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} detaching={detaching || controller.busy} onDetach={() => void detach()}
           onHistoryChange={controller.refresh}
           onRename={(name) => { setNames((current) => ({ ...current, [selected.threadId]: name })); setThreads((items) => items.map((item) => item.threadId === selected.threadId ? { ...item, name } : item)); void refreshList(); }}
           onArchive={() => { setSelected(null); setSaved(null); setConversations((items) => items.filter((item) => item.id !== selected.id)); try { localStorage.removeItem("shepherd.selection"); } catch {} void refreshList(); }}
@@ -312,7 +312,7 @@ export default function App() {
         <div className="chat-scroll" tabIndex={-1} ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) { follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; setShowLatest(!follow.current); } }}>
           <div className="chat-width chat-content pt-4 sm:pt-6">
             {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
-            <Timeline key={selected.id} chat={controller.chat} waitingForAnswer={waitingForAnswer} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.revert} onReload={controller.recoverHistory} />
+            <Timeline key={selected.id} chat={controller.chat} waitingForAnswer={waitingForAnswer} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.capabilities?.revert ? controller.revert : undefined} onReload={controller.recoverHistory} />
             {active && !waitingForAnswer && <div role="status" className="mt-7 flex items-center gap-2 text-xs text-muted"><span className="working-dot" />{controller.chat.activity || "Working"}</div>}
             {controller.chat.error && <p role="alert" className="notice mt-5">{controller.chat.error}</p>}
             <div className="mt-6"><Approvals approvals={controller.approvals} busy={controller.busy || controller.connection !== "online"} decide={(id, choice, answers) => controller.decide(id, choice, answers)} /></div>
@@ -338,7 +338,7 @@ export default function App() {
               return { ...all, [selected.threadId]: { text: "", revision: revision + 1 } };
             })}
             send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
-          <ConversationControls key={`controls:${selected.id}`} conversation={selected} draft={drafts[selected.threadId]?.text ?? ""} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
+          <ConversationControls capabilities={controller.capabilities} key={`controls:${selected.id}`} conversation={selected} draft={drafts[selected.threadId]?.text ?? ""} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
         </div></div>
       </section>}
     </main>

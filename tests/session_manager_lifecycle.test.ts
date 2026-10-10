@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { SessionManager } from "../server/core/session_manager.js";
 
 function deferred<T>() {

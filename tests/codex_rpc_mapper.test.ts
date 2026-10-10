@@ -5,7 +5,7 @@ import {
   extractGeneratedImageArtifact,
   extractViewedImageArtifact,
   mapTurnActivity,
-} from "../server/core/codex_rpc_mapper.js";
+} from "../server/providers/codex/rpc_mapper.js";
 
 function params(item: Record<string, unknown>) {
   return {

@@ -1,3 +1,4 @@
+import type { ProviderServices } from "./agent_provider.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "../../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type {
@@ -69,6 +70,7 @@ function toSurfaceKey(adapter: string, surfaceId: string): string {
 
 export type ConversationServiceOptions = {
   routing?: ConversationRoutingServiceOptions;
+  providers?: ProviderServices;
 };
 
 export class ConversationService {
@@ -78,7 +80,7 @@ export class ConversationService {
   private readonly subscriptionsBySurface = new Map<string, SurfaceSubscription>();
 
   constructor(options: ConversationServiceOptions = {}) {
-    this.manager = new SessionManager(this.dynamicTools);
+    this.manager = new SessionManager(this.dynamicTools, options.providers?.createSession, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers);
     this.routing = new ConversationRoutingService(this.manager, options.routing);
   }
 
@@ -99,6 +101,8 @@ export class ConversationService {
   registerDynamicTool(registration: DynamicToolRegistration): () => void {
     return this.dynamicTools.register(registration);
   }
+
+  getThreadProvider(threadId: string) { return this.manager.getThreadProvider(threadId); }
 
   getRuntimeActivity(): RuntimeActivity {
     return this.manager.getRuntimeActivity();

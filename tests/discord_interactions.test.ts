@@ -326,3 +326,18 @@ describe("Discord interactions", () => {
     expect(allText(updates[0])).toContain("1. `thread-1`");
   });
 });
+
+test("model pagination uses explicit conversation provider for opaque IDs", async () => {
+  const requests: unknown[] = [];
+  const interaction = {
+    customId: encodeDiscordListPageId({ target: "models", direction: "forward", page: 2, requesterId: "user", cursor: "2" }),
+    user: { id: "user" }, channelId: "channel", async deferUpdate() {}, async editReply() {}, async reply() {},
+  };
+  const conversation = {
+    getThreadProvider(id: string) { expect(id).toBe("opaque-native-id"); return "claude"; },
+    async listModels(request: unknown) { requests.push(request); return { data: [], nextCursor: null }; },
+    getThreadModel(threadId: string) { return { threadId, currentModel: "sonnet", pendingModel: null, modelProvider: "anthropic" }; },
+  };
+  await handleInteraction(interaction as never, conversation as never, { getSurfaceThreadId: () => "opaque-native-id" });
+  expect(requests).toEqual([{ cursor: "2", limit: 5, provider: "claude" }]);
+});

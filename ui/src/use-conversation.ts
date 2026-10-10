@@ -1,3 +1,5 @@
+import type { AgentProvider } from "../../shared/protocol/requests";
+import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import { startTransition, useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
@@ -15,6 +17,9 @@ const delay = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =
 });
 
 export function useConversation(conversation: WebConversation | null) {
+  const [provider, setProvider] = useState<AgentProvider>();
+  const [backgroundTaskCount, setBackgroundTaskCount] = useState(0);
+  const [capabilities, setCapabilities] = useState<ProviderCapabilities | undefined>();
   const [chat, setChat] = useState<ChatState>(emptyChat);
   const chatRef = useRef(chat);
   chatRef.current = chat;
@@ -37,6 +42,7 @@ export function useConversation(conversation: WebConversation | null) {
   useEffect(() => {
     actionEpoch.current++;
     setStateId(conversation?.id);
+    setCapabilities(undefined); setProvider(undefined); setBackgroundTaskCount(0);
     historyEpoch.current++; historyRevision.current = null;
     setChat(emptyChat()); setApprovals([]); setError(null); setHistoryCursor(null);
     setConnection("connecting"); setBusy(false); actionRef.current = false;
@@ -78,6 +84,7 @@ export function useConversation(conversation: WebConversation | null) {
             const epoch = historyEpoch.current;
             const stateRequest = api.state(id, abort.signal).then((state) => {
               if (current() && revision === turnRevision) setChat((chat) => current() && revision === turnRevision && epoch === historyEpoch.current ? ({ ...chat, activeTurnId: state.state.activeTurnId }) : chat);
+              if (current()) { setCapabilities(state.state.capabilities); setProvider(state.state.provider); setBackgroundTaskCount(state.state.backgroundTaskCount ?? 0); }
               return state;
             });
             const historyRequest = api.history(id, undefined, abort.signal).then((history) => {
@@ -137,6 +144,7 @@ export function useConversation(conversation: WebConversation | null) {
             if (event.type === "bridge" && event.data.threadId !== conversation.threadId) return;
             if (event.id) cursor = event.id;
             if (event.type === "bridge") {
+              if (event.data.type === "thread.status.changed") soon();
               if (["turn.started", "turn.completed", "turn.failed"].includes(event.data.type)) turnRevision++;
               if (event.data.type === "turn.stream.delta") {
                 pendingDeltas.push(event.data);
@@ -218,7 +226,7 @@ export function useConversation(conversation: WebConversation | null) {
   // Selection renders before effect cleanup/reset; never show the previous
   // conversation's messages or enabled controls under the new chat's title.
   const selected = stateId === conversation?.id;
-  return { chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
+  return { provider: selected ? provider : undefined, backgroundTaskCount: selected ? backgroundTaskCount : 0, capabilities: selected ? capabilities : undefined, chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
     error: selected ? error : null, busy: selected && busy, historyCursor: selected ? historyCursor : null, loadingHistory: selected && loadingHistory, send, loadOlder,
     interrupt: () => action((id) => api.interrupt(id)),
     decide: (approvalId: string, decision: string, answers?: UserQuestionAnswers) => action((id) => api.decide(id, approvalId, decision, answers)),

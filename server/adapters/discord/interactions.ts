@@ -128,11 +128,13 @@ export async function handleInteraction(
           requesterId: pageRequest.requesterId,
         });
       } else {
+        const threadId = surfaceContext?.getSurfaceThreadId(interaction.channelId) ?? null;
+        const provider = threadId ? conversation.getThreadProvider?.(threadId) : undefined;
         const result = await conversation.listModels({
           cursor: pageRequest.cursor ?? undefined,
           limit: DISCORD_LIST_PAGE_SIZE,
+          ...(provider && provider !== "codex" ? { provider } : {}),
         });
-        const threadId = surfaceContext?.getSurfaceThreadId(interaction.channelId) ?? null;
         page = buildModelsListPage({
           result,
           modelState: threadId ? conversation.getThreadModel(threadId) : null,
@@ -161,7 +163,7 @@ export async function handleInteraction(
 
   const request = ["submit", "cancel"].includes(parsed.decision) ? conversation.listApprovals(parsed.threadId).find(a => a.approvalId === parsed.approvalId && a.status === "pending") : undefined;
   if (request?.userInput && parsed.decision === "submit") {
-    if (request.userInput.questions.length > 5 || request.userInput.questions.some(q => q.isSecret)) {
+    if (request.userInput.questions.length > 5 || request.userInput.questions.some(q => q.isSecret || q.multiSelect)) {
       await replyEphemeralText(interaction, "Please answer these questions in the Shepherd web UI.");
       return;
     }

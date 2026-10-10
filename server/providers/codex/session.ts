@@ -1,15 +1,18 @@
-import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../shared/protocol/user_questions.js";
+import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
+import { decodeResetOutcome } from "./account_usage.js";
+import { codexCapabilities } from "../capabilities.js";
+import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline, { type Interface as ReadlineInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 
-import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../shared/protocol/approvals.js";
+import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
   DynamicToolCallParams,
   DynamicToolSpec,
   JsonValue,
-} from "../../shared/protocol/dynamic_tools.js";
-import type { BridgeEvent, BridgeEventType, MessagePhase } from "../../shared/protocol/events.js";
+} from "../../../shared/protocol/dynamic_tools.js";
+import type { BridgeEvent, BridgeEventType, MessagePhase } from "../../../shared/protocol/events.js";
 import type {
   ConsumeRateLimitResetRequest,
   ApprovalPolicy,
@@ -29,15 +32,15 @@ import type {
   SkillsListRequest,
   SkillsListResponse,
   ThreadTokenUsage,
-} from "../../shared/protocol/requests.js";
-import type { UserInput } from "../../shared/protocol/user_input.js";
+} from "../../../shared/protocol/requests.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
 import {
   DynamicToolRegistry,
   InvalidDynamicToolCallError,
   UnknownDynamicToolError,
-} from "./dynamic_tool_registry.js";
-import type { AgentSession } from "./agent_session.js";
-import { EventBus } from "./event_bus.js";
+} from "../../core/dynamic_tool_registry.js";
+import type { AgentSession } from "../../core/agent_session.js";
+import { EventBus } from "../../core/event_bus.js";
 import {
   extractCompletedAgentMessage,
   extractGeneratedImageArtifact,
@@ -49,7 +52,7 @@ import {
   mapTurnActivity,
   mapApprovalChoices,
   mapApprovalPrompt,
-} from "./codex_rpc_mapper.js";
+} from "./rpc_mapper.js";
 
 function getDefaultModel(): string {
   return process.env.CODEX_MODEL ?? "gpt-6.1-sol";
@@ -244,6 +247,7 @@ function isApprovalServerRequest(method: string): boolean {
 }
 
 export class CodexSession implements AgentSession {
+  readonly capabilities = codexCapabilities;
   readonly sessionId = randomUUID();
   readonly createdAt = new Date().toISOString();
 
@@ -409,14 +413,14 @@ export class CodexSession implements AgentSession {
     await this.sendRequest("thread/compact/start", { threadId });
   }
 
-  async revertThread(threadId: string, beforeTurnId: string): Promise<unknown> {
+  async revertThread(threadId: string, beforeTurnId: string) {
     await this.initialize();
-    return this.sendRequest("thread/revert", { threadId, beforeTurnId });
+    return revertResponse(await this.sendRequest("thread/revert", { threadId, beforeTurnId }));
   }
 
-  async listStoredThreads(request: ListStoredThreadsRequest): Promise<unknown> {
+  async listStoredThreads(request: ListStoredThreadsRequest) {
     await this.initialize();
-    return this.sendRequest("thread/list", {
+    return storedResponse(await this.sendRequest("thread/list", {
       archived: request.archived ?? null,
       cursor: request.cursor ?? null,
       cwd: request.cwd ?? null,
@@ -427,15 +431,15 @@ export class CodexSession implements AgentSession {
       sortKey: request.sortKey ?? null,
       sourceKinds: request.sourceKinds ?? null,
       ...(request.useStateDbOnly !== undefined ? { useStateDbOnly: request.useStateDbOnly } : {}),
-    });
+    }));
   }
 
-  async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<unknown> {
+  async listLoadedThreads(request: ListLoadedThreadsRequest) {
     await this.initialize();
-    return this.sendRequest("thread/loaded/list", {
+    return loadedResponse(await this.sendRequest("thread/loaded/list", {
       cursor: request.cursor ?? null,
       limit: request.limit ?? null,
-    });
+    }));
   }
 
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
@@ -459,28 +463,28 @@ export class CodexSession implements AgentSession {
     return this.sendRequest("thread/items/list", { ...request, threadId }) as Promise<ListThreadItemsResponse>;
   }
 
-  async readThread(threadId: string, includeTurns: boolean): Promise<unknown> {
+  async readThread(threadId: string, includeTurns: boolean) {
     await this.initialize();
-    return this.sendRequest("thread/read", { threadId, includeTurns });
+    return readResponse(await this.sendRequest("thread/read", { threadId, includeTurns }));
   }
 
-  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<unknown> {
+  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest) {
     await this.initialize();
-    return this.sendRequest("account/rateLimitResetCredit/consume", request);
+    return decodeResetOutcome(await this.sendRequest("account/rateLimitResetCredit/consume", request));
   }
 
-  async readAccountRateLimits(): Promise<unknown> {
+  async readAccountRateLimits() {
     await this.initialize();
-    return this.sendRequest("account/rateLimits/read", undefined);
+    return accountResponse(await this.sendRequest("account/rateLimits/read", undefined));
   }
 
-  async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
+  async listModels(request: ListModelsRequest) {
     await this.initialize();
-    return this.sendRequest("model/list", {
+    return modelsResponse(await this.sendRequest("model/list", {
       cursor: request.cursor ?? null,
       limit: request.limit ?? null,
       includeHidden: request.includeHidden ?? null,
-    }) as Promise<ListModelsResponse>;
+    }));
   }
 
   async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
@@ -954,6 +958,7 @@ export class CodexSession implements AgentSession {
       const itemId = extractItemId(params);
       const phase = itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null;
       this.publish("turn.stream.delta", threadId, {
+        kind: method === "item/agentMessage/delta" ? "assistant_text" : "other",
         method,
         textDelta: delta,
         itemId,

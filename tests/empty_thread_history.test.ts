@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { webHarness } from "./helpers/web_harness.js";
 
 function transport() {

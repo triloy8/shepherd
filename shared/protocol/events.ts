@@ -65,6 +65,7 @@ export type TurnStartedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnCompletedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnFailedEvent = BridgeEvent<{ message: string; turnId: string | null }>;
 export type TurnStreamDeltaEvent = BridgeEvent<{
+  kind?: "assistant_text" | "other";
   method: string;
   textDelta: string;
   itemId: string | null;

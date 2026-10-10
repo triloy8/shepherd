@@ -1,4 +1,4 @@
-import { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "../../core/codex_rpc_mapper.js";
+import { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "../../../shared/protocol/history_presentation.js";
 import { validImageData, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import type { WebImages } from "./images.js";

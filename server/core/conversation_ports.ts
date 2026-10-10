@@ -2,7 +2,8 @@ import type { TurnRoutingConversation } from "./turn_routing_service.js";
 import type { ConversationService } from "./conversation_service.js";
 
 const readMethods = [
-  "getThreadState", "getThreadModel", "listStoredThreads", "listLoadedThreads",
+  "getThreadState",
+  "getThreadProvider", "getThreadModel", "listStoredThreads", "listLoadedThreads",
   "listModels", "listSkills", "listThreadTurns", "listThreadItems",
 ] as const;
 const controlMethods = [
@@ -16,7 +17,7 @@ export type ConversationControls = Pick<ConversationService, typeof controlMetho
 export type ApplicationConversation = ConversationReads & ConversationControls;
 export type InteractionConversation = Pick<ConversationReads,
   "listStoredThreads" | "listLoadedThreads" | "listModels" | "getThreadModel" | "listSkills" | "listThreadTurns" | "listThreadItems"
-> & Pick<ConversationService, "applyApprovalDecision" | "listApprovals">;
+> & Pick<ConversationService, "applyApprovalDecision" | "listApprovals" | "getThreadProvider">;
 
 /** Bind methods so callers receive capabilities, not the service instance. */
 function bindMethods<T extends object, K extends keyof T>(source: T, keys: readonly K[]): Pick<T, K> {
@@ -37,7 +38,7 @@ export function createIngressConversation(source: TurnRoutingConversation): Turn
 export function createInteractionConversation(source: InteractionConversation): InteractionConversation {
   return bindMethods(source, [
     "listStoredThreads", "listLoadedThreads", "listModels", "getThreadModel",
-    "listSkills", "listThreadTurns", "listThreadItems", "applyApprovalDecision", "listApprovals",
+    "listSkills", "listThreadTurns", "listThreadItems", "applyApprovalDecision", "listApprovals", "getThreadProvider",
   ]);
 }
 

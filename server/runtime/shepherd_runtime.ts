@@ -1,3 +1,4 @@
+import { createProviderServices } from "./provider_services.js";
 import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
 import { ConversationService } from "../core/conversation_service.js";
 import {
@@ -31,6 +32,7 @@ export class ShepherdRuntime {
     this.restartDelayMs = options.restartDelayMs ?? 250;
     this.exitProcess = options.exitProcess ?? ((code) => process.exit(code));
     this.conversation = new ConversationService({
+      providers: createProviderServices(),
       routing: {
         autoCreateIfMissing: true,
         defaultApprovalPolicy: options.approvalPolicy,

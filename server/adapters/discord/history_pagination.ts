@@ -8,7 +8,7 @@ import {
 import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.js";
 import { DISCORD_LIST_PAGE_SIZE, navigationRow } from "./list_pagination.js";
-import { mapTurnActivity } from "../../core/codex_rpc_mapper.js";
+import { mapTurnActivity } from "../../../shared/protocol/history_presentation.js";
 import { formatActivityLine } from "./message_renderer.js";
 import { chunkForDiscord } from "./chunking.js";
 import { normalizeDiscordMarkdown } from "./markdown_normalizer.js";

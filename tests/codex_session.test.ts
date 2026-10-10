@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { DynamicToolRegistry } from "../server/core/dynamic_tool_registry.js";
 import { extractThreadSummary } from "../server/core/session_manager.js";
 
@@ -486,6 +486,7 @@ describe("CodexSession app-server contract", () => {
     });
 
     expect(events.find((event) => event.type === "turn.stream.delta")?.payload).toEqual({
+      kind: "assistant_text",
       method: "item/agentMessage/delta",
       textDelta: "Checking now.",
       itemId: "comment-1",

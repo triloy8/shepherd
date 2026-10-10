@@ -98,7 +98,7 @@ both that directory and Claude's transcript storage to resume after restarting.
 The compiled Shepherd binary includes the SDK executable for the build host.
 
 Claude supports text and image messages, streaming, follow-up input, interruption,
-approvals, model/effort selection, stored history, rename, archive, resume, fork,
+approvals, structured questions (including multiple selections), model/effort selection, stored history, rename, archive, resume, fork,
 and Shepherd dynamic tools through MCP. The common approval policy applies to
 both providers: `never` runs Claude with permission bypass; `on-request` and
 `untrusted` use Claude's normal permission checks and Shepherd approval prompts.
@@ -108,6 +108,16 @@ rejects Codex's restricted sandbox modes rather than treating them as enforced.
 Manual compaction, turn revert, audio/file input, and skill management controls
 are unavailable for Claude. Claude loads its own configured project skills.
 Account limit/reset controls continue to describe the Codex account.
+The web UI uses provider capabilities to hide unsupported operations.
+
+Provider bindings are saved in `~/.shepherd/providers`, or
+`SHEPHERD_PROVIDER_STATE_DIR` when set. Keep this directory with the Claude
+metadata and native transcripts when moving a host. Existing thread IDs remain
+stable. Claude background tasks keep their SDK process alive after a turn ends
+and count as runtime activity. A later response from background work is saved
+as a new turn. Model, effort, working-directory, or permission changes wait until
+background tasks finish. See the [architecture audit](docs/architecture/providers.md)
+for dependency boundaries and validation coverage.
 
 Install the shared GitHub and browser skills using the
 [skills installation guide](.docs/shared-skills-location.md). That guide also
@@ -302,6 +312,9 @@ codex app-server generate-json-schema --out ./schemas
 
 | Path | Responsibility |
 | --- | --- |
+| `server/providers/` | Native Codex and Claude SDK adapters |
+| `server/ports/` | Storage contracts for native adapters |
+| `server/storage/` | File storage and provider identity bindings |
 | `server/core/` | Shared policy, actions, conversation state, workspaces, and orchestration |
 | `server/runtime/` | Surface assembly and process lifecycle |
 | `server/adapters/discord/` | Discord input, commands, rendering, and delivery |

@@ -1,3 +1,4 @@
+import type { ProviderCapabilities } from "./provider_capabilities.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { UserInput } from "./user_input.js";
 
@@ -124,6 +125,9 @@ export interface ListLoadedThreadsResponse {
 }
 
 export interface GetThreadStateResponse {
+  provider?: AgentProvider;
+  capabilities?: ProviderCapabilities;
+  backgroundTaskCount?: number;
   threadId: string;
   sessionId: string;
   activeTurnId: string | null;

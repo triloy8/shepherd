@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CodexSession } from "../server/core/codex_session";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { ApprovalsStore } from "../server/core/approvals";
 import type { ApprovalRequestPayload, ApprovalRecord } from "../shared/protocol/approvals";
 import type { BridgeEvent } from "../shared/protocol/events";
 import { UserQuestions } from "../ui/src/components/UserQuestions";
 import { webHarness } from "./helpers/web_harness";
-import { parseUserQuestionRequest } from "../shared/protocol/user_questions";
+import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../shared/protocol/user_questions";
 
 export const input = {
   threadId: "thread-1", turnId: "turn-1", itemId: "question-1", isBlocking: true,
@@ -188,4 +188,16 @@ test("SessionManager expires pending questions when the turn ends or the session
       expect(manager.listApprovals(input.threadId)[0]?.status).toBe("expired");
     } finally { manager.stopAll(); }
   }
+});
+
+test("multiple-choice questions render checkboxes and validate several distinct answers", () => {
+  const question = { id: "parts", header: "Parts", question: "Which parts?", isOther: false, isSecret: false, multiSelect: true, options: [{ label: "API", description: "Server" }, { label: "UI", description: "Browser" }] };
+  validateUserQuestionAnswers([question], { parts: { answers: ["API", "UI"] } });
+  expect(() => validateUserQuestionAnswers([question], { parts: { answers: ["API", "API"] } })).toThrow();
+  expect(() => validateUserQuestionAnswers([question], { parts: { answers: ["other"] } })).toThrow();
+  expect(() => validateUserQuestionAnswers([{ ...question, multiSelect: false }], { parts: { answers: ["API", "UI"] } })).toThrow();
+  const record = { approvalId: "multi", userInput: { threadId: "thread", turnId: "turn", itemId: "item", isBlocking: true, questions: [question] } } as ApprovalRecord;
+  const html = renderToStaticMarkup(createElement(UserQuestions, { request: record, busy: false, decide() {} }));
+  expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+  expect(html).toContain("Choose one or more answers.");
 });

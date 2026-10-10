@@ -1,4 +1,3 @@
-import { providerForThread } from "./agent_provider.js";
 import { ApplicationActionError, type ActionFailure } from "./action_error.js";
 import type {
   AccountRateLimitsResponse,
@@ -17,6 +16,7 @@ import type {
 import { resolveSkillPathFromList } from "./skill_resolution_service.js";
 
 type ControlConversation = {
+  getThreadProvider?: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
   getThreadEffort: (threadId: string) => Promise<ThreadEffortState>;
   setThreadEffort: (threadId: string, effort: string) => Promise<ThreadEffortState>;
   listSkills: (threadId: string, request: Record<string, never>) => Promise<SkillsListResponse>;
@@ -167,10 +167,11 @@ export async function executeControlAction(
 
   if (request.type === "models.list") {
     const threadId = context.getSurfaceThreadId(request.surfaceId);
+    const provider = threadId ? context.conversation.getThreadProvider?.(threadId) : undefined;
     const models = await context.conversation.listModels({
       cursor: request.cursor,
       limit: request.limit ?? 20,
-      ...(threadId && providerForThread(threadId) !== "codex" ? { provider: providerForThread(threadId) } : {}),
+      ...(provider && provider !== "codex" ? { provider } : {}),
     });
     return {
       type: "models.list",
@@ -189,11 +190,12 @@ export async function executeControlAction(
       };
     }
 
+    const provider = context.conversation.getThreadProvider?.(threadId);
     let cursor: string | undefined;
     let resolved: ModelSummary | null = null;
     const seenCursors = new Set<string>();
     do {
-      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, ...(providerForThread(threadId) !== "codex" ? { provider: providerForThread(threadId) } : {}) });
+      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, ...(provider && provider !== "codex" ? { provider } : {}) });
       resolved = resolveModelArgument(models.data, request.requestedModel);
       if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
       seenCursors.add(models.nextCursor);

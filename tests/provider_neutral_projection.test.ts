@@ -3,7 +3,7 @@ import { NativeConversationSource } from "../server/providers/neutral_source.js"
 import { ConversationProjection } from "../server/core/conversation_projection.js";
 import { assistantItem, capabilities } from "./helpers/provider_v2.js";
 import { jsonBytes, V2_BUDGETS } from "../shared/protocol/v2/budgets.js";
-import { hydrateNeutral, recaptureNeutral, mergeNeutralHistory, neutralTimeline, reduceNeutralEvent } from "../ui/src/neutral-chat-state.js";
+import { hydrateNeutral, recaptureNeutral, mergeNeutralHistory, neutralTimeline, reduceNeutralEvent } from "./helpers/neutral-chat-state.js";
 import type { BridgeEvent, ProviderMutation } from "../shared/protocol/v2/events.js";
 
 function harness() {

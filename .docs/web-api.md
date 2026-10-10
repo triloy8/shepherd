@@ -4,8 +4,10 @@ The web surface serves the built-in UI and a private conversation API from the
 same loopback listener. It runs alone or alongside Discord using the shared core.
 It supports text and image input, conversation management and history, live events,
 approvals, structured agent questions, model/effort settings, usage, skills, and host restart/deployment controls.
-The built-in UI uses the provider-neutral `/api/v2` workflow. `/api/v1` is retained
-for compatibility; its [legacy contract](archive/web-api-v1.md) is separate.
+The built-in UI is restored from main and uses `/api/v1`; its
+[current UI contract](archive/web-api-v1.md) is documented separately. The
+provider-neutral `/api/v2` API remains available as an additive server interface.
+The route and recovery details below describe v2, not the shipped UI.
 “v1” and “v2” name API contracts, not product releases.
 It does not expose arbitrary provider RPC. See the [surface parity matrix](surface-parity-matrix.md)
 for implemented features and differences between surfaces.

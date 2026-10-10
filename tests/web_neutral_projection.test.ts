@@ -3,9 +3,6 @@ import { webHarness } from "./helpers/web_harness.js";
 import { NativeConversationSource } from "../server/providers/neutral_source.js";
 import { ConversationProjection } from "../server/core/conversation_projection.js";
 import { capabilities, assistantItem } from "./helpers/provider_v2.js";
-import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
-import { NeutralConversationItems } from "../ui/src/components/NeutralConversationItems.js";
 
 async function setup() {
   const h = webHarness(), conversation = await h.create();
@@ -96,17 +93,6 @@ test("closing the projection closes existing HTTP streams even before the web ad
     await reader.read(); projection.close();
     expect((await reader.read()).done).toBe(true);
   } finally { h.api.dispose(); }
-});
-
-test("one neutral renderer shows escaped content and full-text links without provider branches", () => {
-  const item = assistantItem("<script>unsafe()</script>");
-  item.text.truncated = true;
-  item.detailAsset = { id: "asset", media: "text", mimeType: "text/plain", name: "answer.txt", availability: "available" };
-  const html = renderToStaticMarkup(createElement(NeutralConversationItems, { items: [item], assetUrl: id => `/api/v2/conversations/conversation/assets/${id}` }));
-  expect(html).toContain("&lt;script&gt;");
-  expect(html).toContain("Preview shortened.");
-  expect(html).toContain("/api/v2/conversations/conversation/assets/asset");
-  expect(html).not.toContain("<script>");
 });
 
 test("slow neutral consumers are closed within the byte budget and release their stream slots", async () => {

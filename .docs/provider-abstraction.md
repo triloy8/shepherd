@@ -15,33 +15,37 @@ the `server/ports/provider_v2.ts` port, an identity-independent registry, neutra
 default parsing, encoded-byte helpers, and process-local event ordering/replay.
 The default parser lives in runtime composition (`provider_defaults.ts`), so
 legacy native configuration aliases do not enter core.
-The default web client now consumes the neutral projection and action ports.
-Messages/images, steering/interruption, pending permissions/questions, model and
-effort settings, advertised approval/sandbox modes, model catalogs, skills, and
-account/reset controls use `/api/v2`. Runtime descriptors supply the provider
-picker and capability controls. Native replies remain in private adapter closures;
-public options are opaque tokens with shared intents, scopes, and effects.
-Core validates ownership and offered options; invalid answers remain pending,
-and the first valid reply synchronously claims the request before native delivery.
-Answers are excluded from snapshots and replay.
+The server exposes additive neutral projection and action ports at `/api/v2`.
+Messages/images, steering/interruption, pending permissions/questions, settings,
+model catalogs, skills, and account/reset controls are available through these
+ports. Native replies remain in private adapter closures; public options are
+opaque tokens with shared intents, scopes, and effects. Core validates ownership
+and offered options; invalid answers remain pending, and the first valid reply
+synchronously claims the request before native delivery. Answers are excluded
+from snapshots and replay.
 
 Native mappers cover text/input, Codex commands/diffs/plans/reasoning/images and
 Claude reads/commands, with explicit partial tool fallbacks for other variants.
-Snapshot/replay reconciliation runs in the default client, including reconnects,
-foreground refresh, forward history pages and scoped uploads/downloads. Pending
-reset requests retain their exact idempotency keys across the local storage upgrade.
+Protocol test consumers exercise snapshot/replay reconciliation. They are not
+the shipped browser client.
 
-This is a working web migration, not the completed application boundary. Discord
-still uses the old event/action contracts. Session creation/resume/fork and
-navigation/host operations still reuse the existing application services. The
-final `ProviderSession`/`ProviderServices` registry port is not yet the production
-session owner: runtime currently assembles neutral sources/controls alongside
-legacy sessions. Full background/nested-agent mapping and versioned Claude storage
-remain pending. `/api/v1` remains available for compatibility and regression
-coverage; its eventual upgrade response and negotiated bundle cutover are target
-work, not implemented behavior. A third provider can use the neutral web contract
-without renderer branches, but still needs the legacy session lifecycle interface
-until that final migration lands.
+The attempted default web cutover was reverted at the user's request because it
+changed timeline presentation and introduced history pagination regressions.
+The entire `ui/` tree is restored from main revision `b5797c1`. The built-in UI
+uses `/api/v1`, its established timeline, and recent-first turn history. Its
+existing “Load earlier messages” control is retained as part of that exact restore.
+A future neutral client migration must preserve those behaviors and be validated
+with long resumed conversations before becoming the default.
+
+This remains an incomplete application migration. Discord and the built-in UI
+use the old event/action contracts. Session creation/resume/fork and navigation/
+host operations reuse existing application services. The final
+`ProviderSession`/`ProviderServices` registry port is not yet the production
+session owner: runtime assembles neutral sources/controls alongside legacy
+sessions. Full background/nested-agent mapping and versioned Claude storage
+remain pending. API retirement and negotiated bundle cutover are target work.
+A third provider can use the neutral API but still needs the legacy lifecycle
+interface until that final migration lands.
 
 Synthetic and sanitized live fixtures cover text identity and recovery for both
 adapters. The recorded Claude fixture includes a successful read. The recorded

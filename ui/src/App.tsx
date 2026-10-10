@@ -9,7 +9,7 @@ import type { WebConversation } from "../../shared/protocol/web";
 import { api, explainError } from "./api";
 import { useConversation } from "./use-conversation";
 import { Icon } from "./components/Icon";
-import { NeutralConversationItems } from "./components/NeutralConversationItems";
+import { Timeline } from "./components/Timeline";
 import { UsageLimits } from "./components/UsageLimits";
 import { Composer } from "./components/Composer";
 import { Approvals } from "./components/Approvals";
@@ -149,7 +149,7 @@ export default function App() {
   }, [selected]);
   useEffect(() => {
     if (follow.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [controller.chat.items, controller.approvals, controller.chat.activity, composerSpace]);
+  }, [controller.chat.messages, controller.approvals, controller.chat.activity, composerSpace]);
   useEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
@@ -205,15 +205,12 @@ export default function App() {
       if (version === selectionVersion.current) setResuming(false);
     }
   }
-  const [providers, setProviders] = useState<import("../../shared/protocol/v2/conversations").ProviderDescriptor[]>([]);
-  const [provider, setProvider] = useState("");
-  useEffect(() => { const abort = new AbortController(); void api.providers(abort.signal).then(value => { if (!abort.signal.aborted) { setProviders(value.providers); setProvider(current => current || value.providers[0]?.id || ""); } }).catch(failure => { if (!abort.signal.aborted) setError(explainError(failure)); }); return () => abort.abort(); }, []);
   async function createConversation() {
     if (creating || !project.trim() || !dialog) return;
     selectionVersion.current++; setResuming(false);
     setCreating(true); setError(null);
     try {
-      const conversation = await api.create({ project: project.trim(), provider });
+      const conversation = await api.create({ project: project.trim() });
       setConversations((items) => [...items.filter((item) => item.id !== conversation.id), conversation]);
       select(conversation); setDialog(null); void refreshList();
     } catch (error) { setError(`${explainError(error)} Refresh the conversation list before retrying if the connection dropped.`); }
@@ -258,8 +255,8 @@ export default function App() {
   }
 
   const active = Boolean(controller.chat.activeTurnId);
-  const waitingForAnswer = controller.approvals.some(a => a.questions?.isBlocking);
-  const status = controller.connection === "online" ? waitingForAnswer ? "Waiting for your answer" : active || controller.backgroundTaskCount > 0 ? "Working" : "Connected" : controller.connection === "detached" ? "Needs attention" : controller.connection === "reconnecting" ? "Reconnecting" : "Connecting";
+  const waitingForAnswer = controller.approvals.some(a => a.userInput?.isBlocking);
+  const status = controller.connection === "online" ? waitingForAnswer ? "Waiting for your answer" : active ? "Working" : "Connected" : controller.connection === "detached" ? "Needs attention" : controller.connection === "reconnecting" ? "Reconnecting" : "Connecting";
   const visibleHandles = (archived ? [] : conversations).filter((item) => !threads.some((thread) => thread.threadId === item.threadId));
   return <div className="app-shell">
     {drawer && <button className="drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)} />}
@@ -280,7 +277,7 @@ export default function App() {
         {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads || refreshingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
       <div className="sidebar-footer">
-        <UsageLimits defaultProvider={selected?.provider} onOpen={() => setDrawer(false)} onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} />
+        <UsageLimits onOpen={() => setDrawer(false)} onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} />
         <HostControls onClosed={() => { if (!desktop) sidebarTrigger.current?.focus(); }} onOpen={() => setDrawer(false)} onRecovered={async () => {
           const previous = selected ?? savedSelection();
           setSelected(null); setSaved(previous);
@@ -298,7 +295,7 @@ export default function App() {
       <header className="main-header">
         <button ref={sidebarTrigger} className="icon-button" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
         {!selected && <><div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">Workspace</h1></div><HostBattery /></>}
-        {selected && <ConversationMenu capabilities={controller.capabilities} key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} detaching={detaching || controller.busy} onDetach={() => void detach()}
+        {selected && <ConversationMenu key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} detaching={detaching || controller.busy} onDetach={() => void detach()}
           onHistoryChange={controller.refresh}
           onRename={(name) => { setNames((current) => ({ ...current, [selected.threadId]: name })); setThreads((items) => items.map((item) => item.threadId === selected.threadId ? { ...item, name } : item)); void refreshList(); }}
           onArchive={() => { setSelected(null); setSaved(null); setConversations((items) => items.filter((item) => item.id !== selected.id)); try { localStorage.removeItem("shepherd.selection"); } catch {} void refreshList(); }}
@@ -313,11 +310,11 @@ export default function App() {
       </section> : <section className={`conversation-stage${showLatest ? " reading-history" : ""}`} style={{ "--composer-space": `${composerSpace}px` } as CSSProperties}>
         <div className="chat-scroll" tabIndex={-1} ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) { follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; setShowLatest(!follow.current); } }}>
           <div className="chat-width chat-content pt-4 sm:pt-6">
-            {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load more history"}</button>}
-            <NeutralConversationItems key={selected.id} items={controller.chat.items} assetUrl={asset => api.assetUrl(selected.id, asset)} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.capabilities?.revert ? controller.revert : undefined} onReload={controller.recoverHistory} />
+            {controller.historyCursor && <button className="mb-6 w-full text-xs text-muted hover:text-ink" disabled={controller.loadingHistory} onClick={() => { follow.current = false; void controller.loadOlder(); }}>{controller.loadingHistory ? "Loading…" : "Load earlier messages"}</button>}
+            <Timeline key={selected.id} chat={controller.chat} waitingForAnswer={waitingForAnswer} revertDisabled={controller.connection !== "online" || controller.busy || detaching || active || controller.approvals.length > 0} onRevert={controller.revert} onReload={controller.recoverHistory} />
             {active && !waitingForAnswer && <div role="status" className="mt-7 flex items-center gap-2 text-xs text-muted"><span className="working-dot" />{controller.chat.activity || "Working"}</div>}
             {controller.chat.error && <p role="alert" className="notice mt-5">{controller.chat.error}</p>}
-            <div className="mt-6"><Approvals items={controller.chat.items} approvals={controller.approvals} busy={controller.busy || controller.connection !== "online"} decide={(id, choice, answers) => controller.decide(id, choice, answers)} /></div>
+            <div className="mt-6"><Approvals approvals={controller.approvals} busy={controller.busy || controller.connection !== "online"} decide={(id, choice, answers) => controller.decide(id, choice, answers)} /></div>
           </div>
         </div>
         {showLatest && <div className="latest-dock"><button className="latest-button" aria-label="Go to latest message" title="Go to latest message" onClick={() => {
@@ -340,15 +337,13 @@ export default function App() {
               return { ...all, [selected.threadId]: { text: "", revision: revision + 1 } };
             })}
             send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
-          <ConversationControls capabilities={controller.capabilities} key={`controls:${selected.id}`} conversation={selected} draft={drafts[selected.threadId]?.text ?? ""} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
+          <ConversationControls key={`controls:${selected.id}`} conversation={selected} draft={drafts[selected.threadId]?.text ?? ""} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
         </div></div>
       </section>}
     </main>
     <dialog ref={dialogRef} className="project-dialog" onCancel={(event) => { if (creating) event.preventDefault(); else setDialog(null); }} onClose={() => { if (!creating) setDialog(null); }}>
       <form onSubmit={(event) => { event.preventDefault(); void createConversation(); }}>
         <div className="mb-6 flex items-center justify-between"><h2 className="text-lg font-medium">{dialog?.title ?? "New conversation"}</h2><button type="button" className="icon-button" aria-label="Close" disabled={creating} onClick={() => setDialog(null)}><Icon name="close" /></button></div>
-        <label htmlFor="provider" className="mb-2 block text-sm font-medium">Agent</label>
-        <select id="provider" className="mb-4" value={provider} disabled={creating || !providers.length} onChange={(event) => setProvider(event.target.value)}>{providers.map(entry => <option key={entry.id} value={entry.id}>{entry.displayName}</option>)}</select>
         <label htmlFor="project" className="mb-2 block text-sm font-medium">Project</label>
         <input id="project" autoFocus value={project} onChange={(event) => setProject(event.target.value)} placeholder="owner/repo or ~/project" required maxLength={4096} disabled={creating} />
         <p className="mt-3 text-xs leading-6 text-muted">Use a GitHub repository, a path starting with ~/ or ~ for a new local workspace.</p>

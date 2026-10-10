@@ -9,7 +9,7 @@ import { ClaudeThreadStore } from "../server/storage/claude_thread_store.js";
 import { SessionManager } from "../server/core/session_manager.js";
 import { toTextUserInput } from "../shared/protocol/user_input.js";
 import { publicItemId } from "../server/providers/neutral_items.js";
-import { hydrateNeutral, mergeNeutralHistory, neutralTimeline, reduceNeutralEvent } from "../ui/src/neutral-chat-state.js";
+import { hydrateNeutral, mergeNeutralHistory, neutralTimeline, reduceNeutralEvent } from "./helpers/neutral-chat-state.js";
 import { assistantItem, fallbackItem } from "../server/providers/neutral_items.js";
 import { NativeConversationSource } from "../server/providers/neutral_source.js";
 import { capabilities } from "./helpers/provider_v2.js";

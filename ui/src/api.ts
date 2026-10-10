@@ -1,10 +1,7 @@
-import type { ConversationInput, AssetReference } from "../../shared/protocol/v2/conversation_items";
-import type { ConversationSnapshot, ProjectionItemPage, BridgeEvent as NeutralEvent } from "../../shared/protocol/v2/events";
-import type { HistoryPage, ModelSummary as NeutralModel, Page, ThreadSettings, TokenUsage, ProviderDescriptor } from "../../shared/protocol/v2/conversations";
-import type { InteractionRecord } from "../../shared/protocol/v2/interactions";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
-import { WEB_API_PREFIX, type WebConversation, type WebConversationsResponse, type WebCreateConversation, type WebEventData, type WebThreadsResponse } from "../../shared/protocol/web";
+import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse, WebResetRequest, WebResetResponse } from "../../shared/protocol/web";
+import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
 
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
@@ -16,7 +13,7 @@ export async function checked(response: Response): Promise<Response> {
 }
 async function request<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   const timeout = AbortSignal.timeout(60_000);
-  const response = await fetch(`/api/v2${path}`, {
+  const response = await fetch(`${WEB_API_PREFIX}${path}`, {
     method, credentials: "omit", cache: "no-store",
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
@@ -26,35 +23,31 @@ async function request<T>(path: string, method = "GET", body?: unknown, signal?:
 const conversationPath = (id: string) => `/conversations/${encodeURIComponent(id)}`;
 const page = (cursor?: string) => `?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
 export const api = {
-  providers: (signal?: AbortSignal) => request<{ providers: ProviderDescriptor[] }>("/providers", "GET", undefined, signal),
-  account: (provider: string, signal?: AbortSignal, refresh = false) => request<import("../../shared/protocol/v2/account_limits").ProviderAccountLimits>(`/limits?provider=${encodeURIComponent(provider)}${refresh ? "&refresh=true" : ""}`, "GET", undefined, signal),
-  resetAccount: (provider: string, input: { idempotencyKey: string; creditId?: string }) => request<{ outcome: "reset" | "already_redeemed" | "nothing_to_reset" | "no_credit" }>("/limits/reset", "POST", { provider, ...input }),
-  snapshot: (id: string, signal?: AbortSignal) => request<ConversationSnapshot>(`${conversationPath(id)}/snapshot`, "GET", undefined, signal),
-  snapshotItems: (id: string, cursor: string, signal?: AbortSignal) => request<ProjectionItemPage>(`${conversationPath(id)}/snapshot-items?cursor=${encodeURIComponent(cursor)}`, "GET", undefined, signal),
-  items: (id: string, cursor?: string, signal?: AbortSignal) => request<HistoryPage>(`${conversationPath(id)}/items${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
-  upload: (id: string, data: string) => request<AssetReference>(`${conversationPath(id)}/assets`, "POST", { data }),
-  submit: (id: string, input: ConversationInput) => request<{ turnId: string; steered: boolean }>(`${conversationPath(id)}/messages`, "POST", { input }),
-  reply: (id: string, requestId: string, optionId: string, answers?: UserQuestionAnswers) => request(`${conversationPath(id)}/interactions/${encodeURIComponent(requestId)}`, "POST", { optionId, ...(answers ? { answers } : {}) }),
-  interactions: (id: string, signal?: AbortSignal) => request<{ interactions: InteractionRecord[] }>(`${conversationPath(id)}/interactions`, "GET", undefined, signal),
-  configure: (id: string, settings: Partial<ThreadSettings>) => request<ThreadSettings>(`${conversationPath(id)}/settings`, "POST", settings),
-  assetUrl: (id: string, asset: string) => `/api/v2${conversationPath(id)}/assets/${encodeURIComponent(asset)}`,
   host: (signal?: AbortSignal) => request<WebHostStatus>("/host", "GET", undefined, signal),
   hostBattery: (signal?: AbortSignal) => request<WebHostBatteryResponse>("/host/battery", "GET", undefined, signal),
   hostAction: (input: WebHostAction) => request<WebHostOperation>("/host/actions", "POST", input),
   compact: (id: string) => request(`${conversationPath(id)}/compact`, "POST", {}),
   revert: (id: string, beforeTurnId: string) => request(`${conversationPath(id)}/revert`, "POST", { beforeTurnId }),
-  skills: (id: string, signal?: AbortSignal) => request<import("../../shared/protocol/v2/conversations").SkillList>(`${conversationPath(id)}/skills`, "GET", undefined, signal),
-  reloadSkills: (id: string) => request<import("../../shared/protocol/v2/conversations").SkillList>(`${conversationPath(id)}/skills-reload`, "POST", {}),
-  setSkill: (id: string, referenceId: string, enabled: boolean) => request<{ enabled: boolean }>(`${conversationPath(id)}/skills`, "POST", { referenceId, enabled }),
-  settings: (id: string, signal?: AbortSignal) => request<ThreadSettings>(`${conversationPath(id)}/settings`, "GET", undefined, signal),
-  models: (id: string, cursor?: string, signal?: AbortSignal) => request<Page<NeutralModel>>(`${conversationPath(id)}/models${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
-  context: (id: string, signal?: AbortSignal) => request<{ tokenUsage: TokenUsage | null }>(`${conversationPath(id)}/context`, "GET", undefined, signal),
-  setModel: (id: string, model: string) => request<ThreadSettings>(`${conversationPath(id)}/settings`, "POST", { model }),
-  setEffort: (id: string, effort: string) => request<ThreadSettings>(`${conversationPath(id)}/settings`, "POST", { effort }),
+  skills: (id: string, signal?: AbortSignal) => request<WebSkillsResponse>(`${conversationPath(id)}/skills`, "GET", undefined, signal),
+  reloadSkills: (id: string) => request<WebSkillsResponse>(`${conversationPath(id)}/skills-reload`, "POST", {}),
+  setSkill: (id: string, path: string, enabled: boolean) => request<WebSkillResponse>(`${conversationPath(id)}/skills`, "POST", { path, enabled }),
+  settings: (id: string, signal?: AbortSignal) => request<WebSettingsResponse>(`${conversationPath(id)}/settings`, "GET", undefined, signal),
+  accountModels: (cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`/models?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
+  models: (id: string, cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`${conversationPath(id)}/models${page(cursor)}`, "GET", undefined, signal),
+  context: (id: string, signal?: AbortSignal) => request<WebContextResponse>(`${conversationPath(id)}/context`, "GET", undefined, signal),
+  consumeReset: (input: WebResetRequest) => request<WebResetResponse>("/limits/reset", "POST", input),
+  limits: (signal?: AbortSignal) => request<WebLimitsResponse>("/limits", "GET", undefined, signal),
+  setModel: (id: string, model: string) => request(`${conversationPath(id)}/model`, "POST", { model }),
+  setEffort: (id: string, effort: string) => request(`${conversationPath(id)}/effort`, "POST", { effort }),
   conversations: (signal?: AbortSignal) => request<WebConversationsResponse>("/conversations", "GET", undefined, signal),
   threads: (cursor?: string, signal?: AbortSignal, archived = false) => request<WebThreadsResponse>(`/threads${page(cursor)}&archived=${archived}`, "GET", undefined, signal),
   create: (input: WebCreateConversation) => request<WebConversation>("/conversations", "POST", input),
+  state: (id: string, signal?: AbortSignal) => request<WebConversationState>(conversationPath(id), "GET", undefined, signal),
+  history: (id: string, cursor?: string, signal?: AbortSignal) => request<WebHistoryResponse>(`${conversationPath(id)}/turns${page(cursor)}`, "GET", undefined, signal),
+  approvals: (id: string, signal?: AbortSignal) => request<WebApprovalsResponse>(`${conversationPath(id)}/approvals`, "GET", undefined, signal),
+  send: (id: string, text: string, images: string[] = []) => request<WebMessageResponse>(`${conversationPath(id)}/messages`, "POST", { text, images }),
   interrupt: (id: string) => request(`${conversationPath(id)}/interrupt`, "POST", {}),
+  decide: (id: string, approvalId: string, decision: string, answers?: UserQuestionAnswers) => request(`${conversationPath(id)}/approvals/${encodeURIComponent(approvalId)}`, "POST", { decision, answers }),
   rename: (id: string, name: string) => request(`${conversationPath(id)}/rename`, "POST", { name }),
   archive: (id: string) => request(`${conversationPath(id)}/archive`, "POST", {}),
   fork: (id: string) => request<WebConversation>(`${conversationPath(id)}/fork`, "POST", {}),
@@ -132,48 +125,4 @@ export function explainError(error: unknown): string {
     return error.message;
   }
   return "Could not reach Shepherd. Check your connection and try again.";
-}
-
-
-export async function readNeutralEvents(body: ReadableStream<Uint8Array>, receive: (event: NeutralEvent) => void, progress: () => void = () => {}, signal?: AbortSignal): Promise<void> {
-  const reader = body.getReader(), decoder = new TextDecoder();
-  const cancel = () => { void reader.cancel().catch(() => {}); };
-  signal?.addEventListener("abort", cancel, { once: true });
-  let pending = "", fields: string[] = [], bytes = 0;
-  try {
-    while (!signal?.aborted) {
-      const result = await reader.read(); if (result.done || signal?.aborted) return;
-      progress(); pending += decoder.decode(result.value, { stream: true });
-      let newline: number;
-      while ((newline = pending.indexOf("\n")) >= 0) {
-        if (signal?.aborted) return;
-        const line = pending.slice(0, newline).replace(/\r$/, ""); pending = pending.slice(newline + 1);
-        bytes += new TextEncoder().encode(line).byteLength + 1;
-        if (bytes > 320 * 1024) throw new Error("Event exceeds the client buffer limit.");
-        if (!line) {
-          const read = (prefix: string) => fields.filter(field => field.startsWith(prefix)).map(field => field.slice(prefix.length).replace(/^ /, ""));
-          const data = read("data:").join("\n");
-          if (data) {
-            const event = JSON.parse(data) as NeutralEvent;
-            if (event.id !== read("id:").at(-1) || event.type !== read("event:").at(-1) || !Number.isSafeInteger(event.sequence) || event.sequence < 0 || typeof event.epoch !== "string" || event.id !== `${event.epoch}:${event.sequence}` || typeof event.threadId !== "string" || typeof event.sessionId !== "string") throw new Error("Invalid event envelope.");
-            receive(event);
-          }
-          fields = []; bytes = 0;
-        } else if (!line.startsWith(":")) fields.push(line);
-      }
-      if (bytes + new TextEncoder().encode(pending).byteLength > 320 * 1024) throw new Error("Event exceeds the client buffer limit.");
-    }
-  } finally { signal?.removeEventListener("abort", cancel); await reader.cancel().catch(() => {}); reader.releaseLock(); }
-}
-export async function streamNeutralConversation(id: string, cursor: string | null, signal: AbortSignal, ready: () => void, receive: (event: NeutralEvent) => void): Promise<void> {
-  const idle = new AbortController();
-  let timer: ReturnType<typeof setTimeout>;
-  const heartbeat = () => { clearTimeout(timer); timer = setTimeout(() => idle.abort(), 45_000); }; heartbeat();
-  const streamSignal = AbortSignal.any([signal, idle.signal]);
-  try {
-    const response = await checked(await fetch(`/api/v2${conversationPath(id)}/events`, { signal: streamSignal, credentials: "omit", cache: "no-store", headers: cursor ? { "Last-Event-ID": cursor } : {} }));
-    if (!response.body) throw new Error("Event stream is unavailable.");
-    if (streamSignal.aborted) { await response.body.cancel(); return; }
-    ready(); await readNeutralEvents(response.body, receive, heartbeat, streamSignal);
-  } finally { clearTimeout(timer!); }
 }

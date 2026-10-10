@@ -231,7 +231,7 @@ through ports; native protocols and SDKs stay in `server/providers/<name>/`.
 - `server/runtime/provider_services.ts`
   The only place that constructs provider adapters, stores, and readers.
 
-The default web workflow uses `shared/protocol/v2/`: neutral items, interactions,
+The additive neutral web API uses `shared/protocol/v2/`: neutral items, interactions,
 inputs/assets, settings, catalogs, and account limits. `NeutralConversationSource`
 provides native-derived history/events/assets; its `NeutralConversationControls`
 port provides actions. Both adapters normalize native payloads privately. The core
@@ -241,12 +241,13 @@ Native history remains separate and unversioned. Interactions carry opaque optio
 IDs; exact SDK/RPC replies are private adapter closures. Invalid question answers
 remain pending, concurrent replies have one winner, and answers never enter replay.
 
-The web adapter serves `/api/v2`, and the default UI uses the neutral reducer and
-renderer for live work and history. Runtime descriptors drive provider selection,
-skills/reset visibility, and supported approval/sandbox controls. Runtime assembly
-uses an open factory map; account readers/reset ports are selected by provider ID.
+The web adapter serves additive `/api/v2` endpoints. The default `ui/` tree is
+restored from main revision `b5797c1` and uses `/api/v1`, its original timeline,
+and recent-first turn history. The attempted default neutral cutover was reverted
+because it changed presentation and pagination behavior. Runtime assembly retains
+an open factory map and neutral account readers/reset ports selected by provider ID.
 `provider_defaults.ts` reads canonical neutral settings and legacy aliases at
-composition. Catalog and asset references hide native continuations and paths.
+composition. Neutral catalog and asset references hide native continuations and paths.
 
 This remains an interim session migration. `server/ports/provider_v2.ts` and
 `server/core/provider_registry.ts` define/test the final lifecycle and optional
@@ -521,11 +522,12 @@ See [surface launch](surface-launch.md) for the operational contract.
 
 ## Web conversation API
 
-The optional `web` surface exposes `/api/v2` on loopback for its default UI.
+The optional `web` surface exposes `/api/v1` on loopback for its default UI
+and additive `/api/v2` endpoints for the neutral migration.
 Content/action contracts live in `shared/protocol/v2`; navigation and host records
 remain in `shared/protocol/web.ts`. Project targeting and thread orchestration use
-`SurfaceApplicationContext`. Messages, settings, skills and replies use bound
-neutral conversation ports. The adapter retains navigation handles, request
+`SurfaceApplicationContext`. The default UI uses existing conversation operations; `/api/v2` messages,
+settings, skills and replies use bound neutral conversation ports. The adapter retains navigation handles, request
 serialization and bounded event feeds. The legacy `/api/v1` API remains available.
 Neither adapter owns process shutdown or duplicates native policy translation.
 

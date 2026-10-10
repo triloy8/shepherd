@@ -1,3 +1,4 @@
+// Protocol test consumer; the shipped UI uses the main-branch v1 client.
 import { jsonBytes } from "../../shared/protocol/v2/budgets.js";
 import type { ConversationItem, VersionedItem, BoundedText } from "../../shared/protocol/v2/conversation_items.js";
 import type { HistoryPage } from "../../shared/protocol/v2/conversations.js";

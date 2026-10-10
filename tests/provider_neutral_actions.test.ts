@@ -9,7 +9,7 @@ import { capabilities } from "./helpers/provider_v2.js";
 import { codexAccount } from "../server/providers/codex/neutral_account.js";
 import { claudeAccount } from "../server/providers/claude/neutral_account.js";
 import { createProviderServices } from "../server/runtime/provider_services.js";
-import { readNeutralEvents } from "../ui/src/api.js";
+import { readNeutralEvents } from "./helpers/neutral-event-reader.js";
 import { encodeEventFrame } from "../shared/protocol/v2/budgets.js";
 import type { InteractionRequest } from "../shared/protocol/v2/interactions.js";
 import type { ThreadSettings } from "../shared/protocol/v2/conversations.js";
@@ -217,16 +217,6 @@ test("account reporting leaves unknown allowance eligibility unknown and falls b
   expect(claudeAccount({ provider: "claude", account: { authentication: "subscription", plan: null, signedIn: true }, availability: "available", source: "events", checkedAt: 0, stale: false, windows: [{ id: "unknown", label: "Unknown", usedPercent: null, resetsAt: null, status: null, observedAt: 0, stale: false }], extraUsage: null, message: null }).ordinaryUsageAllowed).toBeNull();
 });
 
-test("an unresolved reset survives the local storage upgrade with its exact idempotency key", async () => {
-  const { migrateAccountResetStorage } = await import("../ui/src/account-reset-state.js");
-  const values = new Map<string, string>([["shepherd.usage-reset", JSON.stringify({ idempotencyKey: "previous-request", creditId: "credit" })]]);
-  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } } as Storage;
-  migrateAccountResetStorage(storage);
-  expect(JSON.parse(values.get("shepherd.account-reset:codex")!)).toEqual({ idempotencyKey: "previous-request", creditId: "credit" });
-  expect(values.has("shepherd.usage-reset")).toBe(false);
-  migrateAccountResetStorage(storage); expect(values.size).toBe(1);
-});
-
 test("image references cannot bypass aggregate input budgets or start work with a foreign asset", async () => {
   const { nativeInput } = await import("../server/providers/neutral_controls.js");
   const { source, projection } = actionHarness();
@@ -254,19 +244,6 @@ test("runtime configuration validates canonical defaults before native startup a
   expect(() => readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "invalid" })).toThrow("SHEPHERD_APPROVAL_MODE");
   expect(() => readRuntimeConfig({ SHEPHERD_SANDBOX_MODE: "invalid" })).toThrow("SHEPHERD_SANDBOX_MODE");
   expect(() => readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "review_sensitive", SHEPHERD_SANDBOX_MODE: "unrestricted", CODEX_APPROVAL_POLICY: "invalid", CODEX_SANDBOX: "invalid" })).not.toThrow();
-});
-
-test("generic approval cards display the associated shared file diff and its truncation notice", async () => {
-  const { createElement } = await import("react"), { renderToStaticMarkup } = await import("react-dom/server");
-  const { Approvals } = await import("../ui/src/components/Approvals.js");
-  const { CodexNeutralMapper } = await import("../server/providers/codex/neutral_mapper.js");
-  const { source, projection, broker } = actionHarness();
-  const item = new CodexNeutralMapper(source).item("thread", "turn", { id: "native-file", type: "fileChange", changes: [{ path: "file.txt", kind: { type: "update", move_path: null }, diff: "+new line\n".repeat(1000) }], status: "inProgress" });
-  source.emit({ type: "item.started", payload: item });
-  broker.request({ ...question(), questions: null, kind: "file_change", title: "Review changes", itemId: item.id }, [{ label: "Allow once", scope: "once", intent: "allow", effect: null, apply: async () => {} }]);
-  const snapshot = projection.snapshot(), html = renderToStaticMarkup(createElement(Approvals, { approvals: snapshot.interactions, items: snapshot.items.map(entry => entry.item), busy: false, decide: () => {} }));
-  expect(html).toContain("file.txt"); expect(html).toContain("+new line"); expect(html).toContain("Diff preview shortened."); expect(html).not.toContain("native-file");
-  projection.close(); source.close();
 });
 
 test("session-scoped legacy approvals do not invent a native turn identity", async () => {

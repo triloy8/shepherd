@@ -108,7 +108,7 @@ test("web API accepts answers, rejects incomplete submissions and duplicate deci
 
 test("UI renders accessible questions with no automatic choice and masks secret answers", () => {
   const h = sessionHarness();
-  const render = (record: ApprovalRecord) => renderToStaticMarkup(createElement(UserQuestions, { request: neutralQuestion(record), busy: false, decide() {} }));
+  const render = (record: ApprovalRecord) => renderToStaticMarkup(createElement(UserQuestions, { request: record, busy: false, decide() {} }));
   const html = render(h.record);
   expect(html).toContain("Waiting for your answer");
   expect(html).toContain("Select per conversation");
@@ -196,14 +196,5 @@ test("multiple-choice questions render checkboxes and validate several distinct 
   expect(() => validateUserQuestionAnswers([question], { parts: { answers: ["API", "API"] } })).toThrow();
   expect(() => validateUserQuestionAnswers([question], { parts: { answers: ["other"] } })).toThrow();
   expect(() => validateUserQuestionAnswers([{ ...question, multiSelect: false }], { parts: { answers: ["API", "UI"] } })).toThrow();
-  const record = { approvalId: "multi", userInput: { threadId: "thread", turnId: "turn", itemId: "item", isBlocking: true, questions: [question] } } as ApprovalRecord;
-  const html = renderToStaticMarkup(createElement(UserQuestions, { request: neutralQuestion(record), busy: false, decide() {} }));
-  expect(html.match(/type="checkbox"/g)).toHaveLength(2);
-  expect(html).toContain("Choose one or more answers.");
-});
 
-function neutralQuestion(record: ApprovalRecord): import("../shared/protocol/v2/interactions").InteractionRecord {
-  return { id: record.approvalId, threadId: record.threadId, sessionId: record.sessionId, turnId: record.userInput?.turnId ?? null, itemId: null, kind: "user_input", title: "Questions", item: null, reason: null, permissions: null, questions: record.userInput ?? null,
-    options: [{ id: "submit-option", label: "Submit answers", intent: "submit", scope: null, effect: null }, { id: "cancel-option", label: "Skip questions", intent: "cancel", scope: null, effect: null }],
-    status: "pending", selectedOptionId: null, selectedIntent: null, createdAt: 0, updatedAt: 0 };
-}
+});

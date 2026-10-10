@@ -1,5 +1,3 @@
-import type { AgentProvider } from "../../../shared/protocol/requests";
-import type { ProviderCapabilities } from "../../../shared/protocol/v2/conversations";
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import type { WebConversation } from "../../../shared/protocol/web";
 import { Icon } from "./Icon";
@@ -9,8 +7,8 @@ import { api, explainError } from "../api";
 const ConversationActions = lazy(() => import("./ConversationActions").then((module) => ({ default: module.ConversationActions })));
 const ConversationSkills = lazy(() => import("./ConversationSkills").then((module) => ({ default: module.ConversationSkills })));
 
-export function ConversationMenu({ provider, capabilities, conversation, title, status, disabled, active, detaching, onHistoryChange, onRename, onArchive, onFork, onDetach }: {
-  provider?: AgentProvider; capabilities?: ProviderCapabilities; conversation: WebConversation; title: string; status: string; disabled: boolean; active: boolean; detaching: boolean;
+export function ConversationMenu({ conversation, title, status, disabled, active, detaching, onHistoryChange, onRename, onArchive, onFork, onDetach }: {
+  conversation: WebConversation; title: string; status: string; disabled: boolean; active: boolean; detaching: boolean;
   onHistoryChange: () => Promise<void>; onRename: (name: string) => void; onArchive: () => void;
   onFork: (conversation: WebConversation) => void; onDetach: () => void;
 }) {
@@ -72,9 +70,9 @@ export function ConversationMenu({ provider, capabilities, conversation, title, 
         const next = event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
         if (next !== null) { event.preventDefault(); items[next]?.focus(); }
       }}>
-        {capabilities?.skills.list && <button role="menuitem" tabIndex={-1} disabled={disabled || forking} onClick={() => show("skills")}><Icon name="skills" /><span>Skills</span></button>}
-        {capabilities?.fork && <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking} onClick={() => void fork()}><Icon name="fork" /><span>{forking ? "Forking conversation…" : "Fork conversation"}</span></button>}
-        {capabilities?.compact && <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking} onClick={() => show("compact")}><Icon name="compact" /><span>Compact conversation</span></button>}
+        <button role="menuitem" tabIndex={-1} disabled={disabled || forking} onClick={() => show("skills")}><Icon name="skills" /><span>Skills</span></button>
+        <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking} onClick={() => void fork()}><Icon name="fork" /><span>{forking ? "Forking conversation…" : "Fork conversation"}</span></button>
+        <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking} onClick={() => show("compact")}><Icon name="compact" /><span>Compact conversation</span></button>
         <div role="separator" className="my-1 border-t border-line" />
         <button role="menuitem" tabIndex={-1} disabled={detaching || forking} onClick={() => { close(); onDetach(); }}><Icon name="detach" /><span>Detach conversation<span className="mt-0.5 block text-[11px] text-dim">Keep agent work running</span></span></button>
         <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking} onClick={() => show("archive")}><Icon name="archive" /><span>Archive conversation</span></button>
@@ -84,7 +82,7 @@ export function ConversationMenu({ provider, capabilities, conversation, title, 
     <dialog ref={details} className="project-dialog settings-dialog" aria-labelledby="conversation-details-title" onCancel={closePanel} onClose={() => { if (panel === "details") closePanel(); }}>
       <div className="mb-5 flex items-center justify-between gap-3"><h2 id="conversation-details-title" className="text-lg font-medium">Conversation details</h2><button className="icon-button" aria-label="Close conversation details" onClick={closePanel}><Icon name="close" /></button></div>
       <p className="mb-5 break-words text-sm font-medium">{title}</p>
-      <dl className="space-y-4 text-sm">{provider && <div><dt className="mb-1 text-xs text-dim">Provider</dt><dd>{provider}</dd></div>}<div><dt className="mb-1 text-xs text-dim">Connection</dt><dd>{panel === "details" ? status : null}</dd></div><div><dt className="mb-1 text-xs text-dim">Project</dt><dd className="break-all">{conversation.project}</dd></div><div><dt className="mb-1 text-xs text-dim">Conversation ID</dt><dd className="break-all font-mono text-xs">{conversation.threadId}</dd></div></dl>
+      <dl className="space-y-4 text-sm"><div><dt className="mb-1 text-xs text-dim">Connection</dt><dd>{panel === "details" ? status : null}</dd></div><div><dt className="mb-1 text-xs text-dim">Project</dt><dd className="break-all">{conversation.project}</dd></div><div><dt className="mb-1 text-xs text-dim">Conversation ID</dt><dd className="break-all font-mono text-xs">{conversation.threadId}</dd></div></dl>
     </dialog>
     {(panel === "rename" || panel === "archive" || panel === "compact") && <Suspense fallback={null}><ConversationActions action={panel} conversation={conversation} title={title} disabled={disabled} active={active} onOpenChange={(value) => { if (!value) closePanel(); }} onHistoryChange={onHistoryChange} onRename={onRename} onArchive={onArchive} /></Suspense>}
     <dialog ref={skills} className="project-dialog settings-dialog" aria-labelledby="skills-title" onCancel={closePanel} onClose={() => { if (panel === "skills") closePanel(); }}>

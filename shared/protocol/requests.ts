@@ -1,44 +1,24 @@
+import type { ProviderCapabilities } from "./provider_capabilities.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { UserInput } from "./user_input.js";
 
-export type GranularApprovalPolicy = {
-  granular: {
-    sandbox_approval: boolean;
-    rules: boolean;
-    skill_approval: boolean;
-    request_permissions: boolean;
-    mcp_elicitations: boolean;
-  };
-};
-export type ApprovalPolicy = "untrusted" | "on-request" | "never" | GranularApprovalPolicy;
-export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
-export type Personality = "none" | "friendly" | "pragmatic";
-export type ThreadSortKey = "created_at" | "updated_at" | "recency_at";
+/** Review thresholds refer to the provider's trust/permission model. No mode promises universal review. */
+export type ApprovalPolicy = "provider_default" | "review_sensitive" | "review_untrusted" | "bypass";
+export type SandboxMode = "read_only" | "workspace_write" | "unrestricted";
+export type ThreadSortKey = "created_at" | "updated_at";
 export type SortDirection = "asc" | "desc";
-export type ThreadSourceKind =
-  | "cli"
-  | "vscode"
-  | "exec"
-  | "appServer"
-  | "subAgent"
-  | "subAgentReview"
-  | "subAgentCompact"
-  | "subAgentThreadSpawn"
-  | "subAgentOther"
-  | "unknown";
+export type AgentProvider = string;
 
 export interface CreateThreadRequest {
+  provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
-  config?: Record<string, unknown>;
   cwd?: string;
-  personality?: Personality;
   sandbox?: SandboxMode;
   model?: string;
-  modelProvider?: string;
   ephemeral?: boolean;
-  serviceName?: string;
+  effort?: string;
 }
 
 export interface CreateThreadResponse {
@@ -96,12 +76,9 @@ export interface ListStoredThreadsRequest {
   cursor?: string;
   cwd?: string | string[];
   limit?: number;
-  modelProviders?: string[];
   searchTerm?: string;
   sortDirection?: SortDirection;
   sortKey?: ThreadSortKey;
-  sourceKinds?: ThreadSourceKind[];
-  useStateDbOnly?: boolean;
 }
 
 export interface ListStoredThreadsResponse {
@@ -121,6 +98,9 @@ export interface ListLoadedThreadsResponse {
 }
 
 export interface GetThreadStateResponse {
+  provider: AgentProvider;
+  capabilities: ProviderCapabilities;
+  backgroundTaskCount?: number;
   threadId: string;
   sessionId: string;
   activeTurnId: string | null;
@@ -136,15 +116,14 @@ export interface ReadThreadResponse {
 }
 
 export interface ResumeThreadRequest {
+  provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
-  config?: Record<string, unknown>;
   cwd?: string;
-  personality?: Personality;
   sandbox?: SandboxMode;
   model?: string;
-  modelProvider?: string;
+  effort?: string;
 }
 
 export interface ResumeThreadResponse {
@@ -153,14 +132,14 @@ export interface ResumeThreadResponse {
 }
 
 export interface ForkThreadRequest {
+  provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
-  config?: Record<string, unknown>;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
-  modelProvider?: string;
+  effort?: string;
 }
 
 export interface ForkThreadResponse {
@@ -202,10 +181,8 @@ export interface ThreadRecord {
   updatedAt?: number;
   cwd?: string;
   modelProvider?: string;
-  source?: unknown;
-  status?: unknown;
-  turns?: unknown[];
-  [key: string]: unknown;
+  source?: string | null;
+  turns?: HistoryTurn[];
 }
 
 export interface ListApprovalsResponse {
@@ -216,33 +193,6 @@ export interface ApprovalDecisionApiRequest extends ApprovalDecisionRequest {}
 
 export interface ApprovalDecisionApiResponse {
   ok: true;
-}
-
-export interface RateLimitResetCredit {
-  id: string;
-  resetType: "codexRateLimits" | "unknown";
-  status: "available" | "redeeming" | "redeemed" | "unknown";
-  grantedAt: number;
-  expiresAt: number | null;
-  title: string | null;
-  description: string | null;
-}
-export interface RateLimitResetCredits {
-  availableCount: number;
-  credits: RateLimitResetCredit[] | null;
-}
-export interface ConsumeRateLimitResetRequest {
-  idempotencyKey: string;
-  creditId?: string;
-}
-export interface ConsumeRateLimitResetResponse {
-  outcome: "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit";
-}
-
-export interface AccountRateLimitsResponse {
-  rateLimits: unknown;
-  rateLimitsByLimitId: Record<string, unknown> | null;
-  rateLimitResetCredits: RateLimitResetCredits | null;
 }
 
 export interface TokenUsageBreakdown {
@@ -265,6 +215,7 @@ export interface ReadThreadTokenUsageResponse {
 }
 
 export interface ListModelsRequest {
+  provider?: AgentProvider;
   cursor?: string;
   limit?: number;
   includeHidden?: boolean;
@@ -277,7 +228,6 @@ export interface ModelSummary {
   description: string;
   hidden: boolean;
   isDefault: boolean;
-  supportsPersonality: boolean;
   supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }>;
   defaultReasoningEffort?: string | null;
 }
@@ -377,7 +327,12 @@ export interface ListThreadTurnsRequest {
 export interface HistoryItem {
   id: string;
   type: string;
-  [key: string]: unknown;
+  text?: string;
+  phase?: import("./events.js").MessagePhase;
+  content?: Array<{ type: string; text?: string; url?: string; path?: string; name?: string }>;
+  summary?: string[];
+  activity?: import("./events.js").TurnActivityEvent["payload"];
+  image?: { itemId: string; turnId: string | null; path: string; revisedPrompt?: string | null; kind: "generated" | "viewed" };
 }
 
 export interface HistoryTurn {
@@ -385,7 +340,7 @@ export interface HistoryTurn {
   items: HistoryItem[];
   itemsView: "notLoaded" | "summary" | "full";
   status: "completed" | "interrupted" | "failed" | "inProgress";
-  error: { message: string; [key: string]: unknown } | null;
+  error: { message: string } | null;
   startedAt: number | null;
   completedAt: number | null;
   durationMs: number | null;

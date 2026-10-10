@@ -87,20 +87,8 @@ type DiscordTurnDeliveryState = {
   queue: Promise<void>;
 };
 
-function pickButtonStyle(decision: string): ButtonStyle {
-  const normalized = decision.toLowerCase();
-  if (normalized.includes("accept") || normalized.includes("approve") || normalized === "success") {
-    return ButtonStyle.Success;
-  }
-  if (
-    normalized.includes("decline") ||
-    normalized.includes("deny") ||
-    normalized.includes("reject") ||
-    normalized === "failure"
-  ) {
-    return ButtonStyle.Danger;
-  }
-  return ButtonStyle.Secondary;
+function pickButtonStyle(intent: import("../../../shared/protocol/approvals.js").ApprovalChoice["intent"]): ButtonStyle {
+  return intent === "allow" || intent === "answer" ? ButtonStyle.Success : intent === "deny" ? ButtonStyle.Danger : ButtonStyle.Secondary;
 }
 
 export function buildApprovalRows(
@@ -122,7 +110,7 @@ export function buildApprovalRows(
       new ButtonBuilder()
         .setCustomId(encodeApprovalButtonId(threadId, approval.approvalId, choice.value))
         .setLabel(choice.label)
-        .setStyle(pickButtonStyle(choice.value)),
+        .setStyle(pickButtonStyle(choice.intent)),
     );
     count += 1;
   }

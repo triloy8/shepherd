@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decodeResetCredits, decodeResetOutcome } from "../server/core/account_usage";
+import { decodeResetCredits, decodeResetOutcome } from "../server/providers/codex/account_usage";
 
 const credit = { id: "credit-1", resetType: "codexRateLimits", status: "available", grantedAt: 100, expiresAt: 200, title: "Reset", description: null };
 test("reset summaries preserve count-only, empty, capped and non-expiring details", () => {

@@ -7,7 +7,7 @@ const event = (id: string, type: BridgeEvent["type"], payload: unknown): BridgeE
 const turn = (id: string, text: string): HistoryTurn => ({ id, items: [{ id: `user-${id}`, type: "userMessage", content: [{ type: "text", text }] }], status: "completed", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null });
 
 test("stream replay is deduplicated and canonical completion replaces partial text", () => {
-  const delta = event("delta", "turn.stream.delta", { method: "item/agentMessage/delta", itemId: "item", turnId: "turn", textDelta: "Hello" });
+  const delta = event("delta", "turn.stream.delta", { kind: "assistant_text", itemId: "item", turnId: "turn", textDelta: "Hello" });
   const partial = reduceBridge(emptyChat(), delta);
   expect(reduceBridge(partial, delta).messages[0]!.text).toBe("Hello");
   const complete = reduceBridge(partial, event("complete", "turn.message.completed", { itemId: "item", turnId: "turn", text: "Hello world" }));
@@ -41,8 +41,8 @@ test("SSE parser caps unterminated input and cancels its reader", async () => {
 test("switching chats discards old deltas and completions buffered in the same SSE chunk", async () => {
   const abort = new AbortController();
   const events = [
-    event("first", "turn.stream.delta", { method: "item/agentMessage/delta", itemId: "old-item", turnId: "old-turn", textDelta: "Old chat" }),
-    event("late-delta", "turn.stream.delta", { method: "item/agentMessage/delta", itemId: "old-item", turnId: "old-turn", textDelta: " continued" }),
+    event("first", "turn.stream.delta", { kind: "assistant_text", itemId: "old-item", turnId: "old-turn", textDelta: "Old chat" }),
+    event("late-delta", "turn.stream.delta", { kind: "assistant_text", itemId: "old-item", turnId: "old-turn", textDelta: " continued" }),
     event("late-completion", "turn.message.completed", { itemId: "old-item", turnId: "old-turn", text: "Old chat completed" }),
   ];
   const chunk = events.map((data) => `event: bridge\ndata: ${JSON.stringify(data)}\n\n`).join("");
@@ -95,7 +95,7 @@ test("an old chat's delayed stream response cannot mark the new chat connected",
 });
 
 test("history ahead of queued stream deltas is not duplicated", () => {
-  const delta = (id: string, textDelta: string) => event(id, "turn.stream.delta", { method: "item/agentMessage/delta", itemId: "agent", turnId: "turn", textDelta });
+  const delta = (id: string, textDelta: string) => event(id, "turn.stream.delta", { kind: "assistant_text", itemId: "agent", turnId: "turn", textDelta });
   let state = reduceBridge(emptyChat(), delta("1", "Hello"));
   state = mergeHistory(state, [{ ...turn("turn", "prompt"), status: "inProgress", items: [{ id: "agent", type: "agentMessage", text: "Hello world" }] }]);
   expect(state.messages[0]!.text).toBe("Hello world");
@@ -106,7 +106,7 @@ test("history ahead of queued stream deltas is not duplicated", () => {
 });
 
 test("ending a turn freezes partial messages instead of leaving a writing indicator", () => {
-  const state = reduceBridge(emptyChat(), event("delta", "turn.stream.delta", { method: "item/agentMessage/delta", itemId: "item", turnId: "turn", textDelta: "Partial" }));
+  const state = reduceBridge(emptyChat(), event("delta", "turn.stream.delta", { kind: "assistant_text", itemId: "item", turnId: "turn", textDelta: "Partial" }));
   const ended = reduceBridge(state, event("end", "turn.completed", { turnId: "turn" }));
   expect(ended.messages[0]!.complete).toBe(true);
   expect(ended.activeTurnId).toBeNull();

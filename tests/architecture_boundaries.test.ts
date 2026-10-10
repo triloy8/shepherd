@@ -9,7 +9,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(entries.map((entry) => {
     const file = path.join(directory, entry.name);
-    return entry.isDirectory() ? sourceFiles(file) : Promise.resolve(file.endsWith(".ts") ? [file] : []);
+    return entry.isDirectory() ? sourceFiles(file) : Promise.resolve(/\.tsx?$/.test(file) ? [file] : []);
   }));
   return nested.flat();
 }
@@ -66,5 +66,59 @@ test("browser source imports shared protocol rather than server implementation",
     }
   }
   await check(path.join(root, "ui/src"));
+  expect(violations).toEqual([]);
+});
+
+test("provider SDKs and persistence stay outside application and transport layers", async () => {
+  const violations: string[] = [];
+  for (const directory of ["server/core", "server/ports", "shared/protocol", "server/storage", "server/adapters", "server/providers"]) {
+    for (const file of await sourceFiles(path.join(root, directory))) {
+      const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
+      function visit(node: ts.Node) {
+        let expression: ts.Expression | undefined;
+        if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) expression = node.moduleSpecifier;
+        if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === "require"))) expression = node.arguments[0];
+        if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) expression = node.argument.literal;
+        if (expression && ts.isStringLiteralLike(expression)) {
+          const specifier = expression.text;
+          const target = specifier.startsWith(".") ? path.resolve(path.dirname(file), specifier) : specifier;
+          const sdk = specifier.startsWith("@anthropic-ai/") || specifier.startsWith("@modelcontextprotocol/");
+          const native = target.includes("/server/providers/");
+          const storage = target.includes("/server/storage/");
+          const upward = target.includes("/server/runtime/") || target.includes("/server/adapters/");
+          const forbidden = directory === "server/providers" ? upward : directory === "server/storage" ? sdk || native || upward : sdk || native || storage;
+          if (forbidden) violations.push(`${path.relative(root, file)} -> ${specifier}`);
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(source);
+    }
+  }
+  expect(violations).toEqual([]);
+});
+
+test("application contracts and ports cannot depend on provider implementations or identities", async () => {
+  const files = [...await sourceFiles(path.join(root, "shared/protocol")), ...await sourceFiles(path.join(root, "server/core")), ...await sourceFiles(path.join(root, "server/adapters")), ...await sourceFiles(path.join(root, "ui/src")), path.join(root, "server/ports/provider_session.ts"), path.join(root, "server/ports/provider_services.ts"), path.join(root, "server/storage/thread_provider_directory.ts"), path.join(root, "server/runtime/provider_registration.ts")];
+  const violations: string[] = [];
+  for (const file of files) {
+    const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
+    function visit(node: ts.Node) {
+      let expression: ts.Expression | undefined;
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) expression = node.moduleSpecifier;
+      if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === "require"))) expression = node.arguments[0];
+      if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) expression = node.argument.literal;
+      if (expression && ts.isStringLiteralLike(expression)) {
+        const target = path.resolve(path.dirname(file), expression.text);
+        if (/\/(schemas|providers)\//.test(target) || expression.text.startsWith("@anthropic-ai/")) {
+          violations.push(`${path.relative(root, file)} -> ${expression.text}`);
+        }
+      }
+      if (ts.isStringLiteralLike(node) && ["codex", "claude", "on-request", "untrusted", "never", "read-only", "workspace-write", "danger-full-access"].includes(node.text)) {
+        violations.push(`${path.relative(root, file)} contains a native provider identity or policy spelling`);
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(source);
+  }
   expect(violations).toEqual([]);
 });

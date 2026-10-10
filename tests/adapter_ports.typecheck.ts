@@ -32,3 +32,54 @@ function assertLauncherBoundary(adapter: SurfaceAdapterContext) {
   adapter.approvals.stopAll();
 }
 void assertLauncherBoundary;
+
+import type { ProviderSession } from "../server/ports/provider_session.js";
+import type { TurnStreamDeltaEvent } from "../shared/protocol/events.js";
+import type { ApprovalRequestPayload } from "../shared/protocol/approvals.js";
+function assertProviderBoundary(session: ProviderSession, delta: TurnStreamDeltaEvent, approval: ApprovalRequestPayload) {
+  // @ts-expect-error Native account quotas are not a session operation.
+  session.readAccountRateLimits();
+  // @ts-expect-error SDK method names do not enter application text streams.
+  delta.payload.method;
+  // @ts-expect-error Native approval envelopes remain private.
+  approval.params;
+  // @ts-expect-error Native server request methods remain private.
+  approval.method;
+}
+void assertProviderBoundary;
+
+import type { CreateThreadRequest, ListStoredThreadsRequest, ApprovalPolicy, SandboxMode } from "../shared/protocol/requests.js";
+function assertNeutralConfiguration(create: CreateThreadRequest, list: ListStoredThreadsRequest) {
+  // @ts-expect-error Raw SDK configuration belongs inside the adapter.
+  create.config;
+  // @ts-expect-error Native model backend overrides are not application configuration.
+  create.modelProvider;
+  // @ts-expect-error Native history source enums do not cross the port.
+  list.sourceKinds;
+  // @ts-expect-error Native storage implementation choices stay private.
+  list.useStateDbOnly;
+  // @ts-expect-error Native approval labels are not application modes.
+  const approval: ApprovalPolicy = "untrusted";
+  // @ts-expect-error Native sandbox labels are not application modes.
+  const sandbox: SandboxMode = "danger-full-access";
+  void approval; void sandbox;
+}
+void assertNeutralConfiguration;
+
+
+import { bridgeEvent, type BridgeEvent } from "../shared/protocol/events.js";
+function assertEventPayloads(session: ProviderSession, event: BridgeEvent) {
+  const metadata = { id: "event", threadId: "thread", sessionId: "session", ts: "now" };
+  session.eventBus.publish({ ...metadata, type: "turn.completed", payload: { turnId: "turn" } });
+  // @ts-expect-error A native envelope cannot replace the semantic stream payload.
+  session.eventBus.publish({ ...metadata, type: "turn.stream.delta", payload: { method: "native/message", params: {} } });
+  // @ts-expect-error Event names and payloads must agree at the adapter emitter too.
+  bridgeEvent({ ...metadata, type: "turn.failed", payload: { turnId: "turn" } });
+  if (event.type === "turn.stream.delta") {
+    const text: string = event.payload.textDelta;
+    // @ts-expect-error Discrimination exposes only this event's payload.
+    event.payload.approvalId;
+    void text;
+  }
+}
+void assertEventPayloads;

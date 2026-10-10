@@ -10,7 +10,7 @@ import {
   formatEventLine,
 } from "../server/adapters/discord/message_renderer.js";
 
-function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): BridgeEvent<TPayload> {
+function makeEvent<K extends BridgeEvent["type"]>(type: K, payload: import("../shared/protocol/events.js").BridgeEventPayloads[K]): import("../shared/protocol/events.js").BridgeEventOf<K> {
   return {
     id: "evt-1",
     type,
@@ -25,17 +25,17 @@ describe("Discord message renderer", () => {
   test("formats approval prompts with a structured layout", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
-      method: "shell.exec",
+      kind: "permission",
       prompt: "Run `bun install` in the workspace?",
-      params: {},
+      detail: null,
       choices: [
-        { value: "approve", label: "Approve" },
-        { value: "reject", label: "Reject" },
+        { value: "approve", label: "Approve", intent: "allow" },
+        { value: "reject", label: "Reject", intent: "deny" },
       ],
     };
 
     expect(formatApprovalText(approval)).toBe(
-      "Approval Required\n\nAction: shell.exec\n\nRun `bun install` in the workspace?\n\nOptions: Approve / Reject",
+      "Approval Required\n\nAction: permission\n\nRun `bun install` in the workspace?\n\nOptions: Approve / Reject",
     );
   });
 
@@ -72,11 +72,9 @@ describe("Discord message renderer", () => {
     );
   });
 
-  test("only surfaces failing notification events", () => {
-    expect(formatEventLine(makeEvent("turn.notification", { method: "tool.failed" }))).toBe(
-      "Event Error\n\nEvent: tool.failed",
-    );
-    expect(formatEventLine(makeEvent("turn.notification", { method: "tool.started" }))).toBeNull();
+  test("surfaces shared errors without requiring native notification methods", () => {
+    expect(formatEventLine(makeEvent("session.error", { message: "Tool failed" }))).toBe("Session Error\n\nTool failed");
+    expect(formatEventLine(makeEvent("turn.activity", {}))).toBeNull();
   });
 
   test("renders concise activity lines and redacts command secrets", () => {

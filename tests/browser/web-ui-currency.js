@@ -1,7 +1,7 @@
 // Run against tests/fixtures/web-ui-host.ts using playwright-cli run-code.
 async (page) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.route('**/api/v1/conversations/*/turns?*', async route => {
+  await page.route('**/api/conversations/*/turns?*', async route => {
     const response = await route.fetch();
     const history = await response.json();
     if (history.data?.length) history.data[0].items = [{
@@ -21,6 +21,6 @@ async (page) => {
   const mixed = await page.locator('.prose-chat p').nth(1).textContent();
   if (!mixed.includes('Costs $5 or $10.')) throw Error('Currency was lost next to math');
   if (await page.locator('.prose-chat .katex-display').count() !== 1) throw Error('Display math was affected');
-  await page.unroute('**/api/v1/conversations/*/turns?*');
+  await page.unroute('**/api/conversations/*/turns?*');
   return 'Mobile rendering preserves dollar prices and bold formatting while rendering numeric inline math, variable inline math, and display equations';
 }

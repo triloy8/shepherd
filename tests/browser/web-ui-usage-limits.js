@@ -7,7 +7,7 @@ async (page) => {
     { id: 'credit-2', resetType: 'codexRateLimits', status: 'available', grantedAt: 100, expiresAt: null, title: 'Permanent reset', description: null },
   ] };
   let failRead = false;
-  await page.route('**/api/v1/limits', route => failRead
+  await page.route('**/api/limits', route => failRead
     ? route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Limits unavailable' } } })
     : route.fulfill({ json: { rateLimits: { planType: 'fixture', primary: { usedPercent: 25 } }, rateLimitsByLimitId: null, rateLimitResetCredits: summary } }));
   await page.getByRole('button', { name: 'Usage & limits', exact: true }).click();
@@ -18,7 +18,7 @@ async (page) => {
   const requests = [];
   let failed = false;
   let release;
-  await page.route('**/api/v1/limits/reset', async route => {
+  await page.route('**/api/limits/reset', async route => {
     requests.push(route.request().postDataJSON());
     if (!failed) {
       failed = true;
@@ -44,8 +44,8 @@ async (page) => {
   if (requests.length !== 2 || requests[0].idempotencyKey !== requests[1].idempotencyKey || requests[0].creditId !== 'credit-1' || requests[1].creditId !== 'credit-1') throw Error('Retry changed logical reset identity');
   await panel.getByText('Expiration details are unavailable.', { exact: true }).waitFor();
   for (const [outcome, message] of [['nothingToReset', 'No usage window is eligible for a reset right now.'], ['noCredit', 'No banked resets are available.'], ['reset', 'Reset used.']]) {
-    await page.unroute('**/api/v1/limits/reset');
-    await page.route('**/api/v1/limits/reset', route => route.fulfill({ json: { outcome } }));
+    await page.unroute('**/api/limits/reset');
+    await page.route('**/api/limits/reset', route => route.fulfill({ json: { outcome } }));
     await panel.getByRole('button', { name: 'Use next available reset', exact: true }).click();
     await panel.getByText(message, { exact: true }).waitFor();
     await panel.getByText('Banked resets · 2 available', { exact: true }).waitFor();

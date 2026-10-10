@@ -18,7 +18,7 @@ async page => {
     return times;
   });
   const shortChat=await measure();
-  await page.route('**/api/v1/conversations/*/turns?*',async route=>{
+  await page.route('**/api/conversations/*/turns?*',async route=>{
     const response=await route.fetch();const body=await response.json();
     const text=('A history paragraph with **bold** and $x^2+y^2=z^2$ and $\\frac{a+b}{c}$.\n\n').repeat(10);
     body.data=Array.from({length:30},(_,i)=>({...body.data[0],id:'perf-turn-'+i,status:'completed',items:[{id:'perf-user-'+i,type:'userMessage',content:[{type:'text',text:'Question '+i}]},{id:'perf-assistant-'+i,type:'agentMessage',phase:'final_answer',text}]}));

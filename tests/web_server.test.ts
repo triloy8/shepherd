@@ -17,14 +17,14 @@ test("real loopback HTTP server checks origins, streams, and closes resources on
     await adapter.start(); await adapter.start();
     const url = adapter.url()!;
     expect(url).toStartWith("http://127.0.0.1:");
-    expect((await fetch(`${url}/api/v1/health`, { headers: { origin: "https://untrusted.test" } })).status).toBe(403);
-    expect((await fetch(`${url}/api/v1/health`, { headers })).status).toBe(200);
-    const c = await (await fetch(`${url}/api/v1/conversations`, { method: "POST", headers, body: JSON.stringify({ project: "~" }) })).json();
-    const stream = await fetch(`${url}/api/v1/conversations/${c.id}/events`, { headers, signal: abort.signal });
+    expect((await fetch(`${url}/api/health`, { headers: { origin: "https://untrusted.test" } })).status).toBe(403);
+    expect((await fetch(`${url}/api/health`, { headers })).status).toBe(200);
+    const c = await (await fetch(`${url}/api/conversations`, { method: "POST", headers, body: JSON.stringify({ project: "~" }) })).json();
+    const stream = await fetch(`${url}/api/conversations/${c.id}/events`, { headers, signal: abort.signal });
     expect(stream.headers.get("content-type")).toBe("text/event-stream");
     const reader = stream.body!.getReader();
     expect(new TextDecoder().decode((await reader.read()).value)).toContain(": connected");
-    expect((await fetch(`${url}/api/v1/conversations/${c.id}/messages`, { method: "POST", headers, body: JSON.stringify({ text: "hello" }) })).status).toBe(200);
+    expect((await fetch(`${url}/api/conversations/${c.id}/messages`, { method: "POST", headers, body: JSON.stringify({ text: "hello" }) })).status).toBe(200);
     expect(new TextDecoder().decode((await reader.read()).value)).toContain("turn.started");
     await reader.cancel();
     expect(h.active.get(c.threadId)).toBe("turn-1");
@@ -66,10 +66,10 @@ test("web and another surface run together against the same application runtime"
     await host.start();
     expect(creates).toBe(1);
     const url = web.url()!;
-    expect((await (await fetch(`${url}/api/v1/threads`, { headers })).json()).nextCursor).toBe("shared-cursor");
+    expect((await (await fetch(`${url}/api/threads`, { headers })).json()).nextCursor).toBe("shared-cursor");
     other.reportHealth({ state: "degraded", detail: "disconnected" });
     expect(host.health().web!.state).toBe("ready");
-    expect((await fetch(`${url}/api/v1/health`, { headers })).status).toBe(200);
+    expect((await fetch(`${url}/api/health`, { headers })).status).toBe(200);
     expect(shared.shepherd.isQuiescing()).toBe(false);
     await host.stop();
     expect(stoppedOther).toBe(1); expect(web.url()).toBeNull();
@@ -88,9 +88,9 @@ test("UI and API share a listener, exact origin policy and host validation", asy
     expect(html.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
     expect((await fetch(url, { method: "HEAD" })).status).toBe(200);
     expect((await fetch(`${url}/.env`)).status).toBe(404);
-    expect((await fetch(`${url}/api/v1/missing`)).headers.get("content-type")).toContain("application/json");
-    expect((await fetch(`${url}/api/v1/conversations`, { method: "POST", headers: { ...headers, origin: url }, body: JSON.stringify({ project: "~" }) })).status).toBe(201);
-    expect((await fetch(`${url}/api/v1/conversations`, { method: "POST", headers: { ...headers, origin: "https://evil.test" }, body: JSON.stringify({ project: "~" }) })).status).toBe(403);
+    expect((await fetch(`${url}/api/missing`)).headers.get("content-type")).toContain("application/json");
+    expect((await fetch(`${url}/api/conversations`, { method: "POST", headers: { ...headers, origin: url }, body: JSON.stringify({ project: "~" }) })).status).toBe(201);
+    expect((await fetch(`${url}/api/conversations`, { method: "POST", headers: { ...headers, origin: "https://evil.test" }, body: JSON.stringify({ project: "~" }) })).status).toBe(403);
     expect((await fetch(url, { headers: { host: "evil.test", "x-forwarded-host": new URL(url).host } })).status).toBe(403);
     expect((await fetch(url, { headers: { host: "ui.example.test" } })).status).toBe(200);
   } finally { await adapter.stop(); h.api.dispose(); }

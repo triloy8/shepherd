@@ -3,12 +3,12 @@ import { readRuntimeConfig } from "../server/config/runtime_environment.js";
 import { createHostRuntime, createGithubWorkspacePorts } from "../server/runtime/host_runtime.js";
 
 test("shared host validates configuration without a transport", async () => {
-  expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "on-request", defaultSandbox: undefined, signals: { enabled: false } });
-  expect(() => readRuntimeConfig({ CODEX_SANDBOX: "typo" })).toThrow("CODEX_SANDBOX");
+  expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "provider_default", defaultSandbox: undefined, signals: { enabled: false } });
+  expect(() => readRuntimeConfig({ SHEPHERD_SANDBOX_MODE: "typo" })).toThrow("SHEPHERD_SANDBOX_MODE");
   for (const value of ["0", "-1", "NaN", "Infinity"]) {
     expect(() => readRuntimeConfig({ SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS: value })).toThrow("positive number");
   }
-  const config = readRuntimeConfig({ CODEX_SANDBOX: "workspace-write", CODEX_APPROVAL_POLICY: "never", SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS: "1200" });
+  const config = readRuntimeConfig({ SHEPHERD_SANDBOX_MODE: "workspace_write", SHEPHERD_APPROVAL_MODE: "bypass", SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS: "1200" });
   const host = createHostRuntime({ config, projectDir: "/tmp" });
   expect(host.config).toBe(config);
   expect(host.shepherd.isQuiescing()).toBe(false);

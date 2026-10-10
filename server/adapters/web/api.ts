@@ -1,3 +1,6 @@
+import { Buffer } from "node:buffer";
+import { UnsupportedProviderOperationError } from "../../ports/provider_session.js";
+import type { AgentProvider } from "../../../shared/protocol/requests.js";
 import { presentHistoryItem } from "./history.js";
 import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import { WebHostControls } from "./host_controls.js";
@@ -5,7 +8,7 @@ import { readHostBattery } from "./host_battery.js";
 import { webControl } from "./controls.js";
 import { WebImages } from "./images.js";
 import { randomUUID } from "node:crypto";
-import { WEB_API_PREFIX, WEB_API_VERSION, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
+import { WEB_API_PREFIX, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 import { ApplicationActionError } from "../../core/action_error.js";
 import type { UserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
@@ -82,9 +85,10 @@ export class WebSurfaceApi {
         return;
       }
       if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {
-        const image = event.payload as import("../../../shared/protocol/events.js").TurnImageGeneratedEvent["payload"] | import("../../../shared/protocol/events.js").TurnImageViewedEvent["payload"];
+        const image = event.payload;
         const presentation = entry.images.present(image.turnId, image.itemId, image.path, "revisedPrompt" in image ? image.revisedPrompt : null, event.type === "turn.image.viewed" ? "viewed" : undefined);
-        entry.feed.publish("bridge", { ...event, payload: { ...image, ...presentation } });
+        if (event.type === "turn.image.generated") entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
+        else entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
       } else entry.feed.publish("bridge", event);
     });
     this.host = new WebHostControls(this.application.runtimeLifecycle);
@@ -95,7 +99,9 @@ export class WebSurfaceApi {
     const allowedOrigin = origin !== null && this.config.origins.includes(origin);
     const headers = new Headers({ "cache-control": "no-store", "x-content-type-options": "nosniff", "vary": "Origin" });
     if (allowedOrigin) headers.set("access-control-allow-origin", origin);
-    const json = (status: number, value: unknown) => Response.json(value, { status, headers });
+    const json = (status: number, value: unknown) => {
+      return Response.json(value, { status, headers });
+    };
     const fail = (status: number, code: string, message: string) => json(status, { error: { code, message } } satisfies WebError);
     if (origin !== null && !allowedOrigin) return fail(403, "origin_denied", "Origin is not allowed.");
     const url = new URL(request.url);
@@ -115,7 +121,8 @@ export class WebSurfaceApi {
     if (this.requests >= MAX_REQUESTS) return fail(429, "request_limit", "Too many in-flight requests.");
     this.requests++;
     try {
-      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true, apiVersion: WEB_API_VERSION });
+      if (url.pathname === `${WEB_API_PREFIX}/providers` && request.method === "GET") return json(200, { providers: this.application.conversation.listProviders() });
+      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true });
       if (url.pathname === `${WEB_API_PREFIX}/host` && request.method === "GET") return json(200, await this.host.status());
       if (url.pathname === `${WEB_API_PREFIX}/host/battery` && request.method === "GET") return json(200, { battery: await readHostBattery() });
       if (url.pathname === `${WEB_API_PREFIX}/host/actions` && request.method === "POST") {
@@ -127,20 +134,21 @@ export class WebSurfaceApi {
         return json(202, this.host.start({ requestId, action: data.action, ...(branch ? { branch } : {}) }));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/models`) {
-        return json(200, await this.application.conversation.listModels({ ...pagination(url), includeHidden: true }));
+        const provider = url.searchParams.get("provider");
+        if (url.searchParams.getAll("provider").length > 1 || (provider !== null && !this.application.conversation.listProviders().some(entry => entry.id === provider))) throw new WebRequestError(400, "invalid_query", "Choose a registered provider.");
+        return json(200, await this.application.conversation.listModels({ ...pagination(url, ["provider"]), ...(provider ? { provider } : {}), includeHidden: true }));
       }
       if (request.method === "POST" && url.pathname === `${WEB_API_PREFIX}/limits/reset`) {
-        const data = await body(request, ["idempotencyKey", "creditId"]);
-        const idempotencyKey = requiredString(data, "idempotencyKey", 100);
-        const creditId = data.creditId === undefined ? undefined : requiredString(data, "creditId", 256);
-        const result = await webControl(this.application, { type: "limits.consume", idempotencyKey, ...(creditId ? { creditId } : {}) });
-        if (result.type !== "limits.consume") throw new Error("Unexpected reset response.");
-        return json(200, { outcome: result.outcome });
+        const data = await body(request, ["provider", "idempotencyKey", "creditId"]);
+        const provider = requiredString(data, "provider", 64);
+        if (!this.application.conversation.listProviders().some(entry => entry.id === provider && entry.capabilities.resets)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
+        return json(200, await this.application.conversation.resetAccount(provider, { idempotencyKey: requiredString(data, "idempotencyKey", 100), ...(data.creditId !== undefined ? { creditId: requiredString(data, "creditId", 256) } : {}) }));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
-        const result = await webControl(this.application, { type: "limits.read" });
-        if (result.type !== "limits.read") throw new Error("Unexpected limits response.");
-        return json(200, { rateLimits: result.rateLimits, rateLimitsByLimitId: result.rateLimitsByLimitId, rateLimitResetCredits: result.rateLimitResetCredits });
+        const provider = url.searchParams.get("provider") ?? this.application.conversation.listProviders()[0]?.id;
+        const refresh = url.searchParams.get("refresh");
+        if ([...url.searchParams.keys()].some(key => !["provider", "refresh"].includes(key)) || ["provider", "refresh"].some(key => url.searchParams.getAll(key).length > 1) || (refresh !== null && !["true", "false"].includes(refresh)) || !this.application.conversation.listProviders().some(entry => entry.id === provider)) throw new WebRequestError(400, "invalid_query", "Choose a registered provider and valid refresh option.");
+        return json(200, await this.application.conversation.readAccount(provider!, refresh === "true"));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/threads`) {
         const archived = url.searchParams.get("archived");
@@ -150,11 +158,13 @@ export class WebSurfaceApi {
       if (url.pathname === `${WEB_API_PREFIX}/conversations`) {
         if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });
         if (request.method === "POST") {
-          const data = await body(request, ["project", "threadId"]);
-          return json(201, await this.create(optionalString(data, "project", 4096), optionalString(data, "threadId", 256)));
+          const data = await body(request, ["project", "threadId", "provider"]);
+          if (data.provider !== undefined && (typeof data.provider !== "string" || !this.application.conversation.listProviders().some(entry => entry.id === data.provider))) throw new WebRequestError(400, "invalid_request", "Choose an available provider.");
+          if (data.threadId && data.provider !== undefined) throw new WebRequestError(400, "invalid_request", "An existing thread determines its provider.");
+          return json(201, await this.create(optionalString(data, "project", 4096), optionalString(data, "threadId", 256), undefined, undefined, data.provider as AgentProvider | undefined));
         }
       }
-      const restore = /^\/api\/v1\/threads\/([A-Za-z0-9_-]{1,256})\/unarchive$/.exec(url.pathname);
+      const restore = /^\/api\/threads\/([A-Za-z0-9_-]{1,256})\/unarchive$/.exec(url.pathname);
       if (restore && request.method === "POST") {
         await body(request, []);
         const attached = [...this.entries.values()].find((entry) => entry.threadId === restore[1]);
@@ -162,7 +172,7 @@ export class WebSurfaceApi {
         if (attached) await this.mutate(attached, operation); else await operation();
         return json(200, { ok: true });
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|revert)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/api\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|revert)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
@@ -280,7 +290,7 @@ export class WebSurfaceApi {
             const input = [...(text.trim() ? [toTextUserInput(text)] : []), ...images.map((url) => ({ type: "image" as const, url }))];
             return json(200, await executeTurnRouting({ conversation: this.context.ingress }, {
               surface: { adapter: "web", surfaceId: entry.id, content: text, input, isCommand: false, isDirectAddressed: true },
-              handled: false, threadId, input, approvalPolicy: this.context.approvalPolicy,
+              handled: false, threadId, input,
             }));
           } finally { this.messageRequests--; }
         });
@@ -303,6 +313,7 @@ export class WebSurfaceApi {
       }
       return fail(405, "method_not_allowed", "Method is not supported for this route.");
     } catch (error) {
+      if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
       if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
       if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");
       if (error instanceof ThreadBindingConflictError) return fail(409, "thread_in_use", error.message);
@@ -328,7 +339,7 @@ export class WebSurfaceApi {
   }
 
   private summary(entry: Entry): WebConversation {
-    return { id: entry.id, threadId: entry.threadId!, project: entry.project };
+    return { id: entry.id, threadId: entry.threadId!, project: entry.project, ...(this.application.conversation.getThreadProvider ? { provider: this.application.conversation.getThreadProvider(entry.threadId!) } : {}) };
   }
   private available(): void {
     if (this.stopping || this.context.isQuiescing()) throw new WebRequestError(503, "unavailable", "Shepherd is stopping.");
@@ -338,7 +349,7 @@ export class WebSurfaceApi {
     this.entries.delete(entry.id);
     this.application.disposeSurface(entry.id);
   }
-  private async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string): Promise<WebConversation> {
+  private async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider): Promise<WebConversation> {
     this.available();
     if (!threadId && !project) throw new WebRequestError(400, "invalid_request", "A project is required for a new conversation.");
     if (threadId && !/^[A-Za-z0-9_-]+$/.test(threadId)) {
@@ -367,7 +378,7 @@ export class WebSurfaceApi {
         entry.threadId = fork.threadId;
       } else entry.threadId = threadId
         ? await this.application.switchSurfaceThread(entry.id, threadId)
-        : await this.application.createSurfaceThread(entry.id);
+        : await this.application.createSurfaceThread(entry.id, provider);
       this.available();
       if (threadId) entry.project = this.application.getSurfaceProject(entry.id) ?? "";
       return this.summary(entry);

@@ -1,6 +1,6 @@
 import { ApplicationActionError } from "./action_error.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
-import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
+import type { AgentProvider, ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
 import { ConversationService } from "./conversation_service.js";
 import {
   describeProjectTarget,
@@ -114,9 +114,11 @@ export class SurfaceConversationOrchestrator {
   async createAndBindSurfaceThread(
     surfaceId: string,
     listener: (event: BridgeEvent) => void,
+    provider?: AgentProvider,
   ): Promise<string> {
     this.getSurfaceProjectTarget(surfaceId);
     const created = await this.conversation.createSurfaceThread(this.adapter, surfaceId, {
+      provider,
       approvalPolicy: this.approvalPolicy,
       ...(this.sandbox ? { sandbox: this.sandbox } : {}),
     });

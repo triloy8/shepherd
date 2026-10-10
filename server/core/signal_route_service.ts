@@ -99,7 +99,7 @@ export class SignalRouteService {
     try {
       state = this.options.conversation.getThreadState(params.threadId);
     } catch {
-      return failed("The originating Codex thread is unavailable.");
+      return failed("The originating agent thread is unavailable.");
     }
     if (state.activeTurnId !== params.turnId) {
       return failed("The callback request no longer belongs to the active turn.");

@@ -61,14 +61,15 @@ export class ApprovalsStore {
       throw new ApprovalDecisionError("approval_decided", `Approval ${approvalId} is already ${approval.status}.`);
     }
 
-    if (!approval.choices.some((choice) => choice.value === payload.decision)) {
+    const choice = approval.choices.find(choice => choice.value === payload.decision);
+    if (!choice) {
       throw new ApprovalDecisionError("invalid_decision", "Decision must match one of the approval choices.");
     }
-    if (approval.userInput && payload.decision === "submit") {
+    if (approval.userInput && choice.intent === "answer") {
       try { validateUserQuestionAnswers(approval.userInput.questions, payload.answers); }
       catch (error) { throw new ApprovalDecisionError("invalid_decision", (error as Error).message); }
     }
-    approval.status = payload.decision === "submit" ? "approved" : this.stateFromDecision(payload.decision);
+    approval.status = choice.intent === "allow" || choice.intent === "answer" ? "approved" : "rejected";
     approval.updatedAt = new Date().toISOString();
     approval.decisionReason = payload.reason;
     return { approval: this.toPublicRecord(approval) };
@@ -96,17 +97,6 @@ export class ApprovalsStore {
     approval.status = state;
     approval.updatedAt = new Date().toISOString();
     return this.toPublicRecord(approval);
-  }
-
-  private stateFromDecision(decision: string): ApprovalState {
-    const lowered = decision.toLowerCase();
-    if (lowered.includes("accept") || lowered.includes("approve") || lowered === "success") {
-      return "approved";
-    }
-    if (lowered.includes("decline") || lowered.includes("deny") || lowered.includes("reject") || lowered === "failure") {
-      return "rejected";
-    }
-    return "rejected";
   }
 
   private getStoredApproval(threadId: string, approvalId: string): StoredApproval {

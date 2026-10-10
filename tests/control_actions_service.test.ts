@@ -1,3 +1,4 @@
+import { account } from "./helpers/account";
 import { describe, expect, test } from "bun:test";
 
 import { executeControlAction, type ControlActionsContext } from "../server/core/control_actions_service.js";
@@ -16,7 +17,6 @@ function makeContext(overrides?: {
       description: string;
       hidden: boolean;
       isDefault: boolean;
-      supportsPersonality: boolean;
     }>;
     nextCursor: string | null;
   }>;
@@ -91,16 +91,15 @@ function makeContext(overrides?: {
               description: "",
               hidden: false,
               isDefault: true,
-              supportsPersonality: true,
             },
           ],
           nextCursor: null,
         };
       },
-      async readAccountRateLimits() {
-        if (overrides?.readAccountRateLimits) return overrides.readAccountRateLimits();
-        return { rateLimits: { planType: "pro" } };
-      },
+      getThreadProvider: () => "fixture",
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } }],
+      async readAccount() { return account("fixture", "pro"); },
+      async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
         return { threadId, tokenUsage: { total: { totalTokens: 42 } } };
@@ -249,7 +248,6 @@ describe("ControlActionsService", () => {
                 description: "",
                 hidden: false,
                 isDefault: false,
-                supportsPersonality: true,
               }],
               nextCursor: null,
             }
@@ -263,8 +261,8 @@ describe("ControlActionsService", () => {
       requestedModel: "later-model",
     })).resolves.toMatchObject({ ok: true, model: "later-model" });
     expect(requests).toEqual([
-      { cursor: undefined, limit: 100, includeHidden: true },
-      { cursor: "models-page-2", limit: 100, includeHidden: true },
+      { cursor: undefined, limit: 100, includeHidden: true, provider: "fixture" },
+      { cursor: "models-page-2", limit: 100, includeHidden: true, provider: "fixture" },
     ]);
     expect(modelWrites).toEqual([{ threadId: "thread-1", model: "later-model" }]);
   });
@@ -496,9 +494,7 @@ describe("ControlActionsService", () => {
     const { context } = makeContext();
     await expect(executeControlAction(context, { type: "limits.read" })).resolves.toEqual({
       type: "limits.read",
-      rateLimits: { planType: "pro" },
-      rateLimitsByLimitId: null,
-      rateLimitResetCredits: null,
+      limits: account("fixture", "pro"),
     });
   });
 

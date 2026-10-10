@@ -1,6 +1,8 @@
+import type { ProviderDescriptor } from "../../shared/protocol/providers";
+import type { ProviderAccountLimits } from "../../shared/protocol/account_limits";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
-import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse, WebResetRequest, WebResetResponse } from "../../shared/protocol/web";
+import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebResetRequest } from "../../shared/protocol/web";
 import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
 
 export class ApiError extends Error {
@@ -23,6 +25,9 @@ async function request<T>(path: string, method = "GET", body?: unknown, signal?:
 const conversationPath = (id: string) => `/conversations/${encodeURIComponent(id)}`;
 const page = (cursor?: string) => `?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
 export const api = {
+  providers: (signal?: AbortSignal) => request<{ providers: ProviderDescriptor[] }>("/providers", "GET", undefined, signal),
+  account: (provider: string, signal?: AbortSignal, refresh = false) => request<ProviderAccountLimits>(`/limits?provider=${encodeURIComponent(provider)}${refresh ? "&refresh=true" : ""}`, "GET", undefined, signal),
+  resetAccount: (provider: string, input: WebResetRequest) => request<{ outcome: "reset" | "already_redeemed" | "nothing_to_reset" | "no_credit" }>("/limits/reset", "POST", { provider, ...input }, undefined),
   host: (signal?: AbortSignal) => request<WebHostStatus>("/host", "GET", undefined, signal),
   hostBattery: (signal?: AbortSignal) => request<WebHostBatteryResponse>("/host/battery", "GET", undefined, signal),
   hostAction: (input: WebHostAction) => request<WebHostOperation>("/host/actions", "POST", input),
@@ -32,11 +37,8 @@ export const api = {
   reloadSkills: (id: string) => request<WebSkillsResponse>(`${conversationPath(id)}/skills-reload`, "POST", {}),
   setSkill: (id: string, path: string, enabled: boolean) => request<WebSkillResponse>(`${conversationPath(id)}/skills`, "POST", { path, enabled }),
   settings: (id: string, signal?: AbortSignal) => request<WebSettingsResponse>(`${conversationPath(id)}/settings`, "GET", undefined, signal),
-  accountModels: (cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`/models?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
   models: (id: string, cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`${conversationPath(id)}/models${page(cursor)}`, "GET", undefined, signal),
   context: (id: string, signal?: AbortSignal) => request<WebContextResponse>(`${conversationPath(id)}/context`, "GET", undefined, signal),
-  consumeReset: (input: WebResetRequest) => request<WebResetResponse>("/limits/reset", "POST", input),
-  limits: (signal?: AbortSignal) => request<WebLimitsResponse>("/limits", "GET", undefined, signal),
   setModel: (id: string, model: string) => request(`${conversationPath(id)}/model`, "POST", { model }),
   setEffort: (id: string, effort: string) => request(`${conversationPath(id)}/effort`, "POST", { effort }),
   conversations: (signal?: AbortSignal) => request<WebConversationsResponse>("/conversations", "GET", undefined, signal),

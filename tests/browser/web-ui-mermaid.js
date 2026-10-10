@@ -12,7 +12,7 @@ async page => {
   const oversized = 'flowchart LR\n%%' + 'x'.repeat(50_000);
   const hostile = '%%{init: {"securityLevel": "loose"}}%%\nflowchart LR\n A[Safe] --> B[End]\n click A "https://example.com/diagram-link"';
   const fence = code => '```mermaid\n' + code + '\n```';
-  await page.route('**/api/v1/conversations/*/turns?*', async route => {
+  await page.route('**/api/conversations/*/turns?*', async route => {
     const response = await route.fetch();
     const history = await response.json();
     history.data = history.data.slice(0, 1);
@@ -45,7 +45,7 @@ async page => {
   if (await page.evaluate(() => window.copiedDiagram) !== flow) throw Error('Diagram copy changed source');
   await blocks.first().getByRole('button', { name: 'Show diagram', exact: true }).click();
   const composer = page.getByRole('textbox', { name: 'Message Shepherd', exact: true });
-  await page.unroute('**/api/v1/conversations/*/turns?*');
+  await page.unroute('**/api/conversations/*/turns?*');
   await composer.fill('mermaid streaming');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   const streaming = page.locator('.message-assistant').last();

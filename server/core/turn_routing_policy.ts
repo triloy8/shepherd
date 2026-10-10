@@ -22,12 +22,12 @@ export type TurnRoutingInput = {
   threadId: string | null;
   input: UserInput[] | null;
   activeTurnId: string | null;
-  approvalPolicy: ApprovalPolicy;
+  approvalPolicy?: ApprovalPolicy;
 };
 
 export type TurnRoutingDecision =
   | { type: "ignore" }
-  | { type: "submit"; threadId: string; input: UserInput[]; approvalPolicy: ApprovalPolicy }
+  | { type: "submit"; threadId: string; input: UserInput[]; approvalPolicy?: ApprovalPolicy }
   | { type: "steer"; threadId: string; input: UserInput[]; turnId: string };
 
 export function classifySurfaceInput(

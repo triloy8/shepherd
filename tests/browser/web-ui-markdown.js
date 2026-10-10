@@ -4,7 +4,7 @@ async page => {
   page.on('pageerror', error => errors.push(error.message));
   const code = 'const answer = 42;';
   const markdown = '## Markdown checks\n\nInline `const x = 1`.\n\n```ts\n' + code + '\n```\n\n```unknown-language\n<tag>literal</tag>\n```\n\n```\nplain text\n```';
-  await page.route('**/api/v1/conversations/*/turns?*', async route => {
+  await page.route('**/api/conversations/*/turns?*', async route => {
     const response = await route.fetch();
     const history = await response.json();
     history.data[0].items = [{ id: 'markdown-checks', type: 'agentMessage', phase: 'final_answer', text: markdown }];
@@ -26,7 +26,7 @@ async page => {
   await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async () => { throw Error('Clipboard denied'); } }));
   await blocks.first().getByRole('button', { name: 'Copy code', exact: true }).click();
   await blocks.first().getByText('Could not copy', { exact: true }).waitFor();
-  await page.unroute('**/api/v1/conversations/*/turns?*');
+  await page.unroute('**/api/conversations/*/turns?*');
   const composer = page.getByRole('textbox', { name: 'Message Shepherd', exact: true });
   await composer.fill('markdown streaming');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();

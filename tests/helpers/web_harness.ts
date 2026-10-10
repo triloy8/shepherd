@@ -20,25 +20,32 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
     getSurfaceProject: (id: string) => projects.get(id) ?? "/saved/workspace",
     inheritSurfaceProject: (id: string, source: string) => { const project = projects.get(source) ?? "/saved/workspace"; projects.set(id, project); return project; },
     async setSurfaceProject(id: string, project: string) { calls.push(`project:${id}`); projects.set(id, project); return { repoSlug: project }; },
-    async createSurfaceThread(id: string) { const threadId = `thread-${++sequence}`; bindings.set(id, threadId); active.set(threadId, null); calls.push("create"); return threadId; },
+    async createSurfaceThread(id: string, _provider?: string) { const threadId = `thread-${++sequence}`; bindings.set(id, threadId); active.set(threadId, null); calls.push("create"); return threadId; },
     async switchSurfaceThread(id: string, threadId: string) {
       if (threadId === "discord-thread" || [...bindings.values()].includes(threadId)) throw new ThreadBindingConflictError(threadId);
       bindings.set(id, threadId); active.set(threadId, null); calls.push("resume"); return threadId;
     },
     disposeSurface(id: string) { calls.push(`dispose:${id}`); bindings.delete(id); },
     conversation: {
+      getThreadProvider: () => "fixture",
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } }],
+
       async listStoredThreads(request: unknown) { calls.push("threads"); return { threads: [{ threadId: "stored" }], nextCursor: null, backwardsCursor: null }; },
       async listThreadTurns(threadId: string, request: unknown) { calls.push(`history:${threadId}`); return { data: [{ id: "turn", items: [] }], nextCursor: null, backwardsCursor: null }; },
       async interruptTurn(threadId: string) { calls.push(`interrupt:${threadId}`); active.set(threadId, null); },
     },
   };
   const context: SurfaceAdapterContext = {
-    signal: abort.signal, approvalPolicy: "on-request",
+    signal: abort.signal, approvalPolicy: "review_sensitive",
     createApplication(listener) { publish = listener; return application as unknown as SurfaceApplicationContext; },
     isQuiescing: () => abort.signal.aborted,
     reportHealth: (health) => calls.push(`health:${health.state}`),
     ingress: {
-      getThreadState(threadId) { return { threadId, sessionId: "session", activeTurnId: active.get(threadId) ?? null, approvalPolicy: "on-request" }; },
+      getThreadState(threadId) {
+        const provider = (application.conversation as unknown as { getThreadProvider?: (id: string) => string }).getThreadProvider?.(threadId);
+        const descriptor = application.conversation.listProviders().find(entry => entry.id === provider) ?? application.conversation.listProviders()[0];
+        return { threadId, sessionId: "session", activeTurnId: active.get(threadId) ?? null, approvalPolicy: "review_sensitive", ...(descriptor ? { provider: descriptor.id, capabilities: descriptor.capabilities } : {}) };
+      },
       async submitTurn(threadId) {
         calls.push(`submit:${threadId}`); active.set(threadId, "turn-1");
         const id = [...bindings].find(([, thread]) => thread === threadId)![0];
@@ -55,7 +62,7 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
   };
   const config = readWebConfig({ SHEPHERD_WEB_ORIGINS: "https://ui.example.test" });
   const api = new WebSurfaceApi(context, config);
-  const request = (path: string, method = "GET", data?: unknown, headers: Record<string, string> = {}) => api.fetch(new Request(`http://127.0.0.1/api/v1${path}`, {
+  const request = (path: string, method = "GET", data?: unknown, headers: Record<string, string> = {}) => api.fetch(new Request(`http://127.0.0.1/api${path}`, {
     method, headers: { ...(data !== undefined ? { "content-type": "application/json" } : {}), ...headers },
     ...(data !== undefined ? { body: JSON.stringify(data) } : {}),
   }));

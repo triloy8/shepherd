@@ -81,7 +81,7 @@ test("pending approvals block archival even when no turn is marked active", asyn
   const h = harness();
   try {
     const c = await h.create();
-    h.approvals.create({ approvalId: "approval", method: "test", prompt: "Allow?", choices: [{ value: "accept", label: "Allow" }], params: {} }, { threadId: c.threadId, sessionId: "session" });
+    h.approvals.create({ approvalId: "approval", kind: "permission", prompt: "Allow?", choices: [{ value: "accept", label: "Allow", intent: "allow" }], detail: null }, { threadId: c.threadId, sessionId: "session" });
     expect((await h.request(`/conversations/${c.id}/archive`, "POST", {})).status).toBe(409);
     expect((await h.request(`/conversations/${c.id}/fork`, "POST", {})).status).toBe(409);
   } finally { h.api.dispose(); }

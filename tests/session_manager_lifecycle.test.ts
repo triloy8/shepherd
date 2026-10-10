@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { SessionManager } from "../server/core/session_manager.js";
 
 function deferred<T>() {
@@ -108,7 +108,7 @@ test("failed thread bootstrap releases its session", async () => {
 });
 
 test("explicitly stopped Codex sessions cannot spawn a new process", async () => {
-  const session = new CodexSession("on-request");
+  const session = new CodexSession("review_sensitive");
   session.stop();
   await expect(session.start()).rejects.toThrow("stopped");
   await expect(session.initialize()).rejects.toThrow("stopped");

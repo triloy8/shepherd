@@ -16,88 +16,89 @@ export type TurnActivityKind =
 
 export type TurnActivityStatus = "started" | "completed" | "failed";
 
-export type BridgeEventType =
-  | "session.started"
-  | "session.error"
-  | "session.limit.context"
-  | "thread.started"
-  | "thread.status.changed"
-  | "thread.name.updated"
-  | "thread.archived"
-  | "thread.unarchived"
-  | "thread.reverted"
-  | "thread.tokenUsage.updated"
-  | "turn.started"
-  | "turn.completed"
-  | "turn.failed"
-  | "turn.stream.delta"
-  | "turn.message.completed"
-  | "turn.image.generated"
-  | "turn.image.viewed"
-  | "turn.activity"
-  | "turn.notification"
-  | "approval.requested"
-  | "approval.decided"
-  | "approval.applied"
-  | "approval.failed"
-  | "approval.expired";
-
-export interface BridgeEvent<TPayload = unknown> {
-  id: string;
-  type: BridgeEventType;
-  threadId: string;
-  sessionId: string;
-  ts: string;
-  payload: TPayload;
+export interface BridgeEventPayloads {
+  "session.started": { model: string };
+  "session.error": { message: string };
+  "session.limit.context": { message: string };
+  "thread.started": { approvalPolicy: ApprovalPolicy };
+  "thread.status.changed": { status: { state: "active" | "idle" | "error"; backgroundTaskCount: number } };
+  "thread.name.updated": { threadName: string | null };
+  "thread.archived": Record<string, never>;
+  "thread.reverted": Record<string, never>;
+  "thread.unarchived": Record<string, never>;
+  "thread.tokenUsage.updated": { turnId: string | null; tokenUsage: ThreadTokenUsage | null };
+  "turn.started": { turnId: string | null };
+  "turn.completed": { turnId: string | null };
+  "turn.failed": { message: string; turnId: string | null };
+  "turn.stream.delta": {
+    kind: "assistant_text" | "other";
+    textDelta: string;
+    itemId: string | null;
+    phase: MessagePhase | null;
+    turnId: string | null;
+  };
+  "turn.message.completed": {
+    itemId: string;
+    phase: MessagePhase | null;
+    text: string;
+    turnId: string | null;
+  };
+  "turn.image.generated": {
+    itemId: string;
+    turnId: string | null;
+    path: string;
+    revisedPrompt: string | null;
+  };
+  "turn.image.viewed": {
+    itemId: string;
+    turnId: string | null;
+    path: string;
+  };
+  "turn.activity": {
+    itemId: string | null;
+    turnId: string | null;
+    kind: TurnActivityKind;
+    label: string;
+    detail: string | null;
+    status: TurnActivityStatus;
+  };
+  "approval.requested": ApprovalRequestPayload;
+  "approval.decided": { approvalId: string; decision: string; state: ApprovalRecord["status"] };
+  "approval.applied": { approvalId: string };
+  "approval.failed": { approvalId: string; message: string };
+  "approval.expired": { approvalId: string };
 }
 
-export type SessionStartedEvent = BridgeEvent<{ model: string }>;
-export type SessionErrorEvent = BridgeEvent<{ message: string }>;
-export type SessionContextLimitEvent = BridgeEvent<{ message: string; method: string }>;
-export type ThreadStartedEvent = BridgeEvent<{ approvalPolicy: ApprovalPolicy }>;
-export type ThreadStatusChangedEvent = BridgeEvent<{ status: unknown }>;
-export type ThreadNameUpdatedEvent = BridgeEvent<{ threadName: string | null }>;
-export type ThreadArchivedEvent = BridgeEvent<Record<string, never>>;
-export type ThreadRevertedEvent = BridgeEvent<Record<string, never>>;
-export type ThreadUnarchivedEvent = BridgeEvent<Record<string, never>>;
-export type ThreadTokenUsageUpdatedEvent = BridgeEvent<{ turnId: string | null; tokenUsage: ThreadTokenUsage | null }>;
-export type TurnStartedEvent = BridgeEvent<{ turnId: string | null }>;
-export type TurnCompletedEvent = BridgeEvent<{ turnId: string | null }>;
-export type TurnFailedEvent = BridgeEvent<{ message: string; turnId: string | null }>;
-export type TurnStreamDeltaEvent = BridgeEvent<{
-  method: string;
-  textDelta: string;
-  itemId: string | null;
-  phase: MessagePhase | null;
-  turnId: string | null;
-}>;
-export type TurnMessageCompletedEvent = BridgeEvent<{
-  itemId: string;
-  phase: MessagePhase | null;
-  text: string;
-  turnId: string | null;
-}>;
-export type TurnImageGeneratedEvent = BridgeEvent<{
-  itemId: string;
-  turnId: string | null;
-  path: string;
-  revisedPrompt: string | null;
-}>;
-export type TurnImageViewedEvent = BridgeEvent<{
-  itemId: string;
-  turnId: string | null;
-  path: string;
-}>;
-export type TurnActivityEvent = BridgeEvent<{
-  itemId: string | null;
-  turnId: string | null;
-  kind: TurnActivityKind;
-  label: string;
-  detail: string | null;
-  status: TurnActivityStatus;
-}>;
-export type TurnNotificationEvent = BridgeEvent<{ method: string; params: unknown }>;
-export type ApprovalRequestedEvent = BridgeEvent<ApprovalRequestPayload>;
-export type ApprovalDecidedEvent = BridgeEvent<{ approvalId: string; decision: string; state: ApprovalRecord["status"] }>;
-export type ApprovalAppliedEvent = BridgeEvent<{ approvalId: string }>;
-export type ApprovalFailedEvent = BridgeEvent<{ approvalId: string; message: string }>;
+export type BridgeEventType = keyof BridgeEventPayloads;
+export type BridgeEventOf<K extends BridgeEventType> = {
+  id: string; type: K; threadId: string; sessionId: string; ts: string; payload: BridgeEventPayloads[K];
+};
+export type BridgeEvent = { [K in BridgeEventType]: BridgeEventOf<K> }[BridgeEventType];
+
+/** Construct a correlated event; callers must supply the payload for its event name. */
+export function bridgeEvent<K extends BridgeEventType>(event: BridgeEventOf<K>): BridgeEvent {
+  return event as BridgeEvent;
+}
+
+export type SessionStartedEvent = BridgeEventOf<"session.started">;
+export type SessionErrorEvent = BridgeEventOf<"session.error">;
+export type SessionContextLimitEvent = BridgeEventOf<"session.limit.context">;
+export type ThreadStartedEvent = BridgeEventOf<"thread.started">;
+export type ThreadStatusChangedEvent = BridgeEventOf<"thread.status.changed">;
+export type ThreadNameUpdatedEvent = BridgeEventOf<"thread.name.updated">;
+export type ThreadArchivedEvent = BridgeEventOf<"thread.archived">;
+export type ThreadRevertedEvent = BridgeEventOf<"thread.reverted">;
+export type ThreadUnarchivedEvent = BridgeEventOf<"thread.unarchived">;
+export type ThreadTokenUsageUpdatedEvent = BridgeEventOf<"thread.tokenUsage.updated">;
+export type TurnStartedEvent = BridgeEventOf<"turn.started">;
+export type TurnCompletedEvent = BridgeEventOf<"turn.completed">;
+export type TurnFailedEvent = BridgeEventOf<"turn.failed">;
+export type TurnStreamDeltaEvent = BridgeEventOf<"turn.stream.delta">;
+export type TurnMessageCompletedEvent = BridgeEventOf<"turn.message.completed">;
+export type TurnImageGeneratedEvent = BridgeEventOf<"turn.image.generated">;
+export type TurnImageViewedEvent = BridgeEventOf<"turn.image.viewed">;
+export type TurnActivityEvent = BridgeEventOf<"turn.activity">;
+export type ApprovalRequestedEvent = BridgeEventOf<"approval.requested">;
+export type ApprovalDecidedEvent = BridgeEventOf<"approval.decided">;
+export type ApprovalAppliedEvent = BridgeEventOf<"approval.applied">;
+export type ApprovalFailedEvent = BridgeEventOf<"approval.failed">;

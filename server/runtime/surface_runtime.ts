@@ -1,6 +1,6 @@
 import { createApplicationConversation } from "../core/conversation_ports.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
-import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
+import type { AgentProvider, ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
 import type { SurfaceApplicationContext } from "../core/surface_application_context.js";
 import { SurfaceConversationOrchestrator } from "../core/surface_conversation_orchestrator.js";
 import { SurfaceStateService } from "../core/surface_state_service.js";
@@ -49,8 +49,8 @@ export function createSurfaceRuntime(
     },
   );
 
-  const createSurfaceThread = (surfaceId: string): Promise<string> =>
-    orchestrator.createAndBindSurfaceThread(surfaceId, (event) => options.onThreadEvent(surfaceId, event));
+  const createSurfaceThread = (surfaceId: string, provider?: AgentProvider): Promise<string> =>
+    orchestrator.createAndBindSurfaceThread(surfaceId, (event) => options.onThreadEvent(surfaceId, event), provider);
 
   const forkSurfaceThread = (surfaceId: string, sourceThreadId: string): Promise<string> =>
     orchestrator.forkSurfaceThread(surfaceId, sourceThreadId, (event) => options.onThreadEvent(surfaceId, event));

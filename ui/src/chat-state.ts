@@ -126,7 +126,7 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   }
   if (event.type !== "turn.stream.delta" && event.type !== "turn.message.completed") return next;
   // Reasoning/tool deltas are not agent message text.
-  if (event.type === "turn.stream.delta" && payload.method !== "item/agentMessage/delta") return next;
+  if (event.type === "turn.stream.delta" && payload.kind !== "assistant_text") return next;
   const id = text(payload.itemId);
   if (!id) return next;
   const index = state.messages.findIndex((message) => message.id === id);

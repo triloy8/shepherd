@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type { BridgeEvent, TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
 
@@ -8,15 +9,6 @@ function formatStatusBlock(title: string, lines: string[]): string {
 }
 
 export function formatEventLine(event: BridgeEvent): string | null {
-  if (event.type === "turn.notification") {
-    const payload = event.payload as { method?: string };
-    const method = payload?.method?.toLowerCase();
-    if (!method) return null;
-    if (method.includes("error") || method.includes("failed")) {
-      return formatStatusBlock("Event Error", [`Event: ${payload.method}`]);
-    }
-    return null;
-  }
 
   if (event.type === "session.error") {
     const payload = event.payload as { message?: string };
@@ -94,7 +86,7 @@ export function formatApprovalText(approval: ApprovalRequestPayload): string {
   const lines: string[] = [];
   lines.push("Approval Required");
   lines.push("");
-  lines.push(`Action: ${approval.method}`);
+  lines.push(`Action: ${approval.kind}`);
   lines.push("");
   lines.push(approval.prompt.trim());
 
@@ -124,18 +116,17 @@ export function formatApprovalDecisionReply(decision: string): string {
   return `Approval decision recorded: ${formatApprovalDecisionLabel(decision)}`;
 }
 
+const approvalButtons = new Map<string, { threadId: string; approvalId: string; decision: string; expires: number }>();
 export function encodeApprovalButtonId(threadId: string, approvalId: string, decision: string): string {
-  return `approval|${threadId}|${approvalId}|${decision}`;
+  const now = Date.now();
+  for (const [id, value] of approvalButtons) if (value.expires <= now) approvalButtons.delete(id);
+  while (approvalButtons.size >= 4000) approvalButtons.delete(approvalButtons.keys().next().value!);
+  const id = `approval|${randomUUID()}`;
+  approvalButtons.set(id, { threadId, approvalId, decision, expires: now + 3600000 });
+  return id;
 }
-
-export function decodeApprovalButtonId(customId: string):
-  | { threadId: string; approvalId: string; decision: string }
-  | null {
-  const parts = customId.split("|");
-  if (parts.length < 4 || parts[0] !== "approval") return null;
-  return {
-    threadId: parts[1],
-    approvalId: parts[2],
-    decision: parts.slice(3).join("|"),
-  };
+export function decodeApprovalButtonId(customId: string): { threadId: string; approvalId: string; decision: string } | null {
+  const entry = approvalButtons.get(customId);
+  if (!entry || entry.expires <= Date.now()) return null;
+  return { threadId: entry.threadId, approvalId: entry.approvalId, decision: entry.decision };
 }

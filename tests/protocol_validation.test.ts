@@ -6,46 +6,25 @@ import {
   validateSubmitTurnRequest,
 } from "../shared/protocol/validation.js";
 
-describe("generated protocol validation parity", () => {
+describe("application protocol validation", () => {
   test("rejects the removed on-failure approval policy", () => {
     expect(() => validateCreateThreadRequest({ approvalPolicy: "on-failure" })).toThrow(
       "Invalid approval policy.",
     );
   });
 
-  test("accepts the generated granular approval policy", () => {
-    const granular = {
-      granular: {
-        sandbox_approval: true,
-        rules: false,
-        skill_approval: true,
-        request_permissions: false,
-        mcp_elicitations: true,
-      },
-    };
-    expect(validateCreateThreadRequest({ approvalPolicy: granular }).approvalPolicy).toEqual(granular);
+  test("rejects native granular policies and accepts only application modes", () => {
+    expect(() => validateCreateThreadRequest({ approvalPolicy: { granular: { sandbox_approval: true } } })).toThrow("Invalid approval policy");
+    for (const approvalPolicy of ["provider_default", "review_sensitive", "review_untrusted", "bypass"]) {
+      expect(validateCreateThreadRequest({ approvalPolicy }).approvalPolicy).toBe(approvalPolicy);
+    }
+    for (const approvalPolicy of ["never", "on-request", "untrusted", "review_all"]) expect(() => validateCreateThreadRequest({ approvalPolicy })).toThrow("Invalid approval policy");
   });
 
-  test("accepts recency sorting, direction, state-db reads, and multiple cwd filters", () => {
-    expect(
-      validateListStoredThreadsRequest({
-        cwd: ["/one", "/two"],
-        sortKey: "recency_at",
-        sortDirection: "asc",
-        useStateDbOnly: true,
-      }),
-    ).toEqual({
-      archived: undefined,
-      cursor: undefined,
-      cwd: ["/one", "/two"],
-      limit: undefined,
-      modelProviders: undefined,
-      searchTerm: undefined,
-      sortDirection: "asc",
-      sortKey: "recency_at",
-      sourceKinds: undefined,
-      useStateDbOnly: true,
-    });
+  test("accepts shared sorting and multiple workspace filters; rejects native listing knobs", () => {
+    expect(validateListStoredThreadsRequest({ cwd: ["/one", "/two"], sortKey: "updated_at", sortDirection: "asc" })).toMatchObject({ cwd: ["/one", "/two"], sortKey: "updated_at", sortDirection: "asc" });
+    for (const key of ["sourceKinds", "useStateDbOnly", "modelProviders"]) expect(() => validateListStoredThreadsRequest({ [key]: true })).toThrow(`Unsupported request field: ${key}`);
+    expect(() => validateListStoredThreadsRequest({ sortKey: "recency_at" })).toThrow("Invalid sort key");
   });
 
   test("accepts current audio and image-detail input variants", () => {
@@ -64,6 +43,10 @@ describe("generated protocol validation parity", () => {
     ]);
   });
 
+  test("rejects native text input fields rather than silently dropping annotations", () => {
+    expect(() => validateSubmitTurnRequest({ input: [{ type: "text", text: "hello", text_elements: [] }] })).toThrow("Unsupported request field: text_elements");
+  });
+
   test("validates structured text elements", () => {
     expect(() =>
       validateSubmitTurnRequest({
@@ -71,7 +54,7 @@ describe("generated protocol validation parity", () => {
           {
             type: "text",
             text: "hello",
-            text_elements: [{ byteRange: { start: 4, end: 2 }, placeholder: null }],
+            annotations: [{ byteRange: { start: 4, end: 2 }, placeholder: null }],
           },
         ],
       }),

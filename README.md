@@ -1,12 +1,15 @@
 <h1 align="center">🐕 Shepherd 🐑</h1>
 
-Shepherd runs Codex conversations through Discord and a private web UI.
+Shepherd runs Codex and Claude conversations through Discord and a private web UI.
 Both surfaces use the same core for workspaces, conversation routing, approvals, user questions,
 model settings, and host operations. Run either surface or both in one process.
 
 You can send text and images, follow agent activity, approve actions, answer questions, switch
 conversations, and manage the host without opening a terminal for each turn.
-Shepherd uses `codex app-server` to run the agent.
+Provider adapters use `codex app-server` and the Claude Agent SDK behind the same application interface.
+
+For existing installations, rename common policy settings before deploying this branch;
+see [provider configuration](.docs/provider-abstraction.md#configuration-and-persistence).
 
 ## Features
 
@@ -64,19 +67,109 @@ SHEPHERD_SURFACES=discord,web
 Use `discord` or `web` to run only one. If unset, the selection defaults to
 Discord. Copy and configure only the selected adapters' environment files.
 
-The common template sets `CODEX_APPROVAL_POLICY=never` and
-`CODEX_SANDBOX=danger-full-access`: commands and file changes can run without
+The common template sets `SHEPHERD_APPROVAL_MODE=bypass` and
+`SHEPHERD_SANDBOX_MODE=unrestricted`: commands and file changes can run without
 approval prompts. To use approval requests and a workspace-limited sandbox,
 set these explicitly:
 
 ```env
-CODEX_APPROVAL_POLICY=on-request
-CODEX_SANDBOX=workspace-write
+SHEPHERD_APPROVAL_MODE=review_sensitive
+SHEPHERD_SANDBOX_MODE=workspace_write
 ```
+
+Choose **Codex** or **Claude** in the web UI's new-conversation dialog. The choice
+belongs to the conversation; resume and fork preserve it. Codex remains the
+default. Core/API callers can pass `provider: "claude"` in `CreateThreadRequest`.
+Model backend configuration stays in the provider’s native settings.
+
+Claude defaults to subscription authentication (`CLAUDE_AUTH_MODE=subscription`).
+Use your Claude Pro or Max account. On the machine running Shepherd, authenticate
+with Claude Code as the same operating-system user that runs Shepherd. A saved
+login is read from that user's Claude configuration directory; set
+`CLAUDE_CONFIG_DIR` if you use a separate directory.
+
+For setup from a phone, connect to the host over SSH and run `claude setup-token`
+with an installed Claude Code CLI. Open the authorization link on your phone,
+complete sign-in, and paste any browser login code back into the SSH terminal.
+Store the resulting token in `envs/common.env` in Shepherd's launch directory:
+
+```env
+CLAUDE_AUTH_MODE=subscription
+CLAUDE_CODE_OAUTH_TOKEN=your_token_here
+```
+
+Restart Shepherd after changing authentication. Keep the token private; do not
+commit it. Shepherd includes the SDK executable, but has no web sign-in screen
+and does not install a `claude` command on your PATH. See the official
+[subscription guidance](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+and [token instructions](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token).
+
+Subscription mode disables API keys, bearer tokens, API-key helpers, and cloud
+provider environment selection for Claude queries, including model discovery.
+It preserves the host environment for other providers. There is no automatic
+fallback to API billing if the subscription login is missing or expired.
+To use API credentials instead, explicitly set `CLAUDE_AUTH_MODE=api` and configure
+authentication using the [SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart).
+
+New Claude conversations default to **Opus 5.5 with medium effort**.
+`CLAUDE_MODEL` and `CLAUDE_EFFORT` override those defaults. Existing conversations
+and forks keep their saved settings; conversation model/effort controls apply
+individual overrides. There is no global default editor in the web UI.
+
+Optional shared environment settings are:
+
+```env
+CLAUDE_MODEL=claude-opus-5-5
+CLAUDE_EFFORT=medium
+# Shepherd metadata and UI history; SDK transcripts stay in Claude's own storage.
+SHEPHERD_CLAUDE_STATE_DIR=/absolute/path/to/claude-state
+# Optional override of the SDK's bundled executable:
+# CLAUDE_EXECUTABLE=/absolute/path/to/claude
+```
+
+Use an absolute path for `SHEPHERD_CLAUDE_STATE_DIR` in an environment file; its
+default is `.shepherd/claude` under the current user's home directory. Preserve
+both that directory and Claude's transcript storage to resume after restarting.
+The compiled Shepherd binary includes the SDK executable for the build host.
+
+Claude supports text and image messages, streaming, follow-up input, interruption,
+approvals, structured questions (including multiple selections), model/effort selection, stored history, rename, archive, resume, fork,
+and Shepherd dynamic tools through MCP. The common approval policy applies to
+both providers: `bypass` runs Claude with permission bypass; `review_sensitive` uses Claude's normal permission checks and Shepherd approval prompts.
+`provider_default` uses native permission defaults for new conversations and preserves
+the saved permission mode when resuming, forking, or continuing a conversation.
+Host defaults apply when creating a conversation; ordinary messages keep its saved mode. `review_untrusted` is supported
+only by Codex; unsupported modes are rejected rather than silently downgraded.
+Claude has no sandbox in Shepherd. With `bypass`, Claude can run any command and
+edit any file the Shepherd host user can, without a prompt. Codex with `bypass`
+still applies its configured sandbox. Run Claude conversations on an isolated
+host or container, or keep `review_sensitive` when Claude should ask first.
+See the [SDK permission modes](https://code.claude.com/docs/en/agent-sdk/permissions).
+Claude currently accepts only an unset sandbox or `unrestricted`; it
+rejects Codex's restricted sandbox modes rather than treating them as enforced.
+Manual compaction, turn revert, audio/file input, and skill management controls
+are unavailable for Claude. Claude loads its own configured project skills.
+The sidebar **Usage & limits** panel has a discovered agent selector. It opens on the
+selected conversation provider and shows account allowances shared across
+conversations. Claude reports native subscription usage and reset times; unknown
+or stale values are identified. Banked resets remain Codex-only.
+The web UI uses provider capabilities to hide unsupported operations.
+
+Provider bindings are saved in `~/.shepherd/providers`, or
+`SHEPHERD_PROVIDER_STATE_DIR` when set. Keep this directory with the Claude
+metadata and native transcripts when moving a host. Existing thread IDs remain
+stable. Claude background tasks keep their SDK process alive after a turn ends
+and count as runtime activity. A later response from background work is saved
+as a new turn. Model, effort, working-directory, or permission changes wait until
+background tasks finish. See [Architecture](.docs/architecture.md) for dependency
+boundaries and the [provider abstraction](.docs/provider-abstraction.md) design
+for the shared conversation model being implemented.
 
 Install the shared GitHub and browser skills using the
 [skills installation guide](.docs/shared-skills-location.md). That guide also
-covers the private GitHub identity and repository policy.
+covers the private GitHub identity and repository policy. Claude conversations
+also need `~/.claude/skills` to be a symbolic link to the shared skills
+directory; see [Claude Code discovery](.docs/shared-skills-location.md#claude-code-discovery).
 
 ### Discord
 
@@ -198,14 +291,14 @@ Use `!help` for the command list:
 | Task | Commands |
 | --- | --- |
 | Surface status and listening | `!status`, `!listen [open\|mentions]`, `!pause`, `!resume`, `!detach` |
-| Project and new conversation | `!repo [project]`, `!newthread` |
+| Project and new conversation | `!repo [project]`, `!newthread [provider]`, `!providers` |
 | List conversations | `!threads`, `!threads loaded`, `!threads archived` |
 | Select and inspect | `!thread [id]`, `!threadread [id]` |
 | Rename and fork | `!threadname <name>`, `!fork [id]` |
 | Archive and restore | `!archive [id]`, `!unarchive <id>` |
 | Stored history | `!history [thread-id]`, `!history items <turn-id> [thread-id]` |
 | Model and effort | `!models`, `!model`, `!model set <id>`, `!effort [set <level\|default>]` |
-| Usage | `!context`, `!limits` |
+| Usage | `!context`, `!limits [provider]` |
 | Skills | `!skills [reload]`, `!skill enable <name-or-path>`, `!skill disable <name-or-path>` |
 | Turn and context controls | `!interrupt`, `!compact [id]` |
 | Host lifecycle | `!restart`, `!deploy`, `!deploy branch <name>`, `!deploy status` |
@@ -267,6 +360,9 @@ codex app-server generate-json-schema --out ./schemas
 
 | Path | Responsibility |
 | --- | --- |
+| `server/providers/` | Native Codex and Claude SDK adapters |
+| `server/ports/` | Storage contracts for native adapters |
+| `server/storage/` | File storage and provider identity bindings |
 | `server/core/` | Shared policy, actions, conversation state, workspaces, and orchestration |
 | `server/runtime/` | Surface assembly and process lifecycle |
 | `server/adapters/discord/` | Discord input, commands, rendering, and delivery |
@@ -295,6 +391,8 @@ route lifetime, and delivery behavior.
 
 ## Documentation
 
+- [Codex parity matrix](.docs/codex-parity-matrix.md)
+- [Claude parity matrix](.docs/claude-parity-matrix.md)
 - [Surface parity matrix](.docs/surface-parity-matrix.md)
 - [Surface selection and lifecycle](.docs/surface-launch.md)
 - [Web API and private access](.docs/web-api.md)

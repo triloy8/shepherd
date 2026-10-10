@@ -1,3 +1,4 @@
+import { account } from "./helpers/account";
 import { describe, expect, test } from "bun:test";
 import { ComponentType, type MessageCreateOptions, type MessageEditOptions } from "discord.js";
 
@@ -82,7 +83,7 @@ function makeContext(overrides?: {
     threadId: string;
     sessionId: string | null;
     activeTurnId: string | null;
-    approvalPolicy: "on-request";
+    approvalPolicy: "review_sensitive";
   };
   restart?: RuntimeLifecycle["restart"];
   deploy?: RuntimeLifecycle["deploy"];
@@ -132,7 +133,6 @@ function makeContext(overrides?: {
               description: "Default coding model",
               hidden: false,
               isDefault: true,
-              supportsPersonality: true,
             },
             {
               id: "o4-mini",
@@ -141,16 +141,15 @@ function makeContext(overrides?: {
               description: "Fast fallback",
               hidden: false,
               isDefault: false,
-              supportsPersonality: true,
             },
           ],
           nextCursor: null,
         };
       },
-      async readAccountRateLimits() {
-        if (overrides?.readAccountRateLimits) return overrides.readAccountRateLimits();
-        return { rateLimits: { planType: "pro" } };
-      },
+      getThreadProvider: () => "fixture",
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } }],
+      async readAccount() { return account("fixture", "pro"); },
+      async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
         return { threadId, tokenUsage: { total: { totalTokens: 42 }, last: {}, modelContextWindow: 128000 } };
@@ -218,7 +217,7 @@ function makeContext(overrides?: {
           threadId,
           sessionId: "session-1",
           activeTurnId: null,
-          approvalPolicy: "on-request",
+          approvalPolicy: "review_sensitive",
         };
       },
     } as unknown as CommandContext["conversation"],
@@ -347,7 +346,7 @@ describe("Discord listening commands", () => {
     expect(getListeningMode()).toBe("mention");
     expect(replyCardAt(replies)).toEqual({
       title: "Channel detached",
-      description: "Channel detached from thread thread-1. The Codex thread was retained and can be reattached with `!thread thread-1`.",
+      description: "Channel detached from thread thread-1. The agent thread was retained and can be reattached with `!thread thread-1`.",
     });
   });
 
@@ -654,7 +653,7 @@ describe("Discord !skill commands", () => {
           threadId,
           sessionId: "session-1",
           activeTurnId: "turn-1",
-          approvalPolicy: "on-request",
+          approvalPolicy: "review_sensitive",
         };
       },
     });
@@ -858,4 +857,29 @@ test("deployment diagnostic continuation failures propagate instead of reporting
     return { type: "deployment-failed", message: "diagnostic output\n".repeat(1000) };
   } });
   await expect(handleMessage(message as never, context)).rejects.toThrow("delivery rejected");
+});
+
+test("Discord discovers arbitrary agents and routes creation and account reads without identity branches", async () => {
+  const { context } = makeContext();
+  const provider = "independent-agent";
+  const original = context.conversation.listProviders()[0]!;
+  context.conversation.listProviders = () => [{ ...original, id: provider, displayName: "Independent agent" }];
+  const created: Array<[string, string | undefined]> = [], accounts: string[] = [];
+  context.createSurfaceThread = async (id, selected) => { created.push([id, selected]); return "independent-thread"; };
+  context.conversation.readAccount = async selected => { accounts.push(selected); return account(selected); };
+  const discovery = makeMessage("!providers");
+  await handleMessage(discovery.message as never, context);
+  expect(replyTextAt(discovery.replies)).toContain("Independent agent");
+  expect(replyTextAt(discovery.replies)).toContain(provider);
+  await handleMessage(makeMessage(`!newthread ${provider}`).message as never, context);
+  expect(created).toEqual([["chan-1", provider]]);
+  await handleMessage(makeMessage(`!limits ${provider}`).message as never, context);
+  expect(accounts).toEqual([provider]);
+  for (const command of ["!newthread unknown", "!limits unknown", `!newthread ${provider} extra`]) {
+    const message = makeMessage(command); await handleMessage(message.message as never, context);
+    expect(replyTextAt(message.replies)).toContain("!providers");
+  }
+  expect(created).toHaveLength(1); expect(accounts).toHaveLength(1);
+  await handleMessage(makeMessage("!newthread").message as never, context);
+  expect(created[1]).toEqual(["chan-1", undefined]);
 });

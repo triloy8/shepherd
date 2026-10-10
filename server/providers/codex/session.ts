@@ -1,17 +1,26 @@
-import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../shared/protocol/user_questions.js";
+import { codexApproval, applicationApproval, codexSandbox, type NativeApprovalPolicy } from "./policy.js";
+import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
+import { codexInput } from "./input.js";
+import type { NativeInput } from "./input.js";
+import { approvalChoices } from "../approval_choices.js";
+import { historyItem, historyTurn } from "../history_mapper.js";
+import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
+import { decodeResetOutcome } from "./account_usage.js";
+import { codexCapabilities } from "../capabilities.js";
+import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline, { type Interface as ReadlineInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 
-import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../shared/protocol/approvals.js";
+import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
   DynamicToolCallParams,
   DynamicToolSpec,
   JsonValue,
-} from "../../shared/protocol/dynamic_tools.js";
-import type { BridgeEvent, BridgeEventType, MessagePhase } from "../../shared/protocol/events.js";
+} from "../../../shared/protocol/dynamic_tools.js";
+import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType, type MessagePhase } from "../../../shared/protocol/events.js";
 import type {
-  ConsumeRateLimitResetRequest,
+
   ApprovalPolicy,
   CreateThreadRequest,
   ForkThreadRequest,
@@ -29,14 +38,16 @@ import type {
   SkillsListRequest,
   SkillsListResponse,
   ThreadTokenUsage,
-} from "../../shared/protocol/requests.js";
-import type { UserInput } from "../../shared/protocol/user_input.js";
+} from "../../../shared/protocol/requests.js";
+import type { ConsumeRateLimitResetRequest } from "./account_types.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
 import {
   DynamicToolRegistry,
   InvalidDynamicToolCallError,
   UnknownDynamicToolError,
-} from "./dynamic_tool_registry.js";
-import { EventBus } from "./event_bus.js";
+} from "../../core/dynamic_tool_registry.js";
+import type { ProviderSession } from "../../ports/provider_session.js";
+import { EventBus } from "../../core/event_bus.js";
 import {
   extractCompletedAgentMessage,
   extractGeneratedImageArtifact,
@@ -48,7 +59,7 @@ import {
   mapTurnActivity,
   mapApprovalChoices,
   mapApprovalPrompt,
-} from "./codex_rpc_mapper.js";
+} from "./rpc_mapper.js";
 
 function getDefaultModel(): string {
   return process.env.CODEX_MODEL ?? "gpt-6.1-sol";
@@ -72,7 +83,7 @@ type AppServerRequestParams = {
   };
   "thread/start": {
     model: string;
-    approvalPolicy: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -86,7 +97,7 @@ type AppServerRequestParams = {
   };
   "thread/resume": {
     threadId: string;
-    approvalPolicy?: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -98,7 +109,7 @@ type AppServerRequestParams = {
   };
   "thread/fork": {
     threadId: string;
-    approvalPolicy?: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -135,14 +146,14 @@ type AppServerRequestParams = {
   "skills/config/write": { enabled: boolean; path: string };
   "turn/start": {
     threadId: string;
-    approvalPolicy: ApprovalPolicy;
-    input: UserInput[];
+    approvalPolicy?: NativeApprovalPolicy;
+    input: NativeInput[];
     model?: string;
     effort?: string;
     cwd?: string;
   };
   "turn/interrupt": { threadId: string; turnId: string };
-  "turn/steer": { threadId: string; expectedTurnId: string; input: UserInput[] };
+  "turn/steer": { threadId: string; expectedTurnId: string; input: NativeInput[] };
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -206,32 +217,6 @@ function isContextLimitError(params: unknown): boolean {
   return message.toLowerCase().includes("context") && message.toLowerCase().includes("window");
 }
 
-function asApprovalPolicy(value: unknown): ApprovalPolicy | null {
-  if (value === "untrusted" || value === "on-request" || value === "never") {
-    return value;
-  }
-  const record = asRecord(value);
-  const granular = asRecord(record.granular);
-  if (
-    typeof granular.sandbox_approval === "boolean" &&
-    typeof granular.rules === "boolean" &&
-    typeof granular.skill_approval === "boolean" &&
-    typeof granular.request_permissions === "boolean" &&
-    typeof granular.mcp_elicitations === "boolean"
-  ) {
-    return {
-      granular: {
-        sandbox_approval: granular.sandbox_approval,
-        rules: granular.rules,
-        skill_approval: granular.skill_approval,
-        request_permissions: granular.request_permissions,
-        mcp_elicitations: granular.mcp_elicitations,
-      },
-    };
-  }
-  return null;
-}
-
 function isApprovalServerRequest(method: string): boolean {
   const normalized = method.toLowerCase();
   return (
@@ -242,7 +227,8 @@ function isApprovalServerRequest(method: string): boolean {
   );
 }
 
-export class CodexSession {
+export class CodexSession implements ProviderSession {
+  readonly capabilities = codexCapabilities;
   readonly sessionId = randomUUID();
   readonly createdAt = new Date().toISOString();
 
@@ -258,8 +244,10 @@ export class CodexSession {
   private nextRequestId = 1;
   private pendingRequests = new Map<number, PendingRequest>();
   private serverRequestsByApprovalId = new Map<string, RawServerRequest>();
+  private approvalReplies = new Map<string, Map<string, unknown>>();
   private messagePhaseByItemId = new Map<string, MessagePhase | null>();
   private eventCounter = 0;
+  private endedTurns = new Set<string>();
 
   constructor(
     approvalPolicy: ApprovalPolicy,
@@ -269,13 +257,15 @@ export class CodexSession {
   }
 
   private stopped = false;
+  private cwd = process.cwd();
+  setCwd(cwd: string): void { this.cwd = cwd; }
 
   async start(): Promise<void> {
     if (this.stopped) throw new Error("Codex session is stopped.");
     if (this.child) return;
 
     this.child = spawn("codex", ["app-server"], {
-      cwd: process.cwd(),
+      cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
     });
@@ -325,21 +315,19 @@ export class CodexSession {
   }
 
   async startThread(request: CreateThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     const dynamicTools = this.dynamicTools.specifications();
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
-      approvalPolicy: this.approvalPolicy,
+      ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
       ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
       ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      config: { model_reasoning_effort: "medium", ...request.config },
+      config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.personality ? { personality: request.personality } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(request.ephemeral !== undefined ? { ephemeral: request.ephemeral } : {}),
-      ...(request.serviceName ? { serviceName: request.serviceName } : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
     });
 
@@ -350,18 +338,17 @@ export class CodexSession {
   }
 
   async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     const result = await this.sendRequest("thread/resume", {
       threadId,
-      ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
+      ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
       ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
       ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      ...(request.config ? { config: request.config } : {}),
+      ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.personality ? { personality: request.personality } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
+      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(request.model ? { model: request.model } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
     const bootstrap = this.extractThreadBootstrapInfo(result, "thread/resume");
@@ -370,17 +357,17 @@ export class CodexSession {
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     const result = await this.sendRequest("thread/fork", {
       threadId,
-      ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
+      ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
       ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
       ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      ...(request.config ? { config: request.config } : {}),
+      ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
+      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(request.model ? { model: request.model } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
     const bootstrap = this.extractThreadBootstrapInfo(result, "thread/fork");
@@ -408,39 +395,39 @@ export class CodexSession {
     await this.sendRequest("thread/compact/start", { threadId });
   }
 
-  async revertThread(threadId: string, beforeTurnId: string): Promise<unknown> {
+  async revertThread(threadId: string, beforeTurnId: string) {
     await this.initialize();
-    return this.sendRequest("thread/revert", { threadId, beforeTurnId });
+    return revertResponse(await this.sendRequest("thread/revert", { threadId, beforeTurnId }));
   }
 
-  async listStoredThreads(request: ListStoredThreadsRequest): Promise<unknown> {
+  async listStoredThreads(request: ListStoredThreadsRequest) {
     await this.initialize();
-    return this.sendRequest("thread/list", {
+    return storedResponse(await this.sendRequest("thread/list", {
       archived: request.archived ?? null,
       cursor: request.cursor ?? null,
       cwd: request.cwd ?? null,
       limit: request.limit ?? null,
-      modelProviders: request.modelProviders ?? null,
+      modelProviders: null,
       searchTerm: request.searchTerm ?? null,
       sortDirection: request.sortDirection ?? null,
       sortKey: request.sortKey ?? null,
-      sourceKinds: request.sourceKinds ?? null,
-      ...(request.useStateDbOnly !== undefined ? { useStateDbOnly: request.useStateDbOnly } : {}),
-    });
+      sourceKinds: null,
+    }));
   }
 
-  async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<unknown> {
+  async listLoadedThreads(request: ListLoadedThreadsRequest) {
     await this.initialize();
-    return this.sendRequest("thread/loaded/list", {
+    return loadedResponse(await this.sendRequest("thread/loaded/list", {
       cursor: request.cursor ?? null,
       limit: request.limit ?? null,
-    });
+    }));
   }
 
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
     await this.initialize();
     try {
-      return await this.sendRequest("thread/turns/list", { ...request, threadId }) as ListThreadTurnsResponse;
+      const page = await this.sendRequest("thread/turns/list", { ...request, threadId }) as ListThreadTurnsResponse;
+      return { data: page.data.map(historyTurn), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor };
     } catch (error) {
       // Codex does not persist a newly created thread until its first user message.
       // Only this explicit first-page condition means empty history; never hide
@@ -455,31 +442,32 @@ export class CodexSession {
 
   async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
     await this.initialize();
-    return this.sendRequest("thread/items/list", { ...request, threadId }) as Promise<ListThreadItemsResponse>;
+    const page = await this.sendRequest("thread/items/list", { ...request, threadId }) as ListThreadItemsResponse;
+    return { data: page.data.map(entry => ({ turnId: entry.turnId, item: historyItem(entry.item, entry.turnId) })), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor };
   }
 
-  async readThread(threadId: string, includeTurns: boolean): Promise<unknown> {
+  async readThread(threadId: string, includeTurns: boolean) {
     await this.initialize();
-    return this.sendRequest("thread/read", { threadId, includeTurns });
+    return readResponse(await this.sendRequest("thread/read", { threadId, includeTurns }));
   }
 
-  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<unknown> {
+  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest) {
     await this.initialize();
-    return this.sendRequest("account/rateLimitResetCredit/consume", request);
+    return decodeResetOutcome(await this.sendRequest("account/rateLimitResetCredit/consume", request));
   }
 
-  async readAccountRateLimits(): Promise<unknown> {
+  async readAccountRateLimits() {
     await this.initialize();
-    return this.sendRequest("account/rateLimits/read", undefined);
+    return accountResponse(await this.sendRequest("account/rateLimits/read", undefined));
   }
 
-  async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
+  async listModels(request: ListModelsRequest) {
     await this.initialize();
-    return this.sendRequest("model/list", {
+    return modelsResponse(await this.sendRequest("model/list", {
       cursor: request.cursor ?? null,
       limit: request.limit ?? null,
       includeHidden: request.includeHidden ?? null,
-    }) as Promise<ListModelsResponse>;
+    }));
   }
 
   async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
@@ -505,16 +493,18 @@ export class CodexSession {
     cwd?: string,
     effort?: string,
   ): Promise<string | null> {
+    assertApprovalSupport("Codex", this.capabilities, approvalPolicy ?? this.approvalPolicy);
+    assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
-    if (approvalPolicy) {
+    if (approvalPolicy && approvalPolicy !== "provider_default") {
       this.approvalPolicy = approvalPolicy;
     }
     this.messagePhaseByItemId.clear();
 
     const result = await this.sendRequest("turn/start", {
       threadId,
-      approvalPolicy: this.approvalPolicy,
-      input,
+      ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
+      input: codexInput(input),
       ...(model ? { model } : {}),
       ...(cwd ? { cwd } : {}),
       ...(effort ? { effort } : {}),
@@ -536,6 +526,7 @@ export class CodexSession {
   }
 
   async steerTurn(input: UserInput[], turnId?: string): Promise<string | null> {
+    assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
     const targetTurnId = turnId ?? this.activeTurnId;
     if (!targetTurnId) {
@@ -545,7 +536,7 @@ export class CodexSession {
     const result = await this.sendRequest("turn/steer", {
       threadId,
       expectedTurnId: targetTurnId,
-      input,
+      input: codexInput(input),
     });
     const returnedTurnId = extractTurnId(result) ?? targetTurnId;
     this.activeTurnId = returnedTurnId;
@@ -555,12 +546,15 @@ export class CodexSession {
   async applyApprovalDecision(
     approvalId: string,
     decision: ApprovalDecisionRequest,
-  ): Promise<{ method: string; approvalId: string }> {
+  ): Promise<{ approvalId: string }> {
     const rawRequest = this.serverRequestsByApprovalId.get(approvalId);
     if (!rawRequest) {
       throw new Error(`Unknown approval id: ${approvalId}`);
     }
 
+    const nativeDecision = this.approvalReplies.get(approvalId)?.get(decision.decision);
+    if (!nativeDecision) throw new Error("Decision must match an offered option.");
+    decision = { ...decision, decision: typeof nativeDecision === "string" ? nativeDecision : "" };
     const method = rawRequest.method;
     let payload: unknown;
     if (method === "item/tool/requestUserInput") {
@@ -570,7 +564,7 @@ export class CodexSession {
         payload = { answers: decision.answers };
       } else if (decision.decision === "cancel") payload = { answers: {} };
       else throw new Error("Invalid user input decision.");
-    } else payload = this.mapDecisionPayload(method, decision);
+    } else payload = typeof nativeDecision === "string" ? this.mapDecisionPayload(method, decision) : nativeDecision;
     const envelope = {
       id: rawRequest.id,
       result: payload,
@@ -578,7 +572,8 @@ export class CodexSession {
 
     this.writeLine(envelope);
     this.serverRequestsByApprovalId.delete(approvalId);
-    return { method, approvalId };
+    this.approvalReplies.delete(approvalId);
+    return { approvalId };
   }
 
   stop(): void {
@@ -604,7 +599,7 @@ export class CodexSession {
       model: asString(record.model),
       reasoningEffort: asString(record.reasoningEffort),
       modelProvider: asString(record.modelProvider) ?? asString(thread.modelProvider),
-      approvalPolicy: asApprovalPolicy(record.approvalPolicy) ?? this.approvalPolicy,
+      approvalPolicy: Object.hasOwn(record, "approvalPolicy") ? applicationApproval(record.approvalPolicy) ?? "provider_default" : this.approvalPolicy,
     };
   }
 
@@ -655,6 +650,7 @@ export class CodexSession {
       if (request.method === "item/tool/requestUserInput") this.publish("approval.expired", asString(asRecord(request.params).threadId) ?? "unbound", { approvalId });
     }
     this.serverRequestsByApprovalId.clear();
+    this.approvalReplies.clear();
     this.initialized = false;
     this.activeTurnId = null;
   }
@@ -739,10 +735,12 @@ export class CodexSession {
         if (userInput.threadId !== this.threadId || userInput.turnId !== this.activeTurnId) throw new Error("User question targets a stale turn or the wrong thread.");
         const approvalId = randomUUID();
         this.serverRequestsByApprovalId.set(approvalId, request);
+        const offered = approvalChoices([{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }]);
+        this.approvalReplies.set(approvalId, offered.replies);
         this.publish("approval.requested", userInput.threadId, {
-          approvalId, method: request.method, prompt: userInput.questions.map(q => q.question).join("\n\n"),
-          choices: [{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }],
-          params: request.params, userInput,
+          approvalId, kind: "question", prompt: userInput.questions.map(q => q.question).join("\n\n"),
+          choices: offered.choices,
+          detail: null, userInput,
         } satisfies ApprovalRequestPayload);
       } catch (error) {
         this.writeLine({ id: request.id, error: { code: -32602, message: (error as Error).message } });
@@ -764,14 +762,21 @@ export class CodexSession {
       return;
     }
 
+    const params = asRecord(request.params);
+    const threadId = asString(params.threadId) ?? asString(params.conversationId) ?? this.threadId ?? "unbound";
+    const turnId = asString(params.turnId) ?? this.activeTurnId;
+    if (threadId !== this.threadId || (turnId && this.endedTurns.has(turnId)) || (this.activeTurnId && turnId !== this.activeTurnId)) {
+      this.writeLine({ id: request.id, error: { code: -32602, message: "Approval targets an unavailable turn or thread." } }); return;
+    }
     const approvalId = randomUUID();
-    const threadId = this.threadId ?? "unbound";
+    const offered = approvalChoices(commandApprovalChoices(request.method, request.params));
+    this.approvalReplies.set(approvalId, offered.replies);
     const approvalPayload: ApprovalRequestPayload = {
       approvalId,
-      method: request.method,
+      kind: "permission",
       prompt: mapApprovalPrompt(request.method, request.params),
-      choices: mapApprovalChoices(request.method),
-      params: request.params,
+      choices: offered.choices,
+      detail: approvalDetail(request.params),
     };
 
     this.serverRequestsByApprovalId.set(approvalId, request);
@@ -829,8 +834,9 @@ export class CodexSession {
 
     if (lower === "serverrequest/resolved") {
       for (const [approvalId, request] of this.serverRequestsByApprovalId) {
-        if (request.method === "item/tool/requestUserInput" && request.id === payload.requestId && asRecord(request.params).threadId === threadId) {
+        if (request.id === payload.requestId && (asString(asRecord(request.params).threadId) ?? this.threadId) === threadId) {
           this.serverRequestsByApprovalId.delete(approvalId);
+          this.approvalReplies.delete(approvalId);
           this.publish("approval.expired", threadId, { approvalId });
         }
       }
@@ -839,9 +845,13 @@ export class CodexSession {
 
     if (lower === "turn/completed") {
       const turnId = extractTurnId(params) ?? this.activeTurnId;
-      this.activeTurnId = null;
+      if (turnId) { this.endedTurns.add(turnId); while (this.endedTurns.size > 1000) this.endedTurns.delete(this.endedTurns.values().next().value!); }
+      if (this.activeTurnId === turnId) this.activeTurnId = null;
       for (const [id, request] of this.serverRequestsByApprovalId) {
-        if (request.method === "item/tool/requestUserInput" && asRecord(request.params).turnId === turnId) this.serverRequestsByApprovalId.delete(id);
+        if ((asString(asRecord(request.params).turnId) ?? turnId) === turnId) {
+          this.serverRequestsByApprovalId.delete(id); this.approvalReplies.delete(id);
+          this.publish("approval.expired", threadId, { approvalId: id });
+        }
       }
       this.messagePhaseByItemId.clear();
       const turn = asRecord(payload.turn);
@@ -874,7 +884,7 @@ export class CodexSession {
         return;
       }
       if (isContextLimitError(params)) {
-        this.publish("session.limit.context", threadId, { message, method });
+        this.publish("session.limit.context", threadId, { message });
       } else {
         this.publish("session.error", threadId, { message });
       }
@@ -882,7 +892,7 @@ export class CodexSession {
     }
 
     if (lower === "account/ratelimits/updated") {
-      this.publish("turn.notification", threadId, { method, params });
+      // Unrecognized native notifications remain private.
       return;
     }
 
@@ -892,7 +902,8 @@ export class CodexSession {
     }
 
     if (lower === "thread/status/changed") {
-      this.publish("thread.status.changed", threadId, { status: asRecord(params).status ?? null });
+      const status = asRecord(asRecord(params).status);
+      this.publish("thread.status.changed", threadId, { status: { state: status.type === "active" ? "active" : status.type === "systemError" ? "error" : "idle", backgroundTaskCount: 0 } });
       return;
     }
 
@@ -944,7 +955,7 @@ export class CodexSession {
       if (activity) {
         this.publish("turn.activity", threadId, activity);
       }
-      this.publish("turn.notification", threadId, { method, params });
+      // Unrecognized native notifications remain private.
       return;
     }
 
@@ -953,7 +964,7 @@ export class CodexSession {
       const itemId = extractItemId(params);
       const phase = itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null;
       this.publish("turn.stream.delta", threadId, {
-        method,
+        kind: method === "item/agentMessage/delta" ? "assistant_text" : "other",
         textDelta: delta,
         itemId,
         phase,
@@ -962,18 +973,18 @@ export class CodexSession {
       return;
     }
 
-    this.publish("turn.notification", threadId, { method, params });
+    // Unrecognized native notifications remain private.
   }
 
-  private publish(type: BridgeEventType, threadId: string, payload: unknown): void {
-    const event: BridgeEvent = {
+  private publish<K extends BridgeEventType>(type: K, threadId: string, payload: BridgeEventPayloads[K]): void {
+    const event = bridgeEvent({
       id: `${this.sessionId}:${++this.eventCounter}`,
       type,
       threadId,
       sessionId: this.sessionId,
       ts: new Date().toISOString(),
       payload,
-    };
+    });
     this.eventBus.publish(event);
   }
 
@@ -999,4 +1010,27 @@ export class CodexSession {
     }
     return null;
   }
+}
+
+function approvalDetail(value: unknown): string | null {
+  const params = asRecord(value);
+  const lines = [asString(params.command), asString(params.cwd), asString(params.reason)];
+  if (Array.isArray(params.changes)) lines.push(...params.changes.map(change => asString(asRecord(change).path)));
+  return lines.filter(Boolean).join("\n") || null;
+}
+
+function commandApprovalChoices(method: string, value: unknown): Array<{ value: unknown; label: string; intent?: import("../../../shared/protocol/approvals.js").ApprovalChoice["intent"] }> {
+  const choices: Array<{ value: unknown; label: string; intent?: import("../../../shared/protocol/approvals.js").ApprovalChoice["intent"] }> = mapApprovalChoices(method);
+  const params = asRecord(value);
+  if (method === "item/commandExecution/requestApproval") {
+    const exec = params.proposedExecpolicyAmendment;
+    if (Array.isArray(exec) && exec.length && exec.every(part => typeof part === "string") && JSON.stringify(exec).length <= 8192) {
+      choices.push({ label: `Always allow commands matching ${exec.join(" ")}`, intent: "allow", value: { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: exec } } } });
+    }
+    if (Array.isArray(params.proposedNetworkPolicyAmendments)) for (const amendment of params.proposedNetworkPolicyAmendments.slice(0, 20)) {
+      const rule = asRecord(amendment);
+      if (typeof rule.host === "string" && ["allow", "deny"].includes(String(rule.action))) choices.push({ label: `Always ${rule.action} network access to ${rule.host}`, intent: rule.action as "allow" | "deny", value: { decision: { applyNetworkPolicyAmendment: { network_policy_amendment: { host: rule.host, action: rule.action } } } } });
+    }
+  }
+  return choices;
 }

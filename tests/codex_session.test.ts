@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { DynamicToolRegistry } from "../server/core/dynamic_tool_registry.js";
 import { extractThreadSummary } from "../server/core/session_manager.js";
 
@@ -21,7 +21,7 @@ function internals(session: CodexSession): SessionInternals {
 
 describe("CodexSession app-server contract", () => {
   test("publishes viewed images only on successful item completion", () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     session.threadId = "thread-1";
     session.activeTurnId = "turn-1";
     const events: BridgeEvent[] = [];
@@ -37,7 +37,7 @@ describe("CodexSession app-server contract", () => {
     expect(events.filter((event) => event.type === "turn.image.viewed")).toHaveLength(1);
   });
   test("uses the generated initialize and initialized envelope shapes", async () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     const requests: Array<{ method: string; params: unknown }> = [];
     const notifications: string[] = [];
     const raw = internals(session);
@@ -63,7 +63,7 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("reverts with an explicit cutoff and decodes provider history replacement", async () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     session.initialize = async () => {};
     const requests: unknown[] = [];
     internals(session).sendRequest = async (method, params) => { requests.push({ method, params }); return { thread: { id: "thread-1", turns: [] }, turnsBackwardsCursor: "turn-cursor", itemsBackwardsCursor: "item-cursor" }; };
@@ -81,7 +81,7 @@ describe("CodexSession app-server contract", () => {
     const previousModel = process.env.CODEX_MODEL;
     delete process.env.CODEX_MODEL;
     try {
-      const session = new CodexSession("never");
+      const session = new CodexSession("bypass");
       const requests: unknown[] = [];
       session.initialize = async () => {};
       internals(session).sendRequest = async (_method, params) => {
@@ -89,9 +89,9 @@ describe("CodexSession app-server contract", () => {
         return { thread: { id: "thread-defaults" } };
       };
       await session.startThread({});
-      await session.startThread({ model: "custom-model", config: { model_reasoning_effort: "high", other: true } });
+      await session.startThread({ model: "custom-model", effort: "high" });
       expect(requests[0]).toMatchObject({ model: "gpt-6.1-sol", config: { model_reasoning_effort: "medium" } });
-      expect(requests[1]).toMatchObject({ model: "custom-model", config: { model_reasoning_effort: "high", other: true } });
+      expect(requests[1]).toMatchObject({ model: "custom-model", config: { model_reasoning_effort: "high" } });
       process.env.CODEX_MODEL = "environment-model";
       await session.startThread({});
       expect(requests[2]).toMatchObject({ model: "environment-model" });
@@ -113,7 +113,7 @@ describe("CodexSession app-server contract", () => {
         return { success: true, contentItems: [] };
       },
     });
-    const session = new CodexSession("on-request", tools);
+    const session = new CodexSession("review_sensitive", tools);
     const requests: Array<{ method: string; params: unknown }> = [];
     session.initialize = async () => {};
     internals(session).sendRequest = async (method, params) => {
@@ -154,7 +154,7 @@ describe("CodexSession app-server contract", () => {
         return { success: true, contentItems: [{ type: "inputText", text: "ready" }] };
       },
     });
-    const session = new CodexSession("on-request", tools);
+    const session = new CodexSession("review_sensitive", tools);
     session.threadId = "thread-1";
     session.activeTurnId = "turn-1";
     const writes: unknown[] = [];
@@ -200,7 +200,7 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("reset redemption initializes the session and preserves retry identity", async () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     let initialized = false;
     session.initialize = async () => { initialized = true; };
     const requests: unknown[] = [];
@@ -216,7 +216,7 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("omits params for parameterless requests and removed skill-list fields", async () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     const requests: Array<{ method: string; params: unknown }> = [];
     const raw = internals(session);
     session.initialize = async () => {};
@@ -234,8 +234,8 @@ describe("CodexSession app-server contract", () => {
     ]);
   });
 
-  test("retains the effective approval policy returned by resume", async () => {
-    const session = new CodexSession("on-request");
+  test("keeps native granular settings private when resuming provider defaults", async () => {
+    const session = new CodexSession("review_sensitive");
     session.initialize = async () => {};
     internals(session).sendRequest = async () => ({
       thread: { id: "thread-1", modelProvider: "openai" },
@@ -253,19 +253,11 @@ describe("CodexSession app-server contract", () => {
 
     await session.resumeThread("thread-1", {});
 
-    expect(session.approvalPolicy).toEqual({
-      granular: {
-        sandbox_approval: true,
-        rules: false,
-        skill_approval: true,
-        request_permissions: false,
-        mcp_elicitations: true,
-      },
-    });
+    expect(session.approvalPolicy).toBe("provider_default");
   });
 
   test("returns a JSON-RPC error for unsupported server requests", () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     const writes: unknown[] = [];
     const events: BridgeEvent[] = [];
     internals(session).writeLine = (payload) => writes.push(payload);
@@ -290,7 +282,8 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("maps legacy denial to the generated structured decision", async () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
+    session.threadId = "thread-1";
     const writes: unknown[] = [];
     const events: BridgeEvent[] = [];
     internals(session).writeLine = (payload) => writes.push(payload);
@@ -306,7 +299,7 @@ describe("CodexSession app-server contract", () => {
     if (!approvalId) throw new Error("Expected an approval request.");
 
     await session.applyApprovalDecision(approvalId, {
-      decision: "denied",
+      decision: (requested!.payload as import("../shared/protocol/approvals").ApprovalRequestPayload).choices.find(choice => choice.intent === "deny")!.value,
       reason: "Not allowed here.",
     });
 
@@ -321,7 +314,7 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("decodes nested error notifications and failed turns", () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     const events: BridgeEvent[] = [];
     session.threadId = "thread-bound";
     session.activeTurnId = "turn-active";
@@ -349,7 +342,7 @@ describe("CodexSession app-server contract", () => {
       [
         "session.limit.context",
         "thread-schema",
-        { message: "The context window was exceeded.", method: "error" },
+        { message: "The context window was exceeded." },
       ],
       [
         "turn.failed",
@@ -361,7 +354,7 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("keeps retry diagnostics out of the user-visible event stream", () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     const events: BridgeEvent[] = [];
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     const error = spyOn(console, "error").mockImplementation(() => {});
@@ -384,7 +377,7 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("publishes an exhausted retry as one session error", () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     const events: BridgeEvent[] = [];
     session.threadId = "thread-1";
     session.eventBus.subscribe((event) => events.push(event), { replay: false });
@@ -401,7 +394,7 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("publishes normalized activity and canonical completed messages", () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     const events: BridgeEvent[] = [];
     session.threadId = "thread-1";
     session.activeTurnId = "turn-1";
@@ -462,7 +455,7 @@ describe("CodexSession app-server contract", () => {
   });
 
   test("attaches turn and captured phase metadata to agent deltas", () => {
-    const session = new CodexSession("on-request");
+    const session = new CodexSession("review_sensitive");
     const events: BridgeEvent[] = [];
     session.threadId = "thread-1";
     session.activeTurnId = "turn-1";
@@ -486,7 +479,8 @@ describe("CodexSession app-server contract", () => {
     });
 
     expect(events.find((event) => event.type === "turn.stream.delta")?.payload).toEqual({
-      method: "item/agentMessage/delta",
+      kind: "assistant_text",
+      kind: "assistant_text",
       textDelta: "Checking now.",
       itemId: "comment-1",
       phase: "commentary",

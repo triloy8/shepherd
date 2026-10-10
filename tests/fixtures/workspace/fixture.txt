@@ -1,0 +1,1 @@
+Synthetic provider fixture. It contains a fox: 🦊.

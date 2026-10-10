@@ -39,7 +39,7 @@ test("history actions validate turn IDs and boundaries and reject active turns o
     h.active.set(c.threadId, "running");
     for (const action of ["compact", "revert"]) expect((await h.request(`${path}/${action}`, "POST", action === "revert" ? { beforeTurnId: "turn-1" } : {})).status).toBe(409);
     h.active.set(c.threadId, null);
-    h.approvals.create({ approvalId: "approval", method: "test", prompt: "Allow?", choices: [{ value: "accept", label: "Allow" }], params: {} }, { threadId: c.threadId, sessionId: "session" });
+    h.approvals.create({ approvalId: "approval", kind: "permission", prompt: "Allow?", choices: [{ value: "accept", label: "Allow", intent: "allow" }], detail: null }, { threadId: c.threadId, sessionId: "session" });
     for (const action of ["compact", "revert"]) expect((await h.request(`${path}/${action}`, "POST", action === "revert" ? { beforeTurnId: "turn-1" } : {})).status).toBe(409);
     expect(h.calls.some((call) => /^(compact|revert):/.test(call))).toBe(false);
     expect((await h.request("/conversations/missing/compact", "POST", {})).status).toBe(404);

@@ -14,7 +14,7 @@ for (const adapter of ["discord", "terminal"]) {
       unsubscribeSurfaceEvents: (adapter: string, surfaceId: string) => { unsubscribed.push(key(adapter, surfaceId)); },
     };
     const { commandContext: context } = createSurfaceRuntime({
-      adapter, conversation: conversation as never, approvalPolicy: "on-request",
+      adapter, conversation: conversation as never, approvalPolicy: "review_sensitive",
       onThreadEvent() {}, async cloneGithubRepo() {}, async resolveGithubRepo(slug) { return slug; },
     });
     const run = (type: "listening.pause" | "listening.resume" | "surface.detach" | "listening.get") =>

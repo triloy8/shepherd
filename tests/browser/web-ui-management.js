@@ -39,14 +39,14 @@ async (page) => {
   await page.getByRole('button', { name: 'Allow once', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
   let release;
-  await page.route('**/api/v1/threads?*archived=true', async route => { await new Promise(resolve => { release = resolve; }); await route.fulfill({ json: { threads: [], nextCursor: null, backwardsCursor: null } }); });
+  await page.route('**/api/threads?*archived=true', async route => { await new Promise(resolve => { release = resolve; }); await route.fulfill({ json: { threads: [], nextCursor: null, backwardsCursor: null } }); });
   await page.getByRole('button', { name: 'Archived', exact: true }).click();
   await page.waitForTimeout(100);
   await page.getByRole('button', { name: 'Active', exact: true }).click();
   await page.getByRole('button', { name: 'Renamed source', exact: true }).waitFor();
   release(); await page.waitForTimeout(100);
   if (!await page.getByRole('button', { name: 'Renamed source', exact: true }).isVisible()) throw Error('Stale archived response replaced active list');
-  await page.unroute('**/api/v1/threads?*archived=true');
+  await page.unroute('**/api/threads?*archived=true');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Rename conversation', exact: true }).click();
   await rename.waitFor();

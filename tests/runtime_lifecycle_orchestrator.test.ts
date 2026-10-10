@@ -112,7 +112,7 @@ describe("RuntimeLifecycleOrchestrator", () => {
     expect(events).toEqual(["deployment-status"]);
   });
 
-  test("refuses deployment before side effects when Codex work is active", async () => {
+  test("refuses deployment before side effects when Agent work is active", async () => {
     const busy = {
       activeTurnThreadIds: ["thread-1"],
       pendingApprovalIds: [],

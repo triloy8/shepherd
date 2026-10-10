@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { webHarness } from "./helpers/web_harness.js";
 
 function transport() {
-  const session = new CodexSession("on-request");
+  const session = new CodexSession("review_sensitive");
   session.initialize = async () => {};
   let failure: string | null = null;
   let data: unknown[] = [];
@@ -24,7 +24,7 @@ test("new thread history is an empty page, then reads subsequent stored turns", 
     expect(await t.session.listThreadTurns("thread", { itemsView: "full" })).toEqual({ data: [], nextCursor: null, backwardsCursor: null });
     const data = [{ id: "turn", items: [], status: "completed" }];
     t.fail(null); t.data(data);
-    expect((await t.session.listThreadTurns("thread", { itemsView: "full" })).data).toEqual(data);
+    expect((await t.session.listThreadTurns("thread", { itemsView: "full" })).data).toMatchObject(data);
   } finally { t.session.stop(); }
 });
 

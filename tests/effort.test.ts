@@ -1,17 +1,17 @@
 import { expect, test } from "bun:test";
 import { SessionManager } from "../server/core/session_manager.js";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { handleMessage } from "../server/adapters/discord/commands.js";
 
 async function setup() {
   const starts: unknown[][] = [];
-  const session = new CodexSession("on-request");
+  const session = new CodexSession("review_sensitive");
   session.startThread = async () => ({ threadId: "thread-1", model: "test-model", modelProvider: null, reasoningEffort: "low" });
   session.startTurn = async (...args) => { starts.push(args); return "turn-1"; };
   const manager = new SessionManager(undefined, () => session);
   const model = {
     id: "test-model", model: "test-model", displayName: "Test", description: "",
-    hidden: false, isDefault: true, supportsPersonality: false,
+    hidden: false, isDefault: true,
     defaultReasoningEffort: "low",
     supportedReasoningEfforts: ["low", "high"].map((reasoningEffort) => ({ reasoningEffort, description: "" })),
   };
@@ -59,7 +59,7 @@ test("effort resolves the pending model across catalog pages", async () => {
 });
 
 test("Codex turn/start forwards effort and resume exposes the effective effort", async () => {
-  const session = new CodexSession("on-request");
+  const session = new CodexSession("review_sensitive");
   const requests: Array<{ method: string; params: any }> = [];
   session.initialize = async () => {};
   (session as any).sendRequest = async (method: string, params: unknown) => {

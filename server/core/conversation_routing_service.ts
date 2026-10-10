@@ -66,7 +66,7 @@ export class ConversationRoutingService {
     options: ConversationRoutingServiceOptions = {},
   ) {
     this.autoCreateIfMissing = options.autoCreateIfMissing ?? true;
-    this.defaultApprovalPolicy = options.defaultApprovalPolicy ?? "on-request";
+    this.defaultApprovalPolicy = options.defaultApprovalPolicy ?? "review_sensitive";
     this.defaultSandbox = options.defaultSandbox;
     this.exclusiveThreadBinding = options.exclusiveThreadBinding ?? false;
   }
@@ -130,7 +130,7 @@ export class ConversationRoutingService {
 
     if (candidate) {
       const resumeRequest = {
-        approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
+        approvalPolicy: input.approvalPolicyHint,
         ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
         cwd: input.cwd,
       };

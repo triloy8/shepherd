@@ -53,7 +53,7 @@ export function ConversationSkills({ id, disabled }: { id: string; disabled: boo
   const matches = (skill: { name: string; description: string; path: string; scope: string }) => [skill.name, skill.description, skill.path, skill.scope].some((value) => value.toLowerCase().includes(normalized));
   const visible = data?.data.some((entry) => entry.skills.some(matches));
   return <section className="mt-4 space-y-3" aria-label="Skills">
-    <p className="text-xs text-muted">Available in this conversation’s workspace. Enable and disable changes update shared Codex configuration and can affect other conversations. Reload after installing or editing skills.</p>
+    <p className="text-xs text-muted">Available in this conversation’s workspace. Enable and disable changes update shared provider configuration and can affect other conversations. Reload after installing or editing skills.</p>
     <button className="button-secondary" disabled={disabled || busy} onClick={() => void change()}>Reload skills</button>
     {busy && <p role="status" className="text-xs text-muted">Loading or updating skills…</p>}
     {error && <p role="alert" className="notice">{error}</p>}

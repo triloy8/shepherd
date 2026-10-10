@@ -38,13 +38,13 @@ async (page) => {
   await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
   await page.getByText('Where did we leave off?', { exact: true }).waitFor();
   await open();
-  await page.route('**/api/v1/host/actions', route => route.abort());
+  await page.route('**/api/host/actions', route => route.abort());
   await dialog.getByRole('button', { name: 'Restart host', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm restart', exact: true }).click();
   await dialog.getByText('No matching operation is recorded yet.', { exact: false }).waitFor();
   if (await dialog.getByRole('button', { name: 'Restart host', exact: true }).isEnabled()) throw Error('Lost request permits automatic retry');
   await dialog.getByRole('button', { name: 'I checked the outcome', exact: true }).click();
-  await page.unroute('**/api/v1/host/actions');
+  await page.unroute('**/api/host/actions');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: '/tmp/shepherd-host-controls-mobile.png' });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw Error('Host controls overflow');

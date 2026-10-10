@@ -76,7 +76,7 @@ test("approval choices are validated without consuming invalid requests; duplica
   const h = webHarness();
   try {
     const c = await h.create(); const path = `/conversations/${c.id}/approvals`;
-    h.approvals.create({ approvalId: "approval:1", method: "test", prompt: "Allow?", choices: [{ value: "accept", label: "Accept" }], params: {} }, { threadId: c.threadId, sessionId: "session" });
+    h.approvals.create({ approvalId: "approval:1", kind: "permission", prompt: "Allow?", choices: [{ value: "accept", label: "Accept", intent: "allow" }], detail: null }, { threadId: c.threadId, sessionId: "session" });
     expect((await (await h.request(path)).json()).approvals[0].status).toBe("pending");
     expect((await h.request(`${path}/approval%3A1`, "POST", { decision: "bogus" })).status).toBe(400);
     expect(h.approvals.listByThread(c.threadId)[0]!.status).toBe("pending");
@@ -89,12 +89,12 @@ test("approval choices are validated without consuming invalid requests; duplica
 test("malformed requests and oversized bodies never invoke conversation creation", async () => {
   const h = webHarness();
   try {
-    for (const data of [null, [], {}, { project: "" }, { project: "~", sandbox: "danger-full-access" }, { project: "~", threadId: "../../escape" }]) {
+    for (const data of [null, [], {}, { project: "" }, { project: "~", sandbox: "unrestricted" }, { project: "~", threadId: "../../escape" }]) {
       expect((await h.request("/conversations", "POST", data)).status).toBe(400);
     }
     expect((await h.request("/conversations", "POST", { project: "~" }, { "content-type": "text/plain" })).status).toBe(415);
     expect((await h.request("/conversations", "POST", { project: "x".repeat(70_000) })).status).toBe(413);
-    const invalid = await h.api.fetch(new Request("http://localhost/api/v1/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: "{" }));
+    const invalid = await h.api.fetch(new Request("http://localhost/api/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: "{" }));
     expect(invalid.status).toBe(400);
     expect(h.calls).toEqual([]);
     expect((await h.request("/threads?limit=101")).status).toBe(400);
@@ -193,5 +193,33 @@ test("stored conversation pages explicitly use most recently updated first", asy
       { limit: 30, archived: false, sortKey: "updated_at", sortDirection: "desc" },
       { limit: 30, cursor: "next", archived: true, sortKey: "updated_at", sortDirection: "desc" },
     ]);
+  } finally { h.api.dispose(); }
+});
+
+
+test("conversation creation passes the provider and rejects provider changes on resume", async () => {
+  const h = webHarness(); const providers: unknown[] = [];
+  const create = h.application.createSurfaceThread;
+  h.application.createSurfaceThread = async (id: string, provider?: string) => { providers.push(provider); return create(id); };
+  try {
+    expect((await h.request("/conversations", "POST", { project: "~", provider: "fixture" })).status).toBe(201);
+    expect(providers).toEqual(["fixture"]);
+    expect((await h.request("/conversations", "POST", { project: "~", provider: "unknown" })).status).toBe(400);
+    expect((await h.request("/conversations", "POST", { threadId: "stored", provider: "fixture" })).status).toBe(400);
+    expect(providers).toHaveLength(1);
+  } finally { h.api.dispose(); }
+});
+
+
+test("ordinary web messages preserve the thread policy instead of applying the host default", async () => {
+  const h = webHarness(); let sent: unknown;
+  const submit = h.context.ingress.submitTurn;
+  h.context.ingress.getThreadState = (id) => ({ threadId: id, sessionId: "saved", provider: "fixture", capabilities: h.application.conversation.listProviders()[0]!.capabilities, approvalPolicy: "bypass", activeTurnId: null });
+  h.context.ingress.submitTurn = async (id, request) => { sent = request; return submit(id, request); };
+  try {
+    const c = await h.create({ threadId: "saved", project: "~" });
+    expect((await h.request(`/conversations/${c.id}/messages`, "POST", { text: "continue" })).status).toBe(200);
+    expect(sent).toMatchObject({ input: [{ type: "text", text: "continue" }] });
+    expect((sent as { approvalPolicy?: string }).approvalPolicy).toBeUndefined();
   } finally { h.api.dispose(); }
 });

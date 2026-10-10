@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { initialHistoryRequest, loadHistoryPage } from "../server/adapters/discord/history_pagination.js";
 import { handleInteraction } from "../server/adapters/discord/interactions.js";
 import { handleMessage } from "../server/adapters/discord/commands.js";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { SessionManager } from "../server/core/session_manager.js";
 
 function button(page: unknown, label: string): any {
@@ -141,7 +141,7 @@ test("history fetch failures acknowledge and preserve the existing card", async 
 });
 
 test("history APIs preserve filters and both cursors without resuming a stored thread", async () => {
-  const session = new CodexSession("on-request");
+  const session = new CodexSession("review_sensitive");
   session.initialize = async () => {};
   const requests: any[] = [];
   const response = { data: [], nextCursor: "next", backwardsCursor: "back" };

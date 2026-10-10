@@ -1,5 +1,5 @@
 {
   "extends": "../tsconfig.server.json",
   "compilerOptions": { "noEmit": true, "rootDir": ".." },
-  "include": ["adapter_ports.typecheck.ts"]
+  "include": ["adapter_ports.typecheck.ts", "helpers/independent_provider.ts"]
 }

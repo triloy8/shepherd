@@ -8,7 +8,6 @@ import {
 import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.js";
 import { DISCORD_LIST_PAGE_SIZE, navigationRow } from "./list_pagination.js";
-import { mapTurnActivity } from "../../core/codex_rpc_mapper.js";
 import { formatActivityLine } from "./message_renderer.js";
 import { chunkForDiscord } from "./chunking.js";
 import { normalizeDiscordMarkdown } from "./markdown_normalizer.js";
@@ -56,7 +55,7 @@ function itemLabel(item: HistoryItem): string {
     case "agentMessage": return "Assistant message";
     case "plan": return "Plan";
     case "reasoning": return "Reasoning summary";
-    default: return mapTurnActivity({ item }, "completed")?.label ?? "Activity";
+    default: return item.activity?.label ?? "Activity";
   }
 }
 
@@ -70,7 +69,7 @@ function itemText(item: HistoryItem): string {
   }
   if (item.type === "agentMessage" || item.type === "plan") return String(item.text ?? "");
   if (item.type === "reasoning") return Array.isArray(item.summary) ? item.summary.join(" ") : "";
-  const activity = mapTurnActivity({ item }, "completed");
+  const activity = item.activity;
   return activity ? formatActivityLine(activity) : item.type;
 }
 

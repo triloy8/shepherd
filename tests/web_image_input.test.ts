@@ -15,7 +15,7 @@ test("web images use shared submit and steer input including image-only messages
     h.active.set(c.threadId, "active");
     const response = await h.request(path, "POST", { text: "Compare", images: [png, png] });
     expect((await response.json()).type).toBe("steer");
-    expect(captured).toEqual([{ type: "text", text: "Compare", text_elements: [] }, { type: "image", url: png }, { type: "image", url: png }]);
+    expect(captured).toEqual([{ type: "text", text: "Compare" }, { type: "image", url: png }, { type: "image", url: png }]);
   } finally { h.api.dispose(); }
 });
 

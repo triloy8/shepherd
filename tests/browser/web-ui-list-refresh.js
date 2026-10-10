@@ -1,9 +1,9 @@
 // Run against tests/fixtures/web-ui-host.ts using playwright-cli run-code.
 async (page) => {
-  await page.unroute("**/api/v1/threads?**");
+  await page.unroute("**/api/threads?**");
   let reverse = false;
   let requests = 0;
-  await page.route('**/api/v1/threads?**', async route => {
+  await page.route('**/api/threads?**', async route => {
     requests++;
     await page.waitForTimeout(350);
     const rows = [
@@ -35,6 +35,6 @@ async (page) => {
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await page.waitForTimeout(700);
   if (requests <= beforeFocus) throw Error('Focus did not refresh conversations');
-  await page.unroute('**/api/v1/threads?**');
+  await page.unroute('**/api/threads?**');
   return 'Manual refresh feedback, server ordering, activity refresh and focus refresh passed';
 }

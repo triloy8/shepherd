@@ -41,7 +41,7 @@ function makeConversation() {
         threadCwds.push({ threadId, cwd });
       },
       getThreadState() {
-        return { threadId: "thread-1", sessionId: "session-1", activeTurnId: null, approvalPolicy: "on-request" };
+        return { threadId: "thread-1", sessionId: "session-1", activeTurnId: null, approvalPolicy: "review_sensitive" };
       },
     },
   };
@@ -80,8 +80,8 @@ describe("Discord surface runtime", () => {
     const runtime = createSurfaceRuntime({
       adapter: "discord",
       conversation: conversation as never,
-      approvalPolicy: "on-request",
-      defaultSandbox: "workspace-write",
+      approvalPolicy: "review_sensitive",
+      defaultSandbox: "workspace_write",
       onThreadEvent: (surfaceId, event) => events.push({ surfaceId, event }),
       async cloneGithubRepo() {},
       async resolveGithubRepo(slug) {
@@ -114,8 +114,8 @@ describe("Discord surface runtime", () => {
     const runtime = createSurfaceRuntime({
       adapter: "discord",
       conversation: conversation as never,
-      approvalPolicy: "on-request",
-      defaultSandbox: "workspace-write",
+      approvalPolicy: "review_sensitive",
+      defaultSandbox: "workspace_write",
       onThreadEvent: (surfaceId, event) => events.push({ surfaceId, event }),
       async cloneGithubRepo() {},
       async resolveGithubRepo(slug) {
@@ -132,8 +132,8 @@ describe("Discord surface runtime", () => {
     expect(createdThreads).toHaveLength(1);
     expect(createdThreads[0]?.surfaceId).toBe("chan-1");
     expect(createdThreads[0]?.request).toEqual({
-      approvalPolicy: "on-request",
-      sandbox: "workspace-write",
+      approvalPolicy: "review_sensitive",
+      sandbox: "workspace_write",
     });
     expect(threadCwds).toEqual([
       {

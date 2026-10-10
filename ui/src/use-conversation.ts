@@ -1,3 +1,4 @@
+import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import { startTransition, useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
@@ -18,6 +19,7 @@ export function useConversation(conversation: WebConversation | null) {
   const [chat, setChat] = useState<ChatState>(emptyChat);
   const chatRef = useRef(chat);
   chatRef.current = chat;
+  const [capabilities, setCapabilities] = useState<ProviderCapabilities | null>(null);
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,7 @@ export function useConversation(conversation: WebConversation | null) {
     actionEpoch.current++;
     setStateId(conversation?.id);
     historyEpoch.current++; historyRevision.current = null;
-    setChat(emptyChat()); setApprovals([]); setError(null); setHistoryCursor(null);
+    setChat(emptyChat()); setCapabilities(null); setApprovals([]); setError(null); setHistoryCursor(null);
     setConnection("connecting"); setBusy(false); actionRef.current = false;
     setLoadingHistory(false); historyExpanded.current = false;
     if (!conversation) { refreshRef.current = async () => false; return; }
@@ -77,6 +79,7 @@ export function useConversation(conversation: WebConversation | null) {
             const revision = turnRevision;
             const epoch = historyEpoch.current;
             const stateRequest = api.state(id, abort.signal).then((state) => {
+              if (current()) setCapabilities(state.state.capabilities ?? null);
               if (current() && revision === turnRevision) setChat((chat) => current() && revision === turnRevision && epoch === historyEpoch.current ? ({ ...chat, activeTurnId: state.state.activeTurnId }) : chat);
               return state;
             });
@@ -218,12 +221,13 @@ export function useConversation(conversation: WebConversation | null) {
   // Selection renders before effect cleanup/reset; never show the previous
   // conversation's messages or enabled controls under the new chat's title.
   const selected = stateId === conversation?.id;
-  return { chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
+  return { capabilities: selected ? capabilities : null, chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
     error: selected ? error : null, busy: selected && busy, historyCursor: selected ? historyCursor : null, loadingHistory: selected && loadingHistory, send, loadOlder,
     interrupt: () => action((id) => api.interrupt(id)),
     decide: (approvalId: string, decision: string, answers?: UserQuestionAnswers) => action((id) => api.decide(id, approvalId, decision, answers)),
     revert: async (beforeTurnId: string) => {
       const id = conversation?.id;
+      if (!capabilities?.revert) throw new ApiError(422, "unsupported_provider_operation", "Revert is unavailable for this agent.");
       if (!id || actionRef.current || connection !== "online" || chat.activeTurnId || approvals.length) {
         throw new ApiError(409, "conversation_active", "Wait until the conversation is connected, idle, and has no pending approvals.");
       }

@@ -63,7 +63,7 @@ export function encodeDiscordListPageId(request: DiscordListPageRequest): string
     request.boundaryId ? encodeURIComponent(request.boundaryId) : "",
   ].join("|");
   if (customId.length > 100) {
-    throw new Error("Codex pagination cursor is too long for a Discord component ID.");
+    throw new Error("Provider pagination cursor is too long for a Discord component ID.");
   }
   return customId;
 }
@@ -261,7 +261,7 @@ export function buildModelsListPage(options: {
   if (defaultEntry) lines.push(`- App default: ${defaultEntry.model}`);
   if (lines.length > 0) lines.push("");
   if (options.result.data.length === 0) {
-    lines.push("No models returned by Codex app-server.");
+    lines.push("No models returned by the provider.");
   } else {
     const offset = (options.page - 1) * DISCORD_LIST_PAGE_SIZE;
     for (const [index, entry] of options.result.data.entries()) {

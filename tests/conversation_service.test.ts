@@ -21,7 +21,7 @@ type FakeRouting = {
     surfaceId: string;
     explicitThreadId?: string;
     autoCreateIfMissing?: boolean;
-    approvalPolicyHint?: "untrusted" | "on-request" | "never";
+    approvalPolicyHint?: "review_untrusted" | "review_sensitive" | "bypass";
   }) => Promise<{
     threadId: string;
     created: boolean;

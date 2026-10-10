@@ -233,6 +233,7 @@ describe("Discord interactions", () => {
       },
     };
     const conversation = {
+      getThreadProvider: () => "fixture",
       async listModels() {
         listCalls += 1;
       },
@@ -266,6 +267,7 @@ describe("Discord interactions", () => {
       },
     };
     const conversation = {
+      getThreadProvider: () => "fixture",
       async listModels(request: unknown) {
         requests.push(request);
         return {
@@ -276,7 +278,6 @@ describe("Discord interactions", () => {
             description: "",
             hidden: false,
             isDefault: false,
-            supportsPersonality: true,
           }],
           nextCursor: null,
         };
@@ -290,7 +291,7 @@ describe("Discord interactions", () => {
       getSurfaceThreadId: () => "thread-1",
     });
 
-    expect(requests).toEqual([{ cursor: "models-page-2", limit: 5 }]);
+    expect(requests).toEqual([{ cursor: "models-page-2", limit: 5, provider: "fixture" }]);
     expect(allText(updates[0])).toContain("6. `model-6` [current]");
   });
 

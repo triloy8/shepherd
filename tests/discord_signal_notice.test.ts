@@ -73,7 +73,7 @@ describe("Discord signal notices", () => {
     expect(rendered.body).toContain("**Reported state:** `COMPLETE`");
     expect(rendered.body).toContain("**Producer marked verified:** Yes");
     expect(rendered.body).toContain("**Project:** `P001`");
-    expect(rendered.body).toContain("Codex is checking authoritative workspace state.");
+    expect(rendered.body).toContain("The agent is checking authoritative workspace state.");
   });
 
   test("uses a danger accent for a reported failure", () => {

@@ -22,7 +22,7 @@ export const input = {
 };
 const answers = { provider: { answers: [input.questions[0]!.options![0]!.label] }, notes: { answers: ["Remember my last choice."] } };
 function sessionHarness() {
-  const session = new CodexSession("never");
+  const session = new CodexSession("bypass");
   session.threadId = input.threadId; session.activeTurnId = input.turnId;
   const raw = session as unknown as {
     writeLine: (payload: unknown) => void;
@@ -180,7 +180,7 @@ test("SessionManager expires pending questions when the turn ends or the session
       return session;
     });
     try {
-      await manager.createThread({ approvalPolicy: "never" });
+      await manager.createThread({ approvalPolicy: "bypass" });
       raw.onNotification("turn/started", { threadId: input.threadId, turn: { id: input.turnId } });
       raw.onServerRequest({ id: 7, method: "item/tool/requestUserInput", params: input });
       expect(manager.listApprovals(input.threadId)[0]?.status).toBe("pending");

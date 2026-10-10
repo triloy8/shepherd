@@ -199,9 +199,21 @@ The stream is not a durable event log; history is the recovery source.
 
 Browser disconnection does not interrupt agent work. Detaching a handle releases
 its bindings, subscriptions and replay buffer; it does not archive, cancel or
-stop the underlying Codex session. Interrupt first if that is intended. A host
+stop the underlying provider session. Interrupt first if that is intended. A host
 restart discards all handles and replay cursors. List stored threads and POST a
 new handle using the desired thread ID after restart.
+
+## Provider support
+
+`GET /api/providers` returns capabilities for each registered agent. In addition to
+questions, skills, fork, compact, revert and resets, descriptors advertise `approvalModes`,
+`sandboxModes`, `inputKinds`, `textAnnotations`, `imageDetail`, and `ephemeralThreads`.
+Unsupported operations/settings produce `422 unsupported_provider_operation` before execution.
+Public policy values are `provider_default`, `review_sensitive`, `review_untrusted`, and
+`bypass`; sandbox values are `read_only`, `workspace_write`, and `unrestricted`. Native
+policy spellings and granular SDK policy objects are not accepted. Shared internal thread
+requests use typed `effort` rather than a raw SDK configuration object. Native configuration,
+model backend selectors, and native listing/database filters remain adapter-owned.
 
 ## Limits and failure handling
 
@@ -328,7 +340,7 @@ The action also supports the shared name resolution semantics; the UI always sen
 the listed path to distinguish duplicate names. Unknown/ambiguous names return 400.
 Both writes share the conversation mutation lock and existing origin/host checks.
 
-Skill configuration is shared Codex configuration, not a per-conversation override.
+Skill configuration is shared provider configuration, not a per-conversation override.
 Effective state can differ from the requested value. Reload discovery after changing
 skill files; it does not install skills or restart the host.
 

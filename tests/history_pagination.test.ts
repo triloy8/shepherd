@@ -141,7 +141,7 @@ test("history fetch failures acknowledge and preserve the existing card", async 
 });
 
 test("history APIs preserve filters and both cursors without resuming a stored thread", async () => {
-  const session = new CodexSession("on-request");
+  const session = new CodexSession("review_sensitive");
   session.initialize = async () => {};
   const requests: any[] = [];
   const response = { data: [], nextCursor: "next", backwardsCursor: "back" };

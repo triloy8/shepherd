@@ -18,8 +18,9 @@ const createThread = h.application.createSurfaceThread;
 h.application.createSurfaceThread = async (id, provider = "codex") => { const threadId = await createThread(id); threadProviders.set(threadId, provider); return threadId; };
 Object.assign(h.application.conversation, {
   listProviders: () => [
-    { id: "codex", displayName: "Codex", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: ["read-only", "workspace-write", "danger-full-access"], resets: true } },
-    { id: "claude", displayName: "Claude", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: true, sandboxModes: ["danger-full-access"], resets: false } },
+    { id: "codex", displayName: "Codex", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: ["read_only", "workspace_write", "unrestricted"], approvalModes: ["provider_default", "review_sensitive", "review_untrusted", "bypass"], inputKinds: ["text", "image", "localImage", "audio", "localAudio", "skill", "mention"], textAnnotations: true, imageDetail: true, ephemeralThreads: true, resets: true } },
+    { id: "claude", displayName: "Claude", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: true, sandboxModes: ["unrestricted"], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } },
+    { id: "fixture-text-only", displayName: "Text agent", capabilities: { questions: false, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive"], inputKinds: ["text"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } },
   ],
   getThreadProvider: (threadId: string) => threadProviders.get(threadId) ?? "codex",
   async readAccount(provider: string) {
@@ -65,6 +66,7 @@ Object.assign(h.application, {
   clearSurfaceThread: (id: string) => h.bindings.delete(id),
   async forkSurfaceThread(id: string, source: string) {
     const threadId = `fork-${++sequence}`;
+    threadProviders.set(threadId, threadProviders.get(source) ?? "codex");
     histories.set(threadId, structuredClone(histories.get(source) ?? []));
     names.set(threadId, "Fork copy"); h.bindings.set(id, threadId); h.active.set(threadId, null);
     return threadId;

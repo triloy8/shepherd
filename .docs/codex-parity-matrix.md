@@ -41,9 +41,9 @@ Legacy note:
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
 | `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools |
-| `thread/start` | Partial | Core | Advertises registered experimental `dynamicTools`; missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
-| `thread/resume` | Partial | Core | Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns`; other generated fields are exposed |
-| `thread/fork` | Partial | Core | Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns`; other generated fields are exposed |
+| `thread/start` | Partial | Core | Adapter encodes shared model, effort, instructions, workspace, approval mode, sandbox, ephemeral lifetime, and registered dynamic tools. Raw SDK config/backend/style/analytics selectors are private native settings; no public pass-through. Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
+| `thread/resume` | Partial | Core | Shared typed overrides only; effort maps to native configuration privately. Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns` |
+| `thread/fork` | Partial | Core | Shared typed overrides only; native fields are not exposed wholesale. Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns` |
 | `thread/archive` | Implemented | Core | |
 | `thread/delete` | Missing | Maybe Later | Destructive thread lifecycle path; useful if Shepherd adds stronger thread management UX |
 | `thread/unarchive` | Implemented | Core | |
@@ -61,7 +61,7 @@ Legacy note:
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
 | `thread/rollback` (removed) | Removed | Core | No longer invoked; Discord command returns a retirement notice; web uses turn-based revert |
 | `thread/revert` | Implemented | Core | Explicit `beforeTurnId` cutoff; web Revert from here under persisted user messages; preserves response pagination cursors and resets history; does not revert local file changes |
-| `thread/list` | Partial | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors; missing the hosted-only `originators` filter |
+| `thread/list` | Partial | Core | Shared filters cover archived state, workspaces, search, creation/update sorting, and direction. Native source/backend/database filters stay private. Provider cursors are opaque and catalog merging is generic; hosted-only `originators` is not exposed |
 | `threadSection/list` | Missing | Maybe Later | Useful if Shepherd adds section-based thread organization UX |
 | `threadSection/create` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
 | `threadSection/update` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |

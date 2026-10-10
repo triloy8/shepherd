@@ -4,7 +4,7 @@ import type { ThreadModelState, ThreadEffortState, ModelSummary } from "../../sh
 import type { webHarness } from "./web_harness";
 
 export function installWebSettings(h: ReturnType<typeof webHarness>) {
-  const models: ModelSummary[] = ["small", "large"].map((model) => ({ id: model, model, displayName: model === "small" ? "Small model" : "Large model", description: "Fixture model", hidden: false, isDefault: model === "small", supportsPersonality: false, defaultReasoningEffort: "low", supportedReasoningEfforts: (model === "small" ? ["low"] : ["low", "high"]).map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })) }));
+  const models: ModelSummary[] = ["small", "large"].map((model) => ({ id: model, model, displayName: model === "small" ? "Small model" : "Large model", description: "Fixture model", hidden: false, isDefault: model === "small", defaultReasoningEffort: "low", supportedReasoningEfforts: (model === "small" ? ["low"] : ["low", "high"]).map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })) }));
   const states = new Map<string, ThreadModelState>();
   const efforts = new Map<string, string>();
   const getThreadModel = (threadId: string) => {

@@ -28,6 +28,14 @@ async (page) => {
   await page.getByText('Thanks. I’ll use your answer:', { exact: false }).waitFor();
   if (answers.at(-1)?.answers.provider.answers.length !== 2) throw Error('Multiple answers were not preserved');
   if (['submit', 'accept'].includes(answers.at(-1)?.decision)) throw Error('Native decision leaked into the form');
+  const revert = page.getByRole('button', { name: 'Revert from here', exact: true });
+  if (await revert.count() && !(await revert.first().isDisabled())) throw Error('Claude revert was enabled');
+  await page.getByRole('button', { name: 'Conversation menu', exact: true }).click();
+  const fork = page.getByRole('menuitem', { name: 'Fork conversation', exact: true });
+  await fork.waitFor({ state: 'visible' });
+  if (await fork.isDisabled()) throw Error('Claude fork was unavailable');
+  for (const name of ['Skills', 'Compact conversation']) if (!(await page.getByRole('menuitem', { name, exact: true }).isDisabled())) throw Error(`Claude ${name} was enabled`);
+  await page.keyboard.press('Escape');
   await page.screenshot({ path: '.playwright-cli/provider-interface-mobile-chat.png', fullPage: true });
   await sidebar();
   await page.getByRole('button', { name: 'Usage & limits', exact: true }).click();

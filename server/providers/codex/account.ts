@@ -5,7 +5,7 @@ import { codexAccount } from "./account_presentation.js";
 export class CodexAccount {
   private session: CodexSession | null = null;
   private stopped = false;
-  constructor(private readonly create = () => new CodexSession("on-request")) {}
+  constructor(private readonly create = () => new CodexSession("review_sensitive")) {}
   private async control() {
     if (this.stopped) throw new Error("Account service is stopped.");
     const session = this.session ??= this.create();

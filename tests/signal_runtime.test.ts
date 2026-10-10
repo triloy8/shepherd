@@ -6,7 +6,7 @@ import type { WebhookSignalServerOptions } from "../server/adapters/webhook/serv
 
 function harness() {
   const runtime = new ShepherdRuntime({
-    approvalPolicy: "on-request",
+    approvalPolicy: "review_sensitive",
     deployment: {
       isDeploymentInProgress: () => false,
       async deploy() { throw new Error("unused"); },

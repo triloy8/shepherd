@@ -50,7 +50,6 @@ export function modelsResponse(value: unknown): ListModelsResponse {
           description: asString(record.description) ?? "",
           hidden: record.hidden === true,
           isDefault: record.isDefault === true,
-          supportsPersonality: record.supportsPersonality === true,
           defaultReasoningEffort: asString(record.defaultReasoningEffort),
           supportedReasoningEfforts: (Array.isArray(record.supportedReasoningEfforts) ? record.supportedReasoningEfforts : [])
             .map((value) => {

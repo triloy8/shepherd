@@ -80,7 +80,8 @@ function validateSummary(value: ClaudeThreadSummary, id: string): void {
       typeof value.cwd !== "string" || !value.cwd || typeof value.model !== "string" || !value.model ||
       (value.name !== null && typeof value.name !== "string") || typeof value.preview !== "string" || typeof value.instructions !== "string" ||
       !Number.isFinite(value.createdAt) || !Number.isFinite(value.updatedAt) ||
-      (value.effort !== undefined && !isClaudeEffort(value.effort))) {
+      (value.effort !== undefined && !isClaudeEffort(value.effort)) ||
+      (value.approvalMode !== undefined && !["provider_default", "review_sensitive", "bypass"].includes(value.approvalMode))) {
     throw new InvalidSnapshotError();
   }
 }

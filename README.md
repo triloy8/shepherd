@@ -80,8 +80,7 @@ SHEPHERD_SANDBOX_MODE=workspace_write
 Choose **Codex** or **Claude** in the web UI's new-conversation dialog. The choice
 belongs to the conversation; resume and fork preserve it. Codex remains the
 default. Core/API callers can pass `provider: "claude"` in `CreateThreadRequest`.
-This is separate from `modelProvider`, which configures a model backend within
-Codex.
+Model backend configuration stays in the provider’s native settings.
 
 Claude defaults to subscription authentication (`CLAUDE_AUTH_MODE=subscription`).
 Use your Claude Pro or Max account. On the machine running Shepherd, authenticate
@@ -136,18 +135,19 @@ The compiled Shepherd binary includes the SDK executable for the build host.
 Claude supports text and image messages, streaming, follow-up input, interruption,
 approvals, structured questions (including multiple selections), model/effort selection, stored history, rename, archive, resume, fork,
 and Shepherd dynamic tools through MCP. The common approval policy applies to
-both providers: `bypass` runs Claude with permission bypass; `review_sensitive` and
-`review_all` use Claude's normal permission checks and Shepherd approval prompts.
+both providers: `bypass` runs Claude with permission bypass; `review_sensitive` uses Claude's normal permission checks and Shepherd approval prompts.
+`provider_default` inherits native permission behavior. `review_untrusted` is supported
+only by Codex; unsupported modes are rejected rather than silently downgraded.
 Claude has no sandbox in Shepherd. With `bypass`, Claude can run any command and
 edit any file the Shepherd host user can, without a prompt. Codex with `bypass`
 still applies its configured sandbox. Run Claude conversations on an isolated
-host or container, or keep `on-request` when Claude should ask first.
+host or container, or keep `review_sensitive` when Claude should ask first.
 See the [SDK permission modes](https://code.claude.com/docs/en/agent-sdk/permissions).
-Claude currently accepts only an unset sandbox or `danger-full-access`; it
+Claude currently accepts only an unset sandbox or `unrestricted`; it
 rejects Codex's restricted sandbox modes rather than treating them as enforced.
 Manual compaction, turn revert, audio/file input, and skill management controls
 are unavailable for Claude. Claude loads its own configured project skills.
-The sidebar **Usage & limits** panel has Codex and Claude tabs. It opens on the
+The sidebar **Usage & limits** panel has a discovered agent selector. It opens on the
 selected conversation provider and shows account allowances shared across
 conversations. Claude reports native subscription usage and reset times; unknown
 or stale values are identified. Banked resets remain Codex-only.
@@ -289,14 +289,14 @@ Use `!help` for the command list:
 | Task | Commands |
 | --- | --- |
 | Surface status and listening | `!status`, `!listen [open\|mentions]`, `!pause`, `!resume`, `!detach` |
-| Project and new conversation | `!repo [project]`, `!newthread` |
+| Project and new conversation | `!repo [project]`, `!newthread [provider]`, `!providers` |
 | List conversations | `!threads`, `!threads loaded`, `!threads archived` |
 | Select and inspect | `!thread [id]`, `!threadread [id]` |
 | Rename and fork | `!threadname <name>`, `!fork [id]` |
 | Archive and restore | `!archive [id]`, `!unarchive <id>` |
 | Stored history | `!history [thread-id]`, `!history items <turn-id> [thread-id]` |
 | Model and effort | `!models`, `!model`, `!model set <id>`, `!effort [set <level\|default>]` |
-| Usage | `!context`, `!limits` |
+| Usage | `!context`, `!limits [provider]` |
 | Skills | `!skills [reload]`, `!skill enable <name-or-path>`, `!skill disable <name-or-path>` |
 | Turn and context controls | `!interrupt`, `!compact [id]` |
 | Host lifecycle | `!restart`, `!deploy`, `!deploy branch <name>`, `!deploy status` |

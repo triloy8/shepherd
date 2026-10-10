@@ -15,7 +15,7 @@ function fixture() {
   const abort = new AbortController();
   const context = {
     signal: abort.signal,
-    approvalPolicy: "on-request",
+    approvalPolicy: "review_sensitive",
     createApplication: () => ({}),
     reportHealth: (value: SurfaceHealth) => health.push(value),
     isQuiescing: () => abort.signal.aborted,

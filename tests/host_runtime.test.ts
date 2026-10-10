@@ -3,7 +3,7 @@ import { readRuntimeConfig } from "../server/config/runtime_environment.js";
 import { createHostRuntime, createGithubWorkspacePorts } from "../server/runtime/host_runtime.js";
 
 test("shared host validates configuration without a transport", async () => {
-  expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "on-request", defaultSandbox: undefined, signals: { enabled: false } });
+  expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "provider_default", defaultSandbox: undefined, signals: { enabled: false } });
   expect(() => readRuntimeConfig({ SHEPHERD_SANDBOX_MODE: "typo" })).toThrow("SHEPHERD_SANDBOX_MODE");
   for (const value of ["0", "-1", "NaN", "Infinity"]) {
     expect(() => readRuntimeConfig({ SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS: value })).toThrow("positive number");

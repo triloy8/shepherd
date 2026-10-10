@@ -3,7 +3,7 @@ import { CodexSession } from "../server/providers/codex/session.js";
 import { webHarness } from "./helpers/web_harness.js";
 
 function transport() {
-  const session = new CodexSession("on-request");
+  const session = new CodexSession("review_sensitive");
   session.initialize = async () => {};
   let failure: string | null = null;
   let data: unknown[] = [];

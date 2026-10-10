@@ -3,7 +3,7 @@ import type { ProviderSession } from "../../server/ports/provider_session.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import type { HistoryTurn } from "../../shared/protocol/requests.js";
-export const descriptor: ProviderDescriptor = { id: "unrelated-provider", displayName: "An unrelated agent", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], resets: false } };
+export const descriptor: ProviderDescriptor = { id: "unrelated-provider", displayName: "An unrelated agent", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } };
 
 /** Implements the actual port directly; no SDK session, proxy, or compatibility methods. */
 export class IndependentSession implements ProviderSession {
@@ -11,7 +11,7 @@ export class IndependentSession implements ProviderSession {
   readonly sessionId = crypto.randomUUID();
   readonly eventBus = new EventBus();
   activeTurnId: string | null = null;
-  approvalPolicy = "on-request" as const;
+  approvalPolicy = "review_sensitive" as const;
   inputs: UserInput[] = [];
   stopped = false;
   cwd = "/tmp";
@@ -42,5 +42,5 @@ export class IndependentSession implements ProviderSession {
   async setThreadName() {}
   async archiveThread() {}
   async unarchiveThread() {}
-  async listModels() { return { data: [{ id: "third-model", model: "third-model", displayName: "Third model", description: "", hidden: false, isDefault: true, supportsPersonality: false, defaultReasoningEffort: "focused", supportedReasoningEfforts: [{ reasoningEffort: "focused", description: "Focus" }] }], nextCursor: null }; }
+  async listModels() { return { data: [{ id: "third-model", model: "third-model", displayName: "Third model", description: "", hidden: false, isDefault: true, defaultReasoningEffort: "focused", supportedReasoningEfforts: [{ reasoningEffort: "focused", description: "Focus" }] }], nextCursor: null }; }
 }

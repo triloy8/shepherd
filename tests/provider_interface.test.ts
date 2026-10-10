@@ -60,7 +60,7 @@ test("web discovers and routes an arbitrary provider; retired API prefixes have 
 });
 
 test("account reset calls preserve adapter method ownership and decode native outcomes", async () => {
-  const session = new CodexSession("on-request"); session.initialize = async () => {};
+  const session = new CodexSession("review_sensitive"); session.initialize = async () => {};
   const seen: unknown[] = [];
   Object.assign(session, { sendRequest: async (method: string, params: unknown) => { seen.push({ method, params }); return { outcome: "alreadyRedeemed" }; } });
   const reader = new CodexAccount(() => session);
@@ -81,7 +81,7 @@ test("native input and history fields are encoded and sanitized inside adapters"
 });
 
 test("opaque permission options retain native policy amendments and reject stale ownership", async () => {
-  const session = new CodexSession("on-request"); session.threadId = "thread"; session.activeTurnId = "turn";
+  const session = new CodexSession("review_sensitive"); session.threadId = "thread"; session.activeTurnId = "turn";
   const writes: unknown[] = [], requests: import("../shared/protocol/approvals").ApprovalRequestPayload[] = [];
   const raw = session as unknown as { writeLine(value: unknown): void; onServerRequest(value: unknown): void; onNotification(method: string, value: unknown): void };
   raw.writeLine = value => writes.push(value);

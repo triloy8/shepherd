@@ -1,3 +1,4 @@
+import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { approvalChoices } from "../approval_choices.js";
 import { historyItem, historyTurn } from "../history_mapper.js";
 import { claudeDefaults } from "./defaults.js";
@@ -79,7 +80,7 @@ export class ClaudeSession implements ProviderSession {
   private loadingModels: Promise<ModelInfo[]> | null = null;
   private approvals = new Map<string, { resolve: (result: PermissionResult) => void; input: Record<string, unknown>; suggestions: Parameters<CanUseTool>[2]["suggestions"]; questions?: UserQuestionRequest; replies: Map<string, unknown> }>();
   constructor(
-    public approvalPolicy: P.ApprovalPolicy = "on-request",
+    public approvalPolicy: P.ApprovalPolicy = "provider_default",
     private readonly dynamicTools = new DynamicToolRegistry(),
     private readonly store: ClaudeThreadRepository,
     private readonly sdk = { query, forkSession },
@@ -95,7 +96,7 @@ export class ClaudeSession implements ProviderSession {
     this.validateOverrides(request);
     const nativeId = randomUUID();
     const defaults = claudeDefaults();
-    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: defaults.effort, name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, instructions: [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n"), turns: [] };
+    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeThread["effort"] ?? defaults.effort, name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, instructions: [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n"), turns: [] };
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     this.persist();
     this.publish("thread.started", { approvalPolicy: this.approvalPolicy });
@@ -108,8 +109,10 @@ export class ClaudeSession implements ProviderSession {
     for (const turn of this.thread.turns) if (turn.status === "inProgress") turn.status = "interrupted";
     if (request.cwd) this.thread.cwd = request.cwd;
     if (request.model) this.thread.model = request.model;
+    if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
     if (request.baseInstructions !== undefined || request.developerInstructions !== undefined) this.thread.instructions = [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n");
-    this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
+    this.approvalPolicy = request.approvalPolicy ?? this.thread.approvalMode ?? this.approvalPolicy;
+    assertApprovalSupport("Claude", this.capabilities, this.approvalPolicy);
     this.persist();
     if (this.thread.tokenUsage) this.publish("thread.tokenUsage.updated", { turnId: null, tokenUsage: this.thread.tokenUsage });
     return this.bootstrap();
@@ -117,6 +120,8 @@ export class ClaudeSession implements ProviderSession {
   async forkThread(id: string, request: P.ForkThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize(); this.validateOverrides(request);
     const source = this.store.read(id);
+    const policy = request.approvalPolicy ?? source.approvalMode ?? this.approvalPolicy;
+    assertApprovalSupport("Claude", this.capabilities, policy);
     if (source.turns.some(turn => turn.status === "inProgress")) throw new Error("Cannot fork an active Claude thread.");
     // The transcript stays in the project directory where it began. A thread's cwd can
     // later move to another workspace, so let the SDK search every project directory.
@@ -124,21 +129,22 @@ export class ClaudeSession implements ProviderSession {
     this.thread = { ...source, id: `claude-${nativeId}`, nativeId, name: null, archived: false, createdAt: Date.now() / 1000, turns: structuredClone(source.turns) };
     if (request.cwd) this.thread.cwd = request.cwd;
     if (request.model) this.thread.model = request.model;
+    if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
     if (request.baseInstructions !== undefined || request.developerInstructions !== undefined) this.thread.instructions = [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n");
-    this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
+    this.approvalPolicy = policy;
     this.persist(); return this.bootstrap();
   }
   private validateOverrides(request: P.CreateThreadRequest | P.ResumeThreadRequest) {
-    if (request.sandbox && request.sandbox !== "danger-full-access") throw new UnsupportedProviderOperationError("Claude", `sandbox mode ${request.sandbox}; use a sandboxed host or danger-full-access`);
-    if (typeof request.approvalPolicy === "object") throw new UnsupportedProviderOperationError("Claude", "granular approval policies");
-    if (request.config || request.modelProvider || request.personality) throw new UnsupportedProviderOperationError("Claude", "configuration, backend, or personality overrides");
-    if ("ephemeral" in request && request.ephemeral) throw new UnsupportedProviderOperationError("Claude", "ephemeral threads");
+    assertThreadSupport("Claude", this.capabilities, request);
+    assertApprovalSupport("Claude", this.capabilities, request.approvalPolicy ?? this.approvalPolicy);
+    if (request.effort && !isClaudeEffort(request.effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
   }
   async startTurn(input: UserInput[], policy?: P.ApprovalPolicy, model?: string, cwd?: string, effort?: string): Promise<string> {
     await this.initialize();
     if (this.activeTurnId) throw new Error("A Claude turn is already active.");
     const thread = this.requireThread();
-    if (typeof policy === "object") throw new UnsupportedProviderOperationError("Claude", "granular approval policies");
+    assertApprovalSupport("Claude", this.capabilities, policy ?? this.approvalPolicy);
+    assertInputSupport("Claude", this.capabilities, input);
     if (effort && !isClaudeEffort(effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
     const message = this.userMessage(input);
     const nextPolicy = policy ?? this.approvalPolicy;
@@ -158,8 +164,8 @@ export class ClaudeSession implements ProviderSession {
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
       includePartialMessages: true, settingSources: ["user", "project", "local"],
       systemPrompt: { type: "preset", preset: "claude_code", append: thread.instructions || undefined },
-      permissionMode: this.approvalPolicy === "never" ? "bypassPermissions" : "default",
-      ...(this.approvalPolicy === "never" ? { allowDangerouslySkipPermissions: true } : {}),
+      permissionMode: this.approvalPolicy === "bypass" ? "bypassPermissions" : "default",
+      ...(this.approvalPolicy === "bypass" ? { allowDangerouslySkipPermissions: true } : {}),
       canUseTool: (name, args, context) => this.requestApproval(name, args, context),
       mcpServers: shepherdMcpServers(this.dynamicTools, () => this.activeTurnId ? { threadId: thread.id, turnId: this.activeTurnId } : null),
     };
@@ -333,7 +339,7 @@ export class ClaudeSession implements ProviderSession {
   private requestApproval(name: string, input: Record<string, unknown>, context: Parameters<CanUseTool>[2]): Promise<PermissionResult> {
     if (context.signal.aborted || this.stopped || !this.running) return Promise.resolve({ behavior: "deny", message: "Turn is no longer active." });
     if (!this.activeTurnId) this.beginWakeTurn();
-    if (this.approvalPolicy === "never" && name !== "AskUserQuestion") return Promise.resolve({ behavior: "allow", updatedInput: input });
+    if (this.approvalPolicy === "bypass" && name !== "AskUserQuestion") return Promise.resolve({ behavior: "allow", updatedInput: input });
     const approvalId = randomUUID();
     const questions = name === "AskUserQuestion" ? claudeQuestions(input, this.requireThread().id, this.activeTurnId!, approvalId) : undefined;
     const suggestions = context.suppressAlwaysAllowRule ? undefined : context.suggestions?.map(update => ({ ...update, destination: "session" as const }));
@@ -367,6 +373,7 @@ export class ClaudeSession implements ProviderSession {
     return { approvalId };
   }
   async steerTurn(input: UserInput[], turnId?: string): Promise<string> {
+    assertInputSupport("Claude", this.capabilities, input);
     if (!this.input || !this.activeTurnId || (turnId && turnId !== this.activeTurnId)) throw new Error("No matching active Claude turn.");
     const message = this.userMessage(input);
     this.input.push(message); this.steeredMessages++;
@@ -391,7 +398,7 @@ export class ClaudeSession implements ProviderSession {
   async readThread(id: string, includeTurns: boolean) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); return { thread: this.record(thread, includeTurns) }; }
   private record(thread: ClaudeThreadSummary & { turns?: P.HistoryTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, modelProvider: "anthropic", source: "appServer", ...(includeTurns ? { turns: (thread.turns ?? []).map(historyTurn) } : {}) }; }
   async listStoredThreads(request: P.ListStoredThreadsRequest) {
-    const threads = this.store.list().filter((t) => t.archived === (request.archived ?? false) && (!request.searchTerm || `${t.name ?? ""} ${t.preview}`.toLowerCase().includes(request.searchTerm.toLowerCase())) && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(t.cwd) : request.cwd === t.cwd)) && (!request.modelProviders || request.modelProviders.includes("anthropic")) && (!request.sourceKinds || request.sourceKinds.includes("appServer")));
+    const threads = this.store.list().filter((t) => t.archived === (request.archived ?? false) && (!request.searchTerm || `${t.name ?? ""} ${t.preview}`.toLowerCase().includes(request.searchTerm.toLowerCase())) && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(t.cwd) : request.cwd === t.cwd)));
     const key = request.sortKey === "created_at" ? "createdAt" : "updatedAt";
     threads.sort((a, b) => (request.sortDirection === "asc" ? 1 : -1) * (a[key] - b[key]));
     return paginate(threads.map((t) => this.record(t)), request);
@@ -462,7 +469,7 @@ export class ClaudeSession implements ProviderSession {
   private requireThread(): ClaudeThread { if (!this.thread) throw new Error("Claude thread is not bound."); return this.thread; }
   private persist() {
     if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
-    const thread = this.requireThread(); thread.updatedAt = Date.now() / 1000; this.store.write(thread);
+    const thread = this.requireThread(); thread.approvalMode = this.approvalPolicy; thread.updatedAt = Date.now() / 1000; this.store.write(thread);
   }
   /** Streamed blocks arrive quickly; coalesce their snapshot writes. Turn boundaries persist immediately. */
   private persistSoon() {

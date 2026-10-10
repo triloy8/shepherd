@@ -1,6 +1,7 @@
-import type { SandboxMode } from "./requests.js";
+import type { ApprovalPolicy, SandboxMode } from "./requests.js";
+import type { UserInput } from "./user_input.js";
 
-/** Operations offered by Shepherd. Model-specific controls belong to the catalog. */
+/** Support is advertised before a request is sent; unsupported settings never silently degrade. */
 export interface ProviderCapabilities {
   questions: boolean;
   skills: boolean;
@@ -8,4 +9,9 @@ export interface ProviderCapabilities {
   revert: boolean;
   fork: boolean;
   sandboxModes: readonly SandboxMode[];
+  approvalModes: readonly ApprovalPolicy[];
+  inputKinds: readonly UserInput["type"][];
+  textAnnotations: boolean;
+  imageDetail: boolean;
+  ephemeralThreads: boolean;
 }

@@ -9,7 +9,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(entries.map((entry) => {
     const file = path.join(directory, entry.name);
-    return entry.isDirectory() ? sourceFiles(file) : Promise.resolve(file.endsWith(".ts") ? [file] : []);
+    return entry.isDirectory() ? sourceFiles(file) : Promise.resolve(/\.tsx?$/.test(file) ? [file] : []);
   }));
   return nested.flat();
 }
@@ -98,7 +98,7 @@ test("provider SDKs and persistence stay outside application and transport layer
 });
 
 test("application contracts and ports cannot depend on provider implementations or identities", async () => {
-  const files = [...await sourceFiles(path.join(root, "shared/protocol")), ...await sourceFiles(path.join(root, "server/core")), path.join(root, "server/ports/provider_session.ts"), path.join(root, "server/ports/provider_services.ts")];
+  const files = [...await sourceFiles(path.join(root, "shared/protocol")), ...await sourceFiles(path.join(root, "server/core")), ...await sourceFiles(path.join(root, "server/adapters")), ...await sourceFiles(path.join(root, "ui/src")), path.join(root, "server/ports/provider_session.ts"), path.join(root, "server/ports/provider_services.ts"), path.join(root, "server/storage/thread_provider_directory.ts"), path.join(root, "server/runtime/provider_registration.ts")];
   const violations: string[] = [];
   for (const file of files) {
     const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
@@ -113,8 +113,8 @@ test("application contracts and ports cannot depend on provider implementations 
           violations.push(`${path.relative(root, file)} -> ${expression.text}`);
         }
       }
-      if (!file.endsWith("provider_defaults.ts") && ts.isStringLiteralLike(node) && ["codex", "claude"].includes(node.text)) {
-        violations.push(`${path.relative(root, file)} contains a fixed provider identity`);
+      if (ts.isStringLiteralLike(node) && ["codex", "claude", "on-request", "untrusted", "never", "read-only", "workspace-write", "danger-full-access"].includes(node.text)) {
+        violations.push(`${path.relative(root, file)} contains a native provider identity or policy spelling`);
       }
       ts.forEachChild(node, visit);
     }

@@ -16,7 +16,7 @@ import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
 import type { AgentProvider } from "../../shared/protocol/requests.js";
 
 type ControlConversation = {
-  getThreadProvider?: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
+  getThreadProvider: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
   getThreadEffort: (threadId: string) => Promise<ThreadEffortState>;
   setThreadEffort: (threadId: string, effort: string) => Promise<ThreadEffortState>;
   listSkills: (threadId: string, request: Record<string, never>) => Promise<SkillsListResponse>;
@@ -45,7 +45,7 @@ export type ControlActionsContext = {
   getSurfaceThreadId: (surfaceId: string) => string | null;
   getSurfaceProject: (surfaceId: string) => string | null;
   setSurfaceProject: (surfaceId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
-  createSurfaceThread?: (surfaceId: string) => Promise<string>;
+  createSurfaceThread?: (surfaceId: string, provider?: AgentProvider) => Promise<string>;
   switchSurfaceThread?: (surfaceId: string, threadId: string) => Promise<string>;
   forkSurfaceThread?: (surfaceId: string, sourceThreadId: string) => Promise<string>;
   clearSurfaceThread?: (surfaceId: string) => void;
@@ -63,7 +63,7 @@ export type ControlActionRequest =
   | { type: "context.read"; surfaceId: string }
   | { type: "skill.set-enabled"; surfaceId: string; requestedSkill: string; enabled: boolean }
   | { type: "thread.get-current"; surfaceId: string }
-  | { type: "thread.create"; surfaceId: string }
+  | { type: "thread.create"; surfaceId: string; provider?: AgentProvider }
   | { type: "thread.switch"; surfaceId: string; threadId: string }
   | { type: "thread.rename"; surfaceId: string; name: string }
   | { type: "thread.read"; surfaceId: string; threadId?: string }
@@ -157,14 +157,14 @@ export async function executeControlAction(
   }
   if (request.type === "limits.read") {
     const threadId = request.surfaceId ? context.getSurfaceThreadId(request.surfaceId) : null;
-    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider?.(threadId) : undefined) ?? context.conversation.listProviders()[0]?.id;
+    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider(threadId) : undefined) ?? context.conversation.listProviders()[0]?.id;
     if (!provider) throw new Error("No agent provider is configured.");
     return { type: request.type, limits: await context.conversation.readAccount(provider, request.refresh) };
   }
 
   if (request.type === "models.list") {
     const threadId = context.getSurfaceThreadId(request.surfaceId);
-    const provider = threadId ? context.conversation.getThreadProvider?.(threadId) : undefined;
+    const provider = threadId ? context.conversation.getThreadProvider(threadId) : undefined;
     const models = await context.conversation.listModels({
       cursor: request.cursor,
       limit: request.limit ?? 20,
@@ -187,7 +187,7 @@ export async function executeControlAction(
       };
     }
 
-    const provider = context.conversation.getThreadProvider?.(threadId);
+    const provider = context.conversation.getThreadProvider(threadId);
     let cursor: string | undefined;
     let resolved: ModelSummary | null = null;
     const seenCursors = new Set<string>();
@@ -246,7 +246,7 @@ export async function executeControlAction(
     }
     return {
       type: "thread.create",
-      threadId: await context.createSurfaceThread(request.surfaceId),
+      threadId: await context.createSurfaceThread(request.surfaceId, request.provider),
     };
   }
 

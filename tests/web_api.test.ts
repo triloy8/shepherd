@@ -89,7 +89,7 @@ test("approval choices are validated without consuming invalid requests; duplica
 test("malformed requests and oversized bodies never invoke conversation creation", async () => {
   const h = webHarness();
   try {
-    for (const data of [null, [], {}, { project: "" }, { project: "~", sandbox: "danger-full-access" }, { project: "~", threadId: "../../escape" }]) {
+    for (const data of [null, [], {}, { project: "" }, { project: "~", sandbox: "unrestricted" }, { project: "~", threadId: "../../escape" }]) {
       expect((await h.request("/conversations", "POST", data)).status).toBe(400);
     }
     expect((await h.request("/conversations", "POST", { project: "~" }, { "content-type": "text/plain" })).status).toBe(415);

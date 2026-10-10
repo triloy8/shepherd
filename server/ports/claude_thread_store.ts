@@ -10,6 +10,7 @@ export type ClaudeThread = {
   createdAt: number; updatedAt: number; instructions: string;
   turns: P.HistoryTurn[];
   tokenUsage?: P.ThreadTokenUsage;
+  approvalMode?: P.ApprovalPolicy;
 };
 
 /** Listing metadata. Reading it must not load conversation history. */

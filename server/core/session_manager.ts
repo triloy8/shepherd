@@ -1,3 +1,4 @@
+import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../shared/protocol/provider_support.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
 import { ApplicationActionError } from "./action_error.js";
 import type {
@@ -109,7 +110,10 @@ export class SessionManager {
     this.assertRunning();
     this.threadProvider(threadId, request.provider);
     const existing = this.sessionsByThread.get(threadId);
-    if (existing) return { threadId, sessionId: existing.session.sessionId };
+    if (existing) {
+      assertThreadSupport(this.threadProvider(threadId), existing.session.capabilities, request);
+      return { threadId, sessionId: existing.session.sessionId };
+    }
     const pending = this.resuming.get(threadId);
     if (pending) return pending;
     const operation = this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session) => session.resumeThread(threadId, request));
@@ -123,11 +127,13 @@ export class SessionManager {
   }
 
   private async bootstrap(
-    request: { approvalPolicy?: ApprovalPolicy; cwd?: string; provider?: AgentProvider },
+    request: CreateThreadRequest,
     start: (session: ProviderSession) => ReturnType<ProviderSession["startThread"]>,
   ): Promise<CreateThreadResponse> {
-    const session = this.allocateSession(request.approvalPolicy ?? "on-request", request.provider ?? this.defaultProvider());
+    const session = this.allocateSession(request.approvalPolicy ?? "provider_default", request.provider ?? this.defaultProvider());
     try {
+      assertThreadSupport(request.provider ?? this.defaultProvider(), session.capabilities, request);
+      assertApprovalSupport(request.provider ?? this.defaultProvider(), session.capabilities, request.approvalPolicy ?? session.approvalPolicy);
       const created = await start(session);
       this.assertRunning();
       this.providerDirectory.bind(created.threadId, request.provider ?? this.defaultProvider());
@@ -374,6 +380,8 @@ export class SessionManager {
 
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     const managed = this.mustGet(threadId);
+    assertApprovalSupport(this.threadProvider(threadId), managed.session.capabilities, request.approvalPolicy ?? managed.session.approvalPolicy);
+    assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     const modelState = this.modelStateByThread.get(threadId);
     const model = request.model ?? modelState?.pendingModel ?? undefined;
     const cwd = await this.resolveThreadCwd(threadId);
@@ -404,6 +412,7 @@ export class SessionManager {
 
   async steerTurn(threadId: string, request: SteerTurnRequest): Promise<SteerTurnResponse> {
     const managed = this.mustGet(threadId);
+    assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     const turnId = await managed.session.steerTurn(request.input, request.turnId);
     return { ok: true, turnId };
   }
@@ -542,7 +551,7 @@ export class SessionManager {
     if (existing) return existing;
     const pending = this.controlSessionStarting.get(provider);
     if (pending) return pending;
-    const session = this.allocateSession("on-request", provider);
+    const session = this.allocateSession("provider_default", provider);
     const starting = (async () => {
       try {
         await session.initialize();

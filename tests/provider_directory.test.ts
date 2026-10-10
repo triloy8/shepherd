@@ -20,7 +20,7 @@ test("provider bindings survive restart and override legacy-looking IDs", () => 
   expect(second.resolve("legacy-id")).toBe("claude");
   expect(() => second.bind("claude-looking-but-codex", "claude")).toThrow("Cannot change");
   second.bind("claude-looking-but-codex", "codex");
-  expect(readdirSync(path)).toHaveLength(1);
+  expect(readdirSync(path)).toHaveLength(2);
 });
 
 test("opaque IDs cannot escape binding storage and corrupt bindings do not silently change providers", () => {

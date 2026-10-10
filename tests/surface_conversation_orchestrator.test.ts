@@ -82,7 +82,7 @@ function makeHarness(options: { provisioningFailures?: number } = {}) {
     conversation as never,
     surfaceState,
     workspaceProvisioner,
-    { adapter: "discord", approvalPolicy: "on-request", sandbox: "workspace-write" },
+    { adapter: "discord", approvalPolicy: "review_sensitive", sandbox: "workspace_write" },
   );
 
   return { orchestrator, surfaceState, calls, conversation, workspaceProvisioner };
@@ -118,8 +118,8 @@ describe("SurfaceConversationOrchestrator", () => {
     expect(threadId).toBe("thread-created");
     expect(calls.createSurfaceThread).toHaveLength(1);
     expect(calls.createSurfaceThread[0]?.request).toEqual({
-      approvalPolicy: "on-request",
-      sandbox: "workspace-write",
+      approvalPolicy: "review_sensitive",
+      sandbox: "workspace_write",
     });
     expect(calls.provisionWorkspace).toEqual([{ threadId: "thread-created" }]);
     expect(calls.setThreadCwd).toEqual([{ threadId: "thread-created", cwd: "/tmp/thread-created" }]);
@@ -182,7 +182,7 @@ describe("SurfaceConversationOrchestrator", () => {
     });
     expect(calls.resumeThread).toContainEqual({
       threadId: "thread-missing",
-      request: { cwd: "/saved/thread-missing", sandbox: "workspace-write" },
+      request: { cwd: "/saved/thread-missing", sandbox: "workspace_write" },
     });
   });
 

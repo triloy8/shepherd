@@ -6,7 +6,6 @@ import type {
   ForkThreadRequest,
   ListLoadedThreadsRequest,
   ListStoredThreadsRequest,
-  Personality,
   ReadThreadRequest,
   ResumeThreadRequest,
   RevertThreadRequest,
@@ -18,30 +17,16 @@ import type {
   SkillsListRequest,
   InterruptTurnRequest,
   ThreadSortKey,
-  ThreadSourceKind,
   SubmitTurnRequest,
 } from "./requests.js";
 import { toTextUserInput, type UserInput, type UserInputTextElement } from "./user_input.js";
 
-const APPROVAL_POLICIES = ["untrusted", "on-request", "never"] as const;
-const SANDBOX_MODES: SandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
-const PERSONALITIES: Personality[] = ["none", "friendly", "pragmatic"];
-const THREAD_SORT_KEYS: ThreadSortKey[] = ["created_at", "updated_at", "recency_at"];
+const APPROVAL_POLICIES = ["provider_default", "review_untrusted", "review_sensitive", "bypass"] as const;
+const SANDBOX_MODES: SandboxMode[] = ["read_only", "workspace_write", "unrestricted"];
+const THREAD_SORT_KEYS: ThreadSortKey[] = ["created_at", "updated_at"];
 const SORT_DIRECTIONS: SortDirection[] = ["asc", "desc"];
-const THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
-  "cli",
-  "vscode",
-  "exec",
-  "appServer",
-  "subAgent",
-  "subAgentReview",
-  "subAgentCompact",
-  "subAgentThreadSpawn",
-  "subAgentOther",
-  "unknown",
-];
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object";
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export function validateCreateThreadRequest(value: unknown): CreateThreadRequest {
@@ -51,12 +36,10 @@ export function validateCreateThreadRequest(value: unknown): CreateThreadRequest
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
-    approvalPolicy: parseApprovalPolicy(value.approvalPolicy) ?? "on-request",
+    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
     ...(cwd ? { cwd } : {}),
-    personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
     ephemeral: parseOptionalBoolean(value.ephemeral, "ephemeral"),
-    serviceName: parseOptionalString(value.serviceName, "serviceName"),
   };
 }
 
@@ -85,12 +68,6 @@ function parseOptionalString(value: unknown, name: string): string | undefined {
   return value.trim();
 }
 
-function parseOptionalObject(value: unknown, name: string): Record<string, unknown> | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  if (!isRecord(value)) throw new Error(`Invalid ${name}.`);
-  return value;
-}
-
 function parseOptionalEnum<T extends string>(
   value: unknown,
   name: string,
@@ -103,15 +80,19 @@ function parseOptionalEnum<T extends string>(
   return value as T;
 }
 
+function assertFields(value: Record<string, unknown>, allowed: readonly string[]): void {
+  for (const key of Object.keys(value)) if (!allowed.includes(key)) throw new Error(`Unsupported request field: ${key}.`);
+}
+
 function parseCommonThreadOverrides(value: Record<string, unknown>) {
+  assertFields(value, ["provider", "approvalPolicy", "baseInstructions", "developerInstructions", "cwd", "sandbox", "model", "effort", "ephemeral"]);
   return {
     provider: parseOptionalString(value.provider, "provider"),
     baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
     developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
-    config: parseOptionalObject(value.config, "config"),
     sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
     model: parseOptionalString(value.model, "model"),
-    modelProvider: parseOptionalString(value.modelProvider, "modelProvider"),
+    effort: parseOptionalString(value.effort, "effort"),
   };
 }
 
@@ -151,6 +132,14 @@ function parseUserInput(value: unknown, name: string): UserInput {
     throw new Error(`Invalid ${name}.`);
   }
 
+  const fields: Record<string, readonly string[]> = {
+    text: ["type", "text", "annotations"], image: ["type", "url", "detail"],
+    localImage: ["type", "path", "detail"], audio: ["type", "url"], localAudio: ["type", "path"],
+    skill: ["type", "name", "path"], mention: ["type", "name", "path"],
+  };
+  const allowed = Object.hasOwn(fields, value.type) ? fields[value.type] : undefined;
+  if (!allowed) throw new Error(`Invalid ${name}.`);
+  assertFields(value, allowed);
   switch (value.type) {
     case "text": {
       if (typeof value.text !== "string" || !value.text.trim()) {
@@ -236,15 +225,11 @@ function parseImageDetail(value: unknown, name: string): "auto" | "low" | "high"
 
 export function validateListStoredThreadsRequest(value: unknown): ListStoredThreadsRequest {
   if (!isRecord(value)) throw new Error("Invalid list threads payload.");
+  assertFields(value, ["archived", "cursor", "cwd", "limit", "searchTerm", "sortDirection", "sortKey"]);
 
   const sortKey = parseOptionalString(value.sortKey, "sortKey");
   if (sortKey && !THREAD_SORT_KEYS.includes(sortKey as ThreadSortKey)) {
     throw new Error("Invalid sort key.");
-  }
-
-  const sourceKinds = parseOptionalStringList(value.sourceKinds, "sourceKinds");
-  if (sourceKinds && sourceKinds.some((kind) => !THREAD_SOURCE_KINDS.includes(kind as ThreadSourceKind))) {
-    throw new Error("Invalid source kind.");
   }
 
   const sortDirection = parseOptionalString(value.sortDirection, "sortDirection");
@@ -262,12 +247,9 @@ export function validateListStoredThreadsRequest(value: unknown): ListStoredThre
     cursor: parseOptionalString(value.cursor, "cursor"),
     cwd,
     limit: parseOptionalPositiveInteger(value.limit, "limit"),
-    modelProviders: parseOptionalStringList(value.modelProviders, "modelProviders"),
     searchTerm: parseOptionalString(value.searchTerm, "searchTerm"),
     sortDirection: sortDirection as SortDirection | undefined,
     sortKey: sortKey as ThreadSortKey | undefined,
-    sourceKinds: sourceKinds as ThreadSourceKind[] | undefined,
-    useStateDbOnly: parseOptionalBoolean(value.useStateDbOnly, "useStateDbOnly"),
   };
 }
 
@@ -291,44 +273,24 @@ function parseApprovalPolicy(value: unknown): ApprovalPolicy | undefined {
   if (typeof value === "string" && APPROVAL_POLICIES.includes(value as (typeof APPROVAL_POLICIES)[number])) {
     return value as ApprovalPolicy;
   }
-  if (isRecord(value) && isRecord(value.granular)) {
-    const granular = value.granular;
-    const keys = [
-      "sandbox_approval",
-      "rules",
-      "skill_approval",
-      "request_permissions",
-      "mcp_elicitations",
-    ] as const;
-    if (keys.every((key) => typeof granular[key] === "boolean")) {
-      return {
-        granular: {
-          sandbox_approval: granular.sandbox_approval as boolean,
-          rules: granular.rules as boolean,
-          skill_approval: granular.skill_approval as boolean,
-          request_permissions: granular.request_permissions as boolean,
-          mcp_elicitations: granular.mcp_elicitations as boolean,
-        },
-      };
-    }
-  }
   throw new Error("Invalid approval policy.");
 }
 
 export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid resume payload.");
+  if ("ephemeral" in value) throw new Error("Unsupported request field: ephemeral.");
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
     ...(cwd ? { cwd } : {}),
-    personality: parseOptionalEnum(value.personality, "personality", PERSONALITIES),
   };
 }
 
 export function validateForkThreadRequest(value: unknown): ForkThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid fork payload.");
+  if ("ephemeral" in value) throw new Error("Unsupported request field: ephemeral.");
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
@@ -356,6 +318,7 @@ export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
   if (!isRecord(value)) {
     throw new Error("Invalid turn payload.");
   }
+  assertFields(value, ["input", "approvalPolicy", "model", "effort"]);
   return {
     input: parseUserInputArray(value.input, "input"),
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
@@ -378,6 +341,7 @@ export function validateSteerTurnRequest(value: unknown): SteerTurnRequest {
   if (!isRecord(value)) {
     throw new Error("Invalid steer payload.");
   }
+  assertFields(value, ["input", "turnId"]);
   if (value.turnId !== undefined && typeof value.turnId !== "string") {
     throw new Error("Invalid turn id.");
   }

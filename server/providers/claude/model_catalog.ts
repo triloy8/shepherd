@@ -10,7 +10,7 @@ export function claudeModelCatalog(models: ModelInfo[], defaults: ReturnType<typ
   function row(model: ModelInfo, id: string, hidden: boolean): ModelSummary {
     const efforts = model.supportedEffortLevels ?? [];
     return { id, model: id, displayName: model.displayName, description: model.description,
-      hidden, isDefault: !hidden && id === defaultModel, supportsPersonality: false,
+      hidden, isDefault: !hidden && id === defaultModel,
       defaultReasoningEffort: model.supportsEffort && efforts.includes(defaults.effort) ? defaults.effort : null,
       supportedReasoningEfforts: efforts.map(reasoningEffort => ({ reasoningEffort, description: "" })) };
   }

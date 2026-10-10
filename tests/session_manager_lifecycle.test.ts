@@ -108,7 +108,7 @@ test("failed thread bootstrap releases its session", async () => {
 });
 
 test("explicitly stopped Codex sessions cannot spawn a new process", async () => {
-  const session = new CodexSession("on-request");
+  const session = new CodexSession("review_sensitive");
   session.stop();
   await expect(session.start()).rejects.toThrow("stopped");
   await expect(session.initialize()).rejects.toThrow("stopped");

@@ -36,7 +36,7 @@ function harness(options: { activeTurnId?: string | null; surface?: boolean; cap
           threadId,
           sessionId: "session-1",
           activeTurnId: options.activeTurnId === undefined ? "turn-1" : options.activeTurnId,
-          approvalPolicy: "on-request",
+          approvalPolicy: "review_sensitive",
         };
       },
       async getThreadCwd() { return "/workspace"; },

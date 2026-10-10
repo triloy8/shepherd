@@ -61,6 +61,4 @@ export interface ProviderCatalog {
 
 export interface ProviderSession extends ProviderExecution, ProviderHistory, ProviderCatalog {}
 
-export class UnsupportedProviderOperationError extends Error {
-  constructor(provider: string, operation: string) { super(`${provider} provider does not support ${operation}.`); }
-}
+export { UnsupportedProviderOperationError } from "../../shared/protocol/provider_support.js";

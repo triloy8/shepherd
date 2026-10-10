@@ -16,7 +16,7 @@ function makeInput(overrides?: Partial<Parameters<typeof executeTurnRouting>[1]>
     handled: false,
     threadId: "thread-1",
     input: [toTextUserInput("hello")],
-    approvalPolicy: "on-request" as const,
+    approvalPolicy: "review_sensitive" as const,
     ...overrides,
   };
 }
@@ -29,7 +29,7 @@ describe("TurnRoutingService", () => {
         conversation: {
           getThreadState() {
             calls += 1;
-            return { threadId: "thread-1", sessionId: "session-1", activeTurnId: null, approvalPolicy: "on-request" };
+            return { threadId: "thread-1", sessionId: "session-1", activeTurnId: null, approvalPolicy: "review_sensitive" };
           },
           async submitTurn() {
             calls += 1;
@@ -54,7 +54,7 @@ describe("TurnRoutingService", () => {
       {
         conversation: {
           getThreadState() {
-            return { threadId: "thread-1", sessionId: "session-1", activeTurnId: null, approvalPolicy: "on-request" };
+            return { threadId: "thread-1", sessionId: "session-1", activeTurnId: null, approvalPolicy: "review_sensitive" };
           },
           async submitTurn(threadId, request) {
             submits.push({ threadId, input: request.input, approvalPolicy: request.approvalPolicy });
@@ -70,7 +70,7 @@ describe("TurnRoutingService", () => {
 
     expect(result).toEqual({ type: "submit", threadId: "thread-1", turnId: "turn-submit" });
     expect(submits).toEqual([
-      { threadId: "thread-1", input: [toTextUserInput("hello")], approvalPolicy: "on-request" },
+      { threadId: "thread-1", input: [toTextUserInput("hello")], approvalPolicy: "review_sensitive" },
     ]);
   });
 
@@ -80,7 +80,7 @@ describe("TurnRoutingService", () => {
       {
         conversation: {
           getThreadState() {
-            return { threadId: "thread-1", sessionId: "session-1", activeTurnId: "turn-active", approvalPolicy: "on-request" };
+            return { threadId: "thread-1", sessionId: "session-1", activeTurnId: "turn-active", approvalPolicy: "review_sensitive" };
           },
           async submitTurn() {
             throw new Error("unexpected submit");
@@ -104,7 +104,7 @@ describe("TurnRoutingService", () => {
       {
         conversation: {
           getThreadState() {
-            return { threadId: "thread-1", sessionId: "session-1", activeTurnId: "turn-active", approvalPolicy: "on-request" };
+            return { threadId: "thread-1", sessionId: "session-1", activeTurnId: "turn-active", approvalPolicy: "review_sensitive" };
           },
           async submitTurn(threadId, request) {
             submits.push({ threadId, input: request.input });

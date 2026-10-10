@@ -2,32 +2,11 @@ import type { ProviderCapabilities } from "./provider_capabilities.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { UserInput } from "./user_input.js";
 
-export type GranularApprovalPolicy = {
-  granular: {
-    sandbox_approval: boolean;
-    rules: boolean;
-    skill_approval: boolean;
-    request_permissions: boolean;
-    mcp_elicitations: boolean;
-  };
-};
-export type ApprovalPolicy = "untrusted" | "on-request" | "never" | GranularApprovalPolicy;
-export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
-export type Personality = "none" | "friendly" | "pragmatic";
-export type ThreadSortKey = "created_at" | "updated_at" | "recency_at";
+/** Review thresholds refer to the provider's trust/permission model. No mode promises universal review. */
+export type ApprovalPolicy = "provider_default" | "review_sensitive" | "review_untrusted" | "bypass";
+export type SandboxMode = "read_only" | "workspace_write" | "unrestricted";
+export type ThreadSortKey = "created_at" | "updated_at";
 export type SortDirection = "asc" | "desc";
-export type ThreadSourceKind =
-  | "cli"
-  | "vscode"
-  | "exec"
-  | "appServer"
-  | "subAgent"
-  | "subAgentReview"
-  | "subAgentCompact"
-  | "subAgentThreadSpawn"
-  | "subAgentOther"
-  | "unknown";
-
 export type AgentProvider = string;
 
 export interface CreateThreadRequest {
@@ -35,14 +14,11 @@ export interface CreateThreadRequest {
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
-  config?: Record<string, unknown>;
   cwd?: string;
-  personality?: Personality;
   sandbox?: SandboxMode;
   model?: string;
-  modelProvider?: string;
   ephemeral?: boolean;
-  serviceName?: string;
+  effort?: string;
 }
 
 export interface CreateThreadResponse {
@@ -100,12 +76,9 @@ export interface ListStoredThreadsRequest {
   cursor?: string;
   cwd?: string | string[];
   limit?: number;
-  modelProviders?: string[];
   searchTerm?: string;
   sortDirection?: SortDirection;
   sortKey?: ThreadSortKey;
-  sourceKinds?: ThreadSourceKind[];
-  useStateDbOnly?: boolean;
 }
 
 export interface ListStoredThreadsResponse {
@@ -125,8 +98,8 @@ export interface ListLoadedThreadsResponse {
 }
 
 export interface GetThreadStateResponse {
-  provider?: AgentProvider;
-  capabilities?: ProviderCapabilities;
+  provider: AgentProvider;
+  capabilities: ProviderCapabilities;
   backgroundTaskCount?: number;
   threadId: string;
   sessionId: string;
@@ -147,12 +120,10 @@ export interface ResumeThreadRequest {
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
-  config?: Record<string, unknown>;
   cwd?: string;
-  personality?: Personality;
   sandbox?: SandboxMode;
   model?: string;
-  modelProvider?: string;
+  effort?: string;
 }
 
 export interface ResumeThreadResponse {
@@ -165,11 +136,10 @@ export interface ForkThreadRequest {
   approvalPolicy?: ApprovalPolicy;
   baseInstructions?: string;
   developerInstructions?: string;
-  config?: Record<string, unknown>;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
-  modelProvider?: string;
+  effort?: string;
 }
 
 export interface ForkThreadResponse {
@@ -258,7 +228,6 @@ export interface ModelSummary {
   description: string;
   hidden: boolean;
   isDefault: boolean;
-  supportsPersonality: boolean;
   supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }>;
   defaultReasoningEffort?: string | null;
 }

@@ -27,7 +27,8 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
     },
     disposeSurface(id: string) { calls.push(`dispose:${id}`); bindings.delete(id); },
     conversation: {
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], resets: false } }],
+      getThreadProvider: () => "fixture",
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } }],
 
       async listStoredThreads(request: unknown) { calls.push("threads"); return { threads: [{ threadId: "stored" }], nextCursor: null, backwardsCursor: null }; },
       async listThreadTurns(threadId: string, request: unknown) { calls.push(`history:${threadId}`); return { data: [{ id: "turn", items: [] }], nextCursor: null, backwardsCursor: null }; },
@@ -35,12 +36,16 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
     },
   };
   const context: SurfaceAdapterContext = {
-    signal: abort.signal, approvalPolicy: "on-request",
+    signal: abort.signal, approvalPolicy: "review_sensitive",
     createApplication(listener) { publish = listener; return application as unknown as SurfaceApplicationContext; },
     isQuiescing: () => abort.signal.aborted,
     reportHealth: (health) => calls.push(`health:${health.state}`),
     ingress: {
-      getThreadState(threadId) { return { threadId, sessionId: "session", activeTurnId: active.get(threadId) ?? null, approvalPolicy: "on-request" }; },
+      getThreadState(threadId) {
+        const provider = (application.conversation as unknown as { getThreadProvider?: (id: string) => string }).getThreadProvider?.(threadId);
+        const descriptor = application.conversation.listProviders().find(entry => entry.id === provider) ?? application.conversation.listProviders()[0];
+        return { threadId, sessionId: "session", activeTurnId: active.get(threadId) ?? null, approvalPolicy: "review_sensitive", ...(descriptor ? { provider: descriptor.id, capabilities: descriptor.capabilities } : {}) };
+      },
       async submitTurn(threadId) {
         calls.push(`submit:${threadId}`); active.set(threadId, "turn-1");
         const id = [...bindings].find(([, thread]) => thread === threadId)![0];

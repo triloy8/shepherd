@@ -21,7 +21,8 @@ there is no parallel provider API, compatibility facade, or alternative transcri
 
 To add another provider, implement the session port, supply its capabilities and account
 reader, and register its factory and ownership resolver at composition. Core and
-surface code do not need another provider branch. Provider IDs and model IDs are opaque strings.
+surface code do not need another provider branch. Provider IDs and model IDs are opaque strings. Discord uses `!providers` for discovery,
+with optional provider IDs on `!newthread` and `!limits`; omitted IDs retain existing defaults.
 
 ## Execution and presentation
 
@@ -39,7 +40,9 @@ the Codex adapter. Claude converts the same application inputs into SDK content 
 The chat layout, composer, folded work, Markdown, image presentation, scrolling, and
 recent-first turn pagination retain the restored main UI behavior. New-conversation
 provider selection and the Usage & limits agent selector remain the requested additions.
-Provider consolidation does not introduce a new history/loading workflow.
+Provider consolidation does not introduce a new history/loading workflow. Existing
+menu/revert/attachment buttons consume capability flags: unsupported controls are disabled
+without changing layout, and flags reset when switching conversations.
 
 ## Approvals and questions
 
@@ -78,19 +81,49 @@ Neither account reporting nor opening the usage panel sends a user conversation 
 ## Configuration and persistence
 
 Common policy is configured with `SHEPHERD_APPROVAL_MODE` (`provider_default`,
-`review_sensitive`, `review_all`, `bypass`) and `SHEPHERD_SANDBOX_MODE`
+`review_sensitive`, `review_untrusted`, `bypass`) and `SHEPHERD_SANDBOX_MODE`
 (`read_only`, `workspace_write`, `unrestricted`). Model/authentication settings remain
 provider-specific inside their adapters. An unavailable sandbox is rejected rather than
 silently changing execution privileges.
 
 The shared configuration no longer reads `CODEX_APPROVAL_POLICY` or `CODEX_SANDBOX`.
 For existing installations, rename those common settings before redeployment:
-`never` → `bypass`, `on-request` → `review_sensitive`, `untrusted` → `review_all`;
+`never` → `bypass`, `on-request` → `review_sensitive`, `untrusted` → `review_untrusted`;
 `danger-full-access` → `unrestricted`, `workspace-write` → `workspace_write`,
 `read-only` → `read_only`. There is no runtime alias or API translator.
 
-Thread ownership is persisted independently of UI handles and recovered for existing
-stored conversations. Provider-native transcripts remain adapter-owned. Web navigation
+Approval and sandbox modes use these same application values throughout core, ports,
+and HTTP. Native policy names are encoded and decoded inside adapters. `provider_default`
+means inherit the provider's existing/default permission policy. `review_sensitive` uses
+the provider's normal permission review; `review_untrusted` reviews actions according to
+its trust model and is currently supported only by Codex. `bypass` suppresses permission
+review but retains explicit user questions. None of these modes promises review of every
+action. The misleading `review_all` environment value is rejected; use `review_untrusted`
+for the previous trust-based behavior. Existing `bypass`/`unrestricted` installations need
+no further environment edits.
+
+Shared thread requests offer model, effort, instructions, workspace, sandbox, approval
+mode, and optional ephemeral lifetime. Raw SDK `config`, backend overrides, deprecated
+personality selectors, analytics service names, and native database/source filters are
+not public fields. Their native configuration remains provider-owned. Unknown request
+fields are rejected, not ignored. Model backend configuration belongs in the provider's
+native settings. List sorting uses creation or update time across every provider.
+
+Descriptors advertise approval modes, sandbox modes, input kinds, text annotations,
+image-detail controls, and ephemeral-thread support, alongside operation capabilities.
+Core checks these before bootstrap, submit, or steer, and adapters enforce them for direct
+calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
+local-file, audio, skill-reference, annotation, or image-detail support. Model/effort
+options continue to come from each provider's catalog. Thread state includes its provider
+and capabilities, so surfaces do not guess support from identity.
+
+Thread ownership is persisted independently of UI handles using arbitrary provider IDs.
+For an unbound stored conversation, registered adapters identify ownership from native
+records; exactly one match is required and the binding is then persisted. Unknown or
+ambiguous identities fail rather than guessing a default provider or inspecting an ID
+prefix in shared code. Existing bindings remain immutable. Claude snapshots retain the common approval mode
+across resume/fork/restart. Older snapshots without this optional field use the provider
+default unless a mode is explicitly supplied. Provider-native transcripts remain adapter-owned. Web navigation
 handles and SSE replay are volatile; persisted history is the recovery source. Reconnecting
 never automatically resends a prompt.
 
@@ -102,7 +135,7 @@ session boundary. Adapter tests cover native codecs, permission responses, cance
 questions, model catalogs, history, SDK process ownership, and account limits.
 
 Shared workflow tests register an unrelated provider without a native compatibility
-session. Web tests retain origin checks, bounded streams, pagination, mutation locks,
+session and resume it after restart through production registration and file storage. Web tests retain origin checks, bounded streams, pagination, mutation locks,
 image safety, settings, approvals, and conversation management. Firefox checks exercise
 desktop and mobile presentation using an isolated local fixture. These fixture checks do
 not establish successful live-provider sandbox execution or remote deployment health.

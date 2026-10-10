@@ -129,7 +129,7 @@ export async function handleInteraction(
         });
       } else {
         const threadId = surfaceContext?.getSurfaceThreadId(interaction.channelId) ?? null;
-        const provider = threadId ? conversation.getThreadProvider?.(threadId) : undefined;
+        const provider = threadId ? conversation.getThreadProvider(threadId) : undefined;
         const result = await conversation.listModels({
           cursor: pageRequest.cursor ?? undefined,
           limit: DISCORD_LIST_PAGE_SIZE,

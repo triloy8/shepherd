@@ -1,3 +1,5 @@
+import { codexApproval, applicationApproval, codexSandbox, type NativeApprovalPolicy } from "./policy.js";
+import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { codexInput } from "./input.js";
 import type { NativeInput } from "./input.js";
 import { approvalChoices } from "../approval_choices.js";
@@ -81,7 +83,7 @@ type AppServerRequestParams = {
   };
   "thread/start": {
     model: string;
-    approvalPolicy: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -95,7 +97,7 @@ type AppServerRequestParams = {
   };
   "thread/resume": {
     threadId: string;
-    approvalPolicy?: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -107,7 +109,7 @@ type AppServerRequestParams = {
   };
   "thread/fork": {
     threadId: string;
-    approvalPolicy?: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -144,7 +146,7 @@ type AppServerRequestParams = {
   "skills/config/write": { enabled: boolean; path: string };
   "turn/start": {
     threadId: string;
-    approvalPolicy: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     input: NativeInput[];
     model?: string;
     effort?: string;
@@ -213,32 +215,6 @@ function isContextLimitError(params: unknown): boolean {
   }
   const message = asString(error.message) ?? "";
   return message.toLowerCase().includes("context") && message.toLowerCase().includes("window");
-}
-
-function asApprovalPolicy(value: unknown): ApprovalPolicy | null {
-  if (value === "untrusted" || value === "on-request" || value === "never") {
-    return value;
-  }
-  const record = asRecord(value);
-  const granular = asRecord(record.granular);
-  if (
-    typeof granular.sandbox_approval === "boolean" &&
-    typeof granular.rules === "boolean" &&
-    typeof granular.skill_approval === "boolean" &&
-    typeof granular.request_permissions === "boolean" &&
-    typeof granular.mcp_elicitations === "boolean"
-  ) {
-    return {
-      granular: {
-        sandbox_approval: granular.sandbox_approval,
-        rules: granular.rules,
-        skill_approval: granular.skill_approval,
-        request_permissions: granular.request_permissions,
-        mcp_elicitations: granular.mcp_elicitations,
-      },
-    };
-  }
-  return null;
 }
 
 function isApprovalServerRequest(method: string): boolean {
@@ -339,21 +315,19 @@ export class CodexSession implements ProviderSession {
   }
 
   async startThread(request: CreateThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     const dynamicTools = this.dynamicTools.specifications();
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
-      approvalPolicy: this.approvalPolicy,
+      ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
       ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
       ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      config: { model_reasoning_effort: "medium", ...request.config },
+      config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.personality ? { personality: request.personality } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(request.ephemeral !== undefined ? { ephemeral: request.ephemeral } : {}),
-      ...(request.serviceName ? { serviceName: request.serviceName } : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
     });
 
@@ -364,18 +338,17 @@ export class CodexSession implements ProviderSession {
   }
 
   async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     const result = await this.sendRequest("thread/resume", {
       threadId,
-      ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
+      ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
       ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
       ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      ...(request.config ? { config: request.config } : {}),
+      ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.personality ? { personality: request.personality } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
+      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(request.model ? { model: request.model } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
     const bootstrap = this.extractThreadBootstrapInfo(result, "thread/resume");
@@ -384,17 +357,17 @@ export class CodexSession implements ProviderSession {
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     const result = await this.sendRequest("thread/fork", {
       threadId,
-      ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
+      ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
       ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
       ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      ...(request.config ? { config: request.config } : {}),
+      ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
+      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(request.model ? { model: request.model } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
     const bootstrap = this.extractThreadBootstrapInfo(result, "thread/fork");
@@ -434,12 +407,11 @@ export class CodexSession implements ProviderSession {
       cursor: request.cursor ?? null,
       cwd: request.cwd ?? null,
       limit: request.limit ?? null,
-      modelProviders: request.modelProviders ?? null,
+      modelProviders: null,
       searchTerm: request.searchTerm ?? null,
       sortDirection: request.sortDirection ?? null,
       sortKey: request.sortKey ?? null,
-      sourceKinds: request.sourceKinds ?? null,
-      ...(request.useStateDbOnly !== undefined ? { useStateDbOnly: request.useStateDbOnly } : {}),
+      sourceKinds: null,
     }));
   }
 
@@ -521,6 +493,8 @@ export class CodexSession implements ProviderSession {
     cwd?: string,
     effort?: string,
   ): Promise<string | null> {
+    assertApprovalSupport("Codex", this.capabilities, approvalPolicy ?? this.approvalPolicy);
+    assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
     if (approvalPolicy) {
       this.approvalPolicy = approvalPolicy;
@@ -529,7 +503,7 @@ export class CodexSession implements ProviderSession {
 
     const result = await this.sendRequest("turn/start", {
       threadId,
-      approvalPolicy: this.approvalPolicy,
+      ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
       input: codexInput(input),
       ...(model ? { model } : {}),
       ...(cwd ? { cwd } : {}),
@@ -552,6 +526,7 @@ export class CodexSession implements ProviderSession {
   }
 
   async steerTurn(input: UserInput[], turnId?: string): Promise<string | null> {
+    assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
     const targetTurnId = turnId ?? this.activeTurnId;
     if (!targetTurnId) {
@@ -624,7 +599,7 @@ export class CodexSession implements ProviderSession {
       model: asString(record.model),
       reasoningEffort: asString(record.reasoningEffort),
       modelProvider: asString(record.modelProvider) ?? asString(thread.modelProvider),
-      approvalPolicy: asApprovalPolicy(record.approvalPolicy) ?? this.approvalPolicy,
+      approvalPolicy: Object.hasOwn(record, "approvalPolicy") ? applicationApproval(record.approvalPolicy) ?? "provider_default" : this.approvalPolicy,
     };
   }
 

@@ -17,8 +17,8 @@ export function readRuntimeConfig(environment: Record<string, string | undefined
     throw new Error("SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS must be a positive number.");
   }
   return {
-    approvalPolicy: defaults.approvalMode === "bypass" ? "never" : defaults.approvalMode === "review_all" ? "untrusted" : "on-request",
-    defaultSandbox: defaults.sandboxMode === "read_only" ? "read-only" : defaults.sandboxMode === "workspace_write" ? "workspace-write" : defaults.sandboxMode === "unrestricted" ? "danger-full-access" : undefined,
+    approvalPolicy: defaults.approvalMode ?? "provider_default",
+    defaultSandbox: defaults.sandboxMode,
     deploymentCommandTimeoutMs: timeout,
     signals: readSignalRuntimeConfig(environment),
   };

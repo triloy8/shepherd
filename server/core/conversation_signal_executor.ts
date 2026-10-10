@@ -67,7 +67,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
       const listener = (event: BridgeEvent): void => {
         if (event.type === "session.error") {
           const payload = event.payload as { message?: string };
-          finish(new Error(payload.message ?? "Codex session failed during signal turn."));
+          finish(new Error(payload.message ?? "Agent session failed during signal turn."));
           return;
         }
         if (!isTerminalTurnEvent(event)) return;
@@ -116,7 +116,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
       const listener = (event: BridgeEvent): void => {
         if (event.type === "session.error") {
           const payload = event.payload as { message?: string };
-          finish(new Error(payload.message ?? "Codex session failed while waiting for the active turn."));
+          finish(new Error(payload.message ?? "Agent session failed while waiting for the active turn."));
           return;
         }
         if (!isTerminalTurnEvent(event) || eventTurnId(event) !== activeTurnId) return;

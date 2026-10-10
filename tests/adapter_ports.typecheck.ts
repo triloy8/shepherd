@@ -47,3 +47,21 @@ function assertProviderBoundary(session: ProviderSession, delta: TurnStreamDelta
   approval.method;
 }
 void assertProviderBoundary;
+
+import type { CreateThreadRequest, ListStoredThreadsRequest, ApprovalPolicy, SandboxMode } from "../shared/protocol/requests.js";
+function assertNeutralConfiguration(create: CreateThreadRequest, list: ListStoredThreadsRequest) {
+  // @ts-expect-error Raw SDK configuration belongs inside the adapter.
+  create.config;
+  // @ts-expect-error Native model backend overrides are not application configuration.
+  create.modelProvider;
+  // @ts-expect-error Native history source enums do not cross the port.
+  list.sourceKinds;
+  // @ts-expect-error Native storage implementation choices stay private.
+  list.useStateDbOnly;
+  // @ts-expect-error Native approval labels are not application modes.
+  const approval: ApprovalPolicy = "untrusted";
+  // @ts-expect-error Native sandbox labels are not application modes.
+  const sandbox: SandboxMode = "danger-full-access";
+  void approval; void sandbox;
+}
+void assertNeutralConfiguration;

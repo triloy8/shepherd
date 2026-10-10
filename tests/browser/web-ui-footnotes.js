@@ -1,7 +1,7 @@
 // Run against tests/fixtures/web-ui-host.ts using playwright-cli run-code.
 async (page) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.route('**/api/v1/conversations/*/turns?*', async route => {
+  await page.route('**/api/conversations/*/turns?*', async route => {
     const response = await route.fetch();
     const history = await response.json();
     if (history.data?.length) {
@@ -56,6 +56,6 @@ async (page) => {
     await document.fonts.ready;
     if (!document.fonts.check('16px KaTeX_Main')) throw Error('Math font failed to load');
   });
-  await page.unroute('**/api/v1/conversations/*/turns?*');
+  await page.unroute('**/api/conversations/*/turns?*');
   return 'Mobile footnote references and return links keep the header/composer fixed, scroll only the chat, focus the correct targets, and have distinct IDs across messages';
 }

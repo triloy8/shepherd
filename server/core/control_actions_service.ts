@@ -1,8 +1,5 @@
 import { ApplicationActionError, type ActionFailure } from "./action_error.js";
 import type {
-  AccountRateLimitsResponse,
-  ConsumeRateLimitResetRequest,
-  ConsumeRateLimitResetResponse,
   ListModelsResponse,
   ReadThreadTokenUsageResponse,
   ModelSummary,
@@ -14,7 +11,8 @@ import type {
   ThreadEffortState,
 } from "../../shared/protocol/requests.js";
 import { resolveSkillPathFromList } from "./skill_resolution_service.js";
-import type { ProviderAccountLimits, ReadProviderAccountLimitsOptions } from "../../shared/protocol/provider_account_limits.js";
+import type { ProviderAccountLimits, AccountResetRequest, AccountResetResponse } from "../../shared/protocol/account_limits.js";
+import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
 import type { AgentProvider } from "../../shared/protocol/requests.js";
 
 type ControlConversation = {
@@ -29,9 +27,9 @@ type ControlConversation = {
   listModels: (request: import("../../shared/protocol/requests.js").ListModelsRequest) => Promise<ListModelsResponse>;
   getThreadModel: (threadId: string) => ThreadModelState;
   setThreadModel: (threadId: string, model: string) => ThreadModelState;
-  consumeRateLimitReset: (request: ConsumeRateLimitResetRequest) => Promise<ConsumeRateLimitResetResponse>;
-  readAccountRateLimits: () => Promise<AccountRateLimitsResponse>;
-  readProviderAccountLimits?: (provider: AgentProvider, options?: ReadProviderAccountLimitsOptions) => Promise<ProviderAccountLimits>;
+  listProviders: () => ProviderDescriptor[];
+  readAccount: (provider: string, refresh?: boolean) => Promise<ProviderAccountLimits>;
+  resetAccount: (provider: string, request: AccountResetRequest) => Promise<AccountResetResponse>;
   readThreadTokenUsage: (threadId: string) => Promise<ReadThreadTokenUsageResponse>;
   setThreadName: (threadId: string, request: { name: string }) => Promise<{ ok: true }>;
   readThread: (threadId: string, request: { includeTurns: boolean }) => Promise<ReadThreadResponse>;
@@ -58,9 +56,8 @@ export type ControlActionRequest =
   | { type: "effort.set"; surfaceId: string; effort: string }
   | { type: "repo.get"; surfaceId: string }
   | { type: "repo.set"; surfaceId: string; repoInput: string }
-  | { type: "limits.read" }
-  | { type: "account-limits.read"; provider: AgentProvider; refresh?: boolean }
-  | ({ type: "limits.consume" } & ConsumeRateLimitResetRequest)
+  | { type: "limits.read"; provider?: string; surfaceId?: string; refresh?: boolean }
+  | ({ type: "limits.consume"; provider: string } & AccountResetRequest)
   | { type: "models.list"; surfaceId: string; cursor?: string; limit?: number }
   | { type: "model.set"; surfaceId: string; requestedModel: string }
   | { type: "context.read"; surfaceId: string }
@@ -82,9 +79,8 @@ export type ControlActionResult =
   | { type: "effort.get" | "effort.set"; ok: false; error: ActionFailure }
   | { type: "repo.get"; currentRepo: string | null }
   | { type: "repo.set"; repoSlug: string; activeThreadId: string | null }
-  | ({ type: "limits.read" } & AccountRateLimitsResponse)
-  | { type: "account-limits.read"; limits: ProviderAccountLimits }
-  | ({ type: "limits.consume" } & ConsumeRateLimitResetResponse)
+  | { type: "limits.read"; limits: ProviderAccountLimits }
+  | ({ type: "limits.consume" } & AccountResetResponse)
   | { type: "models.list"; models: ListModelsResponse; modelState: ThreadModelState | null }
   | { type: "model.set"; ok: true; threadId: string; model: string }
   | { type: "model.set"; ok: false; error: ActionFailure }
@@ -157,22 +153,13 @@ export async function executeControlAction(
 
   if (request.type === "limits.consume") {
     const { idempotencyKey, creditId } = request;
-    return { type: "limits.consume", ...await context.conversation.consumeRateLimitReset({ idempotencyKey, ...(creditId ? { creditId } : {}) }) };
+    return { type: request.type, ...await context.conversation.resetAccount(request.provider, { idempotencyKey, ...(creditId ? { creditId } : {}) }) };
   }
-
   if (request.type === "limits.read") {
-    const result = await context.conversation.readAccountRateLimits();
-    return {
-      type: "limits.read",
-      rateLimits: result.rateLimits,
-      rateLimitsByLimitId: result.rateLimitsByLimitId ?? null,
-      rateLimitResetCredits: result.rateLimitResetCredits ?? null,
-    };
-  }
-
-  if (request.type === "account-limits.read") {
-    if (!context.conversation.readProviderAccountLimits) throw new Error("Provider account limits are unavailable.");
-    return { type: request.type, limits: await context.conversation.readProviderAccountLimits(request.provider, { refresh: request.refresh }) };
+    const threadId = request.surfaceId ? context.getSurfaceThreadId(request.surfaceId) : null;
+    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider?.(threadId) : undefined) ?? context.conversation.listProviders()[0]?.id;
+    if (!provider) throw new Error("No agent provider is configured.");
+    return { type: request.type, limits: await context.conversation.readAccount(provider, request.refresh) };
   }
 
   if (request.type === "models.list") {
@@ -181,7 +168,7 @@ export async function executeControlAction(
     const models = await context.conversation.listModels({
       cursor: request.cursor,
       limit: request.limit ?? 20,
-      ...(provider && provider !== "codex" ? { provider } : {}),
+      ...(provider ? { provider } : {}),
     });
     return {
       type: "models.list",
@@ -205,7 +192,7 @@ export async function executeControlAction(
     let resolved: ModelSummary | null = null;
     const seenCursors = new Set<string>();
     do {
-      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, ...(provider && provider !== "codex" ? { provider } : {}) });
+      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, ...(provider ? { provider } : {}) });
       resolved = resolveModelArgument(models.data, request.requestedModel);
       if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
       seenCursors.add(models.nextCursor);

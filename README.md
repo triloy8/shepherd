@@ -1,12 +1,15 @@
 <h1 align="center">🐕 Shepherd 🐑</h1>
 
-Shepherd runs Codex conversations through Discord and a private web UI.
+Shepherd runs Codex and Claude conversations through Discord and a private web UI.
 Both surfaces use the same core for workspaces, conversation routing, approvals, user questions,
 model settings, and host operations. Run either surface or both in one process.
 
 You can send text and images, follow agent activity, approve actions, answer questions, switch
 conversations, and manage the host without opening a terminal for each turn.
-Shepherd uses `codex app-server` to run the agent.
+Provider adapters use `codex app-server` and the Claude Agent SDK behind the same application interface.
+
+For existing installations, rename common policy settings before deploying this branch;
+see [provider configuration](.docs/provider-abstraction.md#configuration-and-persistence).
 
 ## Features
 
@@ -64,14 +67,14 @@ SHEPHERD_SURFACES=discord,web
 Use `discord` or `web` to run only one. If unset, the selection defaults to
 Discord. Copy and configure only the selected adapters' environment files.
 
-The common template sets `CODEX_APPROVAL_POLICY=never` and
-`CODEX_SANDBOX=danger-full-access`: commands and file changes can run without
+The common template sets `SHEPHERD_APPROVAL_MODE=bypass` and
+`SHEPHERD_SANDBOX_MODE=unrestricted`: commands and file changes can run without
 approval prompts. To use approval requests and a workspace-limited sandbox,
 set these explicitly:
 
 ```env
-CODEX_APPROVAL_POLICY=on-request
-CODEX_SANDBOX=workspace-write
+SHEPHERD_APPROVAL_MODE=review_sensitive
+SHEPHERD_SANDBOX_MODE=workspace_write
 ```
 
 Choose **Codex** or **Claude** in the web UI's new-conversation dialog. The choice
@@ -133,10 +136,10 @@ The compiled Shepherd binary includes the SDK executable for the build host.
 Claude supports text and image messages, streaming, follow-up input, interruption,
 approvals, structured questions (including multiple selections), model/effort selection, stored history, rename, archive, resume, fork,
 and Shepherd dynamic tools through MCP. The common approval policy applies to
-both providers: `never` runs Claude with permission bypass; `on-request` and
-`untrusted` use Claude's normal permission checks and Shepherd approval prompts.
-Claude has no sandbox in Shepherd. With `never`, Claude can run any command and
-edit any file the Shepherd host user can, without a prompt. Codex with `never`
+both providers: `bypass` runs Claude with permission bypass; `review_sensitive` and
+`review_all` use Claude's normal permission checks and Shepherd approval prompts.
+Claude has no sandbox in Shepherd. With `bypass`, Claude can run any command and
+edit any file the Shepherd host user can, without a prompt. Codex with `bypass`
 still applies its configured sandbox. Run Claude conversations on an isolated
 host or container, or keep `on-request` when Claude should ask first.
 See the [SDK permission modes](https://code.claude.com/docs/en/agent-sdk/permissions).

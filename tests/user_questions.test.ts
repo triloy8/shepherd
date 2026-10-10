@@ -1,3 +1,4 @@
+import { encodeApprovalButtonId } from "../server/adapters/discord/message_renderer";
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -44,29 +45,29 @@ test("questions stay pending without a JSON-RPC response until the human submits
   expect(h.writes).toEqual([]);
   expect(h.record.userInput).toEqual(input);
   expect(h.store.listPending()).toHaveLength(1);
-  h.store.markDecided(input.threadId, h.request.approvalId, { decision: "submit", answers });
-  await h.session.applyApprovalDecision(h.request.approvalId, { decision: "submit", answers });
+  h.store.markDecided(input.threadId, h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers });
+  await h.session.applyApprovalDecision(h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers });
   expect(h.writes).toEqual([{ id: 7, result: { answers } }]);
-  await expect(h.session.applyApprovalDecision(h.request.approvalId, { decision: "submit", answers })).rejects.toThrow("Unknown approval");
+  await expect(h.session.applyApprovalDecision(h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers })).rejects.toThrow("Unknown approval");
 });
 
 test("missing, extra, empty and invalid choice answers leave questions pending for retry", () => {
   const h = sessionHarness();
   for (const invalid of [undefined, {}, { ...answers, extra: { answers: ["extra"] } }, { ...answers, notes: { answers: [""] } }]) {
-    expect(() => h.store.markDecided(input.threadId, h.request.approvalId, { decision: "submit", answers: invalid })).toThrow();
+    expect(() => h.store.markDecided(input.threadId, h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers: invalid })).toThrow();
     expect(h.store.listPending()).toHaveLength(1);
   }
   const restricted = structuredClone(h.record);
   restricted.approvalId = "restricted";
   restricted.userInput!.questions[0]!.isOther = false;
   h.store.create(restricted, { threadId: input.threadId, sessionId: h.session.sessionId });
-  expect(() => h.store.markDecided(input.threadId, "restricted", { decision: "submit", answers: { ...answers, provider: { answers: ["Unknown provider"] } } })).toThrow("offered");
+  expect(() => h.store.markDecided(input.threadId, "restricted", { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers: { ...answers, provider: { answers: ["Unknown provider"] } } })).toThrow("offered");
   expect(h.writes).toEqual([]);
 });
 
 test("explicit skip returns no answers, never the recommended choice", async () => {
   const h = sessionHarness();
-  await h.session.applyApprovalDecision(h.request.approvalId, { decision: "cancel" });
+  await h.session.applyApprovalDecision(h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "cancel")!.value });
   expect(h.writes).toEqual([{ id: 7, result: { answers: {} } }]);
 });
 
@@ -74,7 +75,7 @@ test("resolved or ended questions cannot send a stale response", async () => {
   for (const method of ["serverRequest/resolved", "turn/completed"]) {
     const h = sessionHarness();
     h.raw.onNotification(method, { threadId: input.threadId, requestId: 7, turn: { id: input.turnId, status: "completed" } });
-    await expect(h.session.applyApprovalDecision(h.request.approvalId, { decision: "submit", answers })).rejects.toThrow("Unknown approval");
+    await expect(h.session.applyApprovalDecision(h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers })).rejects.toThrow("Unknown approval");
     expect(h.writes).toEqual([]);
     if (method === "serverRequest/resolved") expect(h.events.at(-1)?.type).toBe("approval.expired");
   }
@@ -98,11 +99,11 @@ test("web API accepts answers, rejects incomplete submissions and duplicate deci
     const request = sessionHarness().request;
     h.approvals.create({ ...request, userInput: { ...input, threadId: c.threadId } }, { threadId: c.threadId, sessionId: "session" });
     const path = `/conversations/${c.id}/approvals/${request.approvalId}`;
-    expect((await h.request(path, "POST", { decision: "submit", answers: {} })).status).toBe(400);
+    expect((await h.request(path, "POST", { decision: request.choices.find(choice => choice.intent === "answer")!.value, answers: {} })).status).toBe(400);
     const pending = await (await h.request(`/conversations/${c.id}/approvals`)).json();
     expect(pending.approvals[0].status).toBe("pending");
-    expect((await h.request(path, "POST", { decision: "submit", answers })).status).toBe(200);
-    expect((await h.request(path, "POST", { decision: "submit", answers })).status).toBe(409);
+    expect((await h.request(path, "POST", { decision: request.choices.find(choice => choice.intent === "answer")!.value, answers })).status).toBe(200);
+    expect((await h.request(path, "POST", { decision: request.choices.find(choice => choice.intent === "answer")!.value, answers })).status).toBe(409);
   } finally { h.api.dispose(); }
 });
 
@@ -131,13 +132,13 @@ test("Discord answer buttons open a form without answering, then modal submissio
     async applyApprovalDecision(threadId: string, id: string, decision: unknown) { decisions.push(decision); },
   };
   let modal: { toJSON(): { components: unknown[] } } | undefined;
-  const customId = `approval|${input.threadId}|${h.request.approvalId}|submit`;
+  const customId = encodeApprovalButtonId(input.threadId, h.request.approvalId, h.request.choices.find(choice => choice.intent === "answer")!.value);
   await handleInteraction({ customId, async showModal(value: typeof modal) { modal = value; } } as never, conversation as never);
   expect(modal!.toJSON().components).toHaveLength(2);
   expect(decisions).toEqual([]);
   const replies: unknown[] = [];
   await handleModalInteraction({ customId, fields: { getTextInputValue(id: string) { return id === "answer-0" ? answers.provider.answers[0] : answers.notes.answers[0]; } }, async reply(value: unknown) { replies.push(value); } } as never, conversation as never);
-  expect(decisions).toEqual([{ decision: "submit", answers }]);
+  expect(decisions).toEqual([{ decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers }]);
   expect(replies).toHaveLength(1);
 });
 
@@ -147,7 +148,7 @@ test("Discord directs secret questions to masked fields in the web UI", async ()
   h.record.userInput!.questions[0]!.isSecret = true;
   let modal = false;
   let reply = false;
-  await handleInteraction({ customId: `approval|${input.threadId}|${h.request.approvalId}|submit`, async showModal() { modal = true; }, async reply() { reply = true; } } as never,
+  await handleInteraction({ customId: encodeApprovalButtonId(input.threadId, h.request.approvalId, h.request.choices.find(choice => choice.intent === "answer")!.value), async showModal() { modal = true; }, async reply() { reply = true; } } as never,
     { listApprovals: () => [h.record] } as never);
   expect(modal).toBe(false);
   expect(reply).toBe(true);

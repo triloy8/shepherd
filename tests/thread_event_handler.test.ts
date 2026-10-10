@@ -1,3 +1,4 @@
+import { decodeApprovalButtonId } from "../server/adapters/discord/message_renderer";
 import { describe, expect, test } from "bun:test";
 import { ComponentType, type MessageCreateOptions, type MessageEditOptions } from "discord.js";
 
@@ -25,7 +26,7 @@ function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): Brid
 
 function finalDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
   return makeEvent("turn.stream.delta", {
-    method: "item/agentMessage/delta",
+    kind: "assistant_text",
     textDelta,
     itemId: `final-${turnId}`,
     phase: "final_answer",
@@ -35,7 +36,7 @@ function finalDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
 
 function commentaryDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
   return makeEvent("turn.stream.delta", {
-    method: "item/agentMessage/delta",
+    kind: "assistant_text",
     textDelta,
     itemId: `comment-${turnId}`,
     phase: "commentary",
@@ -175,35 +176,35 @@ describe("Discord thread event handler", () => {
   test("builds approval button rows with encoded decisions", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
-      method: "shell.exec",
+      kind: "permission",
       prompt: "Approve?",
-      params: {},
+      detail: null,
       choices: [
-        { value: "approve", label: "Approve" },
-        { value: "reject", label: "Reject" },
+        { value: "approve", label: "Approve", intent: "allow" },
+        { value: "reject", label: "Reject", intent: "deny" },
       ],
     };
 
     const rows = buildApprovalRows("thread-1", approval);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.components).toHaveLength(2);
-    expect(rows[0]?.components[0]?.data.custom_id).toBe("approval|thread-1|approval-1|approve");
-    expect(rows[0]?.components[1]?.data.custom_id).toBe("approval|thread-1|approval-1|reject");
+    expect(decodeApprovalButtonId(rows[0]!.components[0]!.data.custom_id!)).toEqual({ threadId: "thread-1", approvalId: "approval-1", decision: "approve" });
+    expect(decodeApprovalButtonId(rows[0]!.components[1]!.data.custom_id!)).toEqual({ threadId: "thread-1", approvalId: "approval-1", decision: "reject" });
   });
 
   test("formats approval content as a structured prompt", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
-      method: "shell.exec",
+      kind: "permission",
       prompt: "Run `bun install`?",
-      params: {},
+      detail: null,
       choices: [
-        { value: "approve", label: "Approve" },
-        { value: "reject", label: "Reject" },
+        { value: "approve", label: "Approve", intent: "allow" },
+        { value: "reject", label: "Reject", intent: "deny" },
       ],
     };
     expect(formatApprovalText(approval)).toContain("Approval Required");
-    expect(formatApprovalText(approval)).toContain("Action: shell.exec");
+    expect(formatApprovalText(approval)).toContain("Action: permission");
   });
 
   test("buffers final deltas until completion while showing typing", async () => {
@@ -726,10 +727,10 @@ describe("Discord thread event handler", () => {
     const handler = createDiscordThreadEventHandler(harness.client);
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
-      method: "item/commandExecution/requestApproval",
+      kind: "permission",
       prompt: "Run tests?",
-      params: {},
-      choices: [{ value: "accept", label: "Allow Once" }],
+      detail: null,
+      choices: [{ value: "accept", label: "Allow Once", intent: "allow" }],
     };
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent("chan-1", makeEvent("approval.requested", approval));
@@ -737,7 +738,7 @@ describe("Discord thread event handler", () => {
 
     expect(sentCard(harness.sent, 0).title).toBe("Approval required");
     expect(sentCard(harness.sent, 0).description).toContain("Run tests?");
-    expect(sentCard(harness.sent, 0).description).toContain("**Action:** `item/commandExecution/requestApproval`");
+    expect(sentCard(harness.sent, 0).description).toContain("**Action:** `permission`");
     expect(harness.sent[0]?.components).toHaveLength(1);
     handler.dispose();
   });

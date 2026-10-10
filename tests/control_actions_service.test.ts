@@ -1,3 +1,4 @@
+import { account } from "./helpers/account";
 import { describe, expect, test } from "bun:test";
 
 import { executeControlAction, type ControlActionsContext } from "../server/core/control_actions_service.js";
@@ -97,10 +98,9 @@ function makeContext(overrides?: {
           nextCursor: null,
         };
       },
-      async readAccountRateLimits() {
-        if (overrides?.readAccountRateLimits) return overrides.readAccountRateLimits();
-        return { rateLimits: { planType: "pro" } };
-      },
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], resets: false } }],
+      async readAccount() { return account("fixture", "pro"); },
+      async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
         return { threadId, tokenUsage: { total: { totalTokens: 42 } } };
@@ -496,9 +496,7 @@ describe("ControlActionsService", () => {
     const { context } = makeContext();
     await expect(executeControlAction(context, { type: "limits.read" })).resolves.toEqual({
       type: "limits.read",
-      rateLimits: { planType: "pro" },
-      rateLimitsByLimitId: null,
-      rateLimitResetCredits: null,
+      limits: account("fixture", "pro"),
     });
   });
 

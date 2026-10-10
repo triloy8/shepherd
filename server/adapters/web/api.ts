@@ -1,8 +1,5 @@
-import { NeutralInputError } from "../../ports/neutral_controls.js";
-import { readNeutralInput, readNeutralSettings, readNeutralReply } from "./neutral_actions.js";
-import { ProviderCapabilityError } from "../../core/provider_registry.js";
 import { Buffer } from "node:buffer";
-import { UnsupportedProviderOperationError } from "../../core/agent_session.js";
+import { UnsupportedProviderOperationError } from "../../ports/provider_session.js";
 import type { AgentProvider } from "../../../shared/protocol/requests.js";
 import { presentHistoryItem } from "./history.js";
 import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
@@ -11,7 +8,7 @@ import { readHostBattery } from "./host_battery.js";
 import { webControl } from "./controls.js";
 import { WebImages } from "./images.js";
 import { randomUUID } from "node:crypto";
-import { WEB_API_PREFIX, WEB_API_VERSION, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
+import { WEB_API_PREFIX, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 import { ApplicationActionError } from "../../core/action_error.js";
 import type { UserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
@@ -25,14 +22,11 @@ import { BodyTooLargeError, readBoundedJson } from "../http/body.js";
 import type { WebConfig } from "./config.js";
 import { WebRequestError } from "./errors.js";
 import { WebEventFeed } from "./event_feed.js";
-import { NeutralEventStreams } from "./neutral_events.js";
-import { ProjectionRecoveryError } from "../../core/projection_event_log.js";
-import { assertJsonBudget, V2_BUDGETS } from "../../../shared/protocol/v2/budgets.js";
 
 export const WEB_MAX_BODY_BYTES = 64 * 1024;
 const MAX_CONVERSATIONS = 32;
 const MAX_REQUESTS = 32;
-type Entry = { id: string; threadId: string | null; project: string; busy: boolean; historyRevision: number; feed: WebEventFeed; images: WebImages; neutral: NeutralEventStreams };
+type Entry = { id: string; threadId: string | null; project: string; busy: boolean; historyRevision: number; feed: WebEventFeed; images: WebImages };
 
 function requiredString(object: Record<string, unknown>, key: string, max = 4096): string {
   const value = object[key];
@@ -105,14 +99,13 @@ export class WebSurfaceApi {
     const headers = new Headers({ "cache-control": "no-store", "x-content-type-options": "nosniff", "vary": "Origin" });
     if (allowedOrigin) headers.set("access-control-allow-origin", origin);
     const json = (status: number, value: unknown) => {
-      if (new URL(request.url).pathname.startsWith("/api/v2/")) assertJsonBudget(value, V2_BUDGETS.pageBytes, "v2 response");
       return Response.json(value, { status, headers });
     };
     const fail = (status: number, code: string, message: string) => json(status, { error: { code, message } } satisfies WebError);
     if (origin !== null && !allowedOrigin) return fail(403, "origin_denied", "Origin is not allowed.");
     const url = new URL(request.url);
     if (request.method === "OPTIONS") {
-      if (!allowedOrigin || ![`${WEB_API_PREFIX}/`, "/api/v2/"].some(prefix => url.pathname.startsWith(prefix))) return fail(403, "origin_denied", "Preflight is not allowed.");
+      if (!allowedOrigin || !url.pathname.startsWith(`${WEB_API_PREFIX}/`)) return fail(403, "origin_denied", "Preflight is not allowed.");
       const method = request.headers.get("access-control-request-method");
       const requestedHeaders = (request.headers.get("access-control-request-headers") ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
       if (!method || !["GET", "POST", "DELETE"].includes(method) || requestedHeaders.some((s) => !["content-type", "last-event-id"].includes(s))) {
@@ -127,106 +120,8 @@ export class WebSurfaceApi {
     if (this.requests >= MAX_REQUESTS) return fail(429, "request_limit", "Too many in-flight requests.");
     this.requests++;
     try {
-      if (url.pathname === "/api/v2/providers" && request.method === "GET") return json(200, { providers: this.application.conversation.listNeutralProviders() });
-      if (url.pathname === "/api/v2/limits" && request.method === "GET") {
-        if ([...url.searchParams.keys()].some(key => !["provider", "refresh"].includes(key)) || ["provider", "refresh"].some(key => url.searchParams.getAll(key).length > 1) || (url.searchParams.has("refresh") && !["true", "false"].includes(url.searchParams.get("refresh")!))) return fail(400, "invalid_query", "Only provider and refresh=true/false are supported.");
-        const provider = url.searchParams.get("provider") ?? this.application.conversation.listNeutralProviders()[0]?.id;
-        if (!provider || !this.application.conversation.listNeutralProviders().some(entry => entry.id === provider)) return fail(400, "invalid_provider", "Choose an available provider.");
-        return json(200, await this.application.conversation.readNeutralAccount(provider, url.searchParams.get("refresh") === "true"));
-      }
-      if (url.pathname === "/api/v2/limits/reset" && request.method === "POST") {
-        const data = await body(request, ["provider", "idempotencyKey", "creditId"]);
-        const provider = requiredString(data, "provider", 64);
-        if (!this.application.conversation.listNeutralProviders().some(entry => entry.id === provider && entry.capabilities.resets)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
-        return json(200, await this.application.conversation.resetNeutralAccount(provider, { idempotencyKey: requiredString(data, "idempotencyKey", 100), ...(data.creditId ? { creditId: requiredString(data, "creditId", 256) } : {}) }));
-      }
-      const v2Request = url.pathname.startsWith("/api/v2/");
-      const actions = /^\/api\/v2\/conversations\/([^/]+)\/(settings|models|context|messages|interrupt|interactions|assets|skills|skills-reload)(?:\/([a-f0-9-]{36}))?$/.exec(url.pathname);
-      if (actions && !(actions[2] === "assets" && request.method === "GET")) {
-        const entry = this.entries.get(actions[1]!);
-        if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found.");
-        const threadId = entry.threadId, action = actions[2];
-        if (actions[3] && action !== "interactions") return fail(404, "not_found", "Route not found.");
-        if (action === "skills" && request.method === "GET") return json(200, await this.application.conversation.neutralSkills(threadId));
-        if (action === "settings" && request.method === "GET") return json(200, this.application.conversation.neutralSettings(threadId));
-        if (action === "models" && request.method === "GET") {
-          if ([...url.searchParams.keys()].some(key => key !== "cursor") || url.searchParams.getAll("cursor").length > 1 || (url.searchParams.get("cursor")?.length ?? 0) > 4096) return fail(400, "invalid_query", "Only an opaque cursor is supported.");
-          return json(200, await this.application.conversation.neutralModels(threadId, url.searchParams.get("cursor") ?? undefined));
-        }
-        if (action === "context" && request.method === "GET") return json(200, { tokenUsage: await this.application.conversation.neutralContext(threadId) });
-        if (action === "interactions" && !actions[3] && request.method === "GET") return json(200, { interactions: this.application.conversation.readNeutralSnapshot(threadId).interactions });
-        if (request.method !== "POST") return fail(405, "method_not_allowed", "Unsupported conversation action.");
-        return await this.mutate(entry, async () => {
-          if (action === "skills-reload") { await body(request, []); return json(200, await this.application.conversation.neutralSkills(threadId, true)); }
-          if (action === "skills") {
-            const data = await body(request, ["referenceId", "enabled"]);
-            if (typeof data.enabled !== "boolean") return fail(400, "invalid_request", "enabled must be a boolean.");
-            return json(200, await this.application.conversation.configureNeutralSkill(threadId, requiredString(data, "referenceId", 64), data.enabled));
-          }
-          if (action === "messages") {
-            const data = await body(request, ["input"]);
-            return json(200, await this.application.conversation.submitNeutral(threadId, { input: readNeutralInput(data.input) }));
-          }
-          if (action === "settings") return json(200, await this.application.conversation.configureNeutral(threadId, readNeutralSettings(await body(request, ["model", "effort", "approvalMode", "sandboxMode"]))));
-          if (action === "interrupt") { const data = await body(request, ["turnId"]); await this.application.conversation.interruptNeutral(threadId, optionalString(data, "turnId", 256)); return json(200, { ok: true }); }
-          if (action === "interactions" && actions[3]) {
-            const reply = readNeutralReply(await body(request, ["optionId", "answers", "reason"]));
-            try { await this.application.conversation.respondNeutral(threadId, actions[3], reply); }
-            catch (error) { throw new WebRequestError(409, "interaction_unavailable", error instanceof Error ? error.message : "Interaction could not be applied."); }
-            return json(200, { ok: true });
-          }
-          if (action === "assets" && !actions[3]) {
-            if (this.messageRequests >= 4) return fail(429, "message_limit", "Too many uploads in progress.");
-            this.messageRequests++;
-            try {
-              const data = await body(request, ["data", "name"], WEB_MESSAGE_MAX_BODY_BYTES);
-              const image = readImageInputs([data.data])[0]!;
-              const [prefix, encoded] = image.split(",", 2);
-              const mimeType = prefix!.slice(5).split(";", 1)[0]!;
-              const name = optionalString(data, "name", 128) ?? "image";
-              return json(200, this.application.conversation.uploadNeutralAsset(threadId, "image", { bytes: Buffer.from(encoded!, "base64"), mimeType, name }));
-            } finally { this.messageRequests--; }
-          }
-          return fail(405, "method_not_allowed", "Unsupported conversation action.");
-        });
-      }
-      const neutral = /^\/api\/v2\/conversations\/([^/]+)\/(snapshot|snapshot-items|items|events|assets)(?:\/([a-f0-9]{64}))?$/.exec(url.pathname);
-      if (neutral) {
-        if (request.method !== "GET") return fail(405, "method_not_allowed", "This v2 projection route is read-only.");
-        const entry = this.entries.get(neutral[1]!);
-        if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found.");
-        if (typeof this.application.conversation.readNeutralSnapshot !== "function") return fail(422, "projection_unavailable", "Neutral projection is unavailable for this session.");
-        const action = neutral[2];
-        if ((action === "assets") !== !!neutral[3]) return fail(404, "not_found", "Route not found.");
-        if (action === "events") {
-          if (url.search) return fail(400, "invalid_query", "Use Last-Event-ID for event replay.");
-          headers.set("content-type", "text/event-stream"); headers.set("x-accel-buffering", "no");
-          return new Response(entry.neutral.open(this.application.conversation, entry.threadId, request.headers.get("last-event-id"), request.signal), { headers });
-        }
-        if (action === "assets") {
-          if (url.search) return fail(400, "invalid_query", "Asset queries are not supported.");
-          try {
-            const asset = await this.application.conversation.readNeutralAsset(entry.threadId, neutral[3]!);
-            headers.set("content-type", asset.mimeType); headers.set("content-security-policy", "default-src 'none'; sandbox");
-            headers.set("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(asset.name)}`);
-            return new Response(asset.bytes as BodyInit, { headers });
-          } catch { return fail(404, "asset_unavailable", "Asset is unavailable. Refresh conversation history."); }
-        }
-        if ([...url.searchParams.keys()].some(key => key !== "cursor") || (url.searchParams.get("cursor")?.length ?? 0) > 4096) return fail(400, "invalid_query", "Only an opaque cursor is supported.");
-        const cursor = url.searchParams.get("cursor") ?? undefined;
-        if (action === "snapshot" && cursor) return fail(400, "invalid_query", "Snapshot capture does not take a cursor.");
-        if (action === "snapshot-items" && !cursor) return fail(400, "invalid_query", "A snapshot cursor is required.");
-        const value = action === "snapshot" ? this.application.conversation.readNeutralSnapshot(entry.threadId)
-          : action === "snapshot-items" ? this.application.conversation.readNeutralSnapshotItems(entry.threadId, cursor!)
-          : await this.application.conversation.readNeutralItems(entry.threadId, cursor);
-        assertJsonBudget(value, V2_BUDGETS.pageBytes, "v2 response");
-        return json(200, value);
-      }
-      // Navigation and host actions retain their existing application operations;
-      // conversation content, settings, and replies above use only neutral ports.
-      if (v2Request && ( /^\/api\/v2\/conversations\/[^/]+\/(approvals|turns|model|effort|images)(?:\/|$)/.test(url.pathname) || url.pathname === "/api/v2/models" )) return fail(404, "not_found", "Use the provider-neutral conversation endpoints.");
-      if (v2Request) url.pathname = WEB_API_PREFIX + url.pathname.slice("/api/v2".length);
-      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true, apiVersion: v2Request ? 2 : WEB_API_VERSION });
+      if (url.pathname === `${WEB_API_PREFIX}/providers` && request.method === "GET") return json(200, { providers: this.application.conversation.listProviders() });
+      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true });
       if (url.pathname === `${WEB_API_PREFIX}/host` && request.method === "GET") return json(200, await this.host.status());
       if (url.pathname === `${WEB_API_PREFIX}/host/battery` && request.method === "GET") return json(200, { battery: await readHostBattery() });
       if (url.pathname === `${WEB_API_PREFIX}/host/actions` && request.method === "POST") {
@@ -238,31 +133,21 @@ export class WebSurfaceApi {
         return json(202, this.host.start({ requestId, action: data.action, ...(branch ? { branch } : {}) }));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/models`) {
-        return json(200, await this.application.conversation.listModels({ ...pagination(url), includeHidden: true }));
+        const provider = url.searchParams.get("provider");
+        if (url.searchParams.getAll("provider").length > 1 || (provider !== null && !this.application.conversation.listProviders().some(entry => entry.id === provider))) throw new WebRequestError(400, "invalid_query", "Choose a registered provider.");
+        return json(200, await this.application.conversation.listModels({ ...pagination(url, ["provider"]), ...(provider ? { provider } : {}), includeHidden: true }));
       }
       if (request.method === "POST" && url.pathname === `${WEB_API_PREFIX}/limits/reset`) {
-        if (url.search) throw new WebRequestError(400, "invalid_query", "Reset redemption is Codex-only and accepts no query parameters.");
-        const data = await body(request, ["idempotencyKey", "creditId"]);
-        const idempotencyKey = requiredString(data, "idempotencyKey", 100);
-        const creditId = data.creditId === undefined ? undefined : requiredString(data, "creditId", 256);
-        const result = await webControl(this.application, { type: "limits.consume", idempotencyKey, ...(creditId ? { creditId } : {}) });
-        if (result.type !== "limits.consume") throw new Error("Unexpected reset response.");
-        return json(200, { outcome: result.outcome });
+        const data = await body(request, ["provider", "idempotencyKey", "creditId"]);
+        const provider = requiredString(data, "provider", 64);
+        if (!this.application.conversation.listProviders().some(entry => entry.id === provider && entry.capabilities.resets)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
+        return json(200, await this.application.conversation.resetAccount(provider, { idempotencyKey: requiredString(data, "idempotencyKey", 100), ...(data.creditId !== undefined ? { creditId: requiredString(data, "creditId", 256) } : {}) }));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
-        for (const key of url.searchParams.keys()) if (key !== "provider" && key !== "refresh") throw new WebRequestError(400, "invalid_query", "Unknown limits query parameter.");
-        const provider = url.searchParams.get("provider");
+        const provider = url.searchParams.get("provider") ?? this.application.conversation.listProviders()[0]?.id;
         const refresh = url.searchParams.get("refresh");
-        if ((provider !== null && provider !== "codex" && provider !== "claude") || (refresh !== null && refresh !== "true" && refresh !== "false")
-          || url.searchParams.getAll("provider").length > 1 || url.searchParams.getAll("refresh").length > 1) throw new WebRequestError(400, "invalid_query", "Invalid limits provider or refresh.");
-        if (provider === "claude") {
-          const result = await webControl(this.application, { type: "account-limits.read", provider, refresh: refresh === "true" });
-          if (result.type !== "account-limits.read") throw new Error("Unexpected provider limits response.");
-          return json(200, result.limits);
-        }
-        const result = await webControl(this.application, { type: "limits.read" });
-        if (result.type !== "limits.read") throw new Error("Unexpected limits response.");
-        return json(200, { rateLimits: result.rateLimits, rateLimitsByLimitId: result.rateLimitsByLimitId, rateLimitResetCredits: result.rateLimitResetCredits });
+        if ([...url.searchParams.keys()].some(key => !["provider", "refresh"].includes(key)) || ["provider", "refresh"].some(key => url.searchParams.getAll(key).length > 1) || (refresh !== null && !["true", "false"].includes(refresh)) || !this.application.conversation.listProviders().some(entry => entry.id === provider)) throw new WebRequestError(400, "invalid_query", "Choose a registered provider and valid refresh option.");
+        return json(200, await this.application.conversation.readAccount(provider!, refresh === "true"));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/threads`) {
         const archived = url.searchParams.get("archived");
@@ -273,12 +158,12 @@ export class WebSurfaceApi {
         if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });
         if (request.method === "POST") {
           const data = await body(request, ["project", "threadId", "provider"]);
-          if (data.provider !== undefined && (typeof data.provider !== "string" || (v2Request ? !this.application.conversation.listNeutralProviders().some(entry => entry.id === data.provider) : !["codex", "claude"].includes(data.provider)))) throw new WebRequestError(400, "invalid_request", "Choose an available provider.");
+          if (data.provider !== undefined && (typeof data.provider !== "string" || !this.application.conversation.listProviders().some(entry => entry.id === data.provider))) throw new WebRequestError(400, "invalid_request", "Choose an available provider.");
           if (data.threadId && data.provider !== undefined) throw new WebRequestError(400, "invalid_request", "An existing thread determines its provider.");
           return json(201, await this.create(optionalString(data, "project", 4096), optionalString(data, "threadId", 256), undefined, undefined, data.provider as AgentProvider | undefined));
         }
       }
-      const restore = /^\/api\/v1\/threads\/([A-Za-z0-9_-]{1,256})\/unarchive$/.exec(url.pathname);
+      const restore = /^\/api\/threads\/([A-Za-z0-9_-]{1,256})\/unarchive$/.exec(url.pathname);
       if (restore && request.method === "POST") {
         await body(request, []);
         const attached = [...this.entries.values()].find((entry) => entry.threadId === restore[1]);
@@ -286,14 +171,14 @@ export class WebSurfaceApi {
         if (attached) await this.mutate(attached, operation); else await operation();
         return json(200, { ok: true });
       }
-      const match = /^\/api\/v1\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|revert)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/api\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|revert)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (!match) return fail(404, "not_found", "Route not found.");
       const entry = this.entries.get(match[1]!);
       if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
       const threadId = entry.threadId;
       const action = match[2];
       if (match[3] && action !== "approvals" && action !== "images") return fail(404, "not_found", "Route not found.");
-      if (!action && request.method === "GET") return json(200, { ...this.summary(entry), state: v2Request ? this.application.conversation.readNeutralSnapshot(threadId).state : this.context.ingress.getThreadState(threadId) });
+      if (!action && request.method === "GET") return json(200, { ...this.summary(entry), state: this.context.ingress.getThreadState(threadId) });
       if (!action && request.method === "DELETE") {
         await this.mutate(entry, async () => this.remove(entry));
         return json(200, { ok: true });
@@ -427,9 +312,6 @@ export class WebSurfaceApi {
       }
       return fail(405, "method_not_allowed", "Method is not supported for this route.");
     } catch (error) {
-      if (error instanceof NeutralInputError) return fail(400, "invalid_input", error.message);
-      if (error instanceof ProviderCapabilityError) return fail(422, "unsupported_capability", error.message);
-      if (error instanceof ProjectionRecoveryError) return fail(409, "projection_resync_required", error.message);
       if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
       if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
       if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");
@@ -463,7 +345,6 @@ export class WebSurfaceApi {
   }
   private remove(entry: Entry): void {
     entry.feed.close();
-    entry.neutral.close();
     this.entries.delete(entry.id);
     this.application.disposeSurface(entry.id);
   }
@@ -476,7 +357,7 @@ export class WebSurfaceApi {
     if (this.entries.size >= MAX_CONVERSATIONS) throw new WebRequestError(429, "conversation_limit", "Detach an existing conversation before opening another.");
     if (threadId && this.resuming.has(threadId)) throw new WebRequestError(409, "thread_in_use", "Thread resume is already in progress.");
     const id = randomUUID();
-    const entry: Entry = { id, images: new WebImages(id), threadId: null, project: project ?? "", busy: false, historyRevision: 0, feed: new WebEventFeed(), neutral: new NeutralEventStreams() };
+    const entry: Entry = { id, images: new WebImages(id), threadId: null, project: project ?? "", busy: false, historyRevision: 0, feed: new WebEventFeed() };
     this.entries.set(entry.id, entry);
     if (threadId) this.resuming.add(threadId);
     try {

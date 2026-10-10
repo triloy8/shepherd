@@ -1,3 +1,4 @@
+import { encodeApprovalButtonId } from "../server/adapters/discord/message_renderer";
 import { describe, expect, test } from "bun:test";
 import { ComponentType, MessageFlags } from "discord.js";
 
@@ -26,13 +27,14 @@ describe("Discord interactions", () => {
   test("acknowledges approval decisions with an ephemeral Text Display", async () => {
     const replies: unknown[] = [];
     const interaction = {
-      customId: "approval|thread-1|approval-1|approve",
+      customId: encodeApprovalButtonId("thread-1", "approval-1", "approve"),
       async reply(payload: unknown) {
         replies.push(payload);
       },
     };
 
     const conversation = {
+      listApprovals: () => [{ approvalId: "approval-1", status: "pending", choices: [{ value: "approve", label: "Approved" }] }],
       async applyApprovalDecision(
         threadId: string,
         approvalId: string,
@@ -57,7 +59,7 @@ describe("Discord interactions", () => {
   test("surfaces a rejected Components V2 acknowledgement", async () => {
     let attempts = 0;
     const interaction = {
-      customId: "approval|thread-1|approval-1|reject",
+      customId: encodeApprovalButtonId("thread-1", "approval-1", "reject"),
       async reply(payload: unknown) {
         attempts += 1;
         expect((payload as { flags?: unknown }).flags).toBe(
@@ -66,7 +68,7 @@ describe("Discord interactions", () => {
         throw Object.assign(new Error("Invalid Form Body: IS_COMPONENTS_V2"), { code: 50_035 });
       },
     };
-    const conversation = { async applyApprovalDecision() {} };
+    const conversation = { listApprovals: () => [], async applyApprovalDecision() {} };
 
     await expect(handleInteraction(interaction as never, conversation as never)).rejects.toThrow(
       "Invalid Form Body: IS_COMPONENTS_V2",

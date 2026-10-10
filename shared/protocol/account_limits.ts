@@ -1,5 +1,4 @@
-import type { BoundedText } from "./conversation_items.js";
-import type { ProviderId } from "./conversations.js";
+type ProviderId = string;
 
 export interface AccountLimitWindow {
   id: string; groupId: string | null; label: string; subtitle: string | null;
@@ -9,7 +8,7 @@ export interface AccountLimitWindow {
 }
 export interface ResetCredit {
   id: string; supported: boolean; status: "available" | "redeeming" | "redeemed" | "unknown";
-  grantedAt: number | null; expiresAt: number | null; title: string | null; description: BoundedText | null;
+  grantedAt: number | null; expiresAt: number | null; title: string | null; description: string | null;
 }
 export interface ProviderAccountLimits {
   provider: ProviderId;
@@ -29,5 +28,8 @@ export interface ProviderAccountLimits {
     observedAt: number; stale: boolean;
   }>;
   resets: { supported: boolean; availableCount: number | null; credits: ResetCredit[] | null };
-  message: BoundedText | null;
+  message: string | null;
 }
+
+export type AccountResetRequest = { idempotencyKey: string; creditId?: string };
+export type AccountResetResponse = { outcome: "reset" | "already_redeemed" | "nothing_to_reset" | "no_credit" };

@@ -9,7 +9,7 @@ of support for all Claude Code terminal commands.
 See the [Codex parity matrix](codex-parity-matrix.md) for app-server RPC coverage,
 the [surface parity matrix](surface-parity-matrix.md) for Discord/web workflows,
 [Architecture](architecture.md) for dependency boundaries, and the
-[provider abstraction](provider-abstraction.md) design for the planned shared item model. Setup instructions are in the [README](../README.md).
+[provider abstraction](provider-abstraction.md) implemented shared boundary. Setup instructions are in the [README](../README.md).
 
 ## Status and evidence
 
@@ -169,7 +169,7 @@ Primary implementation sources:
 [session](../server/providers/claude/session.ts),
 [authentication](../server/providers/claude/authentication.ts),
 [account limits adapter](../server/providers/claude/account_limits.ts),
-[account limits service](../server/core/account_limits_service.ts),
+[shared account port](../server/ports/provider_services.ts),
 [questions](../server/providers/claude/questions.ts),
 [MCP bridge](../server/providers/claude/mcp_bridge.ts),
 [background tasks](../server/providers/claude/background_tasks.ts),

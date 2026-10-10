@@ -5,14 +5,15 @@ export type ApprovalState = "pending" | "approved" | "rejected" | "expired" | "a
 export interface ApprovalChoice {
   value: string;
   label: string;
+  intent: "allow" | "deny" | "answer" | "cancel";
 }
 
 export interface ApprovalRequestPayload {
   approvalId: string;
-  method: string;
+  kind: "permission" | "question";
   prompt: string;
   choices: ApprovalChoice[];
-  params: unknown;
+  detail: string | null;
   userInput?: UserQuestionRequest;
 }
 

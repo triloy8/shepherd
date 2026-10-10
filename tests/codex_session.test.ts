@@ -291,7 +291,7 @@ describe("CodexSession app-server contract", () => {
 
   test("maps legacy denial to the generated structured decision", async () => {
     const session = new CodexSession("on-request");
-    session.threadId = "thread-1"; session.neutral.bind("thread-1");
+    session.threadId = "thread-1";
     const writes: unknown[] = [];
     const events: BridgeEvent[] = [];
     internals(session).writeLine = (payload) => writes.push(payload);
@@ -307,7 +307,7 @@ describe("CodexSession app-server contract", () => {
     if (!approvalId) throw new Error("Expected an approval request.");
 
     await session.applyApprovalDecision(approvalId, {
-      decision: "denied",
+      decision: (requested!.payload as import("../shared/protocol/approvals").ApprovalRequestPayload).choices.find(choice => choice.intent === "deny")!.value,
       reason: "Not allowed here.",
     });
 
@@ -350,7 +350,7 @@ describe("CodexSession app-server contract", () => {
       [
         "session.limit.context",
         "thread-schema",
-        { message: "The context window was exceeded.", method: "error" },
+        { message: "The context window was exceeded." },
       ],
       [
         "turn.failed",
@@ -488,7 +488,7 @@ describe("CodexSession app-server contract", () => {
 
     expect(events.find((event) => event.type === "turn.stream.delta")?.payload).toEqual({
       kind: "assistant_text",
-      method: "item/agentMessage/delta",
+      kind: "assistant_text",
       textDelta: "Checking now.",
       itemId: "comment-1",
       phase: "commentary",

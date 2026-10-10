@@ -21,7 +21,7 @@ export class WebImages {
       if (this.images.size >= 256) this.images.delete(this.images.keys().next().value!);
       this.images.set(id, { key, path });
     }
-    return `/api/v1/conversations/${this.conversationId}/images/${id}`;
+    return `/api/conversations/${this.conversationId}/images/${id}`;
   }
 
   async response(id: string, headers: Headers, requestHeaders?: Headers): Promise<Response> {

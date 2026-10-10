@@ -32,3 +32,18 @@ function assertLauncherBoundary(adapter: SurfaceAdapterContext) {
   adapter.approvals.stopAll();
 }
 void assertLauncherBoundary;
+
+import type { ProviderSession } from "../server/ports/provider_session.js";
+import type { TurnStreamDeltaEvent } from "../shared/protocol/events.js";
+import type { ApprovalRequestPayload } from "../shared/protocol/approvals.js";
+function assertProviderBoundary(session: ProviderSession, delta: TurnStreamDeltaEvent, approval: ApprovalRequestPayload) {
+  // @ts-expect-error Native account quotas are not a session operation.
+  session.readAccountRateLimits();
+  // @ts-expect-error SDK method names do not enter application text streams.
+  delta.payload.method;
+  // @ts-expect-error Native approval envelopes remain private.
+  approval.params;
+  // @ts-expect-error Native server request methods remain private.
+  approval.method;
+}
+void assertProviderBoundary;

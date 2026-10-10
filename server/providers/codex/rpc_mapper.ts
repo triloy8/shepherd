@@ -1,5 +1,4 @@
-export { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "../../../shared/protocol/history_presentation.js";
-import type { ApprovalChoice } from "../../../shared/protocol/approvals.js";
+export { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "../history_presentation.js";
 import type {
   MessagePhase,
 } from "../../../shared/protocol/events.js";
@@ -103,7 +102,7 @@ export function extractCompletedAgentMessage(params: unknown): CompletedAgentMes
   };
 }
 
-export function mapApprovalChoices(method: string): ApprovalChoice[] {
+export function mapApprovalChoices(method: string): Array<{ value: string; label: string }> {
   const normalized = method.toLowerCase();
 
   if (normalized === "item/commandexecution/requestapproval" || normalized === "item/filechange/requestapproval") {
@@ -141,5 +140,5 @@ export function mapApprovalPrompt(method: string, params: unknown): string {
     return "File change approval requested";
   }
 
-  return `${method} requires a decision`;
+  return "The agent requests permission to continue.";
 }

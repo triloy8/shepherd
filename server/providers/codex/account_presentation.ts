@@ -1,7 +1,7 @@
-import type { ProviderAccountLimits } from "../../../shared/protocol/v2/account_limits.js";
-import type { AccountRateLimitsResponse } from "../../../shared/protocol/requests.js";
-import { boundText } from "../../../shared/protocol/v2/budgets.js";
-import { record, string } from "../neutral_items.js";
+import type { ProviderAccountLimits } from "../../../shared/protocol/account_limits.js";
+import type { AccountRateLimitsResponse } from "./account_types.js";
+const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
+const string = (value: unknown): string | null => typeof value === "string" && value.trim() ? value : null;
 const finite = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
 
 export function codexAccount(value: AccountRateLimitsResponse, now = Date.now() / 1000): ProviderAccountLimits {
@@ -19,5 +19,5 @@ export function codexAccount(value: AccountRateLimitsResponse, now = Date.now() 
   return { provider: "codex", account: { plan: string(main.planType), authentication: "unknown", signedIn: windows.length > 0 }, availability: windows.length ? "available" : "unavailable", source: "provider", checkedAt: now, stale: false,
     ordinaryUsageAllowed: windows.length ? windows.some(window => window.status === "limited") ? false : windows.every(window => window.usedPercent !== null) ? true : null : null, windows,
     extraUsage: Object.keys(credits).length ? { enabled: typeof credits.hasCredits === "boolean" ? credits.hasCredits : null, unlimited: typeof credits.unlimited === "boolean" ? credits.unlimited : null, balanceLabel: string(credits.balance), usedPercent: null, active: null, status: null, observedAt: now, stale: false } : null,
-    spendControls: [], resets: { supported: true, availableCount: resets?.availableCount ?? null, credits: resets?.credits?.map(credit => ({ id: credit.id, supported: credit.resetType === "codexRateLimits", status: credit.status, grantedAt: credit.grantedAt, expiresAt: credit.expiresAt, title: credit.title, description: credit.description ? boundText(credit.description) : null })) ?? null }, message: windows.length ? null : boundText("The provider has not reported account allowance windows.") };
+    spendControls: [], resets: { supported: true, availableCount: resets?.availableCount ?? null, credits: resets?.credits?.map(credit => ({ id: credit.id, supported: credit.resetType === "codexRateLimits", status: credit.status, grantedAt: credit.grantedAt, expiresAt: credit.expiresAt, title: credit.title, description: credit.description ? credit.description : null })) ?? null }, message: windows.length ? null : "The provider has not reported account allowance windows." };
 }

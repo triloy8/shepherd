@@ -2,17 +2,13 @@ import type { TurnRoutingConversation } from "./turn_routing_service.js";
 import type { ConversationService } from "./conversation_service.js";
 
 const readMethods = [
-  "getThreadState",
+  "getThreadState", "listProviders", "readAccount", "resetAccount",
   "getThreadProvider", "getThreadModel", "listStoredThreads", "listLoadedThreads",
   "listModels", "listSkills", "listThreadTurns", "listThreadItems",
-  "listNeutralProviders", "readNeutralAccount", "resetNeutralAccount",
-  "neutralSkills", "configureNeutralSkill",
-  "neutralSettings", "configureNeutral", "neutralModels", "neutralContext", "submitNeutral", "interruptNeutral", "respondNeutral", "uploadNeutralAsset",
-  "readNeutralSnapshot", "readNeutralSnapshotItems", "readNeutralItems", "readNeutralAsset", "subscribeNeutralEvents",
 ] as const;
 const controlMethods = [
   "getThreadEffort", "setThreadEffort", "writeSkillConfig", "setThreadModel",
-  "consumeRateLimitReset", "readAccountRateLimits", "readProviderAccountLimits", "readThreadTokenUsage", "setThreadName", "readThread",
+  "readThreadTokenUsage", "setThreadName", "readThread",
   "archiveThread", "unarchiveThread", "revertThread", "compactThread", "interruptTurn",
 ] as const;
 

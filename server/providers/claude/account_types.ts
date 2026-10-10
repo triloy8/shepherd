@@ -1,4 +1,4 @@
-import type { AgentProvider } from "./requests.js";
+import type { AgentProvider } from "../../../shared/protocol/requests.js";
 
 export type AccountLimitStatus = "available" | "warning" | "limited";
 

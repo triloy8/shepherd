@@ -1,3 +1,4 @@
+import { historyItem } from "../server/providers/history_mapper";
 import { expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,9 +18,9 @@ test("viewed screenshots reload as visible images and use the existing bounded a
   const h = webHarness();
   await writeFile(path, png);
   h.application.conversation.listThreadTurns = async () => ({ data: [{ id: "turn", status: "completed", items: [
-    { id: "view", type: "imageView", path },
-    { id: "failed", type: "imageView", path, status: "failed" },
-    { id: "running", type: "imageView", path, status: "inProgress" },
+    historyItem({ id: "view", type: "imageView", path }, "turn"),
+    historyItem({ id: "failed", type: "imageView", path, status: "failed" }, "turn"),
+    historyItem({ id: "running", type: "imageView", path, status: "inProgress" }, "turn"),
   ] }], nextCursor: null, backwardsCursor: null });
   try {
     const a = await h.create(); const b = await h.create();
@@ -34,7 +35,7 @@ test("viewed screenshots reload as visible images and use the existing bounded a
     expect(html).not.toContain(`src="${image.url}"`);
     expect(html).toContain("Work completed");
     expect(html).not.toContain("Generated image");
-    const route = image.url.replace("/api/v1", "");
+    const route = image.url.replace("/api", "");
     const response = await h.request(route);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
@@ -59,7 +60,7 @@ test("live viewed image events replace activity and survive replay without dupli
     h.publish(a.id, viewed);
     const chunk = new TextDecoder().decode((await reader.read()).value);
     const event = JSON.parse(chunk.split("\n").find((line) => line.startsWith("data:"))!.slice(5));
-    expect(event.payload.url).toMatch(/^\/api\/v1\/conversations\/[\w-]+\/images\/[\w-]+$/);
+    expect(event.payload.url).toMatch(/^\/api\/conversations\/[\w-]+\/images\/[\w-]+$/);
     expect(event.payload.name).toBe("desktop-screenshot.png");
     let state = reduceBridge(emptyChat(), { ...viewed, id: "started", type: "turn.activity", payload: { itemId: "view", turnId: "turn", kind: "image", label: "Viewing image", detail: viewed.payload.path, status: "started" } });
     state = reduceBridge(state, event);
@@ -84,8 +85,8 @@ test("history exposes scoped images and shared activity mapping; image reads res
   try {
     const path = join(dir, "output.png"); await writeFile(path, png);
     h.application.conversation.listThreadTurns = async () => ({ data: [{ id: "turn", items: [
-      { id: "image", type: "imageGeneration", status: "completed", savedPath: path, revisedPrompt: "A picture" },
-      { id: "command", type: "commandExecution", status: "failed", command: "bun test", aggregatedOutput: "x".repeat(1024 * 1024) },
+    historyItem({ id: "image", type: "imageGeneration", status: "completed", savedPath: path, revisedPrompt: "A picture" }, "turn"),
+    historyItem({ id: "command", type: "commandExecution", status: "failed", command: "bun test", aggregatedOutput: "x".repeat(1024 * 1024) }, "turn"),
     ] }], nextCursor: null, backwardsCursor: null });
     const a = await h.create(); const b = await h.create();
     const page = await (await h.request(`/conversations/${a.id}/turns`)).json();
@@ -93,21 +94,21 @@ test("history exposes scoped images and shared activity mapping; image reads res
     expect(page.data[0].items[1].webActivity.status).toBe("failed");
     expect(JSON.stringify(page)).not.toContain("aggregatedOutput");
     expect(JSON.stringify(page).length).toBeLessThan(10_000);
-    const response = await h.request(url.replace("/api/v1", ""));
+    const response = await h.request(url.replace("/api", ""));
     expect(response.status).toBe(200); expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
     const etag = response.headers.get("etag"); expect(etag).toBeTruthy();
-    const unchanged = await h.request(url.replace("/api/v1", ""), "GET", undefined, { "if-none-match": etag! });
+    const unchanged = await h.request(url.replace("/api", ""), "GET", undefined, { "if-none-match": etag! });
     expect(unchanged.status).toBe(304); expect(await unchanged.text()).toBe("");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
-    expect((await h.request(url.replace("/api/v1", "").replace(a.id, b.id))).status).toBe(404);
-    expect((await h.request(url.replace("/api/v1", ""), "GET", undefined, { origin: "https://evil.test" })).status).toBe(403);
+    expect((await h.request(url.replace("/api", "").replace(a.id, b.id))).status).toBe(404);
+    expect((await h.request(url.replace("/api", ""), "GET", undefined, { origin: "https://evil.test" })).status).toBe(403);
     expect((await h.request(`/conversations/${a.id}/images/unknown?path=${path}`)).status).toBe(404);
     await writeFile(path, "<svg onload='alert(1)'/>");
-    expect((await h.request(url.replace("/api/v1", ""))).status).toBe(422);
+    expect((await h.request(url.replace("/api", ""))).status).toBe(422);
     await h.request(`/conversations/${a.id}`, "DELETE");
-    expect((await h.request(url.replace("/api/v1", ""))).status).toBe(404);
+    expect((await h.request(url.replace("/api", ""))).status).toBe(404);
   } finally { h.api.dispose(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -128,7 +129,7 @@ test("live image events receive a scoped asset URL before entering the event fee
     await reader.read(); // connection comment
     h.publish(conversation.id, { id: "image-event", type: "turn.image.generated", threadId: conversation.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { itemId: "image", turnId: "turn", path: "/missing.png", revisedPrompt: "Image" } });
     const chunk = new TextDecoder().decode((await reader.read()).value);
-    expect(chunk).toContain(`/api/v1/conversations/${conversation.id}/images/`);
+    expect(chunk).toContain(`/api/conversations/${conversation.id}/images/`);
     expect(chunk).toContain('"revisedPrompt":"Image"');
   } finally { await reader.cancel(); h.api.dispose(); }
 });

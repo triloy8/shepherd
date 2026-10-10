@@ -1,10 +1,10 @@
+import { claudeAccount as presentAccount } from "./account_presentation.js";
 import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { query, type AccountInfo, type Query, type SDKRateLimitInfo, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { ProviderAccountLimits, ReadProviderAccountLimitsOptions } from "../../../shared/protocol/provider_account_limits.js";
-import type { ProviderAccountLimitsReader } from "../../ports/provider_account_limits.js";
+import type { ProviderAccountLimits, ReadProviderAccountLimitsOptions } from "./account_types.js";
 import { claudeAuthenticationOptions } from "./authentication.js";
 import { claudeExecutablePath } from "./claude_executable.js";
 import { InputQueue } from "./input_queue.js";
@@ -18,7 +18,7 @@ export interface ClaudeLimitsObserver {
 type Options = { now?: () => number; timeoutMs?: number; cacheSeconds?: number; staleSeconds?: number };
 
 /** One reader/collector per runtime, shared by every Claude conversation. */
-export class ClaudeAccountLimits implements ProviderAccountLimitsReader, ClaudeLimitsObserver {
+export class ClaudeAccountLimits implements ClaudeLimitsObserver {
   private snapshot = emptyClaudeLimits();
   private accountKey: string | null = null;
   private credentialScope: string | null = null;
@@ -30,6 +30,8 @@ export class ClaudeAccountLimits implements ProviderAccountLimitsReader, ClaudeL
   constructor(private readonly open = query, private readonly options: Options = {}) {
     this.now = options.now ?? (() => Date.now() / 1000);
   }
+
+  async readAccount(refresh = false) { return presentAccount(await this.read({ refresh })); }
 
   // Fingerprints are private. Neither credential material nor account identity
   // is returned to the browser. Old sessions cannot contaminate a changed login.

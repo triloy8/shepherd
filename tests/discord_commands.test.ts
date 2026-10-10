@@ -1,3 +1,4 @@
+import { account } from "./helpers/account";
 import { describe, expect, test } from "bun:test";
 import { ComponentType, type MessageCreateOptions, type MessageEditOptions } from "discord.js";
 
@@ -147,10 +148,9 @@ function makeContext(overrides?: {
           nextCursor: null,
         };
       },
-      async readAccountRateLimits() {
-        if (overrides?.readAccountRateLimits) return overrides.readAccountRateLimits();
-        return { rateLimits: { planType: "pro" } };
-      },
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], resets: false } }],
+      async readAccount() { return account("fixture", "pro"); },
+      async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
         return { threadId, tokenUsage: { total: { totalTokens: 42 }, last: {}, modelContextWindow: 128000 } };

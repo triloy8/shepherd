@@ -1,7 +1,7 @@
 // Run against an isolated Shepherd web host on port 8799 with playwright-cli run-code.
 async (page) => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.route('**/api/v1/threads?*', route => route.fulfill({ json: { threads: [], nextCursor: null } }));
+  await page.route('**/api/threads?*', route => route.fulfill({ json: { threads: [], nextCursor: null } }));
   const now = Date.now() / 1000;
   let failed = false;
   let requests = 0;
@@ -14,7 +14,7 @@ async (page) => {
       { id: 'seven_day_opus', label: 'Weekly Opus allowance', usedPercent: 0, resetsAt: now + 3000, status: null, observedAt: now, stale: false },
     ], extraUsage: { enabled: false, usedPercent: null, active: null, status: null, observedAt: now, stale: false }, message: null,
   };
-  await page.route('**/api/v1/limits?provider=claude*', route => {
+  await page.route('**/api/limits?provider=claude*', route => {
     requests++;
     return failed ? route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Fixture usage unavailable' } } }) : route.fulfill({ json: snapshot });
   });

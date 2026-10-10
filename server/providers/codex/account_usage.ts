@@ -1,4 +1,4 @@
-import type { ConsumeRateLimitResetResponse, RateLimitResetCredit, RateLimitResetCredits } from "../../../shared/protocol/requests.js";
+import type { RateLimitResetCredit, RateLimitResetCredits, ConsumeRateLimitResetResponse } from "./account_types.js";
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const timestamp = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);

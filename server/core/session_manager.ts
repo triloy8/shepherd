@@ -1,6 +1,4 @@
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
-import { ConversationProjection } from "./conversation_projection.js";
-import { ProjectionRecoveryError, type ProjectionCursor } from "./projection_event_log.js";
 import { ApplicationActionError } from "./action_error.js";
 import type {
   ApprovalDecisionRequest,
@@ -9,11 +7,11 @@ import type {
 } from "../../shared/protocol/approvals.js";
 import type { ThreadTokenUsageUpdatedEvent } from "../../shared/protocol/events.js";
 import type {
-  ConsumeRateLimitResetRequest,
-  ConsumeRateLimitResetResponse,
+
+
   ApprovalPolicy,
   AgentProvider,
-  AccountRateLimitsResponse,
+
   ArchiveThreadResponse,
   CompactThreadResponse,
   CreateThreadRequest,
@@ -54,14 +52,14 @@ import type {
   UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
-import { UnsupportedProviderOperationError, type AgentSession } from "./agent_session.js";
-import { missingSessionFactory, memoryProviderDirectory, type ThreadProviderDirectory, type AgentSessionFactory } from "./agent_provider.js";
+import { UnsupportedProviderOperationError, type ProviderSession } from "../ports/provider_session.js";
+import type { ThreadProviderDirectory, ProviderSessionFactory } from "../ports/provider_services.js";
+import { missingSessionFactory, memoryProviderDirectory } from "./provider_directory.js";
 import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
 
 interface ManagedSession {
-  session: AgentSession;
+  session: ProviderSession;
   createdAt: string;
-  projection?: ConversationProjection;
 }
 
 export type RuntimeActivity = {
@@ -88,19 +86,19 @@ export class SessionManager {
   private cwdByThread = new Map<string, string>();
   private effortStateByThread = new Map<string, { current: string | null; pending: string | null }>();
   private modelStateByThread = new Map<string, ManagedModelState>();
-  private controlSessions = new Map<AgentProvider, AgentSession>();
-  private controlSessionStarting = new Map<AgentProvider, Promise<AgentSession>>();
-  private readonly ownedSessions = new Set<AgentSession>();
-  private readonly sessionSubscriptions = new Map<AgentSession, () => void>();
+  private controlSessions = new Map<AgentProvider, ProviderSession>();
+  private controlSessionStarting = new Map<AgentProvider, Promise<ProviderSession>>();
+  private readonly ownedSessions = new Set<ProviderSession>();
+  private readonly sessionSubscriptions = new Map<ProviderSession, () => void>();
   private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
   private stopped = false;
 
   constructor(
     private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
-    private readonly sessionFactory: AgentSessionFactory = missingSessionFactory,
+    private readonly sessionFactory: ProviderSessionFactory = missingSessionFactory,
     private readonly providerHasStoredThreads = (_provider: AgentProvider, _request: ListStoredThreadsRequest) => false,
     private readonly providerDirectory: ThreadProviderDirectory = memoryProviderDirectory(),
-    private readonly providers: readonly AgentProvider[] = ["codex", "claude"],
+    private readonly providers: readonly AgentProvider[] = ["default"],
   ) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
@@ -121,20 +119,19 @@ export class SessionManager {
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
-    return this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session) => session.forkThread(threadId, request));
+    return this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session) => { if (!session.capabilities.fork || !session.forkThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "fork"); return session.forkThread(threadId, request); });
   }
 
   private async bootstrap(
     request: { approvalPolicy?: ApprovalPolicy; cwd?: string; provider?: AgentProvider },
-    start: (session: AgentSession) => ReturnType<AgentSession["startThread"]>,
+    start: (session: ProviderSession) => ReturnType<ProviderSession["startThread"]>,
   ): Promise<CreateThreadResponse> {
-    const session = this.allocateSession(request.approvalPolicy ?? "on-request", request.provider ?? "codex");
+    const session = this.allocateSession(request.approvalPolicy ?? "on-request", request.provider ?? this.defaultProvider());
     try {
       const created = await start(session);
       this.assertRunning();
-      this.providerDirectory.bind(created.threadId, request.provider ?? "codex");
-      this.sessionsByThread.set(created.threadId, { session, createdAt: new Date().toISOString(),
-        ...(session.neutral ? { projection: new ConversationProjection(created.threadId, session.sessionId, session.neutral) } : {}) });
+      this.providerDirectory.bind(created.threadId, request.provider ?? this.defaultProvider());
+      this.sessionsByThread.set(created.threadId, { session, createdAt: new Date().toISOString() });
       if (request.cwd) this.cwdByThread.set(created.threadId, request.cwd);
       this.effortStateByThread.set(created.threadId, { current: created.reasoningEffort, pending: null });
       this.modelStateByThread.set(created.threadId, {
@@ -248,6 +245,7 @@ export class SessionManager {
   async compactThread(threadId: string): Promise<CompactThreadResponse> {
     this.requireCapability(threadId, "compact");
     const session = this.mustGet(threadId).session;
+    if (!session.compactThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "compact");
     await session.compactThread(threadId);
     return { ok: true };
   }
@@ -255,23 +253,14 @@ export class SessionManager {
   async revertThread(threadId: string, request: RevertThreadRequest): Promise<RevertThreadResponse> {
     this.requireCapability(threadId, "revert");
     const session = this.mustGet(threadId).session;
+    if (!session.revertThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "revert");
     const response = await session.revertThread(threadId, request.beforeTurnId);
     if (!response.thread) throw new Error("Revert did not return updated thread state.");
     return response;
   }
 
-  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<ConsumeRateLimitResetResponse> {
-    const session = await this.getControlSession();
-    return session.consumeRateLimitReset(request);
-  }
-
-  async readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
-    const session = await this.getControlSession();
-    return session.readAccountRateLimits();
-  }
-
   async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
-    const session = await this.getControlSession(request.provider ?? "codex");
+    const session = await this.getControlSession(request.provider ?? this.defaultProvider());
     return session.listModels(request);
   }
 
@@ -345,6 +334,7 @@ export class SessionManager {
     this.requireCapability(threadId, "skills");
     const managed = this.mustGet(threadId);
     const cwds = request.cwds ?? [await this.resolveThreadCwd(threadId)];
+    if (!managed.session.listSkills) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "skills");
     return managed.session.listSkills({ ...request, cwds });
   }
 
@@ -353,7 +343,7 @@ export class SessionManager {
   }
 
   setThreadCwd(threadId: string, cwd: string): void {
-    this.mustGet(threadId).session.setCwd?.(cwd);
+    this.mustGet(threadId).session.setCwd(cwd);
     this.cwdByThread.set(threadId, cwd);
   }
 
@@ -364,6 +354,7 @@ export class SessionManager {
     this.requireCapability(threadId, "skills");
     const managed = this.mustGet(threadId);
     await this.resolveThreadCwd(threadId);
+    if (!managed.session.writeSkillConfig) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "skill configuration");
     return managed.session.writeSkillConfig(request);
   }
 
@@ -379,29 +370,6 @@ export class SessionManager {
   ): () => void {
     const managed = this.mustGet(threadId);
     return managed.session.eventBus.subscribe(listener, cursorOrOptions);
-  }
-
-  private neutralProjection(threadId: string): ConversationProjection {
-    const projection = this.mustGet(threadId).projection;
-    if (!projection) throw new ProjectionRecoveryError("Neutral projection is unavailable for this session.");
-    return projection;
-  }
-  neutralSettings(threadId: string) { return this.neutralProjection(threadId).settings(); }
-  configureNeutral(threadId: string, settings: Partial<import("../../shared/protocol/v2/conversations.js").ThreadSettings>) { return this.neutralProjection(threadId).configure(settings); }
-  neutralSkills(threadId: string, reload?: boolean) { return this.neutralProjection(threadId).skills(reload); }
-  configureNeutralSkill(threadId: string, referenceId: string, enabled: boolean) { return this.neutralProjection(threadId).configureSkill(referenceId, enabled); }
-  neutralModels(threadId: string, cursor?: string) { return this.neutralProjection(threadId).models(cursor); }
-  neutralContext(threadId: string) { return this.neutralProjection(threadId).context(); }
-  submitNeutral(threadId: string, turn: import("../../shared/protocol/v2/conversations.js").TurnInput) { return this.neutralProjection(threadId).submit(turn); }
-  interruptNeutral(threadId: string, turnId?: string) { return this.neutralProjection(threadId).interrupt(turnId); }
-  respondNeutral(threadId: string, id: string, reply: import("../../shared/protocol/v2/interactions.js").InteractionReply) { return this.neutralProjection(threadId).respond(id, reply); }
-  uploadNeutralAsset(threadId: string, media: "image" | "audio", data: import("../ports/neutral_conversation.js").AssetData) { return this.neutralProjection(threadId).uploadAsset(media, data); }
-  readNeutralSnapshot(threadId: string) { return this.neutralProjection(threadId).snapshot(); }
-  readNeutralSnapshotItems(threadId: string, cursor: string) { return this.neutralProjection(threadId).snapshotItems(cursor); }
-  readNeutralItems(threadId: string, cursor?: string) { return this.neutralProjection(threadId).readItems(cursor); }
-  readNeutralAsset(threadId: string, id: string) { return this.neutralProjection(threadId).readAsset(id); }
-  subscribeNeutralEvents(threadId: string, listener: (event: import("../../shared/protocol/v2/events.js").BridgeEvent) => void, cursor?: ProjectionCursor, onClose?: () => void) {
-    return this.neutralProjection(threadId).subscribe(listener, cursor, onClose);
   }
 
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
@@ -505,7 +473,13 @@ export class SessionManager {
     if (this.stopped) throw new Error("Session manager is stopped.");
   }
 
-  private allocateSession(approvalPolicy: ApprovalPolicy, provider: AgentProvider = "codex"): AgentSession {
+  private defaultProvider(): string {
+    const provider = this.providers[0];
+    if (!provider) throw new Error("No agent providers are registered.");
+    return provider;
+  }
+
+  private allocateSession(approvalPolicy: ApprovalPolicy, provider: AgentProvider = this.defaultProvider()): ProviderSession {
     this.assertRunning();
     const session = this.sessionFactory(approvalPolicy, this.dynamicTools, provider);
     this.ownedSessions.add(session);
@@ -513,15 +487,14 @@ export class SessionManager {
     return session;
   }
 
-  private releaseSession(session: AgentSession): void {
+  private releaseSession(session: ProviderSession): void {
     if (this.ownedSessions.delete(session)) {
-      for (const managed of this.sessionsByThread.values()) if (managed.session === session) managed.projection?.close();
       try { session.stop(); }
       finally { this.sessionSubscriptions.get(session)?.(); this.sessionSubscriptions.delete(session); }
     }
   }
 
-  private attachSessionSubscriptions(session: AgentSession): void {
+  private attachSessionSubscriptions(session: ProviderSession): void {
     this.sessionSubscriptions.set(session, session.eventBus.subscribe((event) => {
       if (event.type === "approval.requested") {
         this.approvals.create(event.payload as ApprovalRequestPayload, {
@@ -563,7 +536,7 @@ export class SessionManager {
     return provider;
   }
 
-  private async getControlSession(provider: AgentProvider = "codex"): Promise<AgentSession> {
+  private async getControlSession(provider: AgentProvider = this.defaultProvider()): Promise<ProviderSession> {
     this.assertRunning();
     const existing = this.controlSessions.get(provider);
     if (existing) return existing;

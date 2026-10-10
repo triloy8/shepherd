@@ -35,7 +35,6 @@ export type BridgeEventType =
   | "turn.image.generated"
   | "turn.image.viewed"
   | "turn.activity"
-  | "turn.notification"
   | "approval.requested"
   | "approval.decided"
   | "approval.applied"
@@ -53,9 +52,9 @@ export interface BridgeEvent<TPayload = unknown> {
 
 export type SessionStartedEvent = BridgeEvent<{ model: string }>;
 export type SessionErrorEvent = BridgeEvent<{ message: string }>;
-export type SessionContextLimitEvent = BridgeEvent<{ message: string; method: string }>;
+export type SessionContextLimitEvent = BridgeEvent<{ message: string }>;
 export type ThreadStartedEvent = BridgeEvent<{ approvalPolicy: ApprovalPolicy }>;
-export type ThreadStatusChangedEvent = BridgeEvent<{ status: unknown }>;
+export type ThreadStatusChangedEvent = BridgeEvent<{ status: { state: "active" | "idle" | "error"; backgroundTaskCount: number } }>;
 export type ThreadNameUpdatedEvent = BridgeEvent<{ threadName: string | null }>;
 export type ThreadArchivedEvent = BridgeEvent<Record<string, never>>;
 export type ThreadRevertedEvent = BridgeEvent<Record<string, never>>;
@@ -65,8 +64,7 @@ export type TurnStartedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnCompletedEvent = BridgeEvent<{ turnId: string | null }>;
 export type TurnFailedEvent = BridgeEvent<{ message: string; turnId: string | null }>;
 export type TurnStreamDeltaEvent = BridgeEvent<{
-  kind?: "assistant_text" | "other";
-  method: string;
+  kind: "assistant_text" | "other";
   textDelta: string;
   itemId: string | null;
   phase: MessagePhase | null;
@@ -97,7 +95,6 @@ export type TurnActivityEvent = BridgeEvent<{
   detail: string | null;
   status: TurnActivityStatus;
 }>;
-export type TurnNotificationEvent = BridgeEvent<{ method: string; params: unknown }>;
 export type ApprovalRequestedEvent = BridgeEvent<ApprovalRequestPayload>;
 export type ApprovalDecidedEvent = BridgeEvent<{ approvalId: string; decision: string; state: ApprovalRecord["status"] }>;
 export type ApprovalAppliedEvent = BridgeEvent<{ approvalId: string }>;

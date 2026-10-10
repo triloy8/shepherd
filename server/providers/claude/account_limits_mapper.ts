@@ -1,5 +1,5 @@
 import type { AccountInfo, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
-import type { AccountLimitStatus, AccountLimitWindow, ProviderAccountLimits } from "../../../shared/protocol/provider_account_limits.js";
+import type { AccountLimitStatus, AccountLimitWindow, ProviderAccountLimits } from "./account_types.js";
 
 const labels: Record<string, string> = {
   five_hour: "Five-hour allowance", seven_day: "Weekly allowance",

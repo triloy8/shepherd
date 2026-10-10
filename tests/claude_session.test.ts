@@ -64,7 +64,7 @@ test("Claude streams common events and resumes with the native session in its sa
   expect(events.map((e) => e.type)).toEqual(["turn.started", "turn.stream.delta", "turn.message.completed", "thread.tokenUsage.updated", "turn.completed"]);
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(chat.messages.filter((message) => message.role === "assistant")).toMatchObject([{ text: "Hello", complete: true }]);
-  expect(events[1]!.payload).toMatchObject({ kind: "assistant_text", method: "claude/text_delta", itemId: "msg-1", textDelta: "Hello", turnId });
+  expect(events[1]!.payload).toMatchObject({ kind: "assistant_text", phase: null, itemId: "msg-1", textDelta: "Hello", turnId });
   expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "userMessage" }, { type: "agentMessage", text: "Hello" }] });
   const resumed = new ClaudeSession("on-request", undefined, storage, fake);
   await resumed.resumeThread(created.threadId, {});
@@ -92,7 +92,7 @@ test("Claude approvals apply decisions and interruption clears pending manager a
   const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
   await manager.submitTurn(threadId, { input: [toTextUserInput("run ls")] }); await asked.promise;
   const approval = manager.listApprovals(threadId)[0]!;
-  await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: "accept" });
+  await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "allow")!.value });
   expect(manager.listApprovals(threadId)[0]!.status).toBe("applied");
   await manager.interruptTurn(threadId); await done(session);
   expect(decisions).toEqual([{ behavior: "allow", updatedInput: { command: "ls" } }]);
@@ -158,7 +158,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
     const codex = new CodexSession(policy, tools);
     codex.startThread = async () => ({ threadId: "codex-thread", model: "codex-model", modelProvider: "openai", reasoningEffort: null });
     return codex;
-  }, () => false, { resolve: id => id.startsWith("claude-") ? "claude" : "codex", bind: () => {} });
+  }, () => false, { resolve: id => id.startsWith("claude-") ? "claude" : "codex", bind: () => {} }, ["codex", "claude"]);
   await manager.createThread({});
   const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
   expect(providers).toEqual(["codex", "claude"]);
@@ -174,7 +174,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
 
 test("request validation preserves agent provider independently of modelProvider", () => {
   expect(validateCreateThreadRequest({ provider: "claude", modelProvider: "anthropic" })).toMatchObject({ provider: "claude", modelProvider: "anthropic" });
-  expect(() => validateCreateThreadRequest({ provider: "unknown" })).toThrow("provider");
+  expect(validateCreateThreadRequest({ provider: "third-provider" }).provider).toBe("third-provider");
 });
 
 
@@ -207,7 +207,7 @@ test("combined stored conversations stay sorted across provider pages without du
       return { data: rows.slice(offset, offset + limit), nextCursor: offset + limit < rows.length ? String(offset + limit) : null };
     };
     return session;
-  }, () => true);
+  }, () => true, undefined, ["codex", "claude"]);
   try {
     let cursor: string | undefined; const ids: string[] = [];
     let pageNumber = 0;
@@ -253,7 +253,7 @@ test("renaming and archiving preserve in-memory tool results during an active tu
   await session.startTurn([toTextUserInput("run")]); await emitted.promise;
   await session.setThreadName(created.threadId, "Renamed"); await session.archiveThread(created.threadId);
   gate.resolve(); await done(session);
-  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "userMessage" }, { id: "tool-1", status: "completed", result: "fresh" }] }] });
+  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "userMessage" }, { id: "tool-1", type: "activity", activity: { status: "completed" }, text: JSON.stringify("fresh") }] }] });
   session.stop();
 });
 
@@ -268,9 +268,9 @@ test("Claude questions support multiple answers, invalid retries, and bypass per
   const { threadId } = await manager.createThread({ provider: "claude" }); await manager.submitTurn(threadId, { input: [toTextUserInput("choose")] }); await asked.promise;
   const approval = manager.listApprovals(threadId)[0]!;
   expect(approval.userInput!.questions[0]).toMatchObject({ id: "question-0", multiSelect: true });
-  await expect(manager.applyApprovalDecision(threadId, approval.approvalId, { decision: "submit", answers: {} })).rejects.toThrow("Answer every question");
+  await expect(manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: {} })).rejects.toThrow("Answer every question");
   expect(manager.listApprovals(threadId)[0]!.status).toBe("pending");
-  await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: "submit", answers: { "question-0": { answers: ["API", "UI"] } } }); await done(session);
+  await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": { answers: ["API", "UI"] } } }); await done(session);
   expect(permission).toEqual({ behavior: "allow", updatedInput: { ...native, answers: { "Which parts?": ["API", "UI"] } } });
   manager.stopAll();
 });
@@ -285,9 +285,9 @@ test("question cancellation and native abort settle callbacks and expire stale a
     const session = new ClaudeSession("on-request", undefined, store(), fake); const manager = new SessionManager(undefined, () => session);
     const { threadId } = await manager.createThread({ provider: "claude" }); await manager.submitTurn(threadId, { input: [toTextUserInput("choose")] }); await asked.promise;
     const approval = manager.listApprovals(threadId)[0]!;
-    if (cancelled) await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: "cancel" }); else controller.abort();
+    if (cancelled) await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "cancel")!.value }); else controller.abort();
     await done(session); expect(permission!.behavior).toBe("deny"); expect(manager.getRuntimeActivity().pendingApprovalIds).toEqual([]);
-    await expect(session.applyApprovalDecision(approval.approvalId, { decision: "cancel" })).rejects.toThrow("Unknown Claude"); manager.stopAll();
+    await expect(session.applyApprovalDecision(approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "cancel")!.value })).rejects.toThrow("Unknown Claude"); manager.stopAll();
   }
 });
 
@@ -383,7 +383,7 @@ test("background questions create a pending wake turn before an assistant messag
   const request = manager.listApprovals(threadId).find(approval => approval.status === "pending")!;
   expect(request.userInput!.turnId).toBe(session.activeTurnId);
   await expect(Promise.resolve().then(() => session.setCwd("/different"))).rejects.toThrow("Wait for Claude work");
-  await manager.applyApprovalDecision(threadId, request.approvalId, { decision: "submit", answers: { "question-0": { answers: ["Yes"] } } }); await done(session);
+  await manager.applyApprovalDecision(threadId, request.approvalId, { decision: request.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": { answers: ["Yes"] } } }); await done(session);
   expect((await session.listThreadTurns(threadId, {})).data).toHaveLength(2); manager.stopAll();
 });
 
@@ -551,8 +551,8 @@ test("streamed blocks coalesce history writes and stored tool output is bounded"
   await session.startTurn([toTextUserInput("read")]); await done(session);
   expect(writes).toBeLessThanOrEqual(3);
   const items = storage.read(threadId).turns[0]!.items;
-  expect(items[1]!.result).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
-  expect(String(items[2]!.result).length).toBeLessThan(8_100);
+  expect(JSON.parse(items[1]!.text!)).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
+  expect(String(items[2]!.text).length).toBeLessThan(8_100);
   session.stop();
 });
 
@@ -595,7 +595,7 @@ test("thread listing reads summaries, rebuilds legacy summaries, and skips unrea
   expect(warnings).toHaveLength(1); expect(storage.hasThreads()).toBe(true);
 });
 
-test("Claude neutral actions validate catalog settings and apply opaque permission options to the SDK", async () => {
+test("Claude applies opaque permission options through the shared session boundary", async () => {
   const asked = signal(), decisions: PermissionResult[] = [];
   const fake = sdk(async function* (_input, options) {
     const pending = options.canUseTool!("Read", { file_path: "/project/readme.md" }, { signal: new AbortController().signal, suggestions: [] } as Parameters<CanUseTool>[2]);
@@ -603,22 +603,17 @@ test("Claude neutral actions validate catalog settings and apply opaque permissi
   });
   const session = new ClaudeSession("on-request", undefined, store(), fake), manager = new SessionManager(undefined, () => session);
   const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
-  await expect(manager.configureNeutral(threadId, { sandboxMode: "workspace_write" })).rejects.toThrow("capability");
-  await expect(manager.configureNeutral(threadId, { model: "missing" })).rejects.toThrow("available model");
-  const next = await manager.configureNeutral(threadId, { model: "sonnet", effort: "low", approvalMode: "review_sensitive" });
-  expect(next).toMatchObject({ model: "sonnet", effort: "low", sandboxMode: "unrestricted" });
-  const observed: import("../shared/protocol/v2/events.js").BridgeEvent[] = [];
-  manager.subscribeNeutralEvents(threadId, event => observed.push(event));
-  await manager.submitNeutral(threadId, { input: [{ type: "text", text: "read" }] }); await asked.promise;
-  expect(fake.calls.at(-1)!.options).toMatchObject({ cwd: "/project", model: "sonnet", effort: "low", permissionMode: "default" });
-  const pending = manager.readNeutralSnapshot(threadId).interactions[0];
-  expect(pending.permissions?.filesystem).toEqual([{ path: "/project/readme.md", access: "read" }]);
-  expect(pending.options.map(option => option.scope)).toEqual(["once", "once"]);
-  await manager.respondNeutral(threadId, pending.id, { optionId: pending.options.find(option => option.intent === "allow")!.id });
+  const observed: BridgeEvent[] = [];
+  manager.subscribeToThreadEvents(threadId, event => observed.push(event));
+  await manager.submitTurn(threadId, { input: [toTextUserInput("read")] }); await asked.promise;
+  const pending = manager.listApprovals(threadId)[0]!;
+  expect(pending.kind).toBe("permission"); expect(pending.detail).toContain("/project/readme.md");
+  expect(pending.choices.map(choice => choice.intent)).toEqual(["allow", "deny"]);
+  expect(pending.choices.some(choice => ["accept", "decline"].includes(choice.value))).toBe(false);
+  await manager.applyApprovalDecision(threadId, pending.approvalId, { decision: pending.choices.find(choice => choice.intent === "allow")!.value });
   await done(session);
   expect(decisions).toEqual([{ behavior: "allow", updatedInput: { file_path: "/project/readme.md" } }]);
-  expect(observed.filter(event => event.type.startsWith("interaction.")).map(event => event.type)).toEqual(["interaction.requested", "interaction.decided", "interaction.applied"]);
   expect(manager.listApprovals(threadId).every(record => record.status !== "pending")).toBe(true);
-  await expect(manager.respondNeutral(threadId, pending.id, { optionId: pending.options[0].id })).rejects.toThrow("unavailable");
+  await expect(manager.applyApprovalDecision(threadId, pending.approvalId, { decision: pending.choices[0]!.value })).rejects.toThrow("already");
   manager.stopAll();
 });

@@ -9,7 +9,7 @@ export interface UserInputTextElement {
 }
 
 export type UserInput =
-  | { type: "text"; text: string; text_elements: UserInputTextElement[] }
+  | { type: "text"; text: string; annotations?: UserInputTextElement[] }
   | { type: "image"; url: string; detail?: ImageDetail }
   | { type: "localImage"; path: string; detail?: ImageDetail }
   | { type: "audio"; url: string }
@@ -18,5 +18,5 @@ export type UserInput =
   | { type: "mention"; name: string; path: string };
 
 export function toTextUserInput(text: string): UserInput {
-  return { type: "text", text, text_elements: [] };
+  return { type: "text", text };
 }

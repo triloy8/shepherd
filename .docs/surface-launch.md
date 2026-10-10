@@ -72,7 +72,7 @@ required. These are in-process isolation guarantees, not separate-process crash
 isolation. There is no generic automatic adapter restart loop in this change.
 
 Health transitions appear in host logs; the host also exposes a health snapshot
-for integrations/tests. Web adds a `/api/v1/health` availability
+for integrations/tests. Web adds a `/api/health` availability
 endpoint, not a full host-health snapshot. Discord commands are unchanged.
 Signal notices go only to the adapter named by their delivery target. Presentation
 failure is logged without discarding the underlying signal execution.

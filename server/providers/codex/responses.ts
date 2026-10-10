@@ -1,5 +1,7 @@
-import type { AccountRateLimitsResponse, ReadThreadResponse, RevertThreadResponse, ThreadRecord, ListModelsResponse } from "../../../shared/protocol/requests.js";
-import type { StoredThreadPage, LoadedThreadPage } from "../../core/agent_session.js";
+import { historyTurn } from "../history_mapper.js";
+import type {  ReadThreadResponse, RevertThreadResponse, ThreadRecord, ListModelsResponse } from "../../../shared/protocol/requests.js";
+import type { AccountRateLimitsResponse } from "./account_types.js";
+import type { StoredThreadPage, LoadedThreadPage } from "../../ports/provider_session.js";
 import { decodeResetCredits } from "./account_usage.js";
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const asString = (value: unknown): string | null => typeof value === "string" && value.trim() ? value : null;
@@ -8,7 +10,13 @@ function thread(value: unknown): ThreadRecord {
   const record = asRecord(value);
   const id = asString(record.id);
   if (!id) throw new Error("Thread payload missing id.");
-  return { ...record, id, source: asString(record.source) ?? asString(asRecord(record.source).kind) };
+  return { id, name: asString(record.name), preview: asString(record.preview) ?? "",
+    ...(typeof record.createdAt === "number" ? { createdAt: record.createdAt } : {}),
+    ...(typeof record.updatedAt === "number" ? { updatedAt: record.updatedAt } : {}),
+    ...(asString(record.cwd) ? { cwd: String(record.cwd) } : {}),
+    ...(asString(record.modelProvider) ? { modelProvider: String(record.modelProvider) } : {}),
+    source: asString(record.source) ?? asString(asRecord(record.source).kind),
+    ...(Array.isArray(record.turns) ? { turns: record.turns.map(historyTurn) } : {}) };
 }
 export function readResponse(value: unknown): ReadThreadResponse { return { thread: thread(asRecord(value).thread) }; }
 export function revertResponse(value: unknown): RevertThreadResponse {

@@ -9,7 +9,7 @@ async page => {
   await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
   let release, accepted, requests = 0;
   const held = new Promise(resolve => { accepted = resolve; });
-  await page.route('**/api/v1/conversations', async route => {
+  await page.route('**/api/conversations', async route => {
     if (route.request().method() !== 'POST') return route.continue();
     requests++;
     const response = await route.fetch();

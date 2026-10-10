@@ -1,13 +1,11 @@
-import type { ProviderServices } from "./agent_provider.js";
-import { AccountLimitsService } from "./account_limits_service.js";
+import type { ProviderServices } from "../ports/provider_services.js";
 import type { AgentProvider } from "../../shared/protocol/requests.js";
-import type { ReadProviderAccountLimitsOptions } from "../../shared/protocol/provider_account_limits.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "../../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type {
-  AccountRateLimitsResponse,
-  ConsumeRateLimitResetRequest,
-  ConsumeRateLimitResetResponse,
+
+
+
   ApprovalPolicy,
   CreateThreadRequest,
   CreateThreadResponse,
@@ -81,12 +79,10 @@ export class ConversationService {
   private readonly manager: SessionManager;
   private readonly routing: ConversationRoutingService;
   private readonly providerServices: ProviderServices | undefined;
-  private readonly accountLimits: AccountLimitsService;
   private readonly subscriptionsBySurface = new Map<string, SurfaceSubscription>();
 
   constructor(options: ConversationServiceOptions = {}) {
     this.providerServices = options.providers;
-    this.accountLimits = new AccountLimitsService(options.providers?.accountLimits);
     this.manager = new SessionManager(this.dynamicTools, options.providers?.createSession, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers);
     this.routing = new ConversationRoutingService(this.manager, options.routing);
   }
@@ -257,16 +253,16 @@ export class ConversationService {
     return this.manager.revertThread(threadId, request);
   }
 
-  consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<ConsumeRateLimitResetResponse> {
-    return this.manager.consumeRateLimitReset(request);
+  listProviders() { return structuredClone(this.providerServices?.descriptors ?? []); }
+  async readAccount(provider: string, refresh = false) {
+    const reader = this.providerServices?.accounts.get(provider);
+    if (!reader) throw new Error("Provider account reporting is unavailable.");
+    return reader.read(refresh);
   }
-
-  readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
-    return this.manager.readAccountRateLimits();
-  }
-
-  readProviderAccountLimits(provider: AgentProvider, options?: ReadProviderAccountLimitsOptions) {
-    return this.accountLimits.read(provider, options);
+  async resetAccount(provider: string, input: import("../../shared/protocol/account_limits.js").AccountResetRequest) {
+    const account = this.providerServices?.accounts.get(provider);
+    if (!account?.reset) throw new Error("Provider resets are unavailable.");
+    return account.reset(input);
   }
 
   listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
@@ -329,35 +325,6 @@ export class ConversationService {
     return this.manager.subscribeToThreadEvents(threadId, listener, cursorOrOptions);
   }
 
-  listNeutralProviders() { return structuredClone(this.providerServices?.descriptors ?? []); }
-  readNeutralAccount(provider: string, refresh?: boolean) {
-    const reader = this.providerServices?.neutralAccounts?.get(provider);
-    if (!reader) throw new Error("Provider account reporting is unavailable.");
-    return reader.read(refresh);
-  }
-  resetNeutralAccount(provider: string, input: { idempotencyKey: string; creditId?: string }) {
-    const reset = this.providerServices?.neutralAccounts?.get(provider)?.reset;
-    if (!reset) throw new Error("Provider reset is unavailable.");
-    return reset(input);
-  }
-  neutralSettings(threadId: string) { return this.manager.neutralSettings(threadId); }
-  configureNeutral(threadId: string, settings: Partial<import("../../shared/protocol/v2/conversations.js").ThreadSettings>) { return this.manager.configureNeutral(threadId, settings); }
-  neutralSkills(threadId: string, reload?: boolean) { return this.manager.neutralSkills(threadId, reload); }
-  configureNeutralSkill(threadId: string, referenceId: string, enabled: boolean) { return this.manager.configureNeutralSkill(threadId, referenceId, enabled); }
-  neutralModels(threadId: string, cursor?: string) { return this.manager.neutralModels(threadId, cursor); }
-  neutralContext(threadId: string) { return this.manager.neutralContext(threadId); }
-  submitNeutral(threadId: string, turn: import("../../shared/protocol/v2/conversations.js").TurnInput) { return this.manager.submitNeutral(threadId, turn); }
-  interruptNeutral(threadId: string, turnId?: string) { return this.manager.interruptNeutral(threadId, turnId); }
-  respondNeutral(threadId: string, id: string, reply: import("../../shared/protocol/v2/interactions.js").InteractionReply) { return this.manager.respondNeutral(threadId, id, reply); }
-  uploadNeutralAsset(threadId: string, media: "image" | "audio", data: import("../ports/neutral_conversation.js").AssetData) { return this.manager.uploadNeutralAsset(threadId, media, data); }
-  readNeutralSnapshot(threadId: string) { return this.manager.readNeutralSnapshot(threadId); }
-  readNeutralSnapshotItems(threadId: string, cursor: string) { return this.manager.readNeutralSnapshotItems(threadId, cursor); }
-  readNeutralItems(threadId: string, cursor?: string) { return this.manager.readNeutralItems(threadId, cursor); }
-  readNeutralAsset(threadId: string, id: string) { return this.manager.readNeutralAsset(threadId, id); }
-  subscribeNeutralEvents(threadId: string, listener: (event: import("../../shared/protocol/v2/events.js").BridgeEvent) => void, cursor?: import("./projection_event_log.js").ProjectionCursor, onClose?: () => void) {
-    return this.manager.subscribeNeutralEvents(threadId, listener, cursor, onClose);
-  }
-
   submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     return this.manager.submitTurn(threadId, request);
   }
@@ -386,7 +353,7 @@ export class ConversationService {
     }
     this.subscriptionsBySurface.clear();
     try { this.manager.stopAll(); }
-    finally { this.accountLimits.stop(); this.providerServices?.shutdown?.(); }
+    finally { this.providerServices?.shutdown?.(); }
   }
 
   private rebindSurfaceSubscription(adapter: string, surfaceId: string, threadId: string): void {

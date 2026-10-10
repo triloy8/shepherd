@@ -97,17 +97,15 @@ export function reduceResponseStream(
   if (event.type === "turn.stream.delta") {
     const payload = event.payload as {
       textDelta?: string;
-      method?: string;
       kind?: "assistant_text" | "other";
       phase?: MessagePhase | null;
       itemId?: string | null;
       turnId?: string | null;
     };
-    const method = payload.method?.toLowerCase() ?? "";
     const phase = payload.phase;
     const delta = payload.textDelta ?? "";
     if (
-      (payload.kind ? payload.kind !== "assistant_text" : method && !method.includes("agentmessage")) ||
+      payload.kind !== "assistant_text" ||
       !delta ||
       (phase !== "commentary" && phase !== "final_answer") ||
       !sameTurn(state, payload.turnId)

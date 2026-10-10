@@ -1,4 +1,4 @@
-import type { ProviderDescriptor } from "../../shared/protocol/v2/conversations";
+import type { ProviderDescriptor } from "../../shared/protocol/providers";
 import { useImageDrafts } from "./use-image-drafts";
 import { HostControls } from "./components/HostControls";
 import { HostBattery } from "./components/HostBattery";
@@ -220,7 +220,7 @@ export default function App() {
     selectionVersion.current++; setResuming(false);
     setCreating(true); setError(null);
     try {
-      const conversation = await api.createWithProvider(project.trim(), provider);
+      const conversation = await api.create({ project: project.trim(), provider });
       setConversations((items) => [...items.filter((item) => item.id !== conversation.id), conversation]);
       select(conversation); setDialog(null); void refreshList();
     } catch (error) { setError(`${explainError(error)} Refresh the conversation list before retrying if the connection dropped.`); }

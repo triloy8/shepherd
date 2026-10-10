@@ -211,10 +211,8 @@ export interface ThreadRecord {
   updatedAt?: number;
   cwd?: string;
   modelProvider?: string;
-  source?: unknown;
-  status?: unknown;
-  turns?: unknown[];
-  [key: string]: unknown;
+  source?: string | null;
+  turns?: HistoryTurn[];
 }
 
 export interface ListApprovalsResponse {
@@ -225,33 +223,6 @@ export interface ApprovalDecisionApiRequest extends ApprovalDecisionRequest {}
 
 export interface ApprovalDecisionApiResponse {
   ok: true;
-}
-
-export interface RateLimitResetCredit {
-  id: string;
-  resetType: "codexRateLimits" | "unknown";
-  status: "available" | "redeeming" | "redeemed" | "unknown";
-  grantedAt: number;
-  expiresAt: number | null;
-  title: string | null;
-  description: string | null;
-}
-export interface RateLimitResetCredits {
-  availableCount: number;
-  credits: RateLimitResetCredit[] | null;
-}
-export interface ConsumeRateLimitResetRequest {
-  idempotencyKey: string;
-  creditId?: string;
-}
-export interface ConsumeRateLimitResetResponse {
-  outcome: "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit";
-}
-
-export interface AccountRateLimitsResponse {
-  rateLimits: unknown;
-  rateLimitsByLimitId: Record<string, unknown> | null;
-  rateLimitResetCredits: RateLimitResetCredits | null;
 }
 
 export interface TokenUsageBreakdown {
@@ -387,7 +358,12 @@ export interface ListThreadTurnsRequest {
 export interface HistoryItem {
   id: string;
   type: string;
-  [key: string]: unknown;
+  text?: string;
+  phase?: import("./events.js").MessagePhase;
+  content?: Array<{ type: string; text?: string; url?: string; path?: string; name?: string }>;
+  summary?: string[];
+  activity?: import("./events.js").TurnActivityEvent["payload"];
+  image?: { itemId: string; turnId: string | null; path: string; revisedPrompt?: string | null; kind: "generated" | "viewed" };
 }
 
 export interface HistoryTurn {
@@ -395,7 +371,7 @@ export interface HistoryTurn {
   items: HistoryItem[];
   itemsView: "notLoaded" | "summary" | "full";
   status: "completed" | "interrupted" | "failed" | "inProgress";
-  error: { message: string; [key: string]: unknown } | null;
+  error: { message: string } | null;
   startedAt: number | null;
   completedAt: number | null;
   durationMs: number | null;

@@ -4,7 +4,7 @@ async (page) => {
   await page.goto('http://127.0.0.1:8799');
   const credit = { resetType: 'codexRateLimits', status: 'available', grantedAt: 100, expiresAt: null, description: null };
   let summary = { availableCount: 2, credits: [{ ...credit, id: 'first', title: 'First reset' }, { ...credit, id: 'second', title: 'Second reset' }] };
-  await page.route('**/api/v1/limits', route => route.fulfill({ json: {
+  await page.route('**/api/limits', route => route.fulfill({ json: {
     rateLimits: {}, rateLimitsByLimitId: {
       internal_quota: { normalModelSlug: 'future-model', limitName: 'Reserve allowance' },
       provider_bucket: { normalModelSlug: 'unknown', limitName: 'Provider Display Name' },
@@ -12,7 +12,7 @@ async (page) => {
     }, rateLimitResetCredits: summary,
   } }));
   const catalogRequests = [];
-  await page.route('**/api/v1/models?*', route => {
+  await page.route('**/api/models?*', route => {
     catalogRequests.push(route.request().url());
     const cursor = new URL(route.request().url()).searchParams.get('cursor');
     return route.fulfill({ json: cursor
@@ -28,7 +28,7 @@ async (page) => {
   if (catalogRequests.length !== 2) throw Error('Catalog pagination incomplete');
   if (await panel.getByRole('button', { name: 'Use next available reset', exact: true }).count()) throw Error('Generic control shown with full reset details');
   const requests = [];
-  await page.route('**/api/v1/limits/reset', route => {
+  await page.route('**/api/limits/reset', route => {
     const request = route.request().postDataJSON(); requests.push(request);
     summary = { availableCount: 1, credits: [{ ...credit, id: 'first', title: 'First reset' }] };
     return route.fulfill({ json: { outcome: 'reset' } });
@@ -38,8 +38,8 @@ async (page) => {
   if (requests[0]?.creditId !== 'second') throw Error('Wrong reset chosen');
   if (await panel.getByText('Second reset · available', { exact: true }).count()) throw Error('Redeemed reset did not disappear');
   // Optional metadata failure must leave usage, selection, and readable fallbacks working.
-  await page.unroute('**/api/v1/models?*');
-  await page.route('**/api/v1/models?*', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Catalog unavailable' } } }));
+  await page.unroute('**/api/models?*');
+  await page.route('**/api/models?*', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Catalog unavailable' } } }));
   await panel.getByRole('button', { name: 'Refresh usage', exact: true }).click();
   await panel.getByRole('heading', { name: 'Reserve allowance', exact: true }).waitFor();
   await panel.getByText('Banked resets · 1 available', { exact: true }).waitFor();

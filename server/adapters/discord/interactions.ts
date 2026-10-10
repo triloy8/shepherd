@@ -32,12 +32,12 @@ export async function handleModalInteraction(
   conversation: InteractionConversation,
 ): Promise<void> {
   const parsed = decodeApprovalButtonId(interaction.customId);
-  if (!parsed || parsed.decision !== "submit") return;
+  if (!parsed) return;
   try {
     const request = conversation.listApprovals(parsed.threadId).find(a => a.approvalId === parsed.approvalId && a.status === "pending");
-    if (!request?.userInput) throw new Error("These questions are no longer pending.");
+    if (!request?.userInput || request.choices.find(choice => choice.value === parsed.decision)?.intent !== "answer") throw new Error("These questions are no longer pending.");
     const answers = Object.fromEntries(request.userInput.questions.map((q, index) => [q.id, { answers: [interaction.fields.getTextInputValue(`answer-${index}`)] }]));
-    await conversation.applyApprovalDecision(parsed.threadId, parsed.approvalId, { decision: "submit", answers });
+    await conversation.applyApprovalDecision(parsed.threadId, parsed.approvalId, { decision: parsed.decision, answers });
     await replyEphemeralText(interaction, "Answers submitted.");
   } catch (error) { await replyEphemeralText(interaction, (error as Error).message); }
   return;
@@ -133,7 +133,7 @@ export async function handleInteraction(
         const result = await conversation.listModels({
           cursor: pageRequest.cursor ?? undefined,
           limit: DISCORD_LIST_PAGE_SIZE,
-          ...(provider && provider !== "codex" ? { provider } : {}),
+          ...(provider ? { provider } : {}),
         });
         page = buildModelsListPage({
           result,
@@ -161,8 +161,9 @@ export async function handleInteraction(
   const parsed = decodeApprovalButtonId(interaction.customId);
   if (!parsed) return;
 
-  const request = ["submit", "cancel"].includes(parsed.decision) ? conversation.listApprovals(parsed.threadId).find(a => a.approvalId === parsed.approvalId && a.status === "pending") : undefined;
-  if (request?.userInput && parsed.decision === "submit") {
+  const request = conversation.listApprovals(parsed.threadId).find(a => a.approvalId === parsed.approvalId && a.status === "pending");
+  const choice = request?.choices.find(choice => choice.value === parsed.decision);
+  if (request?.userInput && choice?.intent === "answer") {
     if (request.userInput.questions.length > 5 || request.userInput.questions.some(q => q.isSecret || q.multiSelect)) {
       await replyEphemeralText(interaction, "Please answer these questions in the Shepherd web UI.");
       return;
@@ -181,7 +182,7 @@ export async function handleInteraction(
     await conversation.applyApprovalDecision(parsed.threadId, parsed.approvalId, {
       decision: parsed.decision,
     });
-    responseText = request?.userInput ? "Questions skipped." : formatApprovalDecisionReply(parsed.decision);
+    responseText = request?.userInput ? "Questions skipped." : formatApprovalDecisionReply(choice?.label ?? "Submitted");
   } catch (error) {
     responseText = error instanceof Error ? error.message : "Failed to submit decision";
   }

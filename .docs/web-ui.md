@@ -39,17 +39,12 @@ images work when their artifact metadata is loaded in the current conversation.
 
 ## Usage and limits
 
-The sidebar **Usage & limits** panel has Codex and Claude tabs. It opens on the
-selected conversation provider, or on Codex when a reset request needs recovery.
+The sidebar **Usage & limits** panel has an agent selector from the registered providers. It opens on the
+selected conversation provider, or on the provider with a reset request that needs recovery.
 The values are host account allowances shared across conversations, not
-per-conversation budgets. The panel polls only while it is open and the page is
-visible.
+per-conversation budgets. Use **Refresh usage** to fetch fresh allowances.
 
-Codex bucket titles use the model catalog display name matched by
-`normalModelSlug`, then the provider's `limitName`, then a humanized internal ID.
-When a model name and a distinct quota label are both present, the quota label is
-shown beneath the title. Optional catalog failures leave usage and reset controls
-available.
+Allowance labels and optional subtitles come from the provider adapter.
 
 Each available, unexpired, supported Codex reset has a **Use this reset** button.
 If details are count-only or capped, **Use next available reset** lets Codex choose

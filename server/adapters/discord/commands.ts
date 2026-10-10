@@ -42,7 +42,7 @@ import {
 import { initialHistoryRequest, loadHistoryPage } from "./history_pagination.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: UserInput[] | null };
-const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
+
 
 export type CommandContext = SurfaceApplicationContext;
 
@@ -182,35 +182,14 @@ function formatWindow(label: string, value: unknown): string {
   ].join("\n");
 }
 
-function formatRateLimitsForDiscord(value: unknown): string {
-  const limits = asRecord(value);
-  const planType = asString(limits.planType) ?? "unknown";
-  const limitId = asString(limits.limitId) ?? "unknown";
-
-  const credits = asRecord(limits.credits);
-  const hasCredits = credits.hasCredits === true ? "yes" : "no";
-  const unlimited = credits.unlimited === true ? "yes" : "no";
-  const balance = asString(credits.balance) ?? "unknown";
-
-  const lines = [
-    `- Plan: ${planType}`,
-    `- Limit ID: ${limitId}`,
-    "",
-    formatWindow("Primary Window", limits.primary),
-    "",
-    formatWindow("Secondary Window", limits.secondary),
-    "",
-    `**Credits**`,
-    `- Has credits: ${hasCredits}`,
-    `- Unlimited: ${unlimited}`,
-    `- Balance: ${balance}`,
-  ];
-
-  if (!limits.primary && !limits.secondary) {
-    lines.push("", "Raw payload:", "```json", safeJson(value), "```");
-  }
-
-  return lines.join("\n");
+function formatRateLimitsForDiscord(limits: import("../../../shared/protocol/account_limits.js").ProviderAccountLimits): string {
+  return [
+    `- Provider: ${limits.provider}`,
+    `- Plan: ${limits.account.plan ?? "unknown"}`,
+    ...limits.windows.map(window => `- ${window.label}: ${window.usedPercent === null ? window.status : `${window.usedPercent}% used`}${window.resetsAt === null ? "" : ` · resets <t:${Math.floor(window.resetsAt)}:R>`}`),
+    ...(limits.extraUsage ? [`- Extra usage: ${limits.extraUsage.balanceLabel ?? limits.extraUsage.status}`] : []),
+    ...(limits.message ? [limits.message] : []),
+  ].join("\n");
 }
 
 function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): string {
@@ -221,10 +200,10 @@ function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): s
 
   const lastTotalTokens = asNumber(last.totalTokens);
   const effectiveWindow =
-    contextWindow !== null ? Math.max(contextWindow - CODEX_CONTEXT_BASELINE_TOKENS, 0) : null;
+    contextWindow !== null ? Math.max(contextWindow - 0, 0) : null;
   const usedInEffectiveWindow =
     effectiveWindow !== null && lastTotalTokens !== null
-      ? Math.max(lastTotalTokens - CODEX_CONTEXT_BASELINE_TOKENS, 0)
+      ? Math.max(lastTotalTokens - 0, 0)
       : null;
   const remainingInEffectiveWindow =
     effectiveWindow !== null && usedInEffectiveWindow !== null
@@ -244,7 +223,7 @@ function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): s
     `- Effective remaining tokens: ${
       remainingInEffectiveWindow === null
         ? "unknown"
-        : `${remainingInEffectiveWindow.toLocaleString()} (baseline ${CODEX_CONTEXT_BASELINE_TOKENS.toLocaleString()})`
+        : `${remainingInEffectiveWindow.toLocaleString()}`
     }`,
     "",
     `**Last Token Usage**`,
@@ -664,11 +643,11 @@ export async function handleMessage(
   }
 
   if (command === "!limits") {
-    const result = await executeControlAction(context, { type: "limits.read" });
+    const result = await executeControlAction(context, { type: "limits.read", surfaceId: message.channelId });
     if (result.type !== "limits.read") {
       throw new Error("Unexpected control action result for limits.read.");
     }
-    const text = formatRateLimitsForDiscord(result.rateLimits);
+    const text = formatRateLimitsForDiscord(result.limits);
     await replyCard(message, "Rate limits", text);
     return { handled: true, threadId: null, input: null };
   }

@@ -1,0 +1,46 @@
+import { EventBus } from "../../server/core/event_bus.js";
+import type { ProviderSession } from "../../server/ports/provider_session.js";
+import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
+import type { UserInput } from "../../shared/protocol/user_input.js";
+import type { HistoryTurn } from "../../shared/protocol/requests.js";
+export const descriptor: ProviderDescriptor = { id: "unrelated-provider", displayName: "An unrelated agent", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], resets: false } };
+
+/** Implements the actual port directly; no SDK session, proxy, or compatibility methods. */
+export class IndependentSession implements ProviderSession {
+  readonly capabilities = descriptor.capabilities;
+  readonly sessionId = crypto.randomUUID();
+  readonly eventBus = new EventBus();
+  activeTurnId: string | null = null;
+  approvalPolicy = "on-request" as const;
+  inputs: UserInput[] = [];
+  stopped = false;
+  cwd = "/tmp";
+  threadId = "";
+  turns: HistoryTurn[] = [];
+  async initialize() {}
+  async startThread() { this.threadId = `opaque-${crypto.randomUUID()}`; return this.bootstrap(); }
+  async resumeThread(threadId: string) { this.threadId = threadId; return this.bootstrap(); }
+  private bootstrap() { return { threadId: this.threadId, model: "third-model", modelProvider: null, reasoningEffort: "focused" }; }
+  async startTurn(input: UserInput[]) {
+    this.inputs = structuredClone(input); this.activeTurnId = "opaque-turn";
+    this.turns.push({ id: this.activeTurnId, items: [{ id: "reply", type: "agentMessage", text: "Third provider answer", phase: "final_answer" }], itemsView: "full", status: "inProgress", error: null, startedAt: 1, completedAt: null, durationMs: null });
+    this.emit("turn.started", { turnId: this.activeTurnId });
+    this.emit("turn.stream.delta", { kind: "assistant_text", turnId: this.activeTurnId, itemId: "reply", textDelta: "Third provider answer", phase: "final_answer" });
+    return this.activeTurnId;
+  }
+  async steerTurn(input: UserInput[]) { this.inputs.push(...input); return this.activeTurnId; }
+  async interruptTurn() { const turnId = this.activeTurnId; this.activeTurnId = null; this.emit("turn.completed", { turnId }); }
+  async applyApprovalDecision(approvalId: string) { return { approvalId }; }
+  setCwd(cwd: string) { this.cwd = cwd; }
+  stop() { this.stopped = true; }
+  private emit(type: Parameters<EventBus["publish"]>[0]["type"], payload: unknown) { this.eventBus.publish({ id: crypto.randomUUID(), type, payload, threadId: this.threadId, sessionId: this.sessionId, ts: new Date().toISOString() }); }
+  async listStoredThreads() { return { data: [{ id: this.threadId, cwd: this.cwd }], nextCursor: null }; }
+  async listLoadedThreads() { return { data: [this.threadId], nextCursor: null }; }
+  async readThread(threadId: string) { return { thread: { id: threadId, cwd: this.cwd } }; }
+  async listThreadTurns() { return { data: this.turns, nextCursor: null, backwardsCursor: null }; }
+  async listThreadItems() { return { data: this.turns.flatMap(turn => turn.items.map(item => ({ turnId: turn.id, item }))), nextCursor: null, backwardsCursor: null }; }
+  async setThreadName() {}
+  async archiveThread() {}
+  async unarchiveThread() {}
+  async listModels() { return { data: [{ id: "third-model", model: "third-model", displayName: "Third model", description: "", hidden: false, isDefault: true, supportsPersonality: false, defaultReasoningEffort: "focused", supportedReasoningEfforts: [{ reasoningEffort: "focused", description: "Focus" }] }], nextCursor: null }; }
+}

@@ -20,7 +20,7 @@ async page => {
   const started = page.waitForResponse(settingsResponse);
   await page.evaluate(async () => {
     const selected = JSON.parse(localStorage.getItem('shepherd.selection'));
-    const response = await fetch(`/api/v1/conversations/${selected.id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Settings lifecycle regression', images: [] }) });
+    const response = await fetch(`/api/conversations/${selected.id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Settings lifecycle regression', images: [] }) });
     if (!response.ok) throw Error('Fixture send failed');
   });
   await started;

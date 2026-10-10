@@ -4,14 +4,7 @@ The web surface serves the built-in UI and a private conversation API from the
 same loopback listener. It runs alone or alongside Discord using the shared core.
 It supports text and image input, conversation management and history, live events,
 approvals, structured agent questions, model/effort settings, usage, skills, and host restart/deployment controls.
-The built-in UI retains main’s timeline and conversation behavior through `/api/v1`; its
-[current UI contract](archive/web-api-v1.md) is documented separately. The
-provider-neutral `/api/v2` API remains available as an additive server interface.
-The shipped UI uses v2 only for provider discovery, explicit provider creation,
-and account usage/reset controls. Its timeline/history/settings still use v1.
-The route and recovery details below describe the v2 API.
-“v1” and “v2” name API contracts, not product releases.
-It does not expose arbitrary provider RPC. See the [surface parity matrix](surface-parity-matrix.md)
+It does not expose arbitrary Codex RPC. See the [surface parity matrix](surface-parity-matrix.md)
 for implemented features and differences between surfaces.
 
 ## Enable explicitly
@@ -77,127 +70,357 @@ lifecycle. Origin configuration changes take effect at the next host restart.
 
 ## HTTP contract
 
-Paths below are relative to `/api/v2`. JSON bodies require
-`Content-Type: application/json`; unknown fields are rejected. Shared content and
-action types live in `shared/protocol/v2/`. Navigation and host types remain in
-`shared/protocol/web.ts`. Errors are `{ "error": { "code", "message" } }`.
+All paths below are relative to `/api`. JSON request bodies require
+`Content-Type: application/json`. Unknown body fields are rejected. Shared
+TypeScript response/event types are in `shared/protocol/web.ts` and its imported
+protocol files. Error responses are `{ "error": { "code": "...", "message": "..." } }`.
 
 | Method | Path | Body or result |
 | --- | --- | --- |
-| GET | `/health` | `{ ok: true, apiVersion: 2 }`; host availability |
-| GET | `/providers` | `{ providers: ProviderDescriptor[] }`; IDs, display names, actual capabilities and neutral defaults |
-| GET | `/limits?provider=...&refresh=true` | Shared `ProviderAccountLimits`; provider defaults to the first registered provider, refresh is optional |
-| POST | `/limits/reset` | `{ provider, idempotencyKey, creditId? }` → snake-case `reset`, `already_redeemed`, `nothing_to_reset`, or `no_credit` outcome |
-| GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries; archived defaults to false |
-| GET | `/conversations` | `{ conversations: [{ id, threadId, project, provider? }] }` |
-| POST | `/conversations` | `{ project, provider? }` creates with an advertised provider; `{ threadId }` resumes its saved workspace/provider |
-| GET | `/conversations/:id` | Handle summary and neutral conversation state |
-| DELETE | `/conversations/:id` | Detach, release binding and close streams |
-| POST | `/conversations/:id/rename` | `{ name }` |
-| POST | `/conversations/:id/archive` | `{}`; archive and detach |
-| POST | `/conversations/:id/fork` | `{}`; new handle with the saved provider, subject to capability/activity guards |
-| POST | `/threads/:threadId/unarchive` | `{}`; restore without attaching |
-| GET | `/conversations/:id/snapshot` | State, capabilities, pending interactions, epoch/watermark/history revision and versioned overlay items |
-| GET | `/conversations/:id/snapshot-items?cursor=...` | Immutable snapshot continuation |
-| GET | `/conversations/:id/items?cursor=...` | Native-derived, unversioned history; opaque forward cursors |
-| GET | `/conversations/:id/events` | Core-ordered SSE; `Last-Event-ID: <epoch>:<sequence>` resumes replay |
-| POST | `/conversations/:id/assets` | `{ data: "data:image/...;base64,...", name? }` → scoped `AssetReference` |
-| GET | `/conversations/:id/assets/:assetId` | Authorized download; no filesystem path input |
-| POST | `/conversations/:id/messages` | `{ input: [{ type: "text", text }, { type: "asset", assetId, media: "image" }] }` → `{ turnId, steered }` |
-| POST | `/conversations/:id/interrupt` | `{ turnId? }` |
-| GET | `/conversations/:id/interactions` | Current pending shared interactions |
-| POST | `/conversations/:id/interactions/:requestId` | `{ optionId, answers?, reason? }`; choose an exact offered opaque token |
-| GET | `/conversations/:id/settings` | `ThreadSettings`: cwd, model, effort, approvalMode, sandboxMode |
-| POST | `/conversations/:id/settings` | Nonempty patch of model, effort, approvalMode or sandboxMode; applies to the next new turn |
-| GET | `/conversations/:id/models?cursor=...` | Shared model page: IDs, labels, descriptions, supported efforts and default effort; up to 100 records |
-| GET | `/conversations/:id/context` | `{ tokenUsage }`; request/context telemetry, separate from account allowances |
-| GET | `/conversations/:id/skills` | Opaque skill references, names/descriptions/enabled state, warnings and omitted count |
-| POST | `/conversations/:id/skills-reload` | `{}`; fresh discovery, subject to advertised capability |
-| POST | `/conversations/:id/skills` | `{ referenceId, enabled }`; never a native filesystem path |
-| POST | `/conversations/:id/compact` | `{}`; advertised capability only |
-| POST | `/conversations/:id/revert` | `{ beforeTurnId }`; conversation rewind, without filesystem rollback |
-| GET | `/host`, `/host/battery` | Existing host/lifecycle and battery records |
-| POST | `/host/actions` | `{ requestId, action: "restart" or "deploy", branch? }`; existing host operation records |
+| GET | `/health` | `{ ok: true }`; availability, not downstream readiness |
+| GET | `/models?cursor=...&limit=100` | Provider catalog; optional `provider=<registered-id>` defaults to the first registration. Includes hidden model aliases and supports pagination. Conversation-scoped catalogs use the attached provider. |
+| GET | `/providers` | Registered provider IDs, display names, and capabilities |
+| GET | `/limits?provider=<id>&refresh=true` | `ProviderAccountLimits` for any registered provider. Provider defaults to the first registration; refresh is optional. No conversation needed. |
+| POST | `/limits/reset` | `{ provider, idempotencyKey, creditId? }` → `{ outcome }`; requires the provider’s reset capability. Query parameters are rejected. |
+| GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
+| GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
+| POST | `/conversations` | `{ project, provider? }` creates a thread (provider defaults to the first registration); `{ threadId }` resumes its saved workspace/provider; 201 with `{ id, threadId, project }` |
+| GET | `/conversations/:id` | Handle summary plus `state` with active-turn/session state |
+| DELETE | `/conversations/:id` | Detaches the handle and closes streams; `{ ok: true }` |
+| POST | `/conversations/:id/rename` | `{ name }`; rename through shared controls, `{ ok: true }` |
+| POST | `/conversations/:id/archive` | `{}`; archive and detach the web handle, `{ ok: true }` |
+| POST | `/conversations/:id/fork` | `{}`; 201 with a new `WebConversation`; source remains attached |
+| POST | `/threads/:threadId/unarchive` | `{}`; restore a stored conversation without attaching it |
+| POST | `/conversations/:id/messages` | `{ text }`; returns `{ type: "submit" or "steer", threadId, turnId }` |
+| POST | `/conversations/:id/interrupt` | `{ turnId? }`; `{ ok: true }` |
+| GET | `/conversations/:id/turns?cursor=...&limit=20` | Full persisted turns and pagination cursors |
+| GET | `/conversations/:id/settings` | `{ model, effort }`; current/pending settings and supported effort levels |
+| GET | `/conversations/:id/models?cursor=...&limit=20` | Available model page with `data` and `nextCursor` |
+| POST | `/conversations/:id/model` | `{ model }`; resolve model ID/name through shared controls; `{ ok: true }` |
+| POST | `/conversations/:id/effort` | `{ effort }`; supported level or `default`; `{ ok: true }` |
+| GET | `/conversations/:id/context` | `{ threadId, tokenUsage }`; telemetry may be null |
+| GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices/status and optional `userInput` question request |
+| POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason?, answers? }`; `{ ok: true }` |
+| GET | `/conversations/:id/events` | SSE stream; optional `Last-Event-ID` |
 
-Navigation/host operations reuse existing application services. Creation restores
-explicit provider bindings and saved workspaces. Handles and stream buffers are
-volatile; stored history survives detach/restart. One conversation has an exclusive
-surface binding. Missing workspaces return `409 workspace_unavailable`.
+`project` is required only for new conversations and accepts the shared project-target
+syntax (`owner/repo`, `~/path`, or `~`). Resume takes `threadId` and uses the saved
+absolute working directory and provider; a provider override on resume is rejected.
+A project override on resume is ignored; the saved workspace always wins. Loaded
+threads retain their current cwd. Cold resume validates the saved directory without
+creating or cloning a replacement; missing/invalid directories return 409
+`workspace_unavailable`. The resumed handle's `project` displays its restored cwd.
+The selector and expired-handle recovery resume directly without a project dialog.
+Fork inherits the source handle's project target internally, including restored
+absolute local workspace targets.
 
-`/api/v2/models`, native-style `/approvals`, `/turns`, `/model`, `/effort`, and
-`/images` conversation routes are rejected. They cannot fall through to old content
-codecs. The legacy API remains callable at `/api/v1`; retirement and bundle/version
-negotiation are still migration work.
+Messages follow the same submit/steer policy as Discord: a message during an
+active turn steers it. HTTP completion acknowledges routing, not completion of
+the agent's response. Use events/history to follow the result. There is no
+idempotency key in the API: do not blindly retry a message after losing its HTTP
+response; inspect state/history first. Competing mutations on one handle return
+`409 conversation_busy`.
 
-## Inputs, settings and replies
+Approval IDs are URL-encoded path components. Choices carry opaque request-scoped tokens and shared allow/deny/answer/cancel intent. Send an exact `choices[].value`
+from a pending approval. Invalid choices return 400 without consuming it; missing
+approvals return 404; already-decided approvals return 409. Approvals must belong
+to the handle's thread.
 
-Text parts must be nonempty, at most 32,768 characters, and fit the 64 KiB request
-budget. Uploads accept PNG/JPEG/GIF/WebP after signature validation, up to 5 MiB
-per image. Native conversion enforces four images and 10 MiB total before starting
-work, including repeated references. Upload references belong to one conversation;
-foreign or expired references fail before native submission. Audio and skill/mention
-input references are not currently advertised by either neutral adapter.
+### Structured user questions
 
-An accepted message starts a turn or steers the active turn when supported.
-HTTP success acknowledges submission, not completion. Message submission has no
-idempotency key: after a connection failure, the client retains the draft and asks
-the operator to check the conversation before sending again. Reconnect and history
-refresh never submit work.
+The existing approvals routes carry Codex `item/tool/requestUserInput` requests
+and Claude `AskUserQuestion` callbacks through the same shared question contract.
+Records include `userInput: { threadId, turnId, itemId, isBlocking, questions }`;
+each question has `id`, `header`, `question`, optional `multiSelect`, `isOther`, `isSecret`, and nullable
+`options: [{ label, description }]`. Use `status === "pending"` to decide whether
+the request can still be answered. Submit to the record's `approvalId` using:
 
-Only modes in the descriptor are offered. Unsupported modes fail with
-`422 unsupported_capability`; invalid model/effort choices fail before native work.
-Settings are session-owned choices for the next turn; an active turn keeps its
-existing settings. Claude advertises unrestricted execution only. Bypass suppresses
-native approval prompts and does not add a sandbox. `provider_default` restores
-the adapter's initial policy after an explicit override. `review_all` is not offered.
+```json
+{
+  "decision": "<value of the offered answer choice>",
+  "answers": {
+    "provider": { "answers": ["Select per conversation (Recommended)"] },
+    "notes": { "answers": ["Remember my last choice."] }
+  }
+}
+```
 
-Canonical defaults use `SHEPHERD_APPROVAL_MODE` and `SHEPHERD_SANDBOX_MODE`.
-Legacy approval aliases preserve the existing shared host policy; restricted
-`CODEX_SANDBOX` aliases supply Codex descriptor defaults. Legacy thread bootstrap
-still enforces its configured sandbox and can reject Claude under a restricted
-legacy sandbox. Canonical values take precedence, and invalid
-or unsupported defaults fail rather than silently falling back. Discord still uses
-its legacy settings/action path; canonical neutral defaults apply to neutral sends.
+Use exact question IDs and one nonempty string per question unless `multiSelect`
+is true. Missing/false `multiSelect` means a single answer; true accepts 1–100
+distinct nonempty strings in the answer array. Each string is at most 16,000
+characters. Custom text is accepted for free-text questions or when `isOther`
+is true; otherwise use an exact option label. Missing/extra IDs, empty answers,
+and disallowed choices return `400 invalid_decision` without consuming the
+request. The overall 64 KiB body limit still applies. Already answered or expired
+requests return `409 approval_decided`. Cross-thread/missing IDs return
+`404 approval_not_found`.
 
-Each permission option has an opaque ID, label, intent, scope and optional effect.
-Adapters keep exact native replies private. Replies must belong to the current
-thread/session and an unresolved request. Invalid answers leave the request pending;
-concurrent valid replies have one winner. Decided/applied/failed/expired states are
-published, but answers are not retained in snapshots or replay. Failed delivery is
-terminal and must not be blindly retried. Unsupported persistent permission mappings
-are not offered. Claude currently offers allow-once/deny for tool permissions.
+To explicitly skip, send the token from the offered choice with `intent: "cancel"`. Shepherd returns an empty
+answer map to Codex or denies the Claude question callback, without selecting an
+option. It does not interpret ordinary
+chat messages as answers to this form. Submitted answer text is not copied into
+approval records or bridge events.
 
-Accounts use one shared window/extra-usage/reset model. Unknown values remain
-unknown; providers without resets hide/reject redemption. The UI retains the exact
-provider-scoped idempotency key after an uncertain reset and migrates an unresolved
-legacy reset without changing that key. Known reset outcomes are recorded separately
-from allowance refresh failures. Account reporting uses host accounts shared across
-conversations, not conversation token counts.
+Requests remain pending until submitted/skipped, the turn ends, the session
+stops, Codex withdraws the request with `serverRequest/resolved`, or Claude aborts
+the callback. The provider's `isBlocking` flag governs whether the agent waits;
+Claude questions always block. Shepherd starts no answer timer.
+Refresh the approvals snapshot on reconnect and after decision/lifecycle events.
+Pending question records are process-local, not a durable journal. They count as
+pending decisions for the existing conversation and host lifecycle guards.
 
-## Events, history and limits
+See [question workflows and screenshots](user-questions.md) for the built-in UI
+and Discord limits. MCP elicitation remains a separate unsupported request type.
 
-Fetch all snapshot continuation pages before applying buffered events after the
-watermark. Native history has no revisions and never seeds a delta base. Versioned
-overlays take precedence over native history. The client retains terminal session
-items separately from forward history pages, so refresh does not reorder history.
-It recaptures on gaps, epoch/history changes and `projection_incomplete` warnings.
-Foreground refresh temporarily gates actions; reconnect never resends prompts.
+Before the first user message, a newly created thread has no persisted history.
+Its first turns page returns 200 with empty `data` and null pagination cursors.
+This applies only to Codex's explicit not-yet-materialized thread response;
+missing threads, invalid cursors and other backend failures remain errors.
 
-History revert invalidates cursors and assets. Malformed, expired, future or foreign
-replay cursors return `409 projection_resync_required`; detached handles return 404.
-History pages fetch three native items within a 1 MiB encoded limit. Snapshots retain
-two captures for 60 seconds. Overlays retain at most 2,000 items / 8 MiB; replay
-retains 512 events / 4 MiB. Up to eight unresolved interactions are retained by each
-adapter. Each conversation permits four SSE clients with 1.25 MiB queued per client;
-slow readers close and must reconnect/recapture. Detach, session teardown, request
-abort and cancellation close streams.
+## Event and restart recovery
 
-Asset downloads are limited to 10 MiB, retained bytes to 32 MiB / 256 references.
-Eviction or history invalidation can make assets unavailable; refresh history for
-current references. Full message text beyond the bounded preview is downloadable
-when available within these limits. Other native variants use explicit partial
-fallbacks; full background/nested-agent mapping is still pending.
+Use streaming `fetch` to supply a saved `Last-Event-ID` explicitly, or native
+EventSource for its automatic reconnection. Neither needs credentials. SSE has `id`, `event` and JSON `data` fields. Events are:
 
-Conversation mutations are serialized per handle. Overlapping actions return
-`409 conversation_busy`. The adapter permits 32 handles, 32 in-flight requests, and four simultaneous uploads.
-Origin/Host checks and lifecycle guards apply to both API versions.
+- `bridge`: the shared `BridgeEvent` union, including agent deltas, completion,
+  errors and pending decision notifications, including `approval.expired` for
+  withdrawn user questions.
+- `signal`: a shared `SignalEnvelope` delivered to this surface.
+- `reset`: `{ reason: "event_too_large" }`; reload state, history and approvals.
+
+The server sends comment heartbeats every 15 seconds. Save the last processed
+SSE ID and send it in `Last-Event-ID` on reconnect. IDs are opaque and scoped to
+one conversation. A fresh stream replays retained events. Deduplicate bridge
+messages by their event identity when combining them with an existing view.
+An unknown/expired replay cursor returns `409 event_cursor_expired`: reconnect
+without the cursor, refresh state/history/approvals and reconcile streamed events.
+Open the stream before fetching the snapshot so intervening events can be buffered.
+The stream is not a durable event log; history is the recovery source.
+
+Browser disconnection does not interrupt agent work. Detaching a handle releases
+its bindings, subscriptions and replay buffer; it does not archive, cancel or
+stop the underlying Codex session. Interrupt first if that is intended. A host
+restart discards all handles and replay cursors. List stored threads and POST a
+new handle using the desired thread ID after restart.
+
+## Limits and failure handling
+
+Request bodies are capped at 64 KiB and prompts at 32,768 characters. There are
+at most 32 concurrent requests and 32 attached/provisional handles. Each handle
+supports four SSE clients and retains up to 256 events or 128 KiB, whichever is
+reached first. An event larger than that buffer becomes a reset notification.
+Each stream has a bounded 256 KiB application queue; slow readers are disconnected
+and can reconnect. Detached underlying sessions remain owned by the host until
+shutdown, so handle limits are not a total session budget.
+
+Pagination limits are 1–100. Limit exhaustion returns 429, shutdown returns 503,
+and unclassified backend failures return a sanitized 502 with details in host
+logs. Oversized requests may be rejected by Bun before application routing and
+therefore are not guaranteed a JSON error body. All application responses use
+`Cache-Control: no-store`.
+
+Shutdown quiesces ingress, closes streams/listener and lets the shared host stop
+all sessions, including sessions still initializing. A web adapter never stops
+the other adapters itself. Tests cover browser-origin checks, route
+validation, concurrent mutations, replay/backpressure, real loopback sockets,
+shared host operation and pending-session cleanup. Live Codex credentials and a
+remote tailnet connection are not required by these automated tests.
+
+## Turn activity and images
+
+How the browser presents these items is described in [Web UI](web-ui.md#transcript-work-and-images).
+
+History items may include `webActivity` (the shared normalized activity payload)
+or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
+(`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
+as `payload.url` and the file basename as `payload.name`. The browser uses these
+fields for the work timeline and image previews; it does not request files by
+filesystem path.
+
+`GET /conversations/:id/images/:assetId` serves only an artifact registered from a
+provider image event or that conversation's stored history. IDs are opaque and
+scoped to the attached conversation. Origin/host checks and the private network
+boundary apply to images too. Responses are non-cacheable, with verified raster
+MIME types and nosniff. PNG, JPEG, GIF and WebP files up to 10 MiB are supported by
+the shared loader used for Discord. No SVG/HTML or arbitrary file endpoint exists.
+Each handle retains at most 256 image references; detach/restart discards them.
+Reloading the relevant history registers images again. Unknown references return
+404; missing, oversized or unsupported files return sanitized 422 errors.
+
+## Conversation settings
+
+Model and effort routes delegate to the same control service as Discord. They
+queue changes for the next new turn and subsequent turns; steering an active
+turn does not apply them. `settings` distinguishes current and pending values.
+Effort choices/default belong to the pending model when present, otherwise the
+current/default model. Changing the model does not silently rewrite an existing
+effort override; select a compatible effort if necessary. `default` resolves to
+the model's advertised default, matching Discord.
+
+Unknown models and unsupported effort return 400 with stable error codes;
+unavailable model metadata returns 409. Writes share the conversation mutation
+lock with sending, interrupting and detaching (409 when busy). Malformed bodies
+and extra fields are rejected. Unexpected backend failures remain sanitized 502
+responses. A failed usage read does not prevent unrelated settings requests.
+
+Model/effort overrides follow existing loaded-session lifetime rules; the web
+surface adds no persistence or global defaults. Account limits are provider data
+and may be incomplete/unavailable. They are host account allowances shared across
+conversations. Codex exposes reported usage buckets and banked reset counts/details.
+The [Usage & limits panel](web-ui.md#usage-and-limits) presents both providers.
+
+
+Claude returns the shared `ProviderAccountLimits` DTO: provider, account plan/auth
+mode, availability, source, last check time, allowance windows, extra usage status
+and a safe explanatory message. Each window has a reported percentage (nullable),
+reset time (nullable), status (nullable), observation time and stale flag. Extra
+usage has its own observation time and stale flag. No credentials, email or native
+account IDs are exposed. API accounts report subscription limits as not applicable.
+
+The Claude reader uses an experimental native SDK control with no model prompt,
+project settings, tools or MCP servers. It coalesces reads across callers, caches
+for 30 seconds, limits manual refreshes to one per five seconds and times out after
+ten seconds. Native conversation events also update the same account snapshot. Failed
+reads retain last reported values with stale labels. Unknown percentages remain
+unknown; passed reset times never imply zero usage. Data older than 120 seconds
+is stale. Account or credential changes discard the previous account snapshot.
+Unknown, duplicate or malformed limits query parameters return 400.
+
+Codex reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
+be non-empty (maximum 100 characters); an optional non-empty credit ID (maximum
+256 characters) selects a particular reset. Without an ID, Codex selects the next
+available reset. Outcomes are `reset`, `alreadyRedeemed`, `nothingToReset`, and
+`noCredit`. Read `/limits` after a known result. Retry an unknown result with the
+same key; never generate a new key for the same attempt. Malformed bodies
+and extra fields return 400; backend failures remain sanitized 502 responses.
+
+## Conversation management
+
+Rename accepts a non-empty trimmed name of at most 200 characters. Archive
+uses the shared archive operation, then closes the handle's streams and removes
+its web navigation state. It does not delete stored history. Restore uses the
+opaque stored thread ID and does not require creating a web handle first.
+
+Fork creates a new handle using the source handle's selected project and the
+shared fork operation. It returns the new handle without detaching or changing
+the source. Provisional handles are cleaned up on failure, and the normal
+32-handle limit applies. The source's conversation mutation lock covers the fork.
+Archive and fork return `409 conversation_active` while a turn or approval is
+active; stop/resolve it first. Rename remains available during a turn. Restore
+shares an existing handle's mutation lock when the thread is attached.
+
+`archived` accepts only `true` or `false`; pagination remains independent for each
+list view. There is no idempotency key for fork: after losing an HTTP response,
+refresh the conversation list before retrying to avoid duplicate forks.
+
+### Skills
+
+The attached conversation exposes `GET /api/conversations/:id/skills` returning
+`SkillsListResponse` (workspace directories, skill names/descriptions/paths/scopes,
+effective enabled state, and discovery errors). Workspace selection comes from the
+shared conversation service, not a client-supplied directory.
+
+`POST /api/conversations/:id/skills-reload` with `{}` repeats discovery with
+`forceReload: true` and returns the same shape. `POST /api/conversations/:id/skills`
+with `{ "path": "/absolute/skill/SKILL.md", "enabled": false }` uses the same shared
+`skill.set-enabled` action as Discord and returns `{ "effectiveEnabled": false }`.
+The action also supports the shared name resolution semantics; the UI always sends
+the listed path to distinguish duplicate names. Unknown/ambiguous names return 400.
+Both writes share the conversation mutation lock and existing origin/host checks.
+
+Skill configuration is shared Codex configuration, not a per-conversation override.
+Effective state can differ from the requested value. Reload discovery after changing
+skill files; it does not install skills or restart the host.
+
+### Compaction and revert
+
+`POST /api/conversations/:id/compact` with `{}` starts compaction through the
+shared `thread.compact` control action. `{ "ok": true }` means the start request
+was accepted, not that compaction finished. Existing turn/activity events report
+progress and failures.
+
+`POST /api/conversations/:id/revert` with `{ "beforeTurnId": "turn-id" }`
+removes that turn and all later turns through shared `thread.revert` and provider
+`thread/revert`. `beforeTurnId` must be a non-empty string of at most 256 characters.
+The attached thread is fixed by the conversation handle; clients cannot override it.
+The provider validates that the turn belongs to that thread. This changes persisted
+conversation history, not files, commands, or other side effects. Both history
+mutation endpoints use the conversation mutation lock and reject active turns or
+pending approvals with 409. The old `/rollback` route is removed and returns 404.
+
+History responses include a per-handle `revision`. After each attempted upstream
+revert, including a potentially ambiguous failure, the revision increments and
+the event feed discards prior replay before publishing `reset` with reason
+`history_changed`. Provider `thread/reverted` notifications also invalidate history for connected clients,
+including changes initiated outside the web API. A notification received during the
+local mutation supplies the same reset without duplicating it on completion.
+History reads spanning that change return 409 `history_changed`.
+Clients must replace cached history and pagination on reset/revision changes; merging
+would retain removed turns. Old event cursors expire, triggering normal snapshot
+recovery. The revision is navigation state, not persistent conversation metadata.
+
+### Host lifecycle controls
+
+`GET /api/host/battery` returns `WebHostBatteryResponse`: `{ battery: { percentage,
+status } }`, or `{ battery: null }` when no system battery can be read. Percentage
+is an integer from 0 to 100; status is `charging`, `discharging`, `full`,
+`not-charging`, or `unknown`. This reads the Shepherd host's Linux/Android sysfs
+power supplies, excludes supplies marked with Device scope, and requires neither
+a conversation nor lifecycle controls. It follows the same origin checks as other
+API routes.
+
+`GET /api/host` returns `WebHostStatus`: web instance identity/start time, lifecycle
+availability, the commit captured at host startup, current checkout status, and the
+latest web-requested operation. Running and checkout commits can differ while a
+validated deployment waits for restart. Startup commit may be unavailable outside a
+Git checkout. Checkout status also reflects deployments started on other surfaces.
+
+`POST /api/host/actions` accepts `{ "requestId": "unique-id", "action": "restart" }`
+or `{ "requestId": "unique-id", "action": "deploy", "branch": "optional-preview" }`.
+Omit branch to deploy stable main. The response is 202 with a `WebHostOperation`;
+clients poll host status for starting, validating, restarting, and finished phases.
+A finished operation may be a refusal or validation failure; read its message.
+The shared runtime lifecycle orchestrator owns active-turn/approval guards,
+validation, restoration on failure, quiescing, and restart. No shell command is
+constructed by the web adapter.
+
+Accepted operations survive client disconnects. Repeated request IDs with identical
+inputs return the recorded operation; conflicting inputs return 409. The journal
+retains at most 32 requests within the current web instance. It is not a persistent
+restart/deployment audit log. Output is capped at 64,000 characters with an explicit
+truncation marker; host logs contain full output. Existing private listener and
+Host/Origin protections apply, and no conversation attachment is required.
+
+After process restart, instance identity changes and operation records are gone.
+Clients must re-read running/checkout state and must not automatically resend an
+uncertain action. A reconnect alone is not proof of a successful deployment.
+
+### Image input
+
+`POST /api/conversations/:id/messages` accepts `{ "text": "Describe this", "images":
+["data:image/png;base64,..."] }`. `images` is optional; text may be empty when at least
+one image is attached. Inputs become the same shared text/image user-input records
+used by Discord, for both new turns and steering an active turn.
+
+The web contract allows up to four PNG/JPEG/GIF/WebP images, 5 MiB per image and
+10 MiB decoded total. Strict base64 envelopes, declared MIME types, and raster
+signatures are checked before forwarding. Remote image URLs, local file paths,
+SVG, and unsupported formats are rejected. Image signatures share the same detector
+as Discord input and generated-image loading. Signature detection does not fully
+decode/re-encode the image.
+
+Only the message route accepts the larger bounded JSON envelope needed for base64;
+other route bodies remain capped at 64 KiB. The listener accommodates that larger
+envelope, while the API limits concurrent message processing to two and uses the
+existing per-conversation mutation lock. Oversized input returns 413; invalid image
+content/count returns 400. No temporary upload files or separate public URLs are
+created. Images are stored as part of provider conversation history.
+
+User-message history preserves bounded valid inline images for previews. Unsupported
+or remote image URLs become an unavailable-image placeholder, never a browser fetch.
+
+### Conversation list freshness
+
+Stored conversation pages explicitly use `updated_at` descending, matching Discord
+`!threads`, including archived and later pages. Active means not archived, not
+currently running.

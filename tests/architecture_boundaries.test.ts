@@ -97,11 +97,8 @@ test("provider SDKs and persistence stay outside application and transport layer
   expect(violations).toEqual([]);
 });
 
-test("additive v2 contracts and ports cannot import v1/native provider contracts", async () => {
-  const files = [
-    ...await sourceFiles(path.join(root, "shared/protocol/v2")),
-    ...["server/ports/provider_v2.ts", "server/core/provider_registry.ts", "server/runtime/provider_defaults.ts", "server/core/projection_event_log.ts", "server/core/conversation_projection.ts", "server/ports/neutral_controls.ts", "server/ports/neutral_conversation.ts"].map(file => path.join(root, file)),
-  ];
+test("application contracts and ports cannot depend on provider implementations or identities", async () => {
+  const files = [...await sourceFiles(path.join(root, "shared/protocol")), ...await sourceFiles(path.join(root, "server/core")), path.join(root, "server/ports/provider_session.ts"), path.join(root, "server/ports/provider_services.ts")];
   const violations: string[] = [];
   for (const file of files) {
     const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
@@ -112,7 +109,7 @@ test("additive v2 contracts and ports cannot import v1/native provider contracts
       if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) expression = node.argument.literal;
       if (expression && ts.isStringLiteralLike(expression)) {
         const target = path.resolve(path.dirname(file), expression.text);
-        if (/\/(schemas|providers)\//.test(target) || /\/shared\/protocol\/(requests|events|approvals|user_input)\.js$/.test(target) || expression.text.startsWith("@anthropic-ai/")) {
+        if (/\/(schemas|providers)\//.test(target) || expression.text.startsWith("@anthropic-ai/")) {
           violations.push(`${path.relative(root, file)} -> ${expression.text}`);
         }
       }

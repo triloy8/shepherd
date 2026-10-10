@@ -3,15 +3,14 @@
 This document describes the current ownership boundaries between Shepherd's
 Discord, web API and webhook adapters, application core, and runtime core.
 
-Reviewed against the code on 2026-09-13. The provider layer, runtime core, and
-flows were reviewed on 2026-10-10 against `f3ae071` (PR #90).
+Reviewed against the code on 2026-09-13. The provider boundary was consolidated on 2026-10-10 (PR #90).
 
 ## Boundary
 
 The adapter paths are split along this rule:
 
 - `server/adapters/discord/*` owns Discord transport, Discord event parsing, Discord rendering, and Discord delivery/runtime glue
-- `server/adapters/web/*` owns browser-origin checks, versioned HTTP routing and bounded SSE replay. It uses shared application, ingress and approval ports.
+- `server/adapters/web/*` owns browser-origin checks, HTTP routing and bounded SSE replay. It uses shared application, ingress and approval ports.
 - `server/adapters/http/*` owns reusable bounded body parsing.
 - `server/adapters/webhook/*` owns loopback HTTP parsing, route validation, limits, and response mapping; callbacks are unauthenticated
 - `server/core/*` owns reusable policy, action semantics, state, and orchestration
@@ -197,68 +196,25 @@ So the simplest mental model is:
 - `Runtime Core` = routing, sessions, approvals, event infrastructure
 - `Provider layer` = ports in core, native adapters outside it
 
-## Provider Layer
+## Provider boundary
 
-Each conversation belongs to one provider (Codex or Claude), recorded when the
-thread is created and kept on resume and fork. Core talks to providers only
-through ports; native protocols and SDKs stay in `server/providers/<name>/`.
+The production application uses `server/ports/provider_session.ts` and
+`server/ports/provider_services.ts`. They define shared session operations,
+capabilities, optional features, account readers/resets, factories, and persisted
+thread ownership. Core never imports a provider implementation or branches on
+Codex/Claude identity. Runtime composition registers the installed adapters.
 
-- `server/core/agent_session.ts`
-  Provider ports: execution, history, catalog, account, and events. Responses use
-  shared types, but several current types are open containers for native data;
-  this is not yet a fully normalized provider boundary. History items, approval
-  parameters, and Codex account-limit payloads still require native interpretation.
-- `server/core/agent_provider.ts`
-  Provider services supplied by composition: session factory, thread/provider
-  directory, stored-thread check, and account-limit readers.
-- `server/core/provider_thread_catalog.ts`
-  Merges stored-thread pages from every provider into one sorted list.
-- `server/core/account_limits_service.ts`
-  Routes account-limit reads to the provider's reader.
-- `server/providers/capabilities.ts`
-  Operations each provider supports; clients hide unsupported controls and core
-  rejects them.
-- `server/providers/codex/`
-  `session.ts` runs the `codex app-server` stdio bridge; `rpc_mapper.ts`,
-  `responses.ts`, and `account_usage.ts` translate its RPC shapes.
-- `server/providers/claude/`
-  `session.ts` runs Claude Agent SDK queries. Separate modules own the input
-  queue, Shepherd tools over MCP (`mcp_bridge.ts`), questions, background tasks,
-  authentication, model catalog, defaults, and account limits.
-- `server/ports/` and `server/storage/`
-  Storage ports and their file implementations: Claude thread snapshots and the
-  thread/provider directory. Storage imports neither SDK.
-- `server/runtime/provider_services.ts`
-  The only place that constructs provider adapters, stores, and readers.
+Native input, history, events, approvals, and account quotas are translated under
+`server/providers/`. Application history carries message content, activities, and
+image artifacts. Assistant deltas have a semantic kind. Approval choices have
+opaque tokens and shared intent; exact native replies remain adapter-private.
+Unsupported features are omitted and rejected through capabilities.
 
-The additive neutral web API uses `shared/protocol/v2/`: neutral items, interactions,
-inputs/assets, settings, catalogs, and account limits. `NeutralConversationSource`
-provides native-derived history/events/assets; its `NeutralConversationControls`
-port provides actions. Both adapters normalize native payloads privately. The core
-`conversation_projection.ts` assigns versions, captures bounded immutable
-snapshots, validates actions, and orders replay through `projection_event_log.ts`.
-Native history remains separate and unversioned. Interactions carry opaque option
-IDs; exact SDK/RPC replies are private adapter closures. Invalid question answers
-remain pending, concurrent replies have one winner, and answers never enter replay.
-
-The web adapter serves additive `/api/v2` endpoints. The default UI retains main revision `b5797c1` as its presentation baseline. Its
-original timeline and recent-first turn history use `/api/v1`. New-conversation
-provider choice and the usage panel use neutral provider descriptors and account
-ports, preserving the existing dialog styles. The attempted default neutral cutover was reverted
-because it changed presentation and pagination behavior. Runtime assembly retains
-an open factory map and neutral account readers/reset ports selected by provider ID.
-`provider_defaults.ts` reads canonical neutral settings and legacy aliases at
-composition. Neutral catalog and asset references hide native continuations and paths.
-
-This remains an interim session migration. `server/ports/provider_v2.ts` and
-`server/core/provider_registry.ts` define/test the final lifecycle and optional
-service contract, but production creation/resume/fork still uses `AgentSession`.
-Discord, legacy controls, and Claude snapshot storage still use old contracts.
-`/api/v1` is retained for compatibility. A provider implementing only the final v2
-port cannot yet be registered end to end. Full background/nesting and storage
-migration, registry ownership, and retiring the legacy API are tracked in the
-[provider abstraction](provider-abstraction.md) proposal. These remaining steps
-are necessary before claiming the entire application is provider neutral.
+The web UI and Discord consume the same application records through one service.
+The HTTP API is `/api`; there is no parallel migration API or compatibility facade.
+The restored main chat presentation and recent-first pagination remain in use.
+See [Provider adapters](provider-abstraction.md) for the complete boundary and
+[Web API](web-api.md) for the transport contract.
 
 ## Discord Adapter Modules
 
@@ -523,14 +479,11 @@ See [surface launch](surface-launch.md) for the operational contract.
 
 ## Web conversation API
 
-The optional `web` surface exposes `/api/v1` on loopback for its default UI
-and additive `/api/v2` endpoints for the neutral migration.
-Content/action contracts live in `shared/protocol/v2`; navigation and host records
-remain in `shared/protocol/web.ts`. Project targeting and thread orchestration use
-`SurfaceApplicationContext`. The default UI uses existing conversation operations; `/api/v2` messages,
-settings, skills and replies use bound neutral conversation ports. The adapter retains navigation handles, request
-serialization and bounded event feeds. The legacy `/api/v1` API remains available.
-Neither adapter owns process shutdown or duplicates native policy translation.
+The optional `web` surface exposes `/api` on loopback. Shared contracts live in
+`shared/protocol/`. Project targeting, conversation controls, and thread
+orchestration use the application ports. The adapter owns navigation handles,
+origin checks, request serialization, image presentation, and bounded event feeds.
+Native policy and SDK decoding stay inside provider adapters.
 
 A web conversation handle maps to an exclusive core surface binding. Detaching
 releases subscriptions, routing and navigation state without terminating the

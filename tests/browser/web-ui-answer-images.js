@@ -11,7 +11,7 @@ async (page) => {
     return img?.complete && img.naturalWidth > 0;
   });
   const url = await image.getAttribute('src');
-  if (!/^\/api\/v1\/conversations\/[\w-]+\/images\/[\w-]+$/.test(url)) throw Error('Answer used an unregistered image URL');
+  if (!/^\/api\/conversations\/[\w-]+\/images\/[\w-]+$/.test(url)) throw Error('Answer used an unregistered image URL');
   if (await page.getByRole('link', { name: 'Open the original screenshot', exact: true }).getAttribute('href') !== url) throw Error('File link did not resolve to the same image');
   await page.locator('.progress-disclosure > summary').first().waitFor();
   if (!await image.isVisible()) throw Error('Answer image was folded into work');

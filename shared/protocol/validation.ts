@@ -105,7 +105,7 @@ function parseOptionalEnum<T extends string>(
 
 function parseCommonThreadOverrides(value: Record<string, unknown>) {
   return {
-    provider: parseOptionalEnum(value.provider, "provider", ["codex", "claude"] as const),
+    provider: parseOptionalString(value.provider, "provider"),
     baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
     developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
     config: parseOptionalObject(value.config, "config"),
@@ -156,13 +156,13 @@ function parseUserInput(value: unknown, name: string): UserInput {
       if (typeof value.text !== "string" || !value.text.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      if (!Array.isArray(value.text_elements)) {
+      if (value.annotations !== undefined && !Array.isArray(value.annotations)) {
         throw new Error(`Invalid ${name}.`);
       }
       return {
         type: "text",
         text: value.text,
-        text_elements: value.text_elements.map((element) => parseTextElement(element, name)),
+        ...(Array.isArray(value.annotations) ? { annotations: value.annotations.map((element) => parseTextElement(element, name)) } : {}),
       };
     }
     case "image": {

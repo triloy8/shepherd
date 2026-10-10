@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, linkSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentProvider } from "../../shared/protocol/requests.js";
-import type { ThreadProviderDirectory } from "../core/agent_provider.js";
+import type { ThreadProviderDirectory } from "../ports/provider_services.js";
 
 /** One atomic file per binding avoids lost updates between Shepherd processes. */
 export class FileThreadProviderDirectory implements ThreadProviderDirectory {

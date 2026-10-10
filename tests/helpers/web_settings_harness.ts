@@ -1,3 +1,4 @@
+import { account } from "./account";
 import { ApplicationActionError } from "../../server/core/action_error";
 import type { ThreadModelState, ThreadEffortState, ModelSummary } from "../../shared/protocol/requests";
 import type { webHarness } from "./web_harness";
@@ -29,7 +30,7 @@ export function installWebSettings(h: ReturnType<typeof webHarness>) {
     },
     async listModels({ cursor }: { cursor?: string }) { return { data: [models[cursor ? 1 : 0]!], nextCursor: cursor ? null : "next" }; },
     async readThreadTokenUsage(threadId: string) { return { threadId, tokenUsage: null }; },
-    async readAccountRateLimits() { return { rateLimits: { planType: "fixture", primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 2000000000 }, credits: { hasCredits: false, unlimited: false, balance: null } } }; },
+    async readAccount() { return account(); },
   };
   Object.assign(h.application.conversation, controls);
   return { controls, states, efforts };

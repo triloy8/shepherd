@@ -34,12 +34,10 @@ archive when historical reasoning is useful.
 - [Volatile signal callbacks](volatile-webhook-signals.md) — implemented
   dynamic callback allocation, routed loopback ingress, and delivery semantics.
 
-## Designs under review
+## Provider boundary
 
-- [Provider abstraction](provider-abstraction.md) — one provider-neutral
-  application boundary over Codex and Claude: registry/capabilities, inputs/assets,
-  items/history, event reconciliation, opaque interactions, account limits,
-  background work, storage versions, the v1 upgrade path, and staged verification (PR #90).
+- [Provider adapters](provider-abstraction.md) — the implemented shared session,
+  account, history, event, approval, and capability boundary (PR #90).
 
 ## Historical design material
 

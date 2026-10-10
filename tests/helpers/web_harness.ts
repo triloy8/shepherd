@@ -20,13 +20,15 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
     getSurfaceProject: (id: string) => projects.get(id) ?? "/saved/workspace",
     inheritSurfaceProject: (id: string, source: string) => { const project = projects.get(source) ?? "/saved/workspace"; projects.set(id, project); return project; },
     async setSurfaceProject(id: string, project: string) { calls.push(`project:${id}`); projects.set(id, project); return { repoSlug: project }; },
-    async createSurfaceThread(id: string) { const threadId = `thread-${++sequence}`; bindings.set(id, threadId); active.set(threadId, null); calls.push("create"); return threadId; },
+    async createSurfaceThread(id: string, _provider?: string) { const threadId = `thread-${++sequence}`; bindings.set(id, threadId); active.set(threadId, null); calls.push("create"); return threadId; },
     async switchSurfaceThread(id: string, threadId: string) {
       if (threadId === "discord-thread" || [...bindings.values()].includes(threadId)) throw new ThreadBindingConflictError(threadId);
       bindings.set(id, threadId); active.set(threadId, null); calls.push("resume"); return threadId;
     },
     disposeSurface(id: string) { calls.push(`dispose:${id}`); bindings.delete(id); },
     conversation: {
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], resets: false } }],
+
       async listStoredThreads(request: unknown) { calls.push("threads"); return { threads: [{ threadId: "stored" }], nextCursor: null, backwardsCursor: null }; },
       async listThreadTurns(threadId: string, request: unknown) { calls.push(`history:${threadId}`); return { data: [{ id: "turn", items: [] }], nextCursor: null, backwardsCursor: null }; },
       async interruptTurn(threadId: string) { calls.push(`interrupt:${threadId}`); active.set(threadId, null); },
@@ -55,7 +57,7 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
   };
   const config = readWebConfig({ SHEPHERD_WEB_ORIGINS: "https://ui.example.test" });
   const api = new WebSurfaceApi(context, config);
-  const request = (path: string, method = "GET", data?: unknown, headers: Record<string, string> = {}) => api.fetch(new Request(`http://127.0.0.1/api/v1${path}`, {
+  const request = (path: string, method = "GET", data?: unknown, headers: Record<string, string> = {}) => api.fetch(new Request(`http://127.0.0.1/api${path}`, {
     method, headers: { ...(data !== undefined ? { "content-type": "application/json" } : {}), ...headers },
     ...(data !== undefined ? { body: JSON.stringify(data) } : {}),
   }));

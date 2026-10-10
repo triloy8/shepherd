@@ -71,7 +71,7 @@ describe("generated protocol validation parity", () => {
           {
             type: "text",
             text: "hello",
-            text_elements: [{ byteRange: { start: 4, end: 2 }, placeholder: null }],
+            annotations: [{ byteRange: { start: 4, end: 2 }, placeholder: null }],
           },
         ],
       }),

@@ -68,7 +68,7 @@ test("user follow-ups stay outside progress and preserve timeline order", () => 
 });
 
 test("streamed phases survive completion without a repeated phase", () => {
-  let state = reduceBridge(emptyChat(), event("delta", "turn.stream.delta", { method: "item/agentMessage/delta", itemId: "progress", turnId: "turn", phase: "commentary", textDelta: "Checking" }));
+  let state = reduceBridge(emptyChat(), event("delta", "turn.stream.delta", { kind: "assistant_text", itemId: "progress", turnId: "turn", phase: "commentary", textDelta: "Checking" }));
   state = reduceBridge(state, event("done", "turn.message.completed", { itemId: "progress", turnId: "turn", text: "Checking done" }));
   expect(state.messages[0]!.phase).toBe("commentary");
 });
@@ -106,7 +106,7 @@ test("all explicit final messages remain visible and copyable", () => {
 test("stale turn completion and activity cannot clear a newer active turn", () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "new" }));
   for (const type of ["turn.completed", "turn.failed", "turn.activity", "turn.stream.delta"] as const) {
-    state = reduceBridge(state, event(type, type, { turnId: "old", itemId: "late", method: "item/agentMessage/delta", textDelta: "Late", status: "started", label: "Old command" }));
+    state = reduceBridge(state, event(type, type, { turnId: "old", itemId: "late", kind: "assistant_text", textDelta: "Late", status: "started", label: "Old command" }));
     expect(state.activeTurnId).toBe("new"); expect(state.messages).toHaveLength(0); expect(state.error).toBeNull();
   }
 });
@@ -133,7 +133,7 @@ test("tool history survives reload and is not mistaken for a final answer", () =
 });
 
 test("generated images stay visible, use only scoped URLs and deduplicate by item", () => {
-  const imageEvent = event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: "/api/v1/conversations/abc/images/def", revisedPrompt: "A picture" });
+  const imageEvent = event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: "/api/conversations/abc/images/def", revisedPrompt: "A picture" });
   let state = reduceBridge(emptyChat(), imageEvent);
   state = reduceBridge(state, { ...imageEvent, id: "replay" });
   expect(state.messages).toHaveLength(1);
@@ -144,7 +144,7 @@ test("generated images stay visible, use only scoped URLs and deduplicate by ite
 });
 
 test("generated images and final text share one assistant response live and after reload", () => {
-  const image = { url: "/api/v1/conversations/abc/images/def", prompt: "A white unicorn in an enchanted meadow", name: "unicorn.png" };
+  const image = { url: "/api/conversations/abc/images/def", prompt: "A white unicorn in an enchanted meadow", name: "unicorn.png" };
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
   state = reduceBridge(state, event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: image.url, name: image.name, revisedPrompt: image.prompt }));
   let html = render(state);
@@ -174,7 +174,7 @@ test("generated images and final text share one assistant response live and afte
 test("viewed images fold with work while images embedded in final answers stay visible", () => {
   let state = mergeHistory(emptyChat(), [turn("inProgress")]);
   state.activeTurnId = "turn";
-  state = reduceBridge(state, event("view", "turn.image.viewed", { itemId: "view", turnId: "turn", name: "screenshot.png", path: "/tmp/screenshot.png", url: "/api/v1/conversations/abc/images/def" }));
+  state = reduceBridge(state, event("view", "turn.image.viewed", { itemId: "view", turnId: "turn", name: "screenshot.png", path: "/tmp/screenshot.png", url: "/api/conversations/abc/images/def" }));
   let html = render(state);
   expect(html).toContain("viewed-image-disclosure");
   expect(html).not.toContain(" open=");
@@ -200,7 +200,7 @@ test("superseded and completed turns cannot restart from late events", () => {
   state = reduceBridge(state, event("null", "turn.completed", { turnId: null }));
   expect(state.activeTurnId).toBe("new");
   state = reduceBridge(state, event("end", "turn.completed", { turnId: "new" }));
-  state = reduceBridge(state, event("late2", "turn.stream.delta", { turnId: "new", itemId: "ghost", method: "item/agentMessage/delta", textDelta: "Late" }));
+  state = reduceBridge(state, event("late2", "turn.stream.delta", { turnId: "new", itemId: "ghost", kind: "assistant_text", textDelta: "Late" }));
   expect(state.messages).toHaveLength(0);
 });
 

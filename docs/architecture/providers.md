@@ -65,6 +65,11 @@ Record any live-model validation limits in the completion report.
   have separate modules. The session owns every native query, including catalog
   discovery, and closes them on shutdown. A stopped active turn is persisted
   before the iterator finishes.
+- Claude credential policy is confined to its adapter. Subscription login is
+  the default; API authentication requires `CLAUDE_AUTH_MODE=api`. Both turn and
+  catalog queries use the same isolated subprocess environment and settings,
+  which prevent inherited API credentials from replacing subscription login.
+  The host environment and Codex credentials remain untouched.
 - `server/core/provider_thread_catalog.ts` merges provider pages and refills
   sources before choosing the next row. The merge handles changing page sizes,
   empty intermediate pages, and repeated cursor failures.

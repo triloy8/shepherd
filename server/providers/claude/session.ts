@@ -14,6 +14,7 @@ import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { UnsupportedProviderOperationError, type AgentSession, type ThreadBootstrapInfo } from "../../core/agent_session.js";
 import { DynamicToolRegistry } from "../../core/dynamic_tool_registry.js";
 import { claudeExecutablePath } from "./claude_executable.js";
+import { claudeAuthenticationOptions } from "./authentication.js";
 import { EventBus } from "../../core/event_bus.js";
 
 function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) {
@@ -342,7 +343,7 @@ export class ClaudeSession implements AgentSession {
   async consumeRateLimitReset(_request: P.ConsumeRateLimitResetRequest): Promise<P.ConsumeRateLimitResetResponse> { throw new UnsupportedProviderOperationError("Claude", "Codex rate limit reset credits"); }
   stop(): void { this.stopped = true; this.interrupted = true; for (const running of this.ownedQueries.keys()) this.closeQuery(running); this.denyPendingApprovals(); this.finishTurn("interrupted"); this.backgroundTasks.reset(); }
   private openQuery(input: InputQueue<SDKUserMessage>, options: Options): Query {
-    const running = this.sdk.query({ prompt: input, options });
+    const running = this.sdk.query({ prompt: input, options: { ...options, ...claudeAuthenticationOptions() } });
     this.ownedQueries.set(running, input);
     return running;
   }

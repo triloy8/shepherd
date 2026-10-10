@@ -54,6 +54,11 @@ test("Claude streams common events and resumes with the native session in its sa
   session.setCwd("/project");
   const events: BridgeEvent[] = []; session.eventBus.subscribe((event) => events.push(event), { replay: false });
   const turnId = await session.startTurn([toTextUserInput("hello")]); await done(session);
+  expect(fake.calls[0]!.options.env).toBeDefined();
+  if (process.env.CLAUDE_AUTH_MODE !== "api") {
+    expect(fake.calls[0]!.options.env!.ANTHROPIC_API_KEY).toBe("");
+    expect(fake.calls[0]!.options.settings).toMatchObject({ forceLoginMethod: "claudeai", apiKeyHelper: "" });
+  }
   expect(events.map((e) => e.type)).toEqual(["turn.started", "turn.stream.delta", "turn.message.completed", "thread.tokenUsage.updated", "turn.completed"]);
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(chat.messages.filter((message) => message.role === "assistant")).toMatchObject([{ text: "Hello", complete: true }]);

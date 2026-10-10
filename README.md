@@ -80,9 +80,35 @@ default. Core/API callers can pass `provider: "claude"` in `CreateThreadRequest`
 This is separate from `modelProvider`, which configures a model backend within
 Codex.
 
-For Claude, configure authentication as described in the
-[Claude Agent SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart)
-(for example, `ANTHROPIC_API_KEY`). Optional shared environment settings are:
+Claude defaults to subscription authentication (`CLAUDE_AUTH_MODE=subscription`).
+Use your Claude Pro or Max account. On the machine running Shepherd, authenticate
+with Claude Code as the same operating-system user that runs Shepherd. A saved
+login is read from that user's Claude configuration directory; set
+`CLAUDE_CONFIG_DIR` if you use a separate directory.
+
+For setup from a phone, connect to the host over SSH and run `claude setup-token`
+with an installed Claude Code CLI. Open the authorization link on your phone,
+complete sign-in, and paste any browser login code back into the SSH terminal.
+Store the resulting token in `envs/common.env` in Shepherd's launch directory:
+
+```env
+CLAUDE_AUTH_MODE=subscription
+CLAUDE_CODE_OAUTH_TOKEN=your_token_here
+```
+
+Restart Shepherd after changing authentication. Keep the token private; do not
+commit it. Shepherd includes the SDK executable, but has no web sign-in screen
+and does not install a `claude` command on your PATH. See the official
+[subscription guidance](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+and [token instructions](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token).
+
+Subscription mode disables API keys, bearer tokens, API-key helpers, and cloud
+provider environment selection for Claude queries, including model discovery.
+It preserves the host environment for other providers. There is no automatic
+fallback to API billing if the subscription login is missing or expired.
+To use API credentials instead, explicitly set `CLAUDE_AUTH_MODE=api` and configure
+authentication using the [SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart).
+Optional shared environment settings are:
 
 ```env
 CLAUDE_MODEL=sonnet

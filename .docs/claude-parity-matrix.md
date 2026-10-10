@@ -1,7 +1,6 @@
 # Claude parity matrix
 
-Reviewed: 2026-10-10 against `e092e6e`, plus the account limits update on
-`feat/multiple-agent-providers`.
+Reviewed: 2026-10-10 against `f3ae071` on `feat/multiple-agent-providers`.
 Installed baseline: `@anthropic-ai/claude-agent-sdk` **0.3.296**, bundled/native
 Claude Code **2.1.296**. This is an inventory of Shepherd's Claude adapter and
 subscription support, not a complete inventory of every SDK export or a promise
@@ -9,8 +8,8 @@ of support for all Claude Code terminal commands.
 
 See the [Codex parity matrix](codex-parity-matrix.md) for app-server RPC coverage,
 the [surface parity matrix](surface-parity-matrix.md) for Discord/web workflows,
-and the [provider architecture audit](../docs/architecture/providers.md) for
-dependency boundaries. Setup instructions are in the [README](../README.md).
+[Architecture](architecture.md) for dependency boundaries, and the
+[provider abstraction](provider-abstraction.md) design for the planned shared item model. Setup instructions are in the [README](../README.md).
 
 ## Status and evidence
 
@@ -90,7 +89,7 @@ login, not a blanket approval for distributing a subscription login product.
 | Root assistant text streaming | Implemented | Maps text deltas into shared assistant-text events. |
 | Assistant commentary/final output | Partial | Root messages with tool use are marked commentary; other root text is final. Nested subagent text is not a separate transcript. |
 | Tool execution | Native | Uses Claude's built-in tools under its native agent loop. Host permissions and native configuration apply. |
-| Tool activity/results | Partial | Root tool calls are recorded as shared activity; Bash is command activity, Edit/Write are file changes, other tools are MCP/tool activity. Not a detailed native terminal or diff viewer. |
+| Tool activity/results | Partial | Root tool calls are recorded as shared activity; Bash is command activity, Edit/Write are file changes, other tools are MCP/tool activity. The live row shows the tool name and its JSON input while running; the completed row and reloaded history show only the tool name (history reads `claude.<Tool>`). No command output or diffs. The [provider abstraction](provider-abstraction.md) replaces this with typed items. |
 | Shepherd dynamic tools | Implemented | Exposes the registry through an in-process MCP server; preserves namespace, arguments, result media, and originating turn identity. Rejects results after that turn ends, including calls from background work between turns. Tools registered after the SDK process starts are picked up by reopening it before the next turn; while background tasks run, the process is kept and new tools wait. |
 | External MCP configuration | Native | Claude can load native configuration. No Shepherd MCP server-management, OAuth, resource browser, or elicitation form control. |
 | Tool permission decisions | Partial | `canUseTool` requests translate to allow once, deny, and session-scoped suggested permission updates when available. No arbitrary permission-rule editor. |

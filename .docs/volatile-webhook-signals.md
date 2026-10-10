@@ -10,6 +10,14 @@ originating conversation.
 The former static research-channel route, its environment variable, and the old
 `POST /signals` request shape have been removed without a compatibility shim.
 
+Claude conversations get the same tool through Shepherd's in-process MCP server,
+where it appears as `mcp__shepherd__shepherd__get_signal_callback`. The MCP bridge
+(`server/providers/claude/mcp_bridge.ts`) supplies the trusted thread and turn IDs
+from the active turn and rejects calls made outside one, so the route and delivery
+rules below apply unchanged. The wire examples in this document show the Codex
+`item/tool/call` form; a callback from a Claude conversation resumes that Claude
+conversation.
+
 ## Problem
 
 A detached local service can outlive the Codex turn that launched it. When the

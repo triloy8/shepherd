@@ -156,8 +156,9 @@ metadata and native transcripts when moving a host. Existing thread IDs remain
 stable. Claude background tasks keep their SDK process alive after a turn ends
 and count as runtime activity. A later response from background work is saved
 as a new turn. Model, effort, working-directory, or permission changes wait until
-background tasks finish. See the [architecture audit](docs/architecture/providers.md)
-for dependency boundaries and validation coverage.
+background tasks finish. See [Architecture](.docs/architecture.md) for dependency
+boundaries and the [provider abstraction](.docs/provider-abstraction.md) design
+for the shared conversation model being implemented.
 
 Install the shared GitHub and browser skills using the
 [skills installation guide](.docs/shared-skills-location.md). That guide also

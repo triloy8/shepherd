@@ -18,8 +18,8 @@ method or generated schema alone does not count as UI support.
 
 ## Provider scope
 
-Provider coverage reviewed 2026-10-10 against `e092e6e`, with the Claude account
-limits update on `feat/multiple-agent-providers`. The detailed native
+Provider coverage reviewed 2026-10-10 against `f3ae071` on
+`feat/multiple-agent-providers`. The detailed native
 inventories are the [Codex parity matrix](codex-parity-matrix.md) and
 [Claude parity matrix](claude-parity-matrix.md). The surface rows below describe
 available workflows; provider capabilities can restrict an individual conversation.
@@ -31,6 +31,7 @@ They must not be read as a promise that every row is available with Claude.
 | Resume/fork with saved provider | Yes | Yes | Identity is preserved; no in-place provider switch |
 | Text/images, follow-ups, interruption | Yes | Yes, with adapter input/queue limits | Shared controls; see each provider inventory for limits |
 | Tool approvals | Yes | Yes, native permission mapping differs | Shared decision cards; not identical sandbox/policy semantics |
+| Tool call detail | Command text, file summaries, tool names; no output | Tool name and JSON input while running; tool name only once finished and in history | Both are replaced by typed items with output and diffs; see [provider abstraction](provider-abstraction.md) |
 | Structured questions | Yes | Yes | Web supports multiple selections; Discord redirects Claude multiple-selection questions to web |
 | Stored history and metadata actions | Yes | Yes, Shepherd-created snapshots | Shared navigation, rename, archive, restore, and detach |
 | Model and effort controls | Yes | Yes, model-dependent | Discovery follows the conversation provider; account catalog remains Codex |
@@ -39,7 +40,7 @@ They must not be read as a promise that every row is available with Claude.
 | Skill discovery and toggles | Yes | No | Hidden for Claude in web; native Claude skill loading is separate |
 | Restricted sandbox selection | Yes | No | Claude accepts only unset or danger-full-access |
 | Sidebar account usage and resets | Codex account and resets | Claude account allowances | Same Usage & limits panel with provider tabs; opens on the conversation provider; resets are Codex-only |
-| Context-window percentage | When reported | Not reported | Claude exposes token telemetry without a reliable context percentage |
+| Context-window percentage | When reported | Yes, from the SDK model context window | Shown in web conversation settings for both providers |
 
 These are implemented distinctions, not approval for every missing feature.
 Account-limit reporting uses host accounts. It does not assign a separate
@@ -144,7 +145,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Persist reading position per conversation | Client | No explicit web persistence | Browser scroll anchoring is not a saved position feature |
 
 Sources: [Discord event presentation](../server/adapters/discord/thread_event_handler.ts),
-[Codex activity mapping](../server/providers/codex/rpc_mapper.ts), [web timeline](../ui/src/components/Timeline.tsx),
+[shared activity mapping](../shared/protocol/history_presentation.ts), [web timeline](../ui/src/components/Timeline.tsx),
 [web messages](../ui/src/components/Message.tsx), [web images](../ui/src/components/ImageArtifact.tsx),
 [Discord signal notices](../server/adapters/discord/signal_notice.ts),
 [web conversation controller](../ui/src/use-conversation.ts).

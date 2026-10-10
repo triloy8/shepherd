@@ -222,9 +222,7 @@ remote tailnet connection are not required by these automated tests.
 
 ## Turn activity and images
 
-Completed work remains collapsible even when a tool step failed. The work summary
-shows the number of failed steps; expand it to inspect their details. Failed or
-interrupted turns themselves retain expanded progress.
+How the browser presents these items is described in [Web UI](web-ui.md#transcript-work-and-images).
 
 History items may include `webActivity` (the shared normalized activity payload)
 or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
@@ -232,27 +230,6 @@ or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-ima
 as `payload.url` and the file basename as `payload.name`. The browser uses these
 fields for the work timeline and image previews; it does not request files by
 filesystem path.
-
-Completed Codex `imageView` items expose the existing local image, including
-Playwright screenshots opened with `view_image`. Viewed images (`kind: "viewed"`)
-are work artifacts: their previews are collapsed by default while working and fold
-with completed work. Expand **Viewed image** to inspect them at full size.
-Images explicitly embedded in assistant answers stay visible. Reloading history
-restores the same behavior while source files remain available. Failed or unfinished view
-items remain activity only; inspecting an image makes it visible to the web user.
-Generated images appear immediately as assistant output, grouped with the following
-final text under one Shepherd author label. Generation prompts live under a closed
-**Generation details** disclosure. This also supports image-only responses and
-history reload. Viewed work images use their filenames.
-
-Assistant answers can embed registered images with Markdown, for example
-`![Desktop view](/absolute/path/to/screenshot.png)`. The renderer resolves the exact
-local source path (including URL-encoded paths) to its known conversation asset
-URL. Plain links to registered images resolve to the same full-size asset. Images
-remain inside the assistant message with their Markdown alt text as a caption.
-Unregistered local paths, remote images, and arbitrary asset URLs remain image
-placeholders; Markdown never registers or reads a new file. References to older
-images work when their artifact metadata is loaded in the current conversation.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a
 provider image event or that conversation's stored history. IDs are opaque and
@@ -282,16 +259,9 @@ responses. A failed usage read does not prevent unrelated settings requests.
 
 Model/effort overrides follow existing loaded-session lifetime rules; the web
 surface adds no persistence or global defaults. Account limits are provider data
-and may be incomplete/unavailable. The sidebar **Usage & limits** panel has Codex
-and Claude tabs. It opens on the selected conversation provider, or Codex when a
-reset request needs recovery. These are host account allowances shared across
+and may be incomplete/unavailable. They are host account allowances shared across
 conversations. Codex exposes reported usage buckets and banked reset counts/details.
-Codex bucket titles use the
-model catalog display name matched by `normalModelSlug`, then the provider's
-`limitName`, then a humanized internal ID. When a model name and distinct quota
-label are both present, the quota label is shown beneath the title. Optional
-catalog failures leave usage and reset controls available. Conversation settings
-retain context telemetry, which can be null before a turn.
+The [Usage & limits panel](web-ui.md#usage-and-limits) presents both providers.
 
 
 Claude returns the shared `ProviderAccountLimits` DTO: provider, account plan/auth
@@ -304,12 +274,10 @@ account IDs are exposed. API accounts report subscription limits as not applicab
 The Claude reader uses an experimental native SDK control with no model prompt,
 project settings, tools or MCP servers. It coalesces reads across callers, caches
 for 30 seconds, limits manual refreshes to one per five seconds and times out after
-ten seconds. The browser polls only while the panel is mounted and the page is
-visible. Native conversation events also update the same account snapshot. Failed
+ten seconds. Native conversation events also update the same account snapshot. Failed
 reads retain last reported values with stale labels. Unknown percentages remain
 unknown; passed reset times never imply zero usage. Data older than 120 seconds
 is stale. Account or credential changes discard the previous account snapshot.
-The Claude panel offers an external usage link and no reset or billing controls.
 Unknown, duplicate or malformed limits query parameters return 400.
 
 Codex reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
@@ -317,15 +285,8 @@ be non-empty (maximum 100 characters); an optional non-empty credit ID (maximum
 256 characters) selects a particular reset. Without an ID, Codex selects the next
 available reset. Outcomes are `reset`, `alreadyRedeemed`, `nothingToReset`, and
 `noCredit`. Read `/limits` after a known result. Retry an unknown result with the
-same key; never generate a new key for the same attempt. The built-in UI retains
-both the request key and selected credit ID in session storage across reloads in
-the same tab. Each available, unexpired, supported detail row has a **Use this
-reset** button. While an outcome is unknown, only retrying that original attempt
-is allowed. If details are count-only or capped, **Use next available reset**
-lets Codex choose from its available inventory; the UI does not assume
-an expiry ordering. Malformed bodies
+same key; never generate a new key for the same attempt. Malformed bodies
 and extra fields return 400; backend failures remain sanitized 502 responses.
-Reset controls work without a selected conversation.
 
 ## Conversation management
 
@@ -456,7 +417,4 @@ or remote image URLs become an unavailable-image placeholder, never a browser fe
 
 Stored conversation pages explicitly use `updated_at` descending, matching Discord
 `!threads`, including archived and later pages. Active means not archived, not
-currently running. The web list refreshes after selected-turn activity, when the
-page regains focus/visibility, and every 30 seconds while visible. Refresh shows a
-busy indicator. Automatic refresh pauses after loading more conversations to avoid
-collapsing older pages; manual Refresh returns to the newest page and resumes it.
+currently running.

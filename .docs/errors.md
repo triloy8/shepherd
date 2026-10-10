@@ -105,6 +105,6 @@ Open the image with `view_image` and reference the exact absolute source path
 readable, and its artifact metadata must be loaded in the conversation. A plain
 Markdown image reference does not register or read a new file.
 
-See [image delivery and embedding](web-api.md#turn-activity-and-images). This is
+See [image delivery and embedding](web-ui.md#transcript-work-and-images). This is
 separate from structured question handling; PR screenshots also remain available
 as repository images.

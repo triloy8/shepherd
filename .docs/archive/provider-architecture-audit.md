@@ -1,5 +1,10 @@
 # Provider architecture audit
 
+> Status: Historical audit retained for design context. It records the first
+> provider-separation pass on PR #90. The [provider abstraction](../provider-abstraction.md)
+> design supersedes its target structure, and [Architecture](../architecture.md)
+> is the maintained ownership map.
+
 Audit date: 2026-10-10. Baseline: ee23487, rebased on b5797c1.
 
 Scope: provider selection, session lifecycle, SDK translation, storage, tools,

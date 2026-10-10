@@ -39,7 +39,7 @@ archive when historical reasoning is useful.
 - [Provider abstraction](provider-abstraction.md) — one provider-neutral
   application boundary over Codex and Claude: registry/capabilities, inputs/assets,
   items/history, event reconciliation, opaque interactions, account limits,
-  background work, migration/rollback, compatibility and staged verification (PR #90).
+  background work, storage versions, the v1 upgrade path, and staged verification (PR #90).
 
 ## Historical design material
 

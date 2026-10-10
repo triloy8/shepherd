@@ -105,7 +105,7 @@ if [ "$skills_checkout_root" = "$shared_skills_target" ]; then
   mkdir -p -- "$(dirname -- "$skills_exclude_path")"
   touch -- "$skills_exclude_path"
   for exclusion in /synced/ /.trash/; do
-    if ! rg -q -F -x -- "$exclusion" "$skills_exclude_path"; then
+    if ! grep -q -F -x -- "$exclusion" "$skills_exclude_path"; then
       printf '\n%s\n' "$exclusion" >> "$skills_exclude_path"
     fi
   done

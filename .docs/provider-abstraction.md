@@ -2,8 +2,9 @@
 
 ## Status and decisions
 
-Proposed on 2026-10-10 and revised after the design audit, for implementation on
-[PR #90](https://github.com/triloy8/shepherd/pull/90)
+Proposed on 2026-10-10, revised after the design audit, and corrected after a
+second audit (message-text limits, approval-mode mapping, replay sizing, scope
+cuts), for implementation on [PR #90](https://github.com/triloy8/shepherd/pull/90)
 (`feat/multiple-agent-providers`). This is the target contract, not a description
 of shipped behavior. [Architecture](architecture.md) describes the current code.
 Update maintained references with each landed workflow; archive this proposal
@@ -26,8 +27,12 @@ Decisions:
   private in an adapter-owned token-to-response map.
 - Optional ports define application capabilities. Security and input constraints
   are declared separately, validated by core, and enforced by the adapter.
-- Web API v2 gets a temporary v1 translation boundary for the current browser.
-  The translation is surface compatibility code, not the application model.
+- Web API v2 replaces v1 without a translator. No client outside this repository
+  uses `/api/v1` or bridge events (`triloy8/shepherd-ui` is an archived, separate
+  server; webhook producers use `/signals/:routeId`, which is unchanged). v1 routes
+  answer with an upgrade-required error that the shipped UI already displays.
+- Claude snapshots are versioned and converted when read. No rollback exporter:
+  Claude exists only on PR #90 builds, and `main` has no Claude support to roll back to.
 - Attachment extraction from existing Claude snapshots is deferred. The generic
   protocol carries asset references now; private legacy storage can remain inline.
 
@@ -77,6 +82,8 @@ Runtime composition -> core, adapters, storage
    adapters never invent exit codes, timestamps, diffs, or recovered plan steps.
 7. All generic output is bounded after serialization. Truncation is visible and
    does not change the original input submitted to the model or the native context.
+   Conversation message text (user and assistant) is not truncated for display
+   within the message limit below.
 8. Diagnostic raw frames stay adapter-local and out of ordinary conversation
    events. Recoverable warnings and final errors use typed neutral events.
 
@@ -95,7 +102,7 @@ New neutral `ConversationInput` replaces native-shaped `UserInput` at the port:
 type ProviderId = string; // validated against the injected registry
 type InputPart =
   | { type: "text"; text: string }
-  | { type: "asset"; assetId: string; media: "image" | "audio" | "file" }
+  | { type: "asset"; assetId: string; media: "image" | "audio" }
   | { type: "skill"; name: string; referenceId: string }
   | { type: "mention"; name: string; referenceId: string };
 type ConversationInput = InputPart[];
@@ -147,7 +154,7 @@ Boundary migration inventory:
 | --- | --- |
 | Create/resume/fork, bootstrap | Neutral settings and instructions above; no native model-provider field |
 | `ThreadRecord`, stored summaries | Same metadata fields, including provider; no open index signature |
-| `readThread(includeTurns)` | Metadata-only read plus paginated turns/items in v2; the v1 translator preserves `includeTurns` with bounded pagination or an explicit size error |
+| `readThread(includeTurns)` | Metadata-only read plus paginated turns/items in v2 |
 | Revert response | Neutral thread metadata plus existing opaque history cursors; caller fetches new history |
 | Thread/model/effort state | Model and effort IDs from the neutral catalog; no `modelProvider` |
 | Model summary | Display fields and supported effort IDs/default; remove `supportsPersonality` |
@@ -156,11 +163,9 @@ Boundary migration inventory:
 | User input and image decoration | Neutral input/asset references; scoped asset URLs are surface decorations |
 | Limits/resets | Neutral DTO and optional reset port below |
 
-The v1 translator explicitly supports existing built-in-client behavior. Native
-filters without a neutral meaning are either translated inside the relevant
-adapter compatibility entry point or rejected with a documented version error;
-they are not forwarded into generic core as native settings. Inventory external
-clients before removing v1, not before deciding the core model.
+Native-only filters and fields are removed from the shared contracts rather than
+translated; the built-in client moves to v2 in the same change (see Surfaces and
+compatibility).
 
 ## Conversation items
 
@@ -183,14 +188,15 @@ interface ItemBase {
   completedAt: number | null;
   error: BoundedText | null;
   recovery: "complete" | "partial" | "transient";
-  unavailableFields: string[];
-  omittedEntries: number;
+  unavailableFields: ItemField[];          // typed per item variant, never free text
+  omitted: Partial<Record<ArrayField, number>>; // entries dropped from each truncated array
   detailAsset: AssetReference | null; // optional full text/detail outside the preview
-  version: { epoch: string; revision: number }; // runtime projection version
 }
+// Runtime projection versions travel on item events, not on stored items:
+// item events carry { epoch, revision } beside the item (see Events).
 type ConversationItem = ItemBase & (
   | { type: "user_message"; content: HistoryInputPart[] }
-  | { type: "assistant_message"; text: BoundedText; phase: "commentary" | "final_answer" | null }
+  | { type: "assistant_message"; text: MessageText; phase: "commentary" | "final_answer" | null }
   | { type: "reasoning"; summary: BoundedText[] }
   | { type: "plan"; text: BoundedText | null; steps: Array<{ text: BoundedText; status: "pending" | "in_progress" | "completed" }> }
   | { type: "command"; command: BoundedText; description: BoundedText | null; cwd: string | null;
@@ -213,12 +219,14 @@ type ConversationItem = ItemBase & (
   | { type: "image"; origin: "generated" | "viewed"; asset: AssetReference; prompt: BoundedText | null }
   | { type: "notice"; kind: "compaction" | "review" | "hook" | "wait" | "warning" | "other"; text: BoundedText }
 );
+/** Message text is complete up to the message limit; only larger text uses a preview plus full-text asset. */
+type MessageText = BoundedText;
 type HistoryInputPart =
-  | { type: "text"; text: BoundedText }
+  | { type: "text"; text: MessageText }
   | Exclude<InputPart, { type: "text" }>;
 interface AssetReference {
   id: string;
-  media: "image" | "audio" | "file";
+  media: "image" | "audio"; // add "file" when a surface produces files
   mimeType: string | null;
   name: string | null;
   availability: "available" | "unavailable";
@@ -271,26 +279,29 @@ head/tail previews for output. Caps apply before persistence and publication.
 
 | Value | Maximum |
 | --- | --- |
-| Entire serialized item | 48 KiB |
-| Output/report/text/diff field | 16 KiB; command/tool outputs retain the last 2 KiB |
+| User/assistant message text | 256 KiB, not truncated below that. Web prompts are already limited to 32,768 characters (about 96 KiB UTF-8); model answers stay well under the limit. Larger text uses a preview plus full-text asset. |
+| Entire serialized item, excluding message text | 48 KiB |
+| Output/report/reasoning/diff field | 16 KiB; command/tool outputs retain the last 2 KiB |
 | Combined diffs per item | 24 KiB; counts computed before truncation |
 | Tool input, prompt, command | 8 KiB each |
 | Entire serialized interaction | 64 KiB |
-| Bridge/SSE frame, including envelope and surface decoration | 96 KiB |
+| Bridge/SSE frame, including envelope and surface decoration | 96 KiB; 288 KiB for message item events |
 | History/list JSON response | 1 MiB |
 | Delta text | 4 KiB; split on Unicode boundaries |
 | Path, URL, ID, label; array entries | 4 KiB per string; at most 100 entries per array, also subject to aggregate budgets |
 
-Array truncation records `omittedEntries`; text fields always use `BoundedText`.
+Array truncation records a count per array in `omitted`; text fields always use
+`BoundedText`. `ItemField` and `ArrayField` are literal unions generated from the
+item variants, so an unknown field name is a type error.
 If metadata alone exceeds an item budget, return a minimal typed summary with
 unavailable fields and fetchable detail where supported. An interaction must
 explain the full effect of each offered grant. If permission details cannot fit,
 provide paged neutral detail and disable grant actions until available, or offer
 only deny/cancel; never approve from a misleading truncated preview.
 
-Large assistant/user history text has a bounded preview and an optional generic
+Message text above the 256 KiB message limit has a bounded preview and a generic
 full-text asset accessed through the asset port; the adapter may back it by
-native storage. Assets preserve images and other large media outside events and
+native storage. Below that limit, history and events carry the complete text. Assets preserve images and other large media outside events and
 pages. Missing files or unsupported native retrieval give an unavailable asset,
 not an arbitrary filesystem/remote fetch. Keep existing scoped image authorization.
 Private legacy snapshots may still contain inline input images; public projection
@@ -300,11 +311,17 @@ Limit at the item, collection, and encoded-frame levels. A page stops before its
 byte budget and returns a continuation, including within a turn. It must progress
 even when one native record is huge. The web adapter's final serialization check
 remains a defense, but ordinary maximum-sized items/interactions must fit without
-`event_too_large`. Core replay is byte-bounded as well as count-bounded.
+`event_too_large`. Core replay is byte-bounded as well as count-bounded, and sized
+from the frame cap: at least 4 MiB and 512 events per conversation, so a
+reconnect after several maximum-size tool items still replays instead of forcing a
+snapshot. Per-client send buffers hold at least four maximum-size frames (1.25 MiB),
+up from today's 128 KiB replay and 256 KiB client limits in `event_feed.ts`.
 
-Streaming accumulators keep bounded head/tail buffers and byte counts. Once a
-field exceeds its preview budget, stop append deltas for that field and publish
-bounded replacements, coalesced at most once per 100 ms. Subsequent chunks update
+Streaming accumulators keep bounded head/tail buffers and byte counts. Message text
+streams by appended deltas up to the message limit; it never switches to head/tail
+replacements, so a long answer is never shown with its middle removed. For
+output/reasoning/diff fields, once a field exceeds its preview budget, stop append
+deltas for that field and publish bounded replacements, coalesced at most once per 100 ms. Subsequent chunks update
 the retained tail. Final state contains the authoritative bounded preview. Never
 accumulate unlimited output merely to truncate it at completion.
 
@@ -317,13 +334,14 @@ that epoch; they are not native revisions or a persisted Codex event log.
 
 | Event | Payload/behavior |
 | --- | --- |
-| `item.started`, `item.updated`, `item.completed` | Full bounded `{ item }`; completed means a terminal work state |
-| `item.delta` | `{ itemId, turnId, epoch, baseRevision, revision, field, index, offsetBytes, delta }`; index is required for reasoning summary blocks, null for text/output |
+| `item.started`, `item.updated`, `item.completed` | Full bounded `{ item, revision }`; the envelope carries the epoch. Completed means a terminal work state |
+| `item.delta` | `{ itemId, turnId, baseRevision, revision, field, index, offset, delta }`; `offset` counts UTF-16 code units, matching browser strings (byte counts are for budgets only); index is required for reasoning summary blocks, null for text/output |
 | `interaction.requested`, `.decided`, `.applied`, `.failed`, `.expired` | Neutral request/record IDs and lifecycle; never native responses or secret answers |
 | `turn.started` | Turn ID |
 | `turn.completed` | Turn ID and `status: "completed" \| "interrupted"`; turn closure does not close background work |
 | `turn.failed` | Turn ID and typed bounded error |
 | `thread.status.changed` | `{ activeTurnId, backgroundTaskCount, state: "idle" \| "active" \| "waiting" \| "error", waitingFor: "approval" \| "user_input" \| null }` |
+| `thread.capabilities.changed` | `{ capabilities: ProviderCapabilities }` when a settings, account, or model change narrows or widens what the conversation supports |
 | `thread.*`, token/context usage, `session.started` | Existing neutral meanings with typed payloads |
 | `session.warning`, `session.error`, `session.limit.context` | Bounded neutral message, error code and retryable flag; no native method field |
 
@@ -335,9 +353,11 @@ work failed. Retain revert history invalidation and handle recovery.
 Each bridge envelope adds `epoch` and `sequence`. A generic core projection
 assigns those values and item revisions in one serialized publication queue;
 adapters supply normalized mutations, not independently competing revision clocks.
-`GET /api/v2/conversations/:id/snapshot` atomically returns state, pending
-interactions and the first history page with `{ epoch, throughSequence,
-historyRevision }`. Further history pages retain that history revision. The core
+`GET /api/v2/conversations/:id/snapshot` returns projection state and pending
+interactions as of `throughSequence`, plus the first history page read from the
+provider afterwards, with `{ epoch, throughSequence, historyRevision }`. It is not
+one atomic read: the native history read happens without holding a lock, and the
+overlay rules below reconcile the two. Further history pages retain that history revision. The core
 queue owns snapshot assembly and lifecycle changes as well as items.
 Native history supplies recovered terminal work; active work and session-only
 overlays come from that projection. Hydration subscribes before
@@ -348,7 +368,7 @@ newer known active projection state. No database lock is held across SDK waits.
 
 Clients open the stream before fetching the snapshot, buffer events, apply the
 snapshot, then replay only events after `throughSequence` in that epoch. Ignore
-older/equal item revisions. Apply a delta only when baseRevision and byte offset
+older/equal item revisions. Apply a delta only when baseRevision and offset
 match; otherwise refresh the item/snapshot. Duplicate deltas are harmless.
 Replacement events supersede streamed fragments. On epoch change, clear runtime
 revisions/replay cursors and restore stable item IDs from history. History revision
@@ -402,8 +422,8 @@ interface InteractionRecord extends InteractionRequest {
   status: "pending" | "decided" | "applied" | "failed" | "expired";
   selectedOptionId: string | null;
   selectedIntent: "allow" | "deny" | "cancel" | "submit" | "other" | null;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: number; // epoch seconds, like every other shared timestamp
+  updatedAt: number;
 }
 ```
 
@@ -491,11 +511,32 @@ Approval semantics: provider_default uses documented native behavior; review_sen
 requires native permission checks for sensitive work; review_all promises a review
 of every supported side-effecting tool; bypass disables interactive tool approval,
 not user questions. Declare a mode only when enforceable. Native granular policy
-objects are not generic approval modes. Existing `untrusted` and `on-request` v1
-values are translated and documented per adapter; do not present them as identical
-security guarantees. Unrestricted means no sandbox guarantee, not no permission
+objects are not generic approval modes. Existing `untrusted`, `on-request`, and `never`
+values translate as in the table below; the table, not the mode names, states
+each provider's guarantee. Unrestricted means no sandbox guarantee, not no permission
 questions. Claude advertises only unrestricted sandboxing until a real constrained
 execution boundary exists. Filesystem rollback is not implied by conversation revert.
+
+Each adapter declares exactly these modes. A mode not listed for a provider is not
+offered, and a request for it fails before any work starts.
+
+| Neutral mode | Codex (`AskForApproval`, `SandboxMode`) | Claude (SDK `permissionMode`) |
+| --- | --- | --- |
+| `provider_default` | Omit the policy and let the Codex configuration decide | `default` with loaded settings rules (same as `review_sensitive`) |
+| `review_sensitive` | `on-request`: the model asks when it needs to leave the sandbox or judges an action risky; the sandbox does the enforcement | `default`: asks for any tool that loaded user, project, or local settings do not already allow |
+| `review_all` | `untrusted`: asks before every command except Codex's built-in trusted read-only commands; the UI states that exception | Not offered. Settings allow-rules (`settingSources: user, project, local`) approve tools without asking, and Shepherd cannot remove them without dropping project settings |
+| `bypass` | `never` | `bypassPermissions` with `allowDangerouslySkipPermissions`; `AskUserQuestion` still asks |
+| `read_only` sandbox | `read-only` | Not offered |
+| `workspace_write` sandbox | `workspace-write` | Not offered |
+| `unrestricted` sandbox | `danger-full-access` | The only mode: no sandbox |
+
+Codex granular policy objects stay adapter-local configuration. Claude's
+`acceptEdits`, `plan`, `dontAsk`, and `auto` modes are not used. The existing
+`CODEX_APPROVAL_POLICY` (`untrusted`, `on-request`, `never`) and `CODEX_SANDBOX`
+values translate to `review_all`, `review_sensitive`, `bypass` and the matching
+sandbox modes, and remain the defaults for new conversations of either provider.
+As today, a Claude conversation requested with a restricted sandbox fails before
+it starts; the error names the unsupported mode.
 
 ## Background work and nesting
 
@@ -637,7 +678,9 @@ contracts above contain no provider-specific discriminator or response value.
 Command/file approval strings and compound execution/network policy amendment
 objects are private replies selected by opaque tokens. Show exact rule/scope/effect
 in neutral permissions. Multiple callbacks on one item retain separate request IDs,
-including stdin review. Respect native offered choices when supplied. Permission
+including stdin review (`kind: "writeStdin"`). Offer amendment choices only when
+the request carries them: `proposedExecpolicyAmendment` becomes a persistent
+command rule option and `proposedNetworkPolicyAmendments` become network options. Permission
 profile requests map requested filesystem/network access and turn/session grant
 scope; grant only the requested subset. Question requests use shared questions.
 Dynamic tool calls dispatch to the Shepherd registry. Unsupported elicitation,
@@ -685,45 +728,34 @@ choices are not offered. AskUserQuestion supports single/multiple selection,
 explicit submit/cancel, and private callback translation. Bypass retains question
 handling. Never expose callback results or native suggested-rule objects to surfaces.
 
-## Storage migration and rollback
+## Storage versions
+
+Claude snapshots exist only on builds of PR #90; `main` has no Claude support. So
+storage uses a simple versioned format with no rollback exporter.
 
 Generic storage reads/writes versioned neutral snapshots. Claude's adapter owns
 `legacy_snapshot_mapper.ts`: the storage implementation returns version-tagged
 raw legacy data through a private persistence port and does not interpret native
-item names. Current unversioned snapshots are v1; v2 includes schemaVersion=2,
-neutral items and completeness metadata. Runtime-only versions are reassigned in
-the new projection epoch rather than treated as durable native revisions.
+item names. Current unversioned snapshots are v1; v2 includes `schemaVersion: 2`,
+neutral items and completeness metadata.
 
-Reads never rewrite snapshots. Decode/validate an entire v1 snapshot in the adapter,
-including mixed legacy/neutral records left by older transitional builds. Preserve
-IDs, chronology, archived metadata, and native resume metadata. Legacy missing
-structured results stay partial; do not infer successful edits from arguments.
-Malformed/unsupported future versions fail clearly without overwriting the file;
-listing skips unreadable entries with a bounded diagnostic as today.
+- Reads convert v1 in memory and never rewrite the file. The adapter decodes and
+  validates the whole snapshot, including mixed legacy/neutral records from
+  transitional builds, and preserves IDs, chronology, archived metadata, and
+  native resume metadata. Missing structured results stay partial; successful
+  edits are never inferred from arguments.
+- The first mutation after a v1 read copies the v1 file to `<id>.v1.json` once,
+  then writes the v2 snapshot through a temporary file and an atomic rename,
+  followed by the summary file, as today.
+- Malformed or newer-than-supported versions fail clearly without overwriting
+  the file; listing skips unreadable entries with a bounded diagnostic as today.
+- Running an older PR #90 build against v2 files is not supported. The `.v1.json`
+  copies let a developer restore test threads by hand.
 
-On first successful mutation, preserve a v1 backup before writing a complete v2
-snapshot to a temporary file and atomically replacing the snapshot. Write summary
-metadata second and regenerate stale summaries safely. No partially converted file
-is published. Keep backups through the rollback window. New v2-only threads require
-a neutral-to-v1 adapter exporter before rolling back to an old binary; the old
-binary must never read v2 directly. Stop ingress/work before rollback, export all
-current metadata/history into verified v1 files, and preserve the v2 files. Native
-transcripts, provider bindings, and assets are backed up with snapshots. If an export
-cannot represent new detail, retain that detail in v2 and explicitly report the
-loss in the older viewer; never lose native resume metadata or overwrite newer
-turns with the original backup. Rollback is blocked if a safe resume export fails.
-
-Attachment extraction is a later versioned migration. For now adapters register
-stable generic asset references for inline legacy images and resolve them through
-the authorized asset port with existing byte limits. Existing backing snapshots
-must remain available; fork references have explicit source ownership. A private
-asset manifest retains the backing locator across resume/fork and v2 saves; inline
-assets backed by a v1 backup keep that backup beyond the rollback window until
-extraction or another durable backing exists. Public items never contain those
-native locators. Future
-extraction must publish assets before snapshot references, validate hashes/MIME,
-handle missing files and crash recovery, preserve fork references, and define
-backup/garbage-collection rules. It must not restore large data URLs to item pages.
+Inline images in v1 snapshots stay inline for now. The adapter registers stable
+asset references for them and serves them through the authorized asset port with
+the existing byte limits; history pages never return the data URLs. Extracting
+them to files is a later, separately versioned change.
 
 ## Surfaces and compatibility
 
@@ -741,30 +773,24 @@ or native history-presentation helper remains in production surfaces.
 
 Web v2 lives at `/api/v2`; bump both version and routing prefix. Add a stable
 unversioned `/health` for protocol negotiation, returning supported API versions
-and server instance identity; retain `/api/v1/health` during the transition.
+and server instance identity. `/api/v1/health` returns the upgrade error below.
 New clients negotiate before reads/writes/streams and after instance change.
 Unsupported versions disable mutations and offer reload while retaining drafts.
 A reload requires an explicit warning that in-memory drafts will be lost.
 
-The currently shipped browser has no version handshake. Therefore serve a
-bounded v1 translator for one release, including old events, history, approvals,
-limits, handle recovery, images and settings. It projects neutral data into the
-old contract; native codecs are confined to adapter compatibility entry points.
-It must never send v2 payloads on v1 streams. New grant types that v1 cannot safely
-explain are shown as an explicit unsupported/full-form action with deny/cancel;
-no fabricated permissive option. A later removal waits for negotiated clients and
-an external-client inventory; old tabs then receive predictable upgrade errors.
-Do not claim a new client handshake automatically upgrades an old bundle.
-
-Runtime injects legacy codec ports into the web transport, so transport code
-does not import native adapters or inspect their fields. Compatibility codecs
-accept neutral data and encode the old Shepherd wire contract. Frozen v1 DTOs,
-codecs and old-bundle tests have an explicit temporary boundary exception for
-legacy names; v2 core and renderers have none. Remove that exception with v1.
+The currently shipped browser has no version handshake, and no other client uses
+v1 (see Status). So v2 has no v1 translator. Every `/api/v1/*` route, including the
+event stream and `/api/v1/health`, answers `410` with error code `upgrade_required`
+and the message "Shepherd was updated. Reload this page to continue; unsent drafts
+in this tab will be lost." The shipped UI shows the server's message for unknown
+error codes (`ui/src/api.ts`, `explainError`), so an old tab tells its user to
+reload on its next request. The old bundle's event stream retries quietly; its
+next action or host-status poll shows the message. No v1 DTOs or codecs remain in
+production code, so v2 has no boundary-test exceptions for legacy names.
 
 SSE replay remains process-local. Restart changes epoch, invalidates handles and
-cursors, and invokes neutral resume/history/interaction recovery. Test with an
-actual old bundle, not only a mock version value. Preserve current origin checks,
+cursors, and invokes neutral resume/history/interaction recovery. Test the upgrade
+message with the actual shipped bundle, not only a mock version value. Preserve current origin checks,
 scoped asset authorization, backpressure, and revert history revisions.
 
 ## Verification and implementation stages
@@ -773,9 +799,11 @@ Recorded sessions and deterministic synthetic frames complement each other.
 Build recorders/harness before changing behavior. Record exact SDK/CLI/schema
 versions, scenario, outbound requests, inbound frames, callbacks, and terminal
 history reads so Codex recovery can be replayed without assuming a second stored
-transcript. Strip credentials/account data and sanitize prompt text, tool args,
-file contents/diffs, paths, URLs, and secret answers. Preserve identity/correlation
-consistently. Review fixtures before commit; live recording is an explicit developer
+transcript. Record against a throwaway fixture repository with synthetic content
+(`tests/fixtures/workspace/`, copied to a temporary directory per run), so prompts,
+tool arguments, diffs, and paths are safe to commit unchanged and the mapping tests
+see real shapes. Strip only credentials, account identifiers, emails, and the
+temporary directory prefix (replaced with a fixed placeholder). Review fixtures before commit; live recording is an explicit developer
 workflow, not an automatic test that spends tokens or modifies a real workspace.
 
 Contract cases run against every adapter according to its declared capabilities:
@@ -791,37 +819,38 @@ Recovery tests cover snapshot/replay overlap, duplicates, indexed reasoning,
 delta gaps, epoch changes, history pagination/parent boundaries, revert races,
 maximum escaped Unicode payloads, bounded accumulators, slow clients, and byte
 budgets. Migration tests cover v1/v2/mixed records, malformed/future versions,
-interrupted writes, stale summaries, retained asset references, rollback export,
-and complete native resume metadata. Account tests cover both concrete mappings,
+interrupted writes, stale summaries, retained asset references, the one-time
+`.v1.json` copy, and complete native resume metadata. Account tests cover both
+concrete mappings,
 stale/auth-change behavior, unknown ordinary permission, catalog failures, and
-uncertain reset retry/provider identity. Browser tests use old/new bundles against
-v1/v2; Discord tests ensure no native name determines control behavior.
+uncertain reset retry/provider identity. Browser tests run the new bundle against
+v2 and check that the shipped bundle shows the upgrade message against v1 routes;
+Discord tests ensure no native name determines control behavior.
 
-Each stage is a coherent commit on PR #90 and passes `bun test` and `bun run check`:
+Each stage is one or more coherent commits on PR #90, and each commit passes
+`bun test` and `bun run check`:
 
 1. Add additive v2 types, registry descriptors, byte-budget helpers and replay
    harness with fixtures. Existing contracts continue serving current callers.
 2. Implement one vertical text/history/asset projection path in each adapter,
    snapshot/watermark reconciliation, and the shared renderer behind v2 routing.
-   Compare live and recovered semantic fields; keep v1 translation at the edge.
+   Compare live and recovered semantic fields.
 3. Migrate tools/files/plans/media and background/nesting with the mapping and
    bounds tests. Do not finalize background work on launch receipts.
 4. Migrate interactions and neutral settings/input/catalog/optional ports,
    capability guards, opaque reply tokens, and permission-effect rendering.
 5. Migrate account readers/reset workflows and registry-driven surface controls.
-   Version Claude storage with verified rollback export; defer image extraction.
-6. Switch the built-in client to negotiated v2; run old-client compatibility,
-   restart, packaged executable, and complete regression checks. Update maintained
-   docs throughout; then enforce final boundary rules and archive this proposal.
-7. Remove temporary v1 translation only after the documented compatibility window,
-   client inventory and upgrade tests pass. This removal can be a later release.
+   Version Claude storage (read-time conversion, one-time `.v1.json` copy); defer
+   image extraction.
+6. Switch the built-in client to negotiated v2 and replace v1 routes with the
+   upgrade-required response; run the shipped-bundle upgrade check, restart,
+   packaged executable, and complete regression checks. Update maintained docs
+   throughout; then enforce final boundary rules and archive this proposal.
 
 Boundary tests scan TS and TSX imports, exports, dynamic imports, and import types.
 Only provider adapters import native SDKs/schemas or interpret native strings.
 Core cannot import providers/storage/runtime; storage cannot import native codecs.
-Surfaces import shared contracts and core ports only. Compatibility tests/fixtures
-have a narrow explicit exception while v1 exists; production compatibility dispatch
-still receives neutral types. Enforce no provider-name branches in reducers,
+Surfaces import shared contracts and core ports only. Enforce no provider-name branches in reducers,
 renderers, interaction decisions or account widgets. Registry composition and
 provider selection are the intentional identity-based dispatch points.
 
@@ -838,6 +867,10 @@ provider selection are the intentional identity-based dispatch points.
   base revision requests recovery rather than duplicating answer text.
 - Four large diffs produce a <=48 KiB item with original counts and visible
   truncation. Its full event stays <=96 KiB and reaches SSE as an item event.
+- A 60 KiB final answer streams by appended deltas and appears complete in the
+  live view and after a reload; nothing is cut from its middle.
+- A shipped-bundle tab open across the upgrade shows "Shepherd was updated. Reload
+  this page" on its next request instead of misreading v2 data.
 - A standalone native tool output has a stable neutral tool item even when its
   producing call is absent or on another page.
 - A provider with no reset/skill/fork port hides those actions and rejects direct
@@ -845,9 +878,8 @@ provider selection are the intentional identity-based dispatch points.
 
 The contracts above are implementation decisions. Remaining choices are product
 preferences: whether Discord should offer bounded output attachments by default,
-and which full-text/asset retention policy to offer. External client inventory
-controls v1 removal timing, not whether shared protocols are generic. Any change
-to byte caps must re-run encoded-frame/page/accumulator tests.
+and which full-text/asset retention policy to offer. Any change to byte caps must
+re-run encoded-frame/page/accumulator tests.
 
 ## References
 

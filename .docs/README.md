@@ -22,8 +22,10 @@ archive when historical reasoning is useful.
 
 - [Architecture](architecture.md) — current adapter, application-core, and
   runtime-core ownership boundaries and flows.
-- [Schema parity matrix](schema-parity-matrix.md) — coverage of the generated
+- [Codex parity matrix](codex-parity-matrix.md) — coverage of the generated
   Codex app-server surface.
+- [Claude parity matrix](claude-parity-matrix.md) — Claude Agent SDK and
+  subscription support, native behavior, missing controls, and verification limits.
 - [Known errors](errors.md) — diagnosed errors, their impact, and recovery.
 - [Future implementations](future-implementations.md) — proposed work that has
   not been accepted as current behavior.

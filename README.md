@@ -369,6 +369,8 @@ route lifetime, and delivery behavior.
 
 ## Documentation
 
+- [Codex parity matrix](.docs/codex-parity-matrix.md)
+- [Claude parity matrix](.docs/claude-parity-matrix.md)
 - [Surface parity matrix](.docs/surface-parity-matrix.md)
 - [Surface selection and lifecycle](.docs/surface-launch.md)
 - [Web API and private access](.docs/web-api.md)

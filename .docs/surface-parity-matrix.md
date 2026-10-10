@@ -16,6 +16,34 @@ restriction; **No** = no Shepherd surface control; **N/A** = transport-specific;
 Web means the built-in UI unless a cell explicitly says API-only. A shared core
 method or generated schema alone does not count as UI support.
 
+## Provider scope
+
+Provider coverage reviewed 2026-10-10 against `e092e6e`. The detailed native
+inventories are the [Codex parity matrix](codex-parity-matrix.md) and
+[Claude parity matrix](claude-parity-matrix.md). The surface rows below describe
+available workflows; provider capabilities can restrict an individual conversation.
+They must not be read as a promise that every row is available with Claude.
+
+| Feature | Codex | Claude | Surface consequence |
+| --- | --- | --- | --- |
+| Create with an explicit provider | Default | Web/API choice | Web Agent picker; Discord creation defaults to Codex |
+| Resume/fork with saved provider | Yes | Yes | Identity is preserved; no in-place provider switch |
+| Text/images, follow-ups, interruption | Yes | Yes, with adapter input/queue limits | Shared controls; see each provider inventory for limits |
+| Tool approvals | Yes | Yes, native permission mapping differs | Shared decision cards; not identical sandbox/policy semantics |
+| Structured questions | Yes | Yes | Web supports multiple selections; Discord redirects Claude multiple-selection questions to web |
+| Stored history and metadata actions | Yes | Yes, Shepherd-created snapshots | Shared navigation, rename, archive, restore, and detach |
+| Model and effort controls | Yes | Yes, model-dependent | Discovery follows the conversation provider; account catalog remains Codex |
+| Manual compaction | Yes | No | Hidden for Claude in web; unsupported calls rejected |
+| Turn-based conversation revert | Yes | No | Hidden for Claude in web; unsupported calls rejected |
+| Skill discovery and toggles | Yes | No | Hidden for Claude in web; native Claude skill loading is separate |
+| Restricted sandbox selection | Yes | No | Claude accepts only unset or danger-full-access |
+| Sidebar account usage and resets | Codex account | Not reported | Current Usage & limits remains Codex-only even when Claude is selected |
+| Context-window percentage | When reported | Not reported | Claude exposes token telemetry without a reliable context percentage |
+
+These are implemented distinctions, not approval for every missing feature.
+Claude account-limit reporting is proposed work; it is not implemented by the
+provider picker or by the shared context controls.
+
 ## Conversation and workspace management
 
 | Feature | Discord | Web | Scope / distinction |
@@ -114,7 +142,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Persist reading position per conversation | Client | No explicit web persistence | Browser scroll anchoring is not a saved position feature |
 
 Sources: [Discord event presentation](../server/adapters/discord/thread_event_handler.ts),
-[activity mapping](../server/core/codex_rpc_mapper.ts), [web timeline](../ui/src/components/Timeline.tsx),
+[Codex activity mapping](../server/providers/codex/rpc_mapper.ts), [web timeline](../ui/src/components/Timeline.tsx),
 [web messages](../ui/src/components/Message.tsx), [web images](../ui/src/components/ImageArtifact.tsx),
 [Discord signal notices](../server/adapters/discord/signal_notice.ts),
 [web conversation controller](../ui/src/use-conversation.ts).
@@ -128,7 +156,7 @@ Sources: [Discord event presentation](../server/adapters/discord/thread_event_ha
 | Set model | Yes — `!model set <id>` | Yes — settings | Shared model validation |
 | Read/set reasoning effort | Yes — `!effort [set <level\|default>]` | Yes — settings | Includes default/reset and supported choices |
 | Context/token usage | Yes — `!context` | Yes — settings | Available telemetry; not always present before a turn |
-| Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Discord shows the single-bucket view; web shows all reported metered buckets. Provider usage windows/reset times and workspace credit balance are separate from banked resets |
+| Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Codex account only, independent of the selected conversation provider. Discord shows the single-bucket view; web shows all reported metered buckets. Usage windows/reset times and workspace credit balance are separate from banked resets |
 | Banked reset count/details/expiration | No | Yes — sidebar Usage & limits | Available count is authoritative; detail rows may be unavailable or capped; non-expiring resets are labeled |
 | Use a banked reset | No | Yes — Use this reset per credit; Use next available reset for count-only/capped details | Shared consume RPC; explicit outcome feedback and limits refresh. Unknown outcomes retain the request key and selected credit ID for retries, including across page reload in the same tab |
 | List discovered skills | Yes — `!skills` | Yes — Skills section | Workspace-scoped discovery |
@@ -171,7 +199,7 @@ Sources: [surface launch](surface-launch.md), [web API contract](web-api.md),
 
 Revert support reviewed 2026-09-30 against Codex 0.159.2 in [PR #75](https://github.com/triloy8/shepherd/pull/75), based on
 `7e18d1d`: web uses `thread/revert`; Discord rollback is retired. See the
-[schema matrix](schema-parity-matrix.md).
+[Codex matrix](codex-parity-matrix.md).
 
 Layout navigation reviewed 2026-10-01 in [PR #76](https://github.com/triloy8/shepherd/pull/76),
 based on `d83232b`: compact header, floating composer, and sidebar host controls.
@@ -188,5 +216,6 @@ Keep this matrix symmetric: add a row when either surface gains a user-visible
 feature, update both cells, and describe meaningful limits. Update the review date
 and source commit. Distinguish built-in controls from API-only support, shared core
 capabilities, and Discord-client behavior. Keep detailed API/setup instructions in
-the linked references. The separate [schema parity matrix](schema-parity-matrix.md)
-tracks the provider protocol; it is not a surface feature inventory.
+the linked references. The separate [Codex parity matrix](codex-parity-matrix.md)
+tracks the Codex provider protocol; the [Claude parity matrix](claude-parity-matrix.md)
+tracks the Claude adapter. Neither is a surface feature inventory.

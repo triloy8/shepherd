@@ -93,7 +93,7 @@ web page to load its UI assets. Existing unsupported requests are not resurrecte
 ask the agent to ask again. Discord directs secret/large requests to the web UI.
 
 See [question workflows](user-questions.md), the [surface matrix](surface-parity-matrix.md),
-and the [schema matrix](schema-parity-matrix.md). MCP elicitation remains unsupported.
+and the [Codex matrix](codex-parity-matrix.md). MCP elicitation remains unsupported.
 
 ## Screenshot Markdown shows an image placeholder
 

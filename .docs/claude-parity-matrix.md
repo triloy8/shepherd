@@ -106,8 +106,8 @@ login, not a blanket approval for distributing a subscription login product.
 
 | Capability | Status | What Shepherd does / limit |
 | --- | --- | --- |
-| Model discovery and selection | Implemented | SDK `supportedModels()` translated into the shared paginated model catalog; web model picker and routed model controls. Actual model availability is plan-dependent. |
-| Reasoning effort | Partial | Passes native effort settings; model catalog supplies supported levels. Thread metadata defaults to high. Not every model supports every level. |
+| Model discovery and selection | Implemented | SDK `supportedModels()` translated into the shared paginated model catalog; web model picker and routed model controls. New conversations default to explicit `claude-opus-5-5`; `CLAUDE_MODEL` overrides it. Catalog exposes resolved model IDs and retains native aliases as hidden compatibility entries. Actual model availability is plan-dependent. |
+| Reasoning effort | Partial | Passes native effort settings; model catalog supplies supported levels. New conversation metadata defaults to medium; `CLAUDE_EFFORT` overrides it. Saved conversations/forks retain their effort. No global default editor in Shepherd. Not every model supports every level. |
 | Base/developer instructions | Partial | Appended to the Claude Code preset system prompt. No separate Claude developer-message role is created. |
 | User/project/local configuration | Native | Conversation queries load `settingSources: ["user", "project", "local"]`. Shepherd supplies its own per-query permission and subscription credential policy. |
 | Native skills, commands, agents, hooks, plugins | Native | Native configuration can make extensions available to Claude. No claim that Shepherd exposes the complete CLI command vocabulary or manages installed extensions. |

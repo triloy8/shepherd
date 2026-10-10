@@ -423,3 +423,48 @@ test("an unavailable account lookup cannot stall a Claude response", async () =>
     expect(session.activeTurnId).toBeNull();
   } finally { session.stop(); }
 });
+
+test("new Claude defaults reach SDK turns and saved conversations retain explicit settings", async () => {
+  const previousModel = process.env.CLAUDE_MODEL; const previousEffort = process.env.CLAUDE_EFFORT;
+  delete process.env.CLAUDE_MODEL; delete process.env.CLAUDE_EFFORT;
+  const storage = store();
+  const fake = sdk(async function* () { yield result; });
+  const session = new ClaudeSession("on-request", undefined, storage, fake);
+  const resumed = new ClaudeSession("on-request", undefined, storage, fake);
+  const forked = new ClaudeSession("on-request", undefined, storage, fake);
+  try {
+    const created = await session.startThread({ cwd: "/project" });
+    expect(created).toMatchObject({ model: "claude-opus-5-5", reasoningEffort: "medium" });
+    await session.startTurn([toTextUserInput("hello")]); await done(session);
+    expect(fake.calls[0]!.options).toMatchObject({ model: "claude-opus-5-5", effort: "medium" });
+    const saved = storage.read(created.threadId); saved.model = "sonnet"; saved.effort = "high"; saved.materialized = false; storage.write(saved);
+    process.env.CLAUDE_MODEL = "haiku"; process.env.CLAUDE_EFFORT = "low";
+    expect(await resumed.resumeThread(created.threadId, {})).toMatchObject({ model: "sonnet", reasoningEffort: "high" });
+    expect(await forked.forkThread(created.threadId, {})).toMatchObject({ model: "sonnet", reasoningEffort: "high" });
+    const explicit = new ClaudeSession("on-request", undefined, storage, fake);
+    expect(await explicit.startThread({ model: "opus" })).toMatchObject({ model: "opus", reasoningEffort: "low" });
+    explicit.stop();
+  } finally {
+    session.stop(); resumed.stop(); forked.stop();
+    if (previousModel === undefined) delete process.env.CLAUDE_MODEL; else process.env.CLAUDE_MODEL = previousModel;
+    if (previousEffort === undefined) delete process.env.CLAUDE_EFFORT; else process.env.CLAUDE_EFFORT = previousEffort;
+  }
+});
+
+test("Claude effort controls find pinned default IDs and legacy aliases through the shared manager", async () => {
+  const fake = sdk(async function* () { yield result; });
+  const open = fake.query;
+  fake.query = (options => Object.assign(open(options), { supportedModels: async () => [
+    { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "Opus", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high"] },
+  ] })) as typeof query;
+  const storage = store();
+  const manager = new SessionManager(undefined, (policy, tools) => new ClaudeSession(policy, tools, storage, fake));
+  try {
+    const { threadId } = await manager.createThread({ provider: "claude", model: "claude-opus-5-5" });
+    expect(await manager.getThreadEffort(threadId)).toMatchObject({ model: "claude-opus-5-5", currentEffort: "medium", defaultEffort: "medium" });
+    expect(await manager.setThreadEffort(threadId, "default")).toMatchObject({ pendingEffort: "medium" });
+    const legacy = await manager.createThread({ provider: "claude", model: "opus" });
+    expect(await manager.getThreadEffort(legacy.threadId)).toMatchObject({ model: "opus", currentEffort: "medium" });
+    expect((await manager.listModels({ provider: "claude" })).data.map(row => row.model)).toEqual(["claude-opus-5-5"]);
+  } finally { manager.stopAll(); }
+});

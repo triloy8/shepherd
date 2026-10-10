@@ -1,3 +1,5 @@
+import { claudeDefaults } from "./defaults.js";
+import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
 import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
@@ -58,7 +60,8 @@ export class ClaudeSession implements AgentSession {
     await this.initialize();
     this.validateOverrides(request);
     const nativeId = randomUUID();
-    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? process.env.CLAUDE_MODEL ?? "sonnet", effort: "high", name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, instructions: [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n"), turns: [] };
+    const defaults = claudeDefaults();
+    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: defaults.effort, name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, instructions: [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n"), turns: [] };
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     this.persist();
     this.publish("thread.started", { approvalPolicy: this.approvalPolicy });
@@ -342,10 +345,12 @@ export class ClaudeSession implements AgentSession {
   async revertThread(_id: string, _before: string): Promise<P.RevertThreadResponse> { throw new UnsupportedProviderOperationError("Claude", "reverting turns"); }
   async listModels(request: P.ListModelsRequest): Promise<P.ListModelsResponse> {
     await this.initialize();
-    const running = this.openQuery(new InputQueue<SDKUserMessage>(), { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? "sonnet", ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" });
+    const defaults = claudeDefaults();
+    const running = this.openQuery(new InputQueue<SDKUserMessage>(), { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? defaults.model, ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" });
     try {
       const models = await running.supportedModels();
-      const page = paginate(models.map((m) => ({ id: m.value, model: m.value, displayName: m.displayName, description: m.description, hidden: false, isDefault: m.value === "sonnet", supportsPersonality: false, defaultReasoningEffort: m.supportsEffort ? "high" : null, supportedReasoningEfforts: (m.supportedEffortLevels ?? []).map((e) => ({ reasoningEffort: e, description: "" })) })), request);
+      const catalog = claudeModelCatalog(models, defaults).filter(model => request.includeHidden || !model.hidden);
+      const page = paginate(catalog, request);
       return { data: page.data, nextCursor: page.nextCursor };
     } finally { this.closeQuery(running); }
   }

@@ -108,10 +108,17 @@ It preserves the host environment for other providers. There is no automatic
 fallback to API billing if the subscription login is missing or expired.
 To use API credentials instead, explicitly set `CLAUDE_AUTH_MODE=api` and configure
 authentication using the [SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart).
+
+New Claude conversations default to **Opus 5.5 with medium effort**.
+`CLAUDE_MODEL` and `CLAUDE_EFFORT` override those defaults. Existing conversations
+and forks keep their saved settings; conversation model/effort controls apply
+individual overrides. There is no global default editor in the web UI.
+
 Optional shared environment settings are:
 
 ```env
-CLAUDE_MODEL=sonnet
+CLAUDE_MODEL=claude-opus-5-5
+CLAUDE_EFFORT=medium
 # Shepherd metadata and UI history; SDK transcripts stay in Claude's own storage.
 SHEPHERD_CLAUDE_STATE_DIR=/absolute/path/to/claude-state
 # Optional override of the SDK's bundled executable:

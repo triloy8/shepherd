@@ -12,4 +12,3 @@ export class InputQueue<T> implements AsyncIterable<T> {
     }
   }
 }
-

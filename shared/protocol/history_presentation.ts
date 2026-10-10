@@ -159,4 +159,3 @@ export function mapTurnActivity(
       return null;
   }
 }
-

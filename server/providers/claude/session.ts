@@ -15,6 +15,7 @@ import { UnsupportedProviderOperationError, type AgentSession, type ThreadBootst
 import { DynamicToolRegistry } from "../../core/dynamic_tool_registry.js";
 import { claudeExecutablePath } from "./claude_executable.js";
 import { claudeAuthenticationOptions } from "./authentication.js";
+import type { ClaudeLimitsObserver } from "./account_limits.js";
 import { EventBus } from "../../core/event_bus.js";
 
 function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) {
@@ -46,6 +47,7 @@ export class ClaudeSession implements AgentSession {
     private readonly dynamicTools = new DynamicToolRegistry(),
     private readonly store: ClaudeThreadRepository,
     private readonly sdk = { query, forkSession },
+    private readonly accountLimits?: ClaudeLimitsObserver,
   ) {}
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
   private bootstrap(): ThreadBootstrapInfo {
@@ -151,9 +153,19 @@ export class ClaudeSession implements AgentSession {
   }
   private async consume(running: Query, queue: InputQueue<SDKUserMessage>) {
     let streamItemId: string | null = null;
+    const scope = this.accountLimits?.scope();
+    const account = this.accountLimits && typeof running.accountInfo === "function"
+      ? running.accountInfo().catch(() => null) : Promise.resolve(null);
     try {
       for await (const message of { [Symbol.asyncIterator]: () => running }) {
         if (this.stopped || this.running !== running) break;
+        if (message.type === "rate_limit_event" && this.accountLimits && scope) {
+          // Account telemetry must not block or fail the model stream.
+          void account.then(identity => {
+            if (identity && !this.stopped && this.running === running) this.accountLimits?.observe(message.rate_limit_info, identity, scope);
+          }).catch(() => {});
+          continue;
+        }
         if (this.backgroundTasks.accept(message)) this.publish("thread.status.changed", { status: { backgroundTaskCount: this.backgroundTaskCount } });
         if (!this.currentTurn && ((message.type === "stream_event" && !message.parent_tool_use_id && message.event.type === "message_start") || (message.type === "assistant" && !message.parent_tool_use_id))) {
           this.beginWakeTurn();

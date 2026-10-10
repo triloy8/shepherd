@@ -18,7 +18,8 @@ method or generated schema alone does not count as UI support.
 
 ## Provider scope
 
-Provider coverage reviewed 2026-10-10 against `e092e6e`. The detailed native
+Provider coverage reviewed 2026-10-10 against `e092e6e`, with the Claude account
+limits update on `feat/multiple-agent-providers`. The detailed native
 inventories are the [Codex parity matrix](codex-parity-matrix.md) and
 [Claude parity matrix](claude-parity-matrix.md). The surface rows below describe
 available workflows; provider capabilities can restrict an individual conversation.
@@ -37,12 +38,13 @@ They must not be read as a promise that every row is available with Claude.
 | Turn-based conversation revert | Yes | No | Hidden for Claude in web; unsupported calls rejected |
 | Skill discovery and toggles | Yes | No | Hidden for Claude in web; native Claude skill loading is separate |
 | Restricted sandbox selection | Yes | No | Claude accepts only unset or danger-full-access |
-| Sidebar account usage and resets | Codex account | Not reported | Current Usage & limits remains Codex-only even when Claude is selected |
+| Sidebar account usage and resets | Codex account and resets | Claude account allowances | Same Usage & limits panel with provider tabs; opens on the conversation provider; resets are Codex-only |
 | Context-window percentage | When reported | Not reported | Claude exposes token telemetry without a reliable context percentage |
 
 These are implemented distinctions, not approval for every missing feature.
-Claude account-limit reporting is proposed work; it is not implemented by the
-provider picker or by the shared context controls.
+Account-limit reporting uses host accounts. It does not assign a separate
+allowance to each conversation, and context tokens do not determine subscription
+quota. Discord `!limits` still reads Codex; the Claude tab is web-only.
 
 ## Conversation and workspace management
 
@@ -156,7 +158,7 @@ Sources: [Discord event presentation](../server/adapters/discord/thread_event_ha
 | Set model | Yes — `!model set <id>` | Yes — settings | Shared model validation |
 | Read/set reasoning effort | Yes — `!effort [set <level\|default>]` | Yes — settings | Includes default/reset and supported choices |
 | Context/token usage | Yes — `!context` | Yes — settings | Available telemetry; not always present before a turn |
-| Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Codex account only, independent of the selected conversation provider. Discord shows the single-bucket view; web shows all reported metered buckets. Usage windows/reset times and workspace credit balance are separate from banked resets |
+| Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Host accounts, independent of conversation allowance. Discord shows the Codex single-bucket view; web has Codex/Claude tabs and reported windows/reset times. Workspace credit balances and banked resets remain Codex-only |
 | Banked reset count/details/expiration | No | Yes — sidebar Usage & limits | Available count is authoritative; detail rows may be unavailable or capped; non-expiring resets are labeled |
 | Use a banked reset | No | Yes — Use this reset per credit; Use next available reset for count-only/capped details | Shared consume RPC; explicit outcome feedback and limits refresh. Unknown outcomes retain the request key and selected credit ID for retries, including across page reload in the same tab |
 | List discovered skills | Yes — `!skills` | Yes — Skills section | Workspace-scoped discovery |

@@ -70,6 +70,18 @@ Record any live-model validation limits in the completion report.
   catalog queries use the same isolated subprocess environment and settings,
   which prevent inherited API credentials from replacing subscription login.
   The host environment and Codex credentials remain untouched.
+- `server/core/account_limits_service.ts` routes host account reads through the
+  `server/ports/provider_account_limits.ts` reader port. Its DTO is in shared
+  protocol and has no SDK or conversation dependency. Runtime composition owns
+  one Claude reader, registers it with the core and injects its native observer
+  into Claude sessions. The core closes account readers on shutdown.
+- The Claude account adapter owns native usage queries, identity isolation,
+  coalescing, cache, timeout and event collection. Its mapper alone interprets
+  experimental native usage replies and rate-limit events. Account reads submit
+  no model prompt and disable project settings/tools/MCP. Observation cannot
+  stall a model stream. Browser code consumes only shared account DTOs. Existing
+  Codex limits/reset response contracts remain intact; no cross-provider reset
+  action is added.
 - `server/core/provider_thread_catalog.ts` merges provider pages and refills
   sources before choosing the next row. The merge handles changing page sizes,
   empty intermediate pages, and repeated cursor failures.
@@ -103,6 +115,8 @@ Storage remains file-based. Provider identity is persisted separately from the
 native transcript, and both must be preserved when migrating a host. Listings
 are live views: changes during pagination can require a reload. Legacy ID
 recognition remains a compatibility path at composition, not an application
-routing rule. Codex account limits remain a host-level Codex operation. Claude
+routing rule. Both providers report account limits at host scope. Claude uses an experimental
+SDK read with stale/unavailable fallback and shared native event observations;
+Codex alone supports banked reset redemption. Claude
 manual compaction, rewind, restricted sandbox modes, and skill-management
 controls remain unsupported.

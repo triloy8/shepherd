@@ -132,6 +132,7 @@ export class WebSurfaceApi {
         return json(200, await this.application.conversation.listModels({ ...pagination(url), includeHidden: true }));
       }
       if (request.method === "POST" && url.pathname === `${WEB_API_PREFIX}/limits/reset`) {
+        if (url.search) throw new WebRequestError(400, "invalid_query", "Reset redemption is Codex-only and accepts no query parameters.");
         const data = await body(request, ["idempotencyKey", "creditId"]);
         const idempotencyKey = requiredString(data, "idempotencyKey", 100);
         const creditId = data.creditId === undefined ? undefined : requiredString(data, "creditId", 256);
@@ -140,6 +141,16 @@ export class WebSurfaceApi {
         return json(200, { outcome: result.outcome });
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
+        for (const key of url.searchParams.keys()) if (key !== "provider" && key !== "refresh") throw new WebRequestError(400, "invalid_query", "Unknown limits query parameter.");
+        const provider = url.searchParams.get("provider");
+        const refresh = url.searchParams.get("refresh");
+        if ((provider !== null && provider !== "codex" && provider !== "claude") || (refresh !== null && refresh !== "true" && refresh !== "false")
+          || url.searchParams.getAll("provider").length > 1 || url.searchParams.getAll("refresh").length > 1) throw new WebRequestError(400, "invalid_query", "Invalid limits provider or refresh.");
+        if (provider === "claude") {
+          const result = await webControl(this.application, { type: "account-limits.read", provider, refresh: refresh === "true" });
+          if (result.type !== "account-limits.read") throw new Error("Unexpected provider limits response.");
+          return json(200, result.limits);
+        }
         const result = await webControl(this.application, { type: "limits.read" });
         if (result.type !== "limits.read") throw new Error("Unexpected limits response.");
         return json(200, { rateLimits: result.rateLimits, rateLimitsByLimitId: result.rateLimitsByLimitId, rateLimitResetCredits: result.rateLimitResetCredits });

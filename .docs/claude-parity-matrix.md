@@ -1,6 +1,7 @@
 # Claude parity matrix
 
-Reviewed: 2026-10-10 against `e092e6e` on `feat/multiple-agent-providers`.
+Reviewed: 2026-10-10 against `e092e6e`, plus the account limits update on
+`feat/multiple-agent-providers`.
 Installed baseline: `@anthropic-ai/claude-agent-sdk` **0.3.296**, bundled/native
 Claude Code **2.1.296**. This is an inventory of Shepherd's Claude adapter and
 subscription support, not a complete inventory of every SDK export or a promise
@@ -41,7 +42,7 @@ for event fields; upstream documentation and subscription rules can change.
 | Explicit API authentication | Implemented | `CLAUDE_AUTH_MODE=api` passes the configured environment through. API/backend authentication is external setup; it does not use the Pro subscription allowance. |
 | Phone authorization | Partial | CLI login runs on the box; authorization can happen in the phone browser. The browser code must return to that CLI. No Shepherd web sign-in or credential-entry control. |
 | Login/logout/token renewal in Shepherd | Missing | Use Claude Code's external authentication tools. Shepherd does not own an OAuth flow or implement token refresh itself. |
-| Account identity/plan in the web UI | Missing | SDK exposes `accountInfo()`, but Shepherd has no Claude account panel. The host verification above is not a UI feature. |
+| Account identity/plan in the web UI | Partial | Claude tab shows subscription plan and authentication state. Email, native account IDs and credentials are not exposed. No account-switching control. |
 | Choose different Claude accounts per conversation | Missing | Provider selection is per conversation; Claude credentials come from the host process and configuration. |
 
 For subscription availability, see Anthropic's dated
@@ -127,27 +128,37 @@ login, not a blanket approval for distributing a subscription login product.
 | Turn token usage | Partial | Maps SDK result usage into last/total input, cache, output and available model-usage thinking values. These values are not a subscription usage percentage. |
 | Cumulative conversation accounting | Partial | Snapshot stores the latest mapped result; it does not implement a separate durable lifetime-cost ledger across resumed SDK queries. |
 | Context-window percentage | Missing | Adapter does not populate the shared `modelContextWindow` field, so the UI cannot calculate a reliable percentage. Token figures alone do not prove remaining context. |
-| Subscription `rate_limit_event` | Missing | Installed SDK types expose status, optional utilization/reset times, window type and overage fields. Claude's consume loop currently ignores this event. |
-| Five-hour / weekly / model-specific allowance display | Missing | No provider/account snapshot store, Claude limits endpoint, or Claude limits UI. Optional or absent utilization must never be displayed as zero usage. |
-| Limit warning/rejection and reset-time UI | Missing | No structured rate-limit presentation. Generic SDK result/transport errors still fail the turn through the normal error path. |
-| Refresh account limits | Unsupported | Claude `readAccountRateLimits()` rejects the current Codex-shaped contract. SDK model discovery is not a quota refresh. |
+| Subscription `rate_limit_event` | Implemented | Native adapter forwards allowance events to one host account collector. Maps status, optional utilization/reset times and extra usage flags. Account lookup and observation cannot block or fail a turn. |
+| Five-hour / weekly / model/app-specific allowance display | Implemented | Claude tab in the existing Usage & limits panel displays native allowance rows. Supports canonical server rows and legacy five-hour/weekly/model fields. Missing utilization is “Not reported”; reported zero is retained. |
+| Limit warning/rejection and reset-time UI | Implemented | Displays event statuses and reported reset times. Labels old values, failed refreshes and passed resets as stale; never calculates zero usage from a reset time. Generic SDK result/transport errors still use the normal turn error path. |
+| Refresh account limits | Partial | New host account reader uses the SDK experimental structured usage control, without a model prompt. This unstable method is isolated and validated in the Claude adapter; unsupported/failed reads retain event observations and report stale/unavailable data. The old Codex-shaped `readAccountRateLimits()` remains unsupported for Claude. |
+| Extra usage status | Partial | Shows reported enabled/active/status/percentage fields with observation age. Read-only: no enable/disable, billing changes, invoices or monetary estimates. |
 | Cost / subscription charges / extra usage controls | Missing | No Claude billing or overage control. SDK token/cost telemetry must not be presented as the user's subscription invoice. |
 | Banked resets / spend a reset | Unsupported | Claude does not implement Codex reset credits or the reset RPC. |
-| Current sidebar Usage & limits | Codex only | Both the endpoint and UI use the host Codex control session, regardless of the selected conversation. Its copy identifies the Codex account. It is not Claude quota reporting. |
+| Current sidebar Usage & limits | Implemented | Codex/Claude tabs in the same panel. Opens on the selected conversation provider, except pending Codex reset recovery. Both allowances are host account data; provider choice does not allocate quota to a conversation. Reset actions appear only on Codex. |
 
 Claude's account-wide usage scope is described in
 [usage and length limits](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work).
-The SDK fields above were checked in the installed `sdk.d.ts`; their optional
-values and event-driven delivery do not guarantee a complete fresh account
-snapshot before a conversation runs.
+The SDK fields above were checked in the installed `sdk.d.ts`. The experimental
+structured usage read was verified with a signed-in Pro account on 2026-10-10
+using SDK `0.3.296` and Claude Code `2.1.296`, without submitting a model prompt.
+Availability still depends on the login and installed native version. A setup-token
+login may not expose account usage; the panel provides a link to Claude usage.
+Reads coalesce across browsers, cache for 30 seconds and cap manual refreshes at
+one per five seconds. Each native read has a ten-second timeout and closes its
+process. Window and extra usage observations become stale after 120 seconds;
+windows also become stale when their reported reset time passes. Credential or
+account changes discard old allowance data. No credentials or account identifiers
+are returned in the account limits response.
 
 ## Gaps and maintenance
 
-Account limits are the next proposed architectural area, not implemented work:
-use a provider/account-level service distinct from conversation context. Normalize
-native events inside the Claude adapter, aggregate them outside conversations,
-and show unavailable/stale data explicitly. Keep Codex reset actions provider-specific.
-Do not claim automatic API fallback or automatic account switching.
+Account limits use a provider/account-level service distinct from conversation
+context. Native interpretation stays inside the Claude adapter. The account reader
+is shared by all Claude sessions and its processes close on runtime shutdown.
+Remaining gaps include billing controls, a stable public SDK usage contract,
+Claude limits in Discord, and context-window capacity reporting. Do not claim
+automatic API fallback or automatic account switching.
 
 Review this matrix when the SDK version or adapter behavior changes. Preserve the
 difference between implemented controls, native configuration, missing translation,
@@ -157,6 +168,8 @@ and host-specific account identifiers must not appear in examples or evidence.
 Primary implementation sources:
 [session](../server/providers/claude/session.ts),
 [authentication](../server/providers/claude/authentication.ts),
+[account limits adapter](../server/providers/claude/account_limits.ts),
+[account limits service](../server/core/account_limits_service.ts),
 [questions](../server/providers/claude/questions.ts),
 [MCP bridge](../server/providers/claude/mcp_bridge.ts),
 [background tasks](../server/providers/claude/background_tasks.ts),
@@ -167,6 +180,8 @@ Primary implementation sources:
 
 Regression evidence:
 [session tests](../tests/claude_session.test.ts),
+[account limits tests](../tests/claude_account_limits.test.ts),
+[account service/API tests](../tests/provider_account_limits.test.ts),
 [authentication tests](../tests/claude_authentication.test.ts),
 [background tests](../tests/claude_background_tasks.test.ts),
 [architecture tests](../tests/architecture_boundaries.test.ts).

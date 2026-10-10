@@ -1,11 +1,12 @@
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import type { WebLimitsResponse, WebResetRequest } from "../../../shared/protocol/web";
-import type { ModelSummary, RateLimitResetCredit } from "../../../shared/protocol/requests";
+import type { AgentProvider, ModelSummary, RateLimitResetCredit } from "../../../shared/protocol/requests";
 import { usageTitle } from "../usage-title";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
 import { AccountLimits } from "./Usage";
+import { ClaudeUsageLimits } from "./ClaudeUsageLimits";
 
 const pendingKey = "shepherd.usage-reset";
 function readPending(): WebResetRequest | null {
@@ -35,10 +36,11 @@ function usableCredit(credit: RateLimitResetCredit): boolean {
     && !expiredCredit(credit);
 }
 
-export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClosed?: () => void }) {
+export function UsageLimits({ defaultProvider = "codex", onOpen, onClosed }: { defaultProvider?: AgentProvider; onOpen?: () => void; onClosed?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [provider, setProvider] = useState<AgentProvider>(defaultProvider);
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [limits, setLimits] = useState<WebLimitsResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -55,17 +57,17 @@ export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClose
   }
   useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close(); }, [open]);
   useEffect(() => {
-    if (!open) return;
+    if (!open || provider !== "codex") return;
     const abort = new AbortController();
     setLoading(true); setLimits(null); setError(null);
     void api.limits(abort.signal).then((value) => { if (!abort.signal.aborted) setLimits(value); })
       .catch((error) => { if (!abort.signal.aborted) setError(explainError(error)); })
       .finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
-  }, [open, revision]);
+  }, [open, provider, revision]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || provider !== "codex") return;
     const abort = new AbortController();
     setModels([]);
     async function loadModels() {
@@ -85,7 +87,7 @@ export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClose
     // Catalog metadata is optional: usage and redemption remain available if it fails.
     void loadModels().catch(() => {});
     return () => abort.abort();
-  }, [open, revision]);
+  }, [open, provider, revision]);
 
   async function useReset(creditId?: string) {
     if (lock.current || loading || (!pending && !limits?.rateLimitResetCredits?.availableCount)) return;
@@ -108,11 +110,20 @@ export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClose
     ? Object.entries(limits.rateLimitsByLimitId) : limits ? [["codex", limits.rateLimits] as const] : [];
   const hasUnlistedResets = Boolean(resets && (resets.credits === null || resets.availableCount > resets.credits.length));
   return <>
-    <button ref={trigger} className="sidebar-control" aria-label="Usage & limits" onClick={() => { onOpen?.(); setOpen(true); }}><Icon name="usage" /><span>Usage & limits</span><Icon name="chevron" className="ml-auto size-3.5" /></button>
+    <button ref={trigger} className="sidebar-control" aria-label="Usage & limits" onClick={() => { onOpen?.(); setProvider(pending ? "codex" : defaultProvider); setOpen(true); }}><Icon name="usage" /><span>Usage & limits</span><Icon name="chevron" className="ml-auto size-3.5" /></button>
     {typeof document !== "undefined" && createPortal(<dialog ref={dialog} className="project-dialog settings-dialog" aria-labelledby="usage-title"
       onCancel={(event) => { if (lock.current) event.preventDefault(); else setOpen(false); }}
       onClose={() => { setOpen(false); if (onClosed) onClosed(); else trigger.current?.focus(); }}>
       <div className="mb-5 flex items-center justify-between"><h2 id="usage-title" className="text-lg font-medium">Usage & limits</h2><button className="icon-button" aria-label="Close usage & limits" disabled={sending} onClick={() => setOpen(false)}><Icon name="close" /></button></div>
+      <div role="tablist" aria-label="Usage provider" className="mb-5 flex gap-2">{(["codex", "claude"] as const).map(value => <button key={value} role="tab" tabIndex={provider === value ? 0 : -1} aria-selected={provider === value} aria-controls={`${value}-account-limits`} disabled={sending} className={provider === value ? "button-primary" : "button-secondary"} onClick={() => setProvider(value)} onKeyDown={event => {
+        const next = event.key === "Home" ? "codex" : event.key === "End" ? "claude" : ["ArrowLeft", "ArrowRight"].includes(event.key) ? value === "codex" ? "claude" : "codex" : null;
+        if (!next) return;
+        event.preventDefault(); setProvider(next);
+        const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button");
+        tabs?.[next === "codex" ? 0 : 1]?.focus();
+      }}>{value === "codex" ? "Codex" : "Claude"}</button>)}</div>
+      {open && provider === "claude" && <ClaudeUsageLimits />}
+      {provider === "codex" && <div id="codex-account-limits" role="tabpanel" aria-label="Codex limits">
       <p className="mb-5 text-xs text-muted">Shared across all conversations using this Codex account.</p>
       {loading && <p role="status" className="text-xs text-muted">Loading usage…</p>}
       {error && <p role="alert" className="notice">{error}</p>}
@@ -143,6 +154,7 @@ export function UsageLimits({ onOpen, onClosed }: { onOpen?: () => void; onClose
         </>}
       </section>
       <button className="button-secondary mt-5" disabled={loading || sending} onClick={() => setRevision((value) => value + 1)}>Refresh usage</button>
+      </div>}
     </dialog>, document.body)}
   </>;
 }

@@ -14,6 +14,8 @@ import type {
   ThreadEffortState,
 } from "../../shared/protocol/requests.js";
 import { resolveSkillPathFromList } from "./skill_resolution_service.js";
+import type { ProviderAccountLimits, ReadProviderAccountLimitsOptions } from "../../shared/protocol/provider_account_limits.js";
+import type { AgentProvider } from "../../shared/protocol/requests.js";
 
 type ControlConversation = {
   getThreadProvider?: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
@@ -29,6 +31,7 @@ type ControlConversation = {
   setThreadModel: (threadId: string, model: string) => ThreadModelState;
   consumeRateLimitReset: (request: ConsumeRateLimitResetRequest) => Promise<ConsumeRateLimitResetResponse>;
   readAccountRateLimits: () => Promise<AccountRateLimitsResponse>;
+  readProviderAccountLimits?: (provider: AgentProvider, options?: ReadProviderAccountLimitsOptions) => Promise<ProviderAccountLimits>;
   readThreadTokenUsage: (threadId: string) => Promise<ReadThreadTokenUsageResponse>;
   setThreadName: (threadId: string, request: { name: string }) => Promise<{ ok: true }>;
   readThread: (threadId: string, request: { includeTurns: boolean }) => Promise<ReadThreadResponse>;
@@ -56,6 +59,7 @@ export type ControlActionRequest =
   | { type: "repo.get"; surfaceId: string }
   | { type: "repo.set"; surfaceId: string; repoInput: string }
   | { type: "limits.read" }
+  | { type: "account-limits.read"; provider: AgentProvider; refresh?: boolean }
   | ({ type: "limits.consume" } & ConsumeRateLimitResetRequest)
   | { type: "models.list"; surfaceId: string; cursor?: string; limit?: number }
   | { type: "model.set"; surfaceId: string; requestedModel: string }
@@ -79,6 +83,7 @@ export type ControlActionResult =
   | { type: "repo.get"; currentRepo: string | null }
   | { type: "repo.set"; repoSlug: string; activeThreadId: string | null }
   | ({ type: "limits.read" } & AccountRateLimitsResponse)
+  | { type: "account-limits.read"; limits: ProviderAccountLimits }
   | ({ type: "limits.consume" } & ConsumeRateLimitResetResponse)
   | { type: "models.list"; models: ListModelsResponse; modelState: ThreadModelState | null }
   | { type: "model.set"; ok: true; threadId: string; model: string }
@@ -163,6 +168,11 @@ export async function executeControlAction(
       rateLimitsByLimitId: result.rateLimitsByLimitId ?? null,
       rateLimitResetCredits: result.rateLimitResetCredits ?? null,
     };
+  }
+
+  if (request.type === "account-limits.read") {
+    if (!context.conversation.readProviderAccountLimits) throw new Error("Provider account limits are unavailable.");
+    return { type: request.type, limits: await context.conversation.readProviderAccountLimits(request.provider, { refresh: request.refresh }) };
   }
 
   if (request.type === "models.list") {

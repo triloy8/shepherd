@@ -1,6 +1,7 @@
 import type { AgentProvider, ApprovalPolicy, ListStoredThreadsRequest } from "../../shared/protocol/requests.js";
 import type { AgentSession } from "./agent_session.js";
 import type { DynamicToolRegistry } from "./dynamic_tool_registry.js";
+import type { ProviderAccountLimitsReader } from "../ports/provider_account_limits.js";
 
 export type AgentSessionFactory = (policy: ApprovalPolicy, tools: DynamicToolRegistry, provider: AgentProvider) => AgentSession;
 
@@ -15,6 +16,7 @@ export interface ProviderServices {
   createSession: AgentSessionFactory;
   hasStoredThreads: (provider: AgentProvider, request: ListStoredThreadsRequest) => boolean;
   directory: ThreadProviderDirectory;
+  accountLimits?: Partial<Record<AgentProvider, ProviderAccountLimitsReader>>;
 }
 
 /** Pure defaults for isolated application tests. Production supplies persistent services. */

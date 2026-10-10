@@ -1,4 +1,5 @@
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
+import type { ProviderAccountLimits } from "../../shared/protocol/provider_account_limits";
 import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
 import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebLimitsResponse, WebResetRequest, WebResetResponse } from "../../shared/protocol/web";
 import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
@@ -37,6 +38,7 @@ export const api = {
   context: (id: string, signal?: AbortSignal) => request<WebContextResponse>(`${conversationPath(id)}/context`, "GET", undefined, signal),
   consumeReset: (input: WebResetRequest) => request<WebResetResponse>("/limits/reset", "POST", input),
   limits: (signal?: AbortSignal) => request<WebLimitsResponse>("/limits", "GET", undefined, signal),
+  claudeLimits: (signal?: AbortSignal, refresh = false) => request<ProviderAccountLimits>(`/limits?provider=claude${refresh ? "&refresh=true" : ""}`, "GET", undefined, signal),
   setModel: (id: string, model: string) => request(`${conversationPath(id)}/model`, "POST", { model }),
   setEffort: (id: string, effort: string) => request(`${conversationPath(id)}/effort`, "POST", { effort }),
   conversations: (signal?: AbortSignal) => request<WebConversationsResponse>("/conversations", "GET", undefined, signal),

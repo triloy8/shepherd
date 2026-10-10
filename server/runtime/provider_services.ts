@@ -3,16 +3,19 @@ import { join } from "node:path";
 import type { ProviderServices } from "../core/agent_provider.js";
 import { CodexSession } from "../providers/codex/session.js";
 import { ClaudeSession } from "../providers/claude/session.js";
+import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
 import { ClaudeThreadStore } from "../storage/claude_thread_store.js";
 import { FileThreadProviderDirectory } from "../storage/thread_provider_directory.js";
 
 /** The only production assembly point for application and native provider layers. */
 export function createProviderServices(): ProviderServices {
   const store = new ClaudeThreadStore();
+  const claudeLimits = new ClaudeAccountLimits();
   return {
+    accountLimits: { claude: claudeLimits },
     providers: ["codex", "claude"],
     createSession: (policy, tools, provider) => {
-      if (provider === "claude") return new ClaudeSession(policy, tools, store);
+      if (provider === "claude") return new ClaudeSession(policy, tools, store, undefined, claudeLimits);
       if (provider === "codex") return new CodexSession(policy, tools);
       throw new Error(`Unknown agent provider: ${provider}`);
     },

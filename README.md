@@ -133,7 +133,10 @@ Claude currently accepts only an unset sandbox or `danger-full-access`; it
 rejects Codex's restricted sandbox modes rather than treating them as enforced.
 Manual compaction, turn revert, audio/file input, and skill management controls
 are unavailable for Claude. Claude loads its own configured project skills.
-Account limit/reset controls continue to describe the Codex account.
+The sidebar **Usage & limits** panel has Codex and Claude tabs. It opens on the
+selected conversation provider and shows account allowances shared across
+conversations. Claude reports native subscription usage and reset times; unknown
+or stale values are identified. Banked resets remain Codex-only.
 The web UI uses provider capabilities to hide unsupported operations.
 
 Provider bindings are saved in `~/.shepherd/providers`, or

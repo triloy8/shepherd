@@ -384,3 +384,42 @@ test("background questions create a pending wake turn before an assistant messag
   await manager.applyApprovalDecision(threadId, request.approvalId, { decision: "submit", answers: { "question-0": { answers: ["Yes"] } } }); await done(session);
   expect((await session.listThreadTurns(threadId, {})).data).toHaveLength(2); manager.stopAll();
 });
+
+test("Claude streams forward allowance events to the account observer without conversation telemetry", async () => {
+  const info = { status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.8 } as const;
+  const identity = { subscriptionType: "pro", apiProvider: "firstParty" };
+  const observations: unknown[] = [];
+  const fake = sdk(async function* () {
+    yield { type: "rate_limit_event", rate_limit_info: info } as SDKMessage;
+    yield result;
+  });
+  const open = fake.query;
+  fake.query = (options => Object.assign(open(options), { accountInfo: async () => identity })) as typeof query;
+  const session = new ClaudeSession("on-request", undefined, store(), fake, {
+    scope: () => "credential-scope", observe: (...values) => { observations.push(values); },
+  });
+  try {
+    await session.startThread({ cwd: "/project" });
+    const events: BridgeEvent[] = [];
+    session.eventBus.subscribe(event => events.push(event), { replay: false });
+    await session.startTurn([toTextUserInput("hello")]); await done(session);
+    expect(observations).toEqual([[info, identity, "credential-scope"]]);
+    expect(events.some(event => event.type === "turn.failed")).toBe(false);
+    expect(events.filter(event => event.type.includes("rateLimit"))).toEqual([]);
+  } finally { session.stop(); }
+});
+
+test("an unavailable account lookup cannot stall a Claude response", async () => {
+  const fake = sdk(async function* () {
+    yield { type: "rate_limit_event", rate_limit_info: { status: "allowed" } } as SDKMessage;
+    yield result;
+  });
+  const open = fake.query;
+  fake.query = (options => Object.assign(open(options), { accountInfo: () => new Promise(() => {}) })) as typeof query;
+  const session = new ClaudeSession("on-request", undefined, store(), fake, { scope: () => "scope", observe() { throw new Error("Must not observe an unknown account"); } });
+  try {
+    await session.startThread({ cwd: "/project" });
+    await session.startTurn([toTextUserInput("hello")]); await done(session);
+    expect(session.activeTurnId).toBeNull();
+  } finally { session.stop(); }
+});

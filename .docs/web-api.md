@@ -79,8 +79,9 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
 | GET | `/models?cursor=...&limit=100` | Account-wide model catalog; includes hidden quota aliases and supports pagination |
-| GET | `/limits` | `{ rateLimits, rateLimitsByLimitId, rateLimitResetCredits }`; account-wide usage and banked resets |
-| POST | `/limits/reset` | `{ idempotencyKey, creditId? }` → `{ outcome }`; redeem one banked reset |
+| GET | `/limits` or `/limits?provider=codex` | Existing `{ rateLimits, rateLimitsByLimitId, rateLimitResetCredits }`; Codex account-wide usage and banked resets |
+| GET | `/limits?provider=claude&refresh=true` | Normalized `ProviderAccountLimits`; Claude host account allowances. `refresh` is optional (`true`/`false`). No conversation needed. |
+| POST | `/limits/reset` | `{ idempotencyKey, creditId? }` → `{ outcome }`; redeem one Codex banked reset. Query parameters are rejected. |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
 | GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
 | POST | `/conversations` | `{ project }` creates a thread; `{ threadId }` resumes its saved workspace; 201 with `{ id, threadId, project }` |
@@ -281,15 +282,37 @@ responses. A failed usage read does not prevent unrelated settings requests.
 
 Model/effort overrides follow existing loaded-session lifetime rules; the web
 surface adds no persistence or global defaults. Account limits are provider data
-and may be incomplete/unavailable. The sidebar **Usage & limits** panel exposes
-all reported usage buckets and banked reset counts/details. Bucket titles use the
+and may be incomplete/unavailable. The sidebar **Usage & limits** panel has Codex
+and Claude tabs. It opens on the selected conversation provider, or Codex when a
+reset request needs recovery. These are host account allowances shared across
+conversations. Codex exposes reported usage buckets and banked reset counts/details.
+Codex bucket titles use the
 model catalog display name matched by `normalModelSlug`, then the provider's
 `limitName`, then a humanized internal ID. When a model name and distinct quota
 label are both present, the quota label is shown beneath the title. Optional
 catalog failures leave usage and reset controls available. Conversation settings
 retain context telemetry, which can be null before a turn.
 
-Reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
+
+Claude returns the shared `ProviderAccountLimits` DTO: provider, account plan/auth
+mode, availability, source, last check time, allowance windows, extra usage status
+and a safe explanatory message. Each window has a reported percentage (nullable),
+reset time (nullable), status (nullable), observation time and stale flag. Extra
+usage has its own observation time and stale flag. No credentials, email or native
+account IDs are exposed. API accounts report subscription limits as not applicable.
+
+The Claude reader uses an experimental native SDK control with no model prompt,
+project settings, tools or MCP servers. It coalesces reads across callers, caches
+for 30 seconds, limits manual refreshes to one per five seconds and times out after
+ten seconds. The browser polls only while the panel is mounted and the page is
+visible. Native conversation events also update the same account snapshot. Failed
+reads retain last reported values with stale labels. Unknown percentages remain
+unknown; passed reset times never imply zero usage. Data older than 120 seconds
+is stale. Account or credential changes discard the previous account snapshot.
+The Claude panel offers an external usage link and no reset or billing controls.
+Unknown, duplicate or malformed limits query parameters return 400.
+
+Codex reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
 be non-empty (maximum 100 characters); an optional non-empty credit ID (maximum
 256 characters) selects a particular reset. Without an ID, Codex selects the next
 available reset. Outcomes are `reset`, `alreadyRedeemed`, `nothingToReset`, and

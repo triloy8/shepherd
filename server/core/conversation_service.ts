@@ -1,4 +1,7 @@
 import type { ProviderServices } from "./agent_provider.js";
+import { AccountLimitsService } from "./account_limits_service.js";
+import type { AgentProvider } from "../../shared/protocol/requests.js";
+import type { ReadProviderAccountLimitsOptions } from "../../shared/protocol/provider_account_limits.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "../../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type {
@@ -77,9 +80,11 @@ export class ConversationService {
   private readonly dynamicTools = new DynamicToolRegistry();
   private readonly manager: SessionManager;
   private readonly routing: ConversationRoutingService;
+  private readonly accountLimits: AccountLimitsService;
   private readonly subscriptionsBySurface = new Map<string, SurfaceSubscription>();
 
   constructor(options: ConversationServiceOptions = {}) {
+    this.accountLimits = new AccountLimitsService(options.providers?.accountLimits);
     this.manager = new SessionManager(this.dynamicTools, options.providers?.createSession, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers);
     this.routing = new ConversationRoutingService(this.manager, options.routing);
   }
@@ -258,6 +263,10 @@ export class ConversationService {
     return this.manager.readAccountRateLimits();
   }
 
+  readProviderAccountLimits(provider: AgentProvider, options?: ReadProviderAccountLimitsOptions) {
+    return this.accountLimits.read(provider, options);
+  }
+
   listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
     return this.manager.listModels(request);
   }
@@ -345,7 +354,8 @@ export class ConversationService {
       }
     }
     this.subscriptionsBySurface.clear();
-    this.manager.stopAll();
+    try { this.manager.stopAll(); }
+    finally { this.accountLimits.stop(); }
   }
 
   private rebindSurfaceSubscription(adapter: string, surfaceId: string, threadId: string): void {

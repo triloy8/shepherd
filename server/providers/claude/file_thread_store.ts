@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isClaudeEffort, type ClaudeThread, type ClaudeThreadRepository, type ClaudeThreadSummary } from "./thread_store.js";
-import { historyTurn, storedTurnStatuses } from "./history.js";
+import { historyTurn, storedTokenUsage, storedTurnStatuses } from "./history.js";
 
 const threadFile = /^(claude-[0-9a-f-]{36})\.json$/;
 
@@ -17,7 +17,9 @@ export class ClaudeThreadStore implements ClaudeThreadRepository {
     if (!/^claude-[0-9a-f-]{36}$/.test(id)) throw new Error("Invalid Claude thread id.");
     const value = JSON.parse(readFileSync(join(this.directory, `${id}.json`), "utf8")) as ClaudeThread;
     validateSnapshot(value, id);
-    return { ...value, turns: value.turns.map(historyTurn) };
+    const { tokenUsage: savedUsage, ...thread } = value;
+    const tokenUsage = storedTokenUsage(savedUsage);
+    return { ...thread, turns: value.turns.map(historyTurn), ...(tokenUsage ? { tokenUsage } : {}) };
   }
   write(thread: ClaudeThread): void {
     validateSnapshot(thread, thread.id);

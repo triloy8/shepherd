@@ -519,7 +519,11 @@ test("token usage reports the last request's context and the model context windo
   await session.startThread({ model: "claude-opus-5-5" });
   const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
   await session.startTurn([toTextUserInput("hello")]); await done(session);
-  expect(updates).toMatchObject([{ tokenUsage: { last: { inputTokens: 1015, cachedInputTokens: 1000, outputTokens: 50, totalTokens: 1065 }, modelContextWindow: 200_000 } }]);
+  expect(updates).toMatchObject([{ tokenUsage: {
+    last: { inputTokens: 1015, cacheReadInputTokens: 1000, cacheWriteInputTokens: 5, outputTokens: 50, reasoningOutputTokens: null, totalTokens: 1065 },
+    total: { inputTokens: 1015, cacheReadInputTokens: 1000, cacheWriteInputTokens: 5, reasoningOutputTokens: null },
+    contextWindow: 200_000,
+  } }]);
   session.stop();
 });
 
@@ -609,6 +613,7 @@ test("snapshots written with earlier item names decode into the application hist
       { id: "answer", type: "agentMessage", text: "hello", phase: "final_answer" },
       { id: "unknown", type: "somethingNew" },
     ] }],
+    tokenUsage: { last: { inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 12 }, total: { inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12 }, modelContextWindow: 200_000 },
   }));
   const thread = new ClaudeThreadStore(directory).read(id);
   expect(thread.turns[0]).toMatchObject({ status: "in_progress", items: [
@@ -617,6 +622,11 @@ test("snapshots written with earlier item names decode into the application hist
     { type: "assistant_message", text: "hello" },
     { type: "other" },
   ] });
+  expect(thread.tokenUsage).toEqual({
+    last: { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 2, reasoningOutputTokens: null, totalTokens: 12 },
+    total: { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12 },
+    contextWindow: 200_000,
+  });
   const session = new ClaudeSession("review_sensitive", undefined, new ClaudeThreadStore(directory), sdk(async function* () { yield result; }));
   await session.resumeThread(id, {});
   expect((await session.listThreadTurns(id, {})).data[0]!.status).toBe("interrupted");

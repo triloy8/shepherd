@@ -152,7 +152,7 @@ function makeContext(overrides?: {
       async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
-        return { threadId, tokenUsage: { total: { totalTokens: 42 }, last: {}, modelContextWindow: 128000 } };
+        return { threadId, tokenUsage: { total: { totalTokens: 42 }, last: {}, contextWindow: 128000 } };
       },
       getThreadModel() {
         if (overrides?.getThreadModel) return overrides.getThreadModel();
@@ -404,6 +404,20 @@ describe("Discord !skill commands", () => {
     expect(embed.title).toBe("Context usage");
     expect(embed.description).toContain("Context left");
     expect(embed.description).toContain("**Total Token Usage**");
+  });
+
+  test("distinguishes token counts the provider does not report from unknown values", async () => {
+    const { message, replies } = makeMessage("!context");
+    const breakdown = { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 5, reasoningOutputTokens: null, totalTokens: 15 };
+    const { context } = makeContext({ readThreadTokenUsage: async (threadId) => ({ threadId, tokenUsage: { last: breakdown, total: breakdown, contextWindow: 100 } }) });
+
+    await handleMessage(message as never, context);
+
+    const description = replyCardAt(replies).description;
+    expect(description).toContain("- Cache read: 4");
+    expect(description).toContain("- Cache write: not reported");
+    expect(description).toContain("- Reasoning output: not reported");
+    expect(description).toContain("- Context left: 85%");
   });
 
   test("renders skill and thread listings as Components V2 cards", async () => {

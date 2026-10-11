@@ -50,7 +50,7 @@ export function ConversationControls({ conversation, capabilities, activeTurnId,
   const model = settings?.model.pendingModel ?? settings?.model.currentModel ?? settings?.effort.model;
   const effort = settings?.effort.pendingEffort ?? settings?.effort.currentEffort ?? settings?.effort.defaultEffort;
   const usage = context?.tokenUsage;
-  const percent = usage && usage.modelContextWindow && usage.modelContextWindow > 0 ? Math.round(100 * usage.last.totalTokens / usage.modelContextWindow) : null;
+  const percent = usage && usage.contextWindow && usage.contextWindow > 0 ? Math.round(100 * usage.last.totalTokens / usage.contextWindow) : null;
   return <>
     <div className="mt-1 flex min-w-0 items-center justify-between gap-2" aria-label="Next turn controls">
       <button ref={modelTrigger} className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-lg px-2 text-xs text-muted hover:bg-panel hover:text-ink" aria-label="Model and effort" title={model ? `${model} · ${effort ?? "Default effort"} — applies to the next turn` : "Choose model and effort for the next turn"} disabled={disabled} onClick={() => show("model")}>

@@ -41,10 +41,11 @@ function textItemId(messageId: string, index: number): string { return index ===
 
 /** Context fill of one model request, not the turn aggregate on the result message. */
 function requestBreakdown(usage: RequestUsage): P.TokenUsageBreakdown {
-  const cached = usage.cache_read_input_tokens ?? 0;
-  const inputTokens = (usage.input_tokens ?? 0) + cached + (usage.cache_creation_input_tokens ?? 0);
+  const cacheRead = usage.cache_read_input_tokens ?? 0, cacheWrite = usage.cache_creation_input_tokens ?? 0;
+  const inputTokens = (usage.input_tokens ?? 0) + cacheRead + cacheWrite;
   const outputTokens = usage.output_tokens ?? 0;
-  return { inputTokens, cachedInputTokens: cached, outputTokens, reasoningOutputTokens: 0, totalTokens: inputTokens + outputTokens };
+  // Per-request usage does not separate thinking from output.
+  return { inputTokens, cacheReadInputTokens: cacheRead, cacheWriteInputTokens: cacheWrite, outputTokens, reasoningOutputTokens: null, totalTokens: inputTokens + outputTokens };
 }
 
 /** The SDK transcript keeps full tool output. Shepherd history keeps a bounded preview. */
@@ -256,15 +257,16 @@ export class ClaudeSession implements ProviderSession {
           this.flushText("final_answer");
           const last = requestBreakdown(this.requestUsage ?? message.usage);
           this.requestUsage = null;
-          const total = Object.values(message.modelUsage).reduce((acc, usage) => {
-            acc.inputTokens += usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
-            acc.cachedInputTokens += usage.cacheReadInputTokens;
-            acc.outputTokens += usage.outputTokens;
-            acc.reasoningOutputTokens += usage.thinkingTokens ?? 0;
-            acc.totalTokens = acc.inputTokens + acc.outputTokens;
-            return acc;
-          }, { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
-          const tokenUsage: P.ThreadTokenUsage = { last, total, modelContextWindow: this.contextWindow(message.modelUsage) };
+          const rows = Object.values(message.modelUsage);
+          const sum = (pick: (usage: ModelUsage) => number) => rows.reduce((acc, usage) => acc + pick(usage), 0);
+          const inputTokens = sum(usage => usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens), outputTokens = sum(usage => usage.outputTokens);
+          const total: P.TokenUsageBreakdown = {
+            inputTokens, cacheReadInputTokens: sum(usage => usage.cacheReadInputTokens), cacheWriteInputTokens: sum(usage => usage.cacheCreationInputTokens), outputTokens,
+            // Thinking counts are optional per model; report them only when every row has one.
+            reasoningOutputTokens: rows.length && rows.every(usage => typeof usage.thinkingTokens === "number") ? sum(usage => usage.thinkingTokens ?? 0) : null,
+            totalTokens: inputTokens + outputTokens,
+          };
+          const tokenUsage: P.ThreadTokenUsage = { last, total, contextWindow: this.contextWindow(message.modelUsage) };
           this.requireThread().tokenUsage = tokenUsage;
           this.publish("thread.tokenUsage.updated", { turnId: turn?.id ?? null, tokenUsage });
           if (message.is_error) throw new Error(message.subtype === "success" ? message.result : message.errors.join("\n"));

@@ -18,6 +18,7 @@ import type {
   JsonValue,
 } from "../../../shared/protocol/dynamic_tools.js";
 import { codexToolResponse, codexToolSpecs, type NativeToolSpec } from "./tools.js";
+import { codexTokenUsage } from "./token_usage.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType, type MessagePhase } from "../../../shared/protocol/events.js";
 import type {
 
@@ -37,7 +38,6 @@ import type {
   SkillsConfigWriteResponse,
   SkillsListRequest,
   SkillsListResponse,
-  ThreadTokenUsage,
 } from "../../../shared/protocol/requests.js";
 import type { ConsumeRateLimitResetRequest } from "./account_types.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
@@ -917,10 +917,9 @@ export class CodexSession implements ProviderSession {
     }
 
     if (lower === "thread/tokenusage/updated") {
-      const tokenUsage = payload.tokenUsage as ThreadTokenUsage | undefined;
       this.publish("thread.tokenUsage.updated", threadId, {
         turnId: asString(payload.turnId),
-        tokenUsage: tokenUsage ?? null,
+        tokenUsage: codexTokenUsage(payload.tokenUsage),
       });
       return;
     }

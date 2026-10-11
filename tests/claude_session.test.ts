@@ -1,3 +1,4 @@
+import { ClaudeModelCache } from "../server/providers/claude/model_cache.js";
 import { ClaudeThreadStore } from "../server/providers/claude/file_thread_store.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -568,6 +569,16 @@ test("the model catalog is cached and concurrent lookups share one CLI process",
   await session.listModels({ includeHidden: true });
   expect(fake.calls).toHaveLength(1);
   session.stop();
+});
+
+test("sessions sharing a runtime model cache start one CLI process for the model list", async () => {
+  const fake = sdk(async function* () { yield result; });
+  const models = new ClaudeModelCache({ scope: () => "login" });
+  const first = new ClaudeSession("review_sensitive", undefined, store(), fake, undefined, models);
+  const second = new ClaudeSession("review_sensitive", undefined, store(), fake, undefined, models);
+  await first.listModels({}); await second.listModels({});
+  expect(fake.calls).toHaveLength(1);
+  first.stop(); second.stop();
 });
 
 test("newly registered Shepherd tools reopen the idle SDK process before the next turn", async () => {

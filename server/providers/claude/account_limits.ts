@@ -1,11 +1,8 @@
 import { claudeAccount as presentAccount } from "./account_presentation.js";
 import { createHash } from "node:crypto";
-import { statSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { query, type AccountInfo, type Query, type SDKRateLimitInfo, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ProviderAccountLimits, ReadProviderAccountLimitsOptions } from "./account_types.js";
-import { claudeAuthenticationOptions } from "./authentication.js";
+import { claudeAuthenticationOptions, claudeCredentialScope } from "./authentication.js";
 import { claudeExecutablePath } from "./claude_executable.js";
 import { InputQueue } from "./input_queue.js";
 import { claudeAccount, emptyClaudeLimits, mapClaudeRateLimit, mapClaudeUsage } from "./account_limits_mapper.js";
@@ -35,21 +32,7 @@ export class ClaudeAccountLimits implements ClaudeLimitsObserver {
 
   // Fingerprints are private. Neither credential material nor account identity
   // is returned to the browser. Old sessions cannot contaminate a changed login.
-  scope(): string {
-    const env = claudeAuthenticationOptions().env;
-    let savedLogin: [number, number, number] | null = null;
-    try {
-      const stat = statSync(join(env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), ".claude"), ".credentials.json"));
-      savedLogin = [stat.ino, stat.mtimeMs, stat.size];
-    } catch { /* Keychain-backed installations need not have a credential file. */ }
-    return createHash("sha256").update(JSON.stringify([
-      env.HOME, env.CLAUDE_CONFIG_DIR, env.CLAUDE_AUTH_MODE ?? "subscription",
-      env.CLAUDE_CODE_OAUTH_TOKEN, env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH_TOKEN,
-      env.ANTHROPIC_PROFILE, env.CLAUDE_CODE_USE_BEDROCK, env.CLAUDE_CODE_USE_VERTEX,
-      env.CLAUDE_CODE_USE_FOUNDRY,
-      savedLogin,
-    ])).digest("hex");
-  }
+  scope(): string { return claudeCredentialScope(); }
 
   private key(account: AccountInfo, scope: string): string {
     return createHash("sha256").update(JSON.stringify([scope, account.email, account.organization, account.subscriptionType, account.apiProvider, account.apiKeySource])).digest("hex");

@@ -11,6 +11,7 @@ import type { UserQuestionRequest } from "../../../shared/protocol/user_question
 import { claudeCapabilities } from "./capabilities.js";
 import { claudeEffortLevels, isClaudeEffort, type ClaudeThreadRepository, type ClaudeThread, type ClaudeThreadSummary } from "./thread_store.js";
 import { InputQueue } from "./input_queue.js";
+import { ClaudeModelCache } from "./model_cache.js";
 import { randomUUID } from "node:crypto";
 import { query, forkSession, type ModelInfo, type ModelUsage, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type * as P from "../../../shared/protocol/requests.js";
@@ -31,7 +32,6 @@ function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) 
   return { data: values.slice(offset, offset + limit), nextCursor: offset + limit < values.length ? String(offset + limit) : null, backwardsCursor: null };
 }
 
-const modelCacheMs = 60_000;
 const persistDelayMs = 1_000;
 const storedResultChars = 8_000;
 
@@ -78,8 +78,6 @@ export class ClaudeSession implements ProviderSession {
   private requestUsage: RequestUsage | null = null;
   private runningTools: string | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
-  private models: { value: ModelInfo[]; at: number } | null = null;
-  private loadingModels: Promise<ModelInfo[]> | null = null;
   private approvals = new Map<string, { resolve: (result: PermissionResult) => void; input: Record<string, unknown>; suggestions: Parameters<CanUseTool>[2]["suggestions"]; questions?: UserQuestionRequest; replies: Map<string, unknown> }>();
   constructor(
     public approvalPolicy: P.ApprovalPolicy = "provider_default",
@@ -87,6 +85,7 @@ export class ClaudeSession implements ProviderSession {
     private readonly store: ClaudeThreadRepository,
     private readonly sdk = { query, forkSession },
     private readonly accountLimits?: ClaudeLimitsObserver,
+    private readonly modelCache = new ClaudeModelCache(),
   ) {}
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
   private bootstrap(): ThreadBootstrapInfo {
@@ -442,20 +441,11 @@ export class ClaudeSession implements ProviderSession {
   }
   /** Model and effort controls look up the catalog often; each uncached lookup starts a CLI process. */
   private supportedModels(): Promise<ModelInfo[]> {
-    if (this.models && Date.now() - this.models.at < modelCacheMs) return Promise.resolve(this.models.value);
-    if (!this.loadingModels) {
-      const loading = (async () => {
-        const running = this.openQuery(new InputQueue<SDKUserMessage>(), { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? claudeDefaults().model, ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" });
-        try {
-          const value = await running.supportedModels();
-          if (!this.stopped) this.models = { value, at: Date.now() };
-          return value;
-        } finally { this.closeQuery(running); }
-      })();
-      this.loadingModels = loading;
-      void loading.catch(() => {}).finally(() => { if (this.loadingModels === loading) this.loadingModels = null; });
-    }
-    return this.loadingModels;
+    return this.modelCache.get(async () => {
+      const running = this.openQuery(new InputQueue<SDKUserMessage>(), { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? claudeDefaults().model, ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" });
+      try { return await running.supportedModels(); }
+      finally { this.closeQuery(running); }
+    });
   }
   stop(): void {
     this.stopped = true; this.interrupted = true;

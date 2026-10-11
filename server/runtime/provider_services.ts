@@ -9,6 +9,7 @@ import { codexCapabilities } from "../providers/codex/capabilities.js";
 import { claudeCapabilities } from "../providers/claude/capabilities.js";
 import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
 import { ClaudeThreadStore } from "../providers/claude/file_thread_store.js";
+import { ClaudeModelCache } from "../providers/claude/model_cache.js";
 import { assembleProviderServices } from "./provider_registration.js";
 
 /** Installed adapters. Provider identities and implementations meet only at production composition. */
@@ -23,6 +24,7 @@ export function createProviderServices(defaultProvider: string = fallbackDefault
   assertInstalledProvider(defaultProvider);
   const store = new ClaudeThreadStore();
   const claudeLimits = new ClaudeAccountLimits();
+  const claudeModels = new ClaudeModelCache();
   const codexAccount = new CodexAccount();
   return assembleProviderServices([
     {
@@ -34,7 +36,7 @@ export function createProviderServices(defaultProvider: string = fallbackDefault
     },
     {
       id: "claude", displayName: "Claude", capabilities: claudeCapabilities,
-      create: (policy, tools) => new ClaudeSession(policy, tools, store, undefined, claudeLimits),
+      create: (policy, tools) => new ClaudeSession(policy, tools, store, undefined, claudeLimits, claudeModels),
       account: { read: refresh => claudeLimits.readAccount(refresh) },
       hasStoredThreads: () => store.hasThreads(),
       ownsStoredThread: id => store.list().some(thread => thread.id === id),

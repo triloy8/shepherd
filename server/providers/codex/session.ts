@@ -19,6 +19,7 @@ import type {
 } from "../../../shared/protocol/dynamic_tools.js";
 import { codexToolResponse, codexToolSpecs, type NativeToolSpec } from "./tools.js";
 import { codexTokenUsage } from "./token_usage.js";
+import { codexSkillConfig, codexSkills } from "./skills.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType, type MessagePhase } from "../../../shared/protocol/events.js";
 import type {
 
@@ -466,18 +467,18 @@ export class CodexSession implements ProviderSession {
 
   async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
     await this.initialize();
-    return this.sendRequest("skills/list", {
+    return codexSkills(await this.sendRequest("skills/list", {
       ...(request.cwds ? { cwds: request.cwds } : {}),
       ...(request.forceReload !== undefined ? { forceReload: request.forceReload } : {}),
-    }) as Promise<SkillsListResponse>;
+    }));
   }
 
   async writeSkillConfig(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
     await this.initialize();
-    return this.sendRequest("skills/config/write", {
+    return codexSkillConfig(await this.sendRequest("skills/config/write", {
       enabled: request.enabled,
       path: request.path,
-    }) as Promise<SkillsConfigWriteResponse>;
+    }));
   }
 
   async startTurn(

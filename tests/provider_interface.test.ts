@@ -15,6 +15,7 @@ import { historyItem } from "../server/providers/codex/history";
 import { codexToolResponse, codexToolSpecs } from "../server/providers/codex/tools";
 import { codexAccount } from "../server/providers/codex/account_presentation";
 import { codexTokenUsage } from "../server/providers/codex/token_usage";
+import { codexSkills } from "../server/providers/codex/skills";
 import { webHarness } from "./helpers/web_harness";
 import { account } from "./helpers/account";
 
@@ -110,6 +111,18 @@ test("Codex token usage is decoded into the neutral breakdown without inventing 
     contextWindow: 1000,
   });
   expect(codexTokenUsage({ last: {}, total: native })).toBeNull();
+});
+
+test("Codex skill listings keep application fields and drop native presentation metadata", () => {
+  const listed = codexSkills({ data: [{ cwd: "/repo", errors: [{ path: "/repo/bad", message: "Broken" }], skills: [
+    { name: "github", description: "GitHub", path: "/skills/github", scope: "repo", enabled: true, interface: { brandColor: "#000", iconSmall: "x" }, dependencies: { tools: [] } },
+    { name: "future", description: "Future", path: "/skills/future", scope: "workspace-cloud", enabled: false },
+    { name: "broken", path: "/skills/broken" },
+  ] }] });
+  expect(listed).toEqual({ data: [{ cwd: "/repo", errors: [{ path: "/repo/bad", message: "Broken" }], skills: [
+    { name: "github", description: "GitHub", path: "/skills/github", scope: "repo", enabled: true },
+    { name: "future", description: "Future", path: "/skills/future", scope: "workspace-cloud", enabled: false },
+  ] }] });
 });
 
 test("opaque permission options retain native policy amendments and reject stale ownership", async () => {

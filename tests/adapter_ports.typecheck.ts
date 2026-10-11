@@ -107,3 +107,12 @@ function assertEventPayloads(session: ProviderSession, event: BridgeEvent) {
   }
 }
 void assertEventPayloads;
+
+import type { ThreadBootstrapInfo } from "../server/ports/provider_session.js";
+function assertWorkspaceContract() {
+  const complete: ThreadBootstrapInfo = { threadId: "thread", cwd: "/workspace", model: null, effort: null };
+  // @ts-expect-error A live provider thread must expose its effective workspace.
+  const incomplete: ThreadBootstrapInfo = { threadId: "thread", model: null, effort: null };
+  return [complete, incomplete];
+}
+void assertWorkspaceContract;

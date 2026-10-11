@@ -123,7 +123,7 @@ test("Codex maps canonical settings privately through every lifecycle operation 
   session.initialize = async () => {};
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
   const raw = session as unknown as { sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> };
-  raw.sendRequest = async (method, params) => { requests.push({ method, params }); return method === "turn/start" ? { turn: { id: "turn" } } : { thread: { id: "thread" }, approvalPolicy: params.approvalPolicy, model: "test" }; };
+  raw.sendRequest = async (method, params) => { requests.push({ method, params }); return method === "turn/start" ? { turn: { id: "turn" } } : { thread: { id: "thread", cwd: "/repo" }, approvalPolicy: params.approvalPolicy, model: "test" }; };
   try {
     for (const [policy, native] of [["review_sensitive", "on-request"], ["review_untrusted", "untrusted"], ["bypass", "never"]] as const) {
       await session.startThread({ approvalPolicy: policy, sandbox: "workspace_write", effort: "high" });

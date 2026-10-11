@@ -157,7 +157,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
     providers.push(provider);
     if (provider === "claude") return new ClaudeSession(policy, tools, storage, fake);
     const codex = new CodexSession(policy, tools);
-    codex.startThread = async () => ({ threadId: "codex-thread", model: "codex-model", effort: null });
+    codex.startThread = async () => ({ threadId: "codex-thread", cwd: "/tmp", model: "codex-model", effort: null });
     return codex;
   }, () => false, { resolve: id => id.startsWith("claude-") ? "claude" : "codex", bind: () => {} }, ["codex", "claude"]);
   await manager.createThread({});
@@ -362,7 +362,7 @@ test("loaded conversations include every provider and respect page size", async 
   const manager = new SessionManager(undefined, (policy, tools, provider) => {
     if (provider === "claude") return new ClaudeSession(policy, tools, storage, fake);
     const session = new CodexSession(policy, tools); session.initialize = async () => {};
-    session.startThread = async () => ({ threadId: "opaque-codex-id", model: "codex", effort: null });
+    session.startThread = async () => ({ threadId: "opaque-codex-id", cwd: "/tmp", model: "codex", effort: null });
     session.listLoadedThreads = async () => ({ data: ["opaque-codex-id"], nextCursor: null }); return session;
   }, undefined, undefined, ["codex", "claude"]);
   const codex = await manager.createThread({}); const claude = await manager.createThread({ provider: "claude" });

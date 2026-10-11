@@ -6,7 +6,7 @@ import { handleMessage } from "../server/adapters/discord/commands.js";
 async function setup() {
   const starts: unknown[][] = [];
   const session = new CodexSession("review_sensitive");
-  session.startThread = async () => ({ threadId: "thread-1", model: "test-model", effort: "low" });
+  session.startThread = async () => ({ threadId: "thread-1", cwd: "/repo", model: "test-model", effort: "low" });
   session.startTurn = async (...args) => { starts.push(args); return "turn-1"; };
   const manager = new SessionManager(undefined, () => session);
   const model = {
@@ -97,7 +97,7 @@ test("Codex turn/start forwards effort and resume exposes the effective effort",
   session.initialize = async () => {};
   (session as any).sendRequest = async (method: string, params: unknown) => {
     requests.push({ method, params });
-    return { thread: { id: "thread-1" }, turn: { id: "turn-1" }, reasoningEffort: "medium" };
+    return { thread: { id: "thread-1", cwd: "/repo" }, turn: { id: "turn-1" }, reasoningEffort: "medium" };
   };
   expect(await session.resumeThread("thread-1", {})).toMatchObject({ effort: "medium" });
   await session.startTurn([], undefined, undefined, "/repo", "high");

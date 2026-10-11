@@ -212,3 +212,13 @@ session and resume it after restart through production registration and file sto
 image safety, settings, approvals, and conversation management. Firefox checks exercise
 desktop and mobile presentation using an isolated local fixture. These fixture checks do
 not establish successful live-provider sandbox execution or remote deployment health.
+
+### Workspace requirement
+
+Provider sessions represent local coding agents. `ThreadBootstrapInfo.cwd` is
+required for create, resume and fork and contains the adapter's effective local
+workspace, including its resolved defaults or saved workspace. Core rejects missing
+or blank workspaces before registering a session and caches the returned value for
+turns. An omitted request `cwd` asks the adapter to resolve its workspace; it does
+not request a workspace-free thread. Historical listing metadata may be incomplete,
+but a live bootstrapped thread must satisfy this requirement.

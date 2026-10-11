@@ -11,12 +11,15 @@ export interface ProviderEvents {
 
 export type ThreadBootstrapInfo = {
   threadId: string;
+  /** Effective local workspace resolved by the adapter for create, resume and fork. */
+  cwd: string;
   model: string | null;
   effort: string | null;
   approvalPolicy?: Protocol.ApprovalPolicy;
 };
 
-/** Required baseline: initialization, thread creation/resumption, turns, history and events.
+/** Providers are local coding agents; every bootstrapped thread has a workspace.
+ * Required baseline: initialization, thread creation/resumption, turns, history and events.
  * Optional operations are declared in ProviderCapabilities and checked before execution.
  * Implementations translate native SDK traffic into BridgeEvents. */
 export interface ProviderExecution {

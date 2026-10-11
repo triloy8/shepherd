@@ -588,8 +588,12 @@ export class CodexSession implements ProviderSession {
   private extractThreadBootstrapInfo(result: unknown, method: string): ThreadBootstrapInfo & { approvalPolicy: ApprovalPolicy } {
     const threadId = this.mustSetThreadIdFromResult(result, method);
     const record = asRecord(result);
+    const cwd = asString(record.cwd) ?? asString(asRecord(record.thread).cwd);
+    if (!cwd?.trim()) throw new Error(`${method} returned no workspace.`);
+    this.cwd = cwd;
     return {
       threadId,
+      cwd,
       model: asString(record.model),
       effort: asString(record.reasoningEffort),
       approvalPolicy: Object.hasOwn(record, "approvalPolicy") ? applicationApproval(record.approvalPolicy) ?? "provider_default" : this.approvalPolicy,

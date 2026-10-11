@@ -86,7 +86,7 @@ describe("CodexSession app-server contract", () => {
       session.initialize = async () => {};
       internals(session).sendRequest = async (_method, params) => {
         requests.push(params);
-        return { thread: { id: "thread-defaults" } };
+        return { thread: { id: "thread-defaults", cwd: "/repo" } };
       };
       await session.startThread({});
       await session.startThread({ model: "custom-model", effort: "high" });
@@ -118,7 +118,7 @@ describe("CodexSession app-server contract", () => {
     session.initialize = async () => {};
     internals(session).sendRequest = async (method, params) => {
       requests.push({ method, params });
-      return { thread: { id: "thread-1", modelProvider: "openai" } };
+      return { thread: { id: "thread-1", cwd: "/repo", modelProvider: "openai" } };
     };
 
     await session.startThread({ cwd: "/workspace", instructions: "Prefer small diffs." });
@@ -240,7 +240,7 @@ describe("CodexSession app-server contract", () => {
     const session = new CodexSession("review_sensitive");
     session.initialize = async () => {};
     internals(session).sendRequest = async () => ({
-      thread: { id: "thread-1", modelProvider: "openai" },
+      thread: { id: "thread-1", cwd: "/repo", modelProvider: "openai" },
       model: "gpt-5.6-sol",
       approvalPolicy: {
         granular: {

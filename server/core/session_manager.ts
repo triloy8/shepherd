@@ -139,9 +139,12 @@ export class SessionManager {
       assertApprovalSupport(request.provider ?? this.defaultProvider(), session.capabilities, request.approvalPolicy ?? session.approvalPolicy);
       const created = await start(session);
       this.assertRunning();
+      if (typeof created.cwd !== "string" || !created.cwd.trim()) {
+        throw new ApplicationActionError({ code: "workspace_unavailable" });
+      }
       this.providerDirectory.bind(created.threadId, request.provider ?? this.defaultProvider());
       this.sessionsByThread.set(created.threadId, { session, createdAt: new Date().toISOString() });
-      if (request.cwd) this.cwdByThread.set(created.threadId, request.cwd);
+      this.cwdByThread.set(created.threadId, created.cwd);
       this.effortStateByThread.set(created.threadId, { current: created.effort, pending: null });
       this.modelStateByThread.set(created.threadId, { currentModel: created.model, pendingModel: null });
       return { threadId: created.threadId, sessionId: session.sessionId };

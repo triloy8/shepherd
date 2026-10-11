@@ -21,7 +21,7 @@ export class IndependentSession implements ProviderSession {
   async initialize() {}
   async startThread() { this.threadId = `opaque-${crypto.randomUUID()}`; return this.bootstrap(); }
   async resumeThread(threadId: string) { this.threadId = threadId; return this.bootstrap(); }
-  private bootstrap() { return { threadId: this.threadId, model: "third-model", effort: "focused" }; }
+  private bootstrap() { return { threadId: this.threadId, cwd: this.cwd, model: "third-model", effort: "focused" }; }
   async startTurn(input: UserInput[]) {
     this.inputs = structuredClone(input); this.activeTurnId = "opaque-turn";
     this.turns.push({ id: this.activeTurnId, items: [{ id: "reply", type: "assistant_message", text: "Third provider answer", phase: "final" }], itemsView: "full", status: "in_progress", error: null, startedAt: 1, completedAt: null, durationMs: null });

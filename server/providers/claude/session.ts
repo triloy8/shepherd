@@ -90,7 +90,7 @@ export class ClaudeSession implements ProviderSession {
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
   private bootstrap(): ThreadBootstrapInfo {
     const thread = this.requireThread();
-    return { threadId: thread.id, model: thread.model, effort: thread.effort ?? null, approvalPolicy: this.approvalPolicy };
+    return { threadId: thread.id, cwd: thread.cwd, model: thread.model, effort: thread.effort ?? null, approvalPolicy: this.approvalPolicy };
   }
   async startThread(request: P.CreateThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();

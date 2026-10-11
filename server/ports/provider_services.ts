@@ -19,6 +19,8 @@ export interface ProviderServices {
   descriptors: import("../../shared/protocol/providers.js").ProviderDescriptor[];
   accounts: ReadonlyMap<string, ProviderAccount>;
   providers: readonly AgentProvider[];
+  /** Used when a request names no provider. Always one of `providers`. */
+  defaultProvider: AgentProvider;
   createSession: ProviderSessionFactory;
   hasStoredThreads: (provider: AgentProvider, request: ListStoredThreadsRequest) => boolean;
   directory: ThreadProviderDirectory;

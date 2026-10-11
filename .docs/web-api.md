@@ -79,7 +79,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true }`; availability, not downstream readiness |
 | GET | `/models?cursor=...&limit=100` | Provider catalog; optional `provider=<registered-id>` defaults to the first registration. Includes hidden model aliases and supports pagination. Conversation-scoped catalogs use the attached provider. |
-| GET | `/providers` | Registered provider IDs, display names, and capabilities |
+| GET | `/providers` | Registered provider IDs, display names, `isDefault`, and capabilities |
 | GET | `/limits?provider=<id>&refresh=true` | `ProviderAccountLimits` for any registered provider. Provider defaults to the first registration; refresh is optional. No conversation needed. |
 | POST | `/limits/reset` | `{ provider, idempotencyKey, creditId? }` → `{ outcome }`; requires the provider’s reset capability. Query parameters are rejected. |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |

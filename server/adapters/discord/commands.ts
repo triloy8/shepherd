@@ -391,7 +391,7 @@ export async function handleMessage(
 
   if (command === "!providers") {
     const providers = context.conversation.listProviders();
-    await replyCard(message, "Available agents", providers.map(provider => `- ${provider.displayName}: \`${provider.id}\``).join("\n") || "No agent providers are registered.");
+    await replyCard(message, "Available agents", providers.map(provider => `- ${provider.displayName}: \`${provider.id}\`${provider.isDefault ? " (default)" : ""}`).join("\n") || "No agent providers are registered.");
     return { handled: true, threadId: null, input: null };
   }
 

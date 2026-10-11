@@ -57,7 +57,7 @@ login, not a blanket approval for distributing a subscription login product.
 
 | Capability | Status | What Shepherd does / limit |
 | --- | --- | --- |
-| Select Claude for a new conversation | Implemented | Web Agent picker and core/API `provider: "claude"`. Codex remains the default. Discord has no Claude creation picker. |
+| Select Claude for a new conversation | Implemented | Web Agent picker, Discord `!newthread claude`, and core/API `provider: "claude"`. Codex is the default unless `SHEPHERD_DEFAULT_PROVIDER=claude`. |
 | Preserve provider identity | Implemented | Explicit persistent thread/provider binding; resume and fork retain the provider. No in-place provider migration. |
 | Start a Claude session | Implemented | SDK `query()` with a native session ID. Shepherd records its thread metadata before the native transcript is materialized. |
 | Continue across turns | Implemented | Keeps the query/input stream open; resumes the native session when a query must restart. |

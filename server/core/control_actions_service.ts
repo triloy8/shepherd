@@ -153,7 +153,7 @@ export async function executeControlAction(
   }
   if (request.type === "limits.read") {
     const threadId = request.surfaceId ? context.getSurfaceThreadId(request.surfaceId) : null;
-    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider(threadId) : undefined) ?? context.conversation.listProviders()[0]?.id;
+    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider(threadId) : undefined) ?? context.conversation.listProviders().find(entry => entry.isDefault)?.id;
     if (!provider) throw new Error("No agent provider is configured.");
     return { type: request.type, limits: await context.conversation.readAccount(provider, request.refresh) };
   }

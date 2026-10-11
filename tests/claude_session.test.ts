@@ -496,10 +496,10 @@ test("per-block assistant messages mark text before tools as commentary and the 
   await session.startTurn([toTextUserInput("run tests")]); await done(session);
   expect(events.filter(event => event.type === "turn.stream.delta").map(event => (event.payload as { itemId: string }).itemId)).toEqual(["plan", "answer", "answer:1"]);
   expect(events.filter(event => event.type === "turn.message.completed").map(event => event.payload)).toMatchObject([
-    { itemId: "plan", phase: "commentary" }, { itemId: "answer", phase: "final_answer" }, { itemId: "answer:1", phase: "final_answer" },
+    { itemId: "plan", phase: "interim" }, { itemId: "answer", phase: "final" }, { itemId: "answer:1", phase: "final" },
   ]);
   expect((await session.listThreadTurns(threadId, {})).data[0]!.items.map(item => [item.id, item.phase ?? null])).toEqual([
-    [expect.any(String), null], ["plan", "commentary"], ["tool-1", null], ["answer", "final_answer"], ["answer:1", "final_answer"],
+    [expect.any(String), null], ["plan", "interim"], ["tool-1", null], ["answer", "final"], ["answer:1", "final"],
   ]);
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(timelineGroups(chat).flatMap(group => group.finalIds)).toEqual(["answer", "answer:1"]);
@@ -619,7 +619,7 @@ test("snapshots written with earlier item names decode into the application hist
   expect(thread.turns[0]).toMatchObject({ status: "in_progress", items: [
     { type: "user_message", content: [{ type: "text", text: "hi" }, { type: "image", url: "data:image/png;base64,AA" }] },
     { type: "activity", output: "\"ok\"", activity: { kind: "command" } },
-    { type: "assistant_message", text: "hello" },
+    { type: "assistant_message", text: "hello", phase: "final" },
     { type: "other" },
   ] });
   expect(thread.tokenUsage).toEqual({

@@ -21,7 +21,7 @@ async page => {
   await page.route('**/api/conversations/*/turns?*',async route=>{
     const response=await route.fetch();const body=await response.json();
     const text=('A history paragraph with **bold** and $x^2+y^2=z^2$ and $\\frac{a+b}{c}$.\n\n').repeat(10);
-    body.data=Array.from({length:30},(_,i)=>({...body.data[0],id:'perf-turn-'+i,status:'completed',items:[{id:'perf-user-'+i,type:'user_message',content:[{type:'text',text:'Question '+i}]},{id:'perf-assistant-'+i,type:'assistant_message',phase:'final_answer',text}]}));
+    body.data=Array.from({length:30},(_,i)=>({...body.data[0],id:'perf-turn-'+i,status:'completed',items:[{id:'perf-user-'+i,type:'user_message',content:[{type:'text',text:'Question '+i}]},{id:'perf-assistant-'+i,type:'assistant_message',phase:'final',text}]}));
     body.nextCursor=null;await route.fulfill({response,json:body});
   });
   await page.reload();await page.getByRole('status',{name:'Connected',exact:true}).waitFor();

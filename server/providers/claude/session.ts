@@ -254,7 +254,7 @@ export class ClaudeSession implements ProviderSession {
         }
         if (message.type === "result") {
           // A result ends the response to the queued input, so its last text is an answer.
-          this.flushText("final_answer");
+          this.flushText("final");
           const last = requestBreakdown(this.requestUsage ?? message.usage);
           this.requestUsage = null;
           const rows = Object.values(message.modelUsage);
@@ -297,7 +297,7 @@ export class ClaudeSession implements ProviderSession {
   private finishTurn(status: "completed" | "interrupted" | "failed", error?: unknown): void {
     const turn = this.currentTurn;
     if (!turn) return;
-    this.flushText(status === "completed" ? "final_answer" : "commentary"); this.textBlocks.clear(); this.requestUsage = null;
+    this.flushText(status === "completed" ? "final" : "interim"); this.textBlocks.clear(); this.requestUsage = null;
     this.currentTurn = null; this.activeTurnId = null; this.denyPendingApprovals();
     turn.status = status;
     if (error && status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
@@ -318,7 +318,7 @@ export class ClaudeSession implements ProviderSession {
         if (block.text) this.pendingText.push({ itemId: textItemId(message.message.id, index), text: block.text, turn });
       }
       if (block.type === "tool_use") {
-        this.flushText("commentary");
+        this.flushText("interim");
         const kind = block.name === "Bash" ? "command" : ["Edit", "Write"].includes(block.name) ? "file_change" : "mcp_tool";
         turn.items.push({ id: block.id, type: "activity", activity: { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" } });
         this.publish("turn.activity", { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" });
@@ -326,7 +326,7 @@ export class ClaudeSession implements ProviderSession {
     }
     this.persistSoon();
   }
-  private flushText(phase: "commentary" | "final_answer"): void {
+  private flushText(phase: "interim" | "final"): void {
     for (const pending of this.pendingText.splice(0)) {
       pending.turn.items.push({ id: pending.itemId, type: "assistant_message", text: pending.text, phase });
       if (!this.stopped) this.publish("turn.message.completed", { itemId: pending.itemId, turnId: pending.turn.id, phase, text: pending.text });

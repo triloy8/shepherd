@@ -28,6 +28,8 @@ with optional provider IDs on `!newthread` and `!limits`; omitted IDs retain exi
 
 Both adapters emit the existing application `BridgeEvent` stream. Assistant deltas
 carry `kind: "assistant_text"`; core and UI never infer their meaning from an SDK method.
+Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
+Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
 Native notifications stay private. User-facing failures, activities, completed messages,
 images, token usage, and background task counts have shared representations. Token counts
 that a provider does not report (Codex cache writes, Claude per-request reasoning) are `null`

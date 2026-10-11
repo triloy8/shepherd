@@ -1,5 +1,5 @@
 import type { HistoryContentPart, HistoryItem, HistoryTurn, ThreadTokenUsage, TokenUsageBreakdown, TurnStatus } from "../../../shared/protocol/requests.js";
-import type { TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
+import type { MessagePhase, TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const optionalString = (value: unknown): string | null => typeof value === "string" ? value : null;
@@ -21,7 +21,10 @@ function contentPart(raw: unknown): HistoryContentPart {
   return { type: "attachment", name: optionalString(part.name), path: optionalString(part.path) };
 }
 
-function phase(value: unknown) { return value === "commentary" || value === "final_answer" ? value : null; }
+function phase(value: unknown): MessagePhase | null {
+  if (value === "interim" || value === "commentary") return "interim";
+  return value === "final" || value === "final_answer" ? "final" : null;
+}
 
 /** Decode a stored Claude history record into the application contract. */
 export function historyItem(value: unknown, turnId: string): HistoryItem {

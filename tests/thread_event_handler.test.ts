@@ -29,7 +29,7 @@ function finalDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
     kind: "assistant_text",
     textDelta,
     itemId: `final-${turnId}`,
-    phase: "final_answer",
+    phase: "final",
     turnId,
   });
 }
@@ -39,7 +39,7 @@ function commentaryDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
     kind: "assistant_text",
     textDelta,
     itemId: `comment-${turnId}`,
-    phase: "commentary",
+    phase: "interim",
     turnId,
   });
 }
@@ -283,7 +283,7 @@ describe("Discord thread event handler", () => {
       "chan-1",
       makeEvent("turn.message.completed", {
         itemId: "comment-turn-1",
-        phase: "commentary",
+        phase: "interim",
         text: "I found the issue.",
         turnId: "turn-1",
       }),
@@ -341,7 +341,7 @@ describe("Discord thread event handler", () => {
       "chan-1",
       makeEvent("turn.message.completed", {
         itemId: "comment-turn-1",
-        phase: "commentary",
+        phase: "interim",
         text: "The first check passed.",
         turnId: "turn-1",
       }),

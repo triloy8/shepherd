@@ -10,7 +10,7 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
   const implicitFinals = new Map<string, Set<string>>();
   for (const message of chat.messages) {
     if (message.role !== "assistant" || message.activity || message.image) continue;
-    if (message.phase === "final_answer") {
+    if (message.phase === "final") {
       const ids = explicitFinals.get(message.turnId) ?? new Set<string>();
       ids.add(message.id); explicitFinals.set(message.turnId, ids);
     } else if (!message.phase && !explicitFinals.has(message.turnId)) {

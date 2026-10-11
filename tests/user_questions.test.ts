@@ -159,7 +159,7 @@ test("waiting questions replace working and writing indicators in the timeline",
   const { emptyChat } = await import("../ui/src/chat-state");
   const chat = emptyChat();
   chat.activeTurnId = "turn-1";
-  chat.messages = [{ id: "partial", turnId: "turn-1", role: "assistant", phase: "commentary", text: "I have a question", complete: false }];
+  chat.messages = [{ id: "partial", turnId: "turn-1", role: "assistant", phase: "interim", text: "I have a question", complete: false }];
   const html = renderToStaticMarkup(createElement(Timeline, { chat, waitingForAnswer: true }));
   expect(html).toContain("Waiting for your answer");
   expect(html).not.toContain("Writing…");

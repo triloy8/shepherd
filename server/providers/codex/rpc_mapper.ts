@@ -1,4 +1,5 @@
 export { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
+import { codexPhase } from "./history.js";
 import type {
   MessagePhase,
 } from "../../../shared/protocol/events.js";
@@ -92,11 +93,9 @@ export function extractCompletedAgentMessage(params: unknown): CompletedAgentMes
   const itemId = asString(item.id);
   if (!itemId) return null;
 
-  const rawPhase = asString(item.phase);
-  const phase = rawPhase === "commentary" || rawPhase === "final_answer" ? rawPhase : null;
   return {
     itemId,
-    phase,
+    phase: codexPhase(item.phase),
     text: typeof item.text === "string" ? item.text : "",
     turnId: extractTurnId(params),
   };

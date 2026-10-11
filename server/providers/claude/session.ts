@@ -1,6 +1,6 @@
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { approvalChoices } from "../approval_choices.js";
-import { historyItem, historyTurn } from "../codex/history.js";
+import { historyContent, historyItem, historyTurn } from "./history.js";
 import { claudeDefaults } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
@@ -106,7 +106,7 @@ export class ClaudeSession implements ProviderSession {
     await this.initialize(); this.validateOverrides(request);
     this.thread = this.store.read(id);
     // A process crash leaves the last turn incomplete; retain it as interrupted.
-    for (const turn of this.thread.turns) if (turn.status === "inProgress") turn.status = "interrupted";
+    for (const turn of this.thread.turns) if (turn.status === "in_progress") turn.status = "interrupted";
     if (request.cwd) this.thread.cwd = request.cwd;
     if (request.model) this.thread.model = request.model;
     if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
@@ -122,7 +122,7 @@ export class ClaudeSession implements ProviderSession {
     const source = this.store.read(id);
     const policy = (request.approvalPolicy === "provider_default" ? undefined : request.approvalPolicy) ?? source.approvalMode ?? this.approvalPolicy;
     assertApprovalSupport("Claude", this.capabilities, policy);
-    if (source.turns.some(turn => turn.status === "inProgress")) throw new Error("Cannot fork an active Claude thread.");
+    if (source.turns.some(turn => turn.status === "in_progress")) throw new Error("Cannot fork an active Claude thread.");
     // The transcript stays in the project directory where it began. A thread's cwd can
     // later move to another workspace, so let the SDK search every project directory.
     const nativeId = source.materialized ? (await this.sdk.forkSession(source.nativeId)).sessionId : randomUUID();
@@ -173,7 +173,7 @@ export class ClaudeSession implements ProviderSession {
     const queue = this.input ?? new InputQueue<SDKUserMessage>();
     const running = existing ?? this.openQuery(queue, options);
     thread.cwd = options.cwd!; thread.model = options.model!; thread.effort = options.effort;
-    const turn: P.HistoryTurn = { id: randomUUID(), status: "inProgress", itemsView: "full", items: [{ id: message.uuid!, type: "userMessage", content: input }], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
+    const turn: P.HistoryTurn = { id: randomUUID(), status: "in_progress", itemsView: "full", items: [{ id: message.uuid!, type: "user_message", content: historyContent(input) }], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
     thread.turns.push(turn); thread.preview ||= input.filter((part) => part.type === "text").map((part) => part.text).join("\n").slice(0, 200);
     this.input = queue; this.running = running; this.activeTurnId = turn.id; this.currentTurn = turn; this.interrupted = false; this.steeredMessages = 0;
     try { this.persist(); }
@@ -243,8 +243,8 @@ export class ClaudeSession implements ProviderSession {
         if (message.type === "user" && !message.parent_tool_use_id && turn && Array.isArray(message.message.content)) {
           for (const block of message.message.content) if (block.type === "tool_result") {
             const item = turn.items.find((item) => item.id === block.tool_use_id);
-            if (item?.activity) {
-              item.text = JSON.stringify(storedToolResult(block.content));
+            if (item?.type === "activity") {
+              item.output = JSON.stringify(storedToolResult(block.content));
               item.activity.status = block.is_error ? "failed" : "completed";
               this.publish("turn.activity", { ...item.activity, detail: null });
             }
@@ -288,7 +288,7 @@ export class ClaudeSession implements ProviderSession {
   }
   private beginWakeTurn(): void {
     if (this.currentTurn) return;
-    this.currentTurn = { id: randomUUID(), status: "inProgress", itemsView: "full", items: [], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
+    this.currentTurn = { id: randomUUID(), status: "in_progress", itemsView: "full", items: [], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
     this.requireThread().turns.push(this.currentTurn); this.activeTurnId = this.currentTurn.id; this.interrupted = false;
     this.persist(); this.publish("turn.started", { turnId: this.currentTurn.id });
   }
@@ -326,7 +326,7 @@ export class ClaudeSession implements ProviderSession {
   }
   private flushText(phase: "commentary" | "final_answer"): void {
     for (const pending of this.pendingText.splice(0)) {
-      pending.turn.items.push({ id: pending.itemId, type: "agentMessage", text: pending.text, phase });
+      pending.turn.items.push({ id: pending.itemId, type: "assistant_message", text: pending.text, phase });
       if (!this.stopped) this.publish("turn.message.completed", { itemId: pending.itemId, turnId: pending.turn.id, phase, text: pending.text });
     }
   }
@@ -380,7 +380,7 @@ export class ClaudeSession implements ProviderSession {
     if (!this.input || !this.activeTurnId || (turnId && turnId !== this.activeTurnId)) throw new Error("No matching active Claude turn.");
     const message = this.userMessage(input);
     this.input.push(message); this.steeredMessages++;
-    this.requireThread().turns.at(-1)!.items.push({ id: message.uuid!, type: "userMessage", content: input });
+    this.requireThread().turns.at(-1)!.items.push({ id: message.uuid!, type: "user_message", content: historyContent(input) });
     this.persist(); return this.activeTurnId;
   }
   async interruptTurn(turnId?: string): Promise<void> {
@@ -410,7 +410,7 @@ export class ClaudeSession implements ProviderSession {
   async listThreadTurns(id: string, request: P.ListThreadTurnsRequest) {
     const thread = this.thread?.id === id ? this.thread : this.store.read(id);
     const turns = [...thread.turns]; if (request.sortDirection !== "asc") turns.reverse();
-    return paginate(turns.map((turn) => ({ ...turn, itemsView: request.itemsView ?? "full", items: request.itemsView === "notLoaded" ? [] : turn.items.map(item => historyItem(item, turn.id)) })), request);
+    return paginate(turns.map((turn) => ({ ...turn, itemsView: request.itemsView ?? "full", items: request.itemsView === "none" ? [] : turn.items.map(item => historyItem(item, turn.id)) })), request);
   }
   async listThreadItems(id: string, request: P.ListThreadItemsRequest) {
     const thread = this.thread?.id === id ? this.thread : this.store.read(id);

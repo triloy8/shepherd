@@ -83,7 +83,7 @@ test("native ownership lookup finds indexed, unindexed and archived Codex record
 
 test("application request validators reject SDK fields across create, resume and fork", () => {
   for (const validate of [validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest]) {
-    for (const field of ["config", "personality", "modelProvider", "serviceName"]) expect(() => validate({ [field]: {} })).toThrow(`Unsupported request field: ${field}`);
+    for (const field of ["config", "personality", "modelProvider", "serviceName", "baseInstructions", "developerInstructions"]) expect(() => validate({ [field]: {} })).toThrow(`Unsupported request field: ${field}`);
     expect(validate({ effort: "high", sandbox: "workspace_write", approvalPolicy: "review_sensitive" })).toMatchObject({ effort: "high", sandbox: "workspace_write", approvalPolicy: "review_sensitive" });
   }
 });

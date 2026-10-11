@@ -96,7 +96,7 @@ export class ClaudeSession implements ProviderSession {
     this.validateOverrides(request);
     const nativeId = randomUUID();
     const defaults = claudeDefaults();
-    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeThread["effort"] ?? defaults.effort, name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, instructions: [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n"), turns: [] };
+    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeThread["effort"] ?? defaults.effort, name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, instructions: request.instructions ?? "", turns: [] };
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     this.persist();
     this.publish("thread.started", { approvalPolicy: this.approvalPolicy });
@@ -110,7 +110,7 @@ export class ClaudeSession implements ProviderSession {
     if (request.cwd) this.thread.cwd = request.cwd;
     if (request.model) this.thread.model = request.model;
     if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
-    if (request.baseInstructions !== undefined || request.developerInstructions !== undefined) this.thread.instructions = [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n");
+    if (request.instructions !== undefined) this.thread.instructions = request.instructions;
     this.approvalPolicy = (request.approvalPolicy === "provider_default" ? undefined : request.approvalPolicy) ?? this.thread.approvalMode ?? this.approvalPolicy;
     assertApprovalSupport("Claude", this.capabilities, this.approvalPolicy);
     this.persist();
@@ -130,7 +130,7 @@ export class ClaudeSession implements ProviderSession {
     if (request.cwd) this.thread.cwd = request.cwd;
     if (request.model) this.thread.model = request.model;
     if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
-    if (request.baseInstructions !== undefined || request.developerInstructions !== undefined) this.thread.instructions = [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n");
+    if (request.instructions !== undefined) this.thread.instructions = request.instructions;
     this.approvalPolicy = policy;
     this.persist(); return this.bootstrap();
   }

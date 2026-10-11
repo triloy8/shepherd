@@ -85,11 +85,10 @@ function assertFields(value: Record<string, unknown>, allowed: readonly string[]
 }
 
 function parseCommonThreadOverrides(value: Record<string, unknown>) {
-  assertFields(value, ["provider", "approvalPolicy", "baseInstructions", "developerInstructions", "cwd", "sandbox", "model", "effort", "ephemeral"]);
+  assertFields(value, ["provider", "approvalPolicy", "instructions", "cwd", "sandbox", "model", "effort", "ephemeral"]);
   return {
     provider: parseOptionalString(value.provider, "provider"),
-    baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
-    developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
+    instructions: parseOptionalString(value.instructions, "instructions"),
     sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
     model: parseOptionalString(value.model, "model"),
     effort: parseOptionalString(value.effort, "effort"),

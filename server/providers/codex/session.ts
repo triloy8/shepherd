@@ -315,8 +315,7 @@ export class CodexSession implements ProviderSession {
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
       ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
@@ -336,8 +335,7 @@ export class CodexSession implements ProviderSession {
     const result = await this.sendRequest("thread/resume", {
       threadId,
       ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
@@ -355,8 +353,7 @@ export class CodexSession implements ProviderSession {
     const result = await this.sendRequest("thread/fork", {
       threadId,
       ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),

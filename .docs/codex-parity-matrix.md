@@ -41,7 +41,7 @@ Legacy note:
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
 | `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools |
-| `thread/start` | Partial | Core | Adapter encodes shared model, effort, instructions, workspace, approval mode, sandbox, ephemeral lifetime, and registered dynamic tools. Raw SDK config/backend/style/analytics selectors are private native settings; no public pass-through. Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
+| `thread/start` | Partial | Core | Adapter encodes shared model, effort, instructions (as `developerInstructions`; `baseInstructions` is not exposed), workspace, approval mode, sandbox, ephemeral lifetime, and registered dynamic tools. Raw SDK config/backend/style/analytics selectors are private native settings; no public pass-through. Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
 | `thread/resume` | Partial | Core | Shared typed overrides only; effort maps to native configuration privately. Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns` |
 | `thread/fork` | Partial | Core | Shared typed overrides only; native fields are not exposed wholesale. Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns` |
 | `thread/archive` | Implemented | Core | |

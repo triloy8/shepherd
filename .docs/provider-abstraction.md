@@ -107,7 +107,9 @@ for the previous trust-based behavior. Existing `bypass`/`unrestricted` installa
 no further environment edits.
 
 Shared thread requests offer model, effort, instructions, workspace, sandbox, approval
-mode, and optional ephemeral lifetime. Raw SDK `config`, backend overrides, deprecated
+mode, and optional ephemeral lifetime. `instructions` are added to the provider's default
+instructions and never replace them; Codex receives them as developer instructions and
+Claude appends them to its preset system prompt. Raw SDK `config`, backend overrides, deprecated
 personality selectors, analytics service names, and native database/source filters are
 not public fields. Their native configuration remains provider-owned. Unknown request
 fields are rejected, not ignored. Model backend configuration belongs in the provider's

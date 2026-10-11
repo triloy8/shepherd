@@ -58,6 +58,39 @@ test("effort resolves the pending model across catalog pages", async () => {
   await expect(manager.setThreadEffort("thread-1", "high")).rejects.toMatchObject({ failure: { code: "unsupported_effort", available: ["medium"] } });
 });
 
+test("a model switch rejects incompatible pending effort before execution and keeps it retryable", async () => {
+  const { manager, starts, model } = await setup();
+  manager.listModels = async () => ({ data: [model, {
+    ...model, id: "other", defaultEffort: "medium", supportedEfforts: [{ value: "medium", description: "" }],
+  }], nextCursor: null });
+  await manager.setThreadEffort("thread-1", "high");
+  manager.setThreadModel("thread-1", "other");
+  await expect(manager.submitTurn("thread-1", { input: [] })).rejects.toMatchObject({
+    failure: { code: "unsupported_effort", model: "other", requested: "high", available: ["medium"] },
+  });
+  expect(starts).toHaveLength(0);
+  expect(manager.getThreadModel("thread-1").pendingModel).toBe("other");
+  expect((await manager.getThreadEffort("thread-1")).pendingEffort).toBe("high");
+  await manager.setThreadEffort("thread-1", "default");
+  await manager.submitTurn("thread-1", { input: [] });
+  expect(starts[0]?.[2]).toBe("other");
+  expect(starts[0]?.[4]).toBe("medium");
+});
+
+test("direct turn model and effort overrides are validated against the requested model", async () => {
+  const { manager, starts, model } = await setup();
+  manager.listModels = async request => request.cursor
+    ? { data: [{ ...model, id: "other", supportedEfforts: [{ value: "medium", description: "" }] }], nextCursor: null }
+    : { data: [model], nextCursor: "next" };
+  await expect(manager.submitTurn("thread-1", { input: [], model: "other", effort: "high" })).rejects.toMatchObject({
+    failure: { code: "unsupported_effort", model: "other" },
+  });
+  expect(starts).toHaveLength(0);
+  await manager.submitTurn("thread-1", { input: [], model: "other", effort: "medium" });
+  expect(starts[0]?.[2]).toBe("other");
+  expect(starts[0]?.[4]).toBe("medium");
+});
+
 test("Codex turn/start forwards effort and resume exposes the effective effort", async () => {
   const session = new CodexSession("review_sensitive");
   const requests: Array<{ method: string; params: any }> = [];

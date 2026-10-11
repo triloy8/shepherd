@@ -296,9 +296,9 @@ export class SessionManager {
     };
   }
 
-  async getThreadEffort(threadId: string): Promise<ThreadEffortState> {
+  async getThreadEffort(threadId: string, requestedModel?: string): Promise<ThreadEffortState> {
     const modelState = this.getThreadModel(threadId);
-    const model = modelState.pendingModel ?? modelState.currentModel;
+    const model = requestedModel ?? modelState.pendingModel ?? modelState.currentModel;
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
@@ -382,6 +382,12 @@ export class SessionManager {
     const cwd = await this.resolveThreadCwd(threadId);
     const effortState = this.effortStateByThread.get(threadId);
     const effort = request.effort ?? effortState?.pending ?? undefined;
+    if (effort) {
+      const state = await this.getThreadEffort(threadId, model);
+      if (!state.supportedEfforts.some(option => option.value === effort)) {
+        throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested: effort, available: state.supportedEfforts.map(option => option.value) });
+      }
+    }
     const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
     if (effort) {
       const latest = this.effortStateByThread.get(threadId);

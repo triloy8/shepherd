@@ -6,6 +6,8 @@ import { timelineGroups } from "../ui/src/timeline";
 import { Timeline } from "../ui/src/components/Timeline";
 import type { HistoryTurn } from "../shared/protocol/requests";
 import type { BridgeEvent } from "../shared/protocol/events";
+import { presentHistoryItem } from "../server/adapters/web/history";
+import { WebImages } from "../server/adapters/web/images";
 
 const turn = (status: HistoryTurn["status"] = "completed"): HistoryTurn => ({
   id: "turn", status, itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: 3200,
@@ -15,6 +17,29 @@ const turn = (status: HistoryTurn["status"] = "completed"): HistoryTurn => ({
 });
 const event = (id: string, type: BridgeEvent["type"], payload: unknown): BridgeEvent => ({ id, type, payload, threadId: "thread", sessionId: "session", ts: "2026-01-01T00:00:00Z" });
 const render = (state: ReturnType<typeof emptyChat>) => renderToStaticMarkup(createElement(Timeline, { chat: state }));
+
+test("plans and reasoning survive web presentation and render as progress rather than final answers", () => {
+  const source = turn("in_progress");
+  source.items = [
+    { id: "plan", type: "plan", text: "Check the fixtures, then update the decoder." },
+    { id: "reasoning", type: "reasoning", summary: ["The fixture is incomplete.", "Preserve its missing fields."] },
+    { id: "answer", type: "assistant_message", phase: "final", text: "Updated the decoder." },
+  ];
+  const images = new WebImages("conversation");
+  const presented = { ...source, items: source.items.map(item => presentHistoryItem(item, source.id, images)) };
+  expect(presented.items.slice(0, 2)).toEqual(source.items.slice(0, 2));
+  const state = mergeHistory(emptyChat(), [presented]);
+  expect(state.messages[0]?.activity).toMatchObject({ label: "Plan", detail: source.items[0].text });
+  expect(state.messages[1]?.activity).toMatchObject({ label: "Reasoning summary", detail: "The fixture is incomplete.\n\nPreserve its missing fields." });
+  const html = render(state);
+  expect(html).toContain("Check the fixtures, then update the decoder.");
+  expect(html).toContain("The fixture is incomplete.");
+  expect(html).toContain("Preserve its missing fields.");
+  const completed = mergeHistory(emptyChat(), [{ ...presented, status: "completed" }]);
+  expect(timelineGroups(completed)[0]?.finalIds).toEqual(["answer"]);
+  const progressOnly = mergeHistory(emptyChat(), [{ ...presented, status: "completed", items: presented.items.slice(0, 2) }]);
+  expect(timelineGroups(progressOnly)[0]?.finalIds).toEqual([]);
+});
 
 test("completed history folds commentary with only the final answer copyable", () => {
   const state = mergeHistory(emptyChat(), [turn()]);

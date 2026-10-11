@@ -31,3 +31,9 @@ test("catalog avoids duplicate IDs and does not advertise an unsupported default
   const limited = claudeModelCatalog([{ ...models[0]!, supportedEffortLevels: ["high"] }], claudeDefaults({}));
   expect(limited[0]!.defaultEffort).toBeNull();
 });
+
+test("Claude tool calls map to shared activity kinds rather than defaulting to MCP", async () => {
+  const { claudeActivityKind } = await import("../server/providers/claude/activity");
+  expect(["Bash", "Edit", "NotebookEdit", "WebFetch", "Agent", "mcp__shepherd__signals__callback", "mcp__github__search", "Read", "TodoWrite"].map(claudeActivityKind))
+    .toEqual(["command", "file_change", "file_change", "web_search", "collaboration", "dynamic_tool", "mcp_tool", "other", "other"]);
+});

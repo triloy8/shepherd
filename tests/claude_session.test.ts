@@ -647,7 +647,7 @@ test("Claude applies opaque permission options through the shared session bounda
   const pending = manager.listApprovals(threadId)[0]!;
   expect(pending.kind).toBe("permission"); expect(pending.detail).toContain("/project/readme.md");
   expect(pending.choices.map(choice => choice.intent)).toEqual(["allow", "deny"]);
-  expect(pending.choices.some(choice => ["accept", "decline"].includes(choice.value))).toBe(false);
+  expect(pending.choices.some(choice => ["allow", "deny"].includes(choice.value))).toBe(false);
   await manager.applyApprovalDecision(threadId, pending.approvalId, { decision: pending.choices.find(choice => choice.intent === "allow")!.value });
   await done(session);
   expect(decisions).toEqual([{ behavior: "allow", updatedInput: { file_path: "/project/readme.md" } }]);

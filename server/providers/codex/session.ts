@@ -2,7 +2,7 @@ import { codexApproval, applicationApproval, codexSandbox, type NativeApprovalPo
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { codexInput } from "./input.js";
 import type { NativeInput } from "./input.js";
-import { approvalChoices } from "../approval_choices.js";
+import { approvalChoices, type NativeApprovalChoice } from "../approval_choices.js";
 import { codexItemsView, codexPhase, historyItem, historyTurn, type NativeItemsView } from "./history.js";
 import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
 import { decodeResetOutcome } from "./account_usage.js";
@@ -728,7 +728,7 @@ export class CodexSession implements ProviderSession {
         if (userInput.threadId !== this.threadId || userInput.turnId !== this.activeTurnId) throw new Error("User question targets a stale turn or the wrong thread.");
         const approvalId = randomUUID();
         this.serverRequestsByApprovalId.set(approvalId, request);
-        const offered = approvalChoices([{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }]);
+        const offered = approvalChoices([{ value: "submit", label: "Submit answers", intent: "answer" }, { value: "cancel", label: "Skip questions", intent: "cancel" }]);
         this.approvalReplies.set(approvalId, offered.replies);
         this.publish("approval.requested", userInput.threadId, {
           approvalId, kind: "question", prompt: userInput.questions.map(q => q.question).join("\n\n"),
@@ -1008,8 +1008,8 @@ function approvalDetail(value: unknown): string | null {
   return lines.filter(Boolean).join("\n") || null;
 }
 
-function commandApprovalChoices(method: string, value: unknown): Array<{ value: unknown; label: string; intent?: import("../../../shared/protocol/approvals.js").ApprovalChoice["intent"] }> {
-  const choices: Array<{ value: unknown; label: string; intent?: import("../../../shared/protocol/approvals.js").ApprovalChoice["intent"] }> = mapApprovalChoices(method);
+function commandApprovalChoices(method: string, value: unknown): NativeApprovalChoice[] {
+  const choices: NativeApprovalChoice[] = mapApprovalChoices(method);
   const params = asRecord(value);
   if (method === "item/commandExecution/requestApproval") {
     const exec = params.proposedExecpolicyAmendment;

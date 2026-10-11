@@ -101,24 +101,24 @@ export function extractCompletedAgentMessage(params: unknown): CompletedAgentMes
   };
 }
 
-export function mapApprovalChoices(method: string): Array<{ value: string; label: string }> {
+export function mapApprovalChoices(method: string): Array<{ value: string; label: string; intent: "allow" | "deny" | "cancel" }> {
   const normalized = method.toLowerCase();
 
   if (normalized === "item/commandexecution/requestapproval" || normalized === "item/filechange/requestapproval") {
     return [
-      { value: "accept", label: "Allow Once" },
-      { value: "acceptForSession", label: "Allow Session" },
-      { value: "decline", label: "Deny" },
-      { value: "cancel", label: "Cancel" },
+      { value: "accept", label: "Allow Once", intent: "allow" },
+      { value: "acceptForSession", label: "Allow Session", intent: "allow" },
+      { value: "decline", label: "Deny", intent: "deny" },
+      { value: "cancel", label: "Cancel", intent: "cancel" },
     ];
   }
 
   if (normalized === "execcommandapproval" || normalized === "applypatchapproval") {
     return [
-      { value: "approved", label: "Approve Once" },
-      { value: "approved_for_session", label: "Approve Session" },
-      { value: "denied", label: "Deny" },
-      { value: "abort", label: "Abort" },
+      { value: "approved", label: "Approve Once", intent: "allow" },
+      { value: "approved_for_session", label: "Approve Session", intent: "allow" },
+      { value: "denied", label: "Deny", intent: "deny" },
+      { value: "abort", label: "Abort", intent: "cancel" },
     ];
   }
 

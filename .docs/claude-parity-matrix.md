@@ -83,7 +83,7 @@ login, not a blanket approval for distributing a subscription login product.
 | --- | --- | --- |
 | Text and image-only prompts | Implemented | Converts shared input into SDK user messages; text is optional for image prompts. |
 | Image input | Partial | Inline PNG/JPEG/GIF/WebP data URLs and HTTP(S) image URLs. Surface image limits still apply; local file references and provider file IDs are not supported Claude inputs. |
-| Audio, generic files, skill/mention input parts | Unsupported | Rejected by Claude input translation. A native tool reading a file is a separate operation. |
+| Audio, local image/audio files, skill input parts | Unsupported | Rejected by Claude input translation. A native tool reading a file is a separate operation. |
 | Follow-up / steering | Implemented | Pushes another user message into the same query stream; validates the active turn ID. |
 | Interrupt | Partial | Calls SDK `interrupt()`. If queued steering would survive, closes the query because the public SDK does not expose queued-message cancellation. |
 | Root assistant text streaming | Implemented | Maps text deltas into shared assistant-text events. |

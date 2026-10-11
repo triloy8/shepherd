@@ -11,7 +11,6 @@ export interface ProviderCapabilities {
   sandboxModes: readonly SandboxMode[];
   approvalModes: readonly ApprovalPolicy[];
   inputKinds: readonly UserInput["type"][];
-  textAnnotations: boolean;
   imageDetail: boolean;
   ephemeralThreads: boolean;
 }

@@ -147,7 +147,7 @@ function makeContext(overrides?: {
         };
       },
       getThreadProvider: () => "fixture",
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } }],
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, resets: false } }],
       async readAccount() { return account("fixture", "pro"); },
       async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {

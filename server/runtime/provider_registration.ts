@@ -30,7 +30,7 @@ export function assembleProviderServices(registrations: readonly ProviderRegistr
       const session = registration.create(policy, tools, provider);
       const expected = registration.capabilities;
       const actual = session.capabilities;
-      const matches = (["questions", "skills", "compact", "revert", "fork", "sandboxModes", "approvalModes", "inputKinds", "textAnnotations", "imageDetail", "ephemeralThreads"] satisfies Array<keyof ProviderCapabilities>).every(key => {
+      const matches = (["questions", "skills", "compact", "revert", "fork", "sandboxModes", "approvalModes", "inputKinds", "imageDetail", "ephemeralThreads"] satisfies Array<keyof ProviderCapabilities>).every(key => {
         const left = expected[key], right = actual[key];
         return Array.isArray(left) && Array.isArray(right)
           ? JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())

@@ -34,8 +34,10 @@ images, token usage, and background task counts have shared representations.
 Adapters decode stored history before returning it. History records contain application
 message content, activities, and image artifacts; web/Discord do not decode native tool
 records. Native tool arguments, transport envelopes, and arbitrary thread properties do
-not cross the boundary. Codex input annotations are encoded into its wire format inside
-the Codex adapter. Claude converts the same application inputs into SDK content blocks.
+not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
+`audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex
+text elements and connector mentions are not part of the shared contract. Claude converts
+the same application inputs into SDK content blocks.
 
 The chat layout, composer, folded work, Markdown, image presentation, scrolling, and
 recent-first turn pagination retain the restored main UI behavior. New-conversation
@@ -111,11 +113,11 @@ not public fields. Their native configuration remains provider-owned. Unknown re
 fields are rejected, not ignored. Model backend configuration belongs in the provider's
 native settings. List sorting uses creation or update time across every provider.
 
-Descriptors advertise approval modes, sandbox modes, input kinds, text annotations,
+Descriptors advertise approval modes, sandbox modes, input kinds,
 image-detail controls, and ephemeral-thread support, alongside operation capabilities.
 Core checks these before bootstrap, submit, or steer, and adapters enforce them for direct
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
-local-file, audio, skill-reference, annotation, or image-detail support. Model/effort
+local-file, audio, skill-reference, or image-detail support. Model/effort
 options continue to come from each provider's catalog. Thread state includes its provider
 and capabilities, so surfaces do not guess support from identity. Registration rejects a
 session whose capabilities differ from its descriptor or whose advertised operations

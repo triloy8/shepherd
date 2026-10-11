@@ -317,29 +317,51 @@ export interface ThreadEffortState {
   supportedEfforts: Array<{ reasoningEffort: string; description: string }>;
 }
 
+/** How much of each turn's item list a history page includes. */
+export type HistoryItemsView = "none" | "summary" | "full";
+export type TurnStatus = "completed" | "interrupted" | "failed" | "in_progress";
+
 export interface ListThreadTurnsRequest {
   cursor?: string;
   limit?: number;
   sortDirection?: SortDirection;
-  itemsView?: "notLoaded" | "summary" | "full";
+  itemsView?: HistoryItemsView;
 }
 
-export interface HistoryItem {
-  id: string;
-  type: string;
-  text?: string;
-  phase?: import("./events.js").MessagePhase;
-  content?: Array<{ type: string; text?: string; url?: string; path?: string; name?: string }>;
-  summary?: string[];
-  activity?: import("./events.js").TurnActivityEvent["payload"];
-  image?: { itemId: string; turnId: string | null; path: string; revisedPrompt?: string | null; kind: "generated" | "viewed" };
+/** User message content as recorded in history. Image URLs are absent when withheld or unavailable. */
+export type HistoryContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; url?: string }
+  | { type: "image_file"; path: string }
+  | { type: "attachment"; name: string | null; path: string | null };
+
+export interface HistoryImage {
+  itemId: string;
+  turnId: string | null;
+  path: string;
+  revisedPrompt?: string | null;
+  kind: "generated" | "viewed";
 }
+
+type HistoryActivity = import("./events.js").TurnActivityEvent["payload"];
+
+/** Application history records. Adapters decode native transcripts into these before they leave the provider. */
+export type HistoryItem =
+  | { id: string; type: "user_message"; content: HistoryContentPart[] }
+  | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }
+  | { id: string; type: "plan"; text: string }
+  | { id: string; type: "reasoning"; summary: string[] }
+  | { id: string; type: "activity"; activity: HistoryActivity; output?: string }
+  | { id: string; type: "image"; image: HistoryImage; activity?: HistoryActivity }
+  | { id: string; type: "other" };
+
+export type HistoryItemType = HistoryItem["type"];
 
 export interface HistoryTurn {
   id: string;
   items: HistoryItem[];
-  itemsView: "notLoaded" | "summary" | "full";
-  status: "completed" | "interrupted" | "failed" | "inProgress";
+  itemsView: HistoryItemsView;
+  status: TurnStatus;
   error: { message: string } | null;
   startedAt: number | null;
   completedAt: number | null;

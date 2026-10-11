@@ -7,7 +7,7 @@ async page => {
   await page.route('**/api/conversations/*/turns?*', async route => {
     const response = await route.fetch();
     const history = await response.json();
-    history.data[0].items = [{ id: 'markdown-checks', type: 'agentMessage', phase: 'final_answer', text: markdown }];
+    history.data[0].items = [{ id: 'markdown-checks', type: 'assistant_message', phase: 'final_answer', text: markdown }];
     await route.fulfill({ response, json: history });
   });
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();

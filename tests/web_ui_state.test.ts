@@ -4,7 +4,7 @@ import { readEvents, streamConversation } from "../ui/src/api";
 import type { BridgeEvent } from "../shared/protocol/events";
 import type { HistoryTurn } from "../shared/protocol/requests";
 const event = (id: string, type: BridgeEvent["type"], payload: unknown): BridgeEvent => ({ id, type, payload, threadId: "thread", sessionId: "session", ts: "2026-01-01T00:00:00Z" });
-const turn = (id: string, text: string): HistoryTurn => ({ id, items: [{ id: `user-${id}`, type: "userMessage", content: [{ type: "text", text }] }], status: "completed", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null });
+const turn = (id: string, text: string): HistoryTurn => ({ id, items: [{ id: `user-${id}`, type: "user_message", content: [{ type: "text", text }] }], status: "completed", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null });
 
 test("stream replay is deduplicated and canonical completion replaces partial text", () => {
   const delta = event("delta", "turn.stream.delta", { kind: "assistant_text", itemId: "item", turnId: "turn", textDelta: "Hello" });
@@ -97,7 +97,7 @@ test("an old chat's delayed stream response cannot mark the new chat connected",
 test("history ahead of queued stream deltas is not duplicated", () => {
   const delta = (id: string, textDelta: string) => event(id, "turn.stream.delta", { kind: "assistant_text", itemId: "agent", turnId: "turn", textDelta });
   let state = reduceBridge(emptyChat(), delta("1", "Hello"));
-  state = mergeHistory(state, [{ ...turn("turn", "prompt"), status: "inProgress", items: [{ id: "agent", type: "agentMessage", text: "Hello world" }] }]);
+  state = mergeHistory(state, [{ ...turn("turn", "prompt"), status: "in_progress", items: [{ id: "agent", type: "assistant_message", text: "Hello world" }] }]);
   expect(state.messages[0]!.text).toBe("Hello world");
   state = reduceBridge(state, delta("2", " world"));
   expect(state.messages[0]!.text).toBe("Hello world");
@@ -133,7 +133,7 @@ test("image-only history retains previews and only deduplicates matching optimis
 });
 
 const sentUser = (id: string, attachments: string[] = []): ChatMessage => ({ id, turnId: "same-turn", role: "user", text: "Again", attachments, complete: true });
-const repeatedTurn = (ids: string[]): HistoryTurn => ({ ...turn("same-turn", "Again"), items: ids.map((id) => ({ id, type: "userMessage", content: [{ type: "text", text: "Again" }] })) });
+const repeatedTurn = (ids: string[]): HistoryTurn => ({ ...turn("same-turn", "Again"), items: ids.map((id) => ({ id, type: "user_message", content: [{ type: "text", text: "Again" }] })) });
 
 test("a delayed send receipt does not duplicate its canonical history message", () => {
   const before = mergeHistory(emptyChat(), [repeatedTurn(["first"])]);

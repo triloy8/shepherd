@@ -14,7 +14,7 @@ function button(page: unknown, label: string): any {
 function turn(id: string) {
   return {
     id, status: "completed" as const, itemsView: "summary" as const,
-    items: [{ id: "message", type: "userMessage", content: [{ type: "text", text: `Question ${id}` }] }],
+    items: [{ id: "message", type: "user_message", content: [{ type: "text", text: `Question ${id}` }] }],
     startedAt: 100, completedAt: 101, durationMs: 1000, error: null,
   };
 }
@@ -32,7 +32,7 @@ test("history navigation passes opaque cursors and stays bound to the original t
     },
     async listThreadItems(threadId: string, request: any) {
       requests.push({ threadId, ...request });
-      return { data: [{ turnId: "newest", item: { id: "item", type: "agentMessage", text: "Answer" } }], nextCursor: null, backwardsCursor: "reverse-items" };
+      return { data: [{ turnId: "newest", item: { id: "item", type: "assistant_message", text: "Answer" } }], nextCursor: null, backwardsCursor: "reverse-items" };
     },
   };
   let page: unknown = await loadHistoryPage(conversation, initialHistoryRequest("original", "user-1"));
@@ -66,7 +66,7 @@ test("item pages support next, previous and first without hydrating turns", asyn
     async listThreadItems(threadId: string, request: any) {
       calls.push(request);
       return {
-        data: [{ turnId: "turn", item: { id: "item", type: "agentMessage", text: request.cursor ?? "first" } }],
+        data: [{ turnId: "turn", item: { id: "item", type: "assistant_message", text: request.cursor ?? "first" } }],
         nextCursor: request.cursor === "last" ? null : request.cursor ? "last" : "second",
         backwardsCursor: null,
       };
@@ -90,7 +90,7 @@ test("history handles empty results and long excerpts without losing entries or 
     async listThreadItems() {
       return {
         data: Array.from({ length: 5 }, (_, i) => ({
-          turnId: "turn", item: { id: String(i), type: "agentMessage", text: "*".repeat(9000) },
+          turnId: "turn", item: { id: String(i), type: "assistant_message", text: "*".repeat(9000) },
         })),
         nextCursor: null, backwardsCursor: null,
       };
@@ -158,6 +158,27 @@ test("history APIs preserve filters and both cursors without resuming a stored t
   ]);
 });
 
+test("Codex history pages are decoded and the items view is encoded inside the adapter", async () => {
+  const session = new CodexSession("review_sensitive");
+  session.initialize = async () => {};
+  const requests: any[] = [];
+  (session as any).sendRequest = async (method: string, params: unknown) => {
+    requests.push({ method, params });
+    return { data: [{ id: "turn", status: "inProgress", itemsView: "notLoaded", error: null, items: [
+      { id: "user", type: "userMessage", content: [{ type: "text", text: "hi" }, { type: "localImage", path: "/tmp/a.png" }, { type: "mention", name: "app", path: "app://x" }] },
+      { id: "answer", type: "agentMessage", text: "hello", phase: "final_answer" },
+      { id: "new", type: "somethingUnrecognized" },
+    ] }], nextCursor: null, backwardsCursor: null };
+  };
+  const page = await session.listThreadTurns("thread", { itemsView: "none" });
+  expect(requests[0].params).toMatchObject({ threadId: "thread", itemsView: "notLoaded" });
+  expect(page.data[0]).toMatchObject({ status: "in_progress", itemsView: "none", items: [
+    { type: "user_message", content: [{ type: "text", text: "hi" }, { type: "image_file", path: "/tmp/a.png" }, { type: "attachment", name: "app", path: "app://x" }] },
+    { type: "assistant_message", text: "hello" },
+    { type: "other" },
+  ] });
+});
+
 test("history commands select active or explicit threads and validate arguments", async () => {
   const calls: any[] = [];
   const replies: unknown[] = [];
@@ -188,7 +209,7 @@ test("Read buttons show the full long message over pages and return to the item 
     async listThreadItems() {
       fetches++;
       return {
-        data: [{ turnId: "turn", item: { id: "item", type: "agentMessage", text: "start " + "word ".repeat(2000) + "THE END" } }],
+        data: [{ turnId: "turn", item: { id: "item", type: "assistant_message", text: "start " + "word ".repeat(2000) + "THE END" } }],
         nextCursor: null, backwardsCursor: null,
       };
     },

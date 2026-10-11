@@ -65,7 +65,7 @@ test("Claude streams common events and resumes with the native session in its sa
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(chat.messages.filter((message) => message.role === "assistant")).toMatchObject([{ text: "Hello", complete: true }]);
   expect(events[1]!.payload).toMatchObject({ kind: "assistant_text", phase: null, itemId: "msg-1", textDelta: "Hello", turnId });
-  expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "userMessage" }, { type: "agentMessage", text: "Hello" }] });
+  expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "user_message" }, { type: "assistant_message", text: "Hello" }] });
   const resumed = new ClaudeSession("review_sensitive", undefined, storage, fake);
   await resumed.resumeThread(created.threadId, {});
   await resumed.startTurn([toTextUserInput("again")]); await done(resumed);
@@ -253,7 +253,7 @@ test("renaming and archiving preserve in-memory tool results during an active tu
   await session.startTurn([toTextUserInput("run")]); await emitted.promise;
   await session.setThreadName(created.threadId, "Renamed"); await session.archiveThread(created.threadId);
   gate.resolve(); await done(session);
-  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "userMessage" }, { id: "tool-1", type: "activity", activity: { status: "completed" }, text: JSON.stringify("fresh") }] }] });
+  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "user_message" }, { id: "tool-1", type: "activity", activity: { status: "completed" }, output: JSON.stringify("fresh") }] }] });
   session.stop();
 });
 
@@ -319,7 +319,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   events.push({ type: "assistant", parent_tool_use_id: null, message: { id: "wake-message", content: [{ type: "text", text: "Background result" }] } } as SDKMessage);
   await started; events.push(result); await completed;
   expect(storage.read(threadId).turns).toHaveLength(2);
-  expect(storage.read(threadId).turns[1]!.items).toMatchObject([{ type: "agentMessage", text: "Background result" }]);
+  expect(storage.read(threadId).turns[1]!.items).toMatchObject([{ type: "assistant_message", text: "Background result" }]);
   const cleared = waitFor("thread.status.changed");
   events.push({ type: "system", subtype: "background_tasks_changed", tasks: [] } as SDKMessage); await cleared;
   expect(manager.getRuntimeActivity().activeTurnThreadIds).toEqual([]);
@@ -551,8 +551,9 @@ test("streamed blocks coalesce history writes and stored tool output is bounded"
   await session.startTurn([toTextUserInput("read")]); await done(session);
   expect(writes).toBeLessThanOrEqual(3);
   const items = storage.read(threadId).turns[0]!.items;
-  expect(JSON.parse(items[1]!.text!)).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
-  expect(String(items[2]!.text).length).toBeLessThan(8_100);
+  const output = (index: number) => { const item = items[index]!; if (item.type !== "activity") throw new Error("Expected tool activity."); return item.output; };
+  expect(JSON.parse(output(1)!)).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
+  expect(String(output(2)).length).toBeLessThan(8_100);
   session.stop();
 });
 
@@ -593,6 +594,33 @@ test("thread listing reads summaries, rebuilds legacy summaries, and skips unrea
   expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ id: threadId, cwd: "/project" }); expect("turns" in rows[0]!).toBe(false);
   expect(existsSync(join(directory, `${threadId}.meta.json`))).toBe(true);
   expect(warnings).toHaveLength(1); expect(storage.hasThreads()).toBe(true);
+});
+
+test("snapshots written with earlier item names decode into the application history contract", async () => {
+  const { writeFileSync } = await import("node:fs");
+  const directory = mkdtempSync(join(tmpdir(), "shepherd-claude-test-")); directories.push(directory);
+  const id = "claude-11111111-1111-4111-8111-111111111111";
+  writeFileSync(join(directory, `${id}.json`), JSON.stringify({
+    id, nativeId: "11111111-1111-4111-8111-111111111111", materialized: true, cwd: "/project", model: "claude-opus-5-5", effort: "medium",
+    name: null, preview: "hi", archived: false, createdAt: 1, updatedAt: 2, instructions: "",
+    turns: [{ id: "turn", status: "inProgress", itemsView: "full", error: null, startedAt: 1, completedAt: null, durationMs: null, items: [
+      { id: "user", type: "userMessage", content: [{ type: "text", text: "hi" }, { type: "image", url: "data:image/png;base64,AA" }] },
+      { id: "tool", type: "activity", activity: { itemId: "tool", turnId: "turn", kind: "command", label: "Bash", detail: null, status: "completed" }, text: "\"ok\"" },
+      { id: "answer", type: "agentMessage", text: "hello", phase: "final_answer" },
+      { id: "unknown", type: "somethingNew" },
+    ] }],
+  }));
+  const thread = new ClaudeThreadStore(directory).read(id);
+  expect(thread.turns[0]).toMatchObject({ status: "in_progress", items: [
+    { type: "user_message", content: [{ type: "text", text: "hi" }, { type: "image", url: "data:image/png;base64,AA" }] },
+    { type: "activity", output: "\"ok\"", activity: { kind: "command" } },
+    { type: "assistant_message", text: "hello" },
+    { type: "other" },
+  ] });
+  const session = new ClaudeSession("review_sensitive", undefined, new ClaudeThreadStore(directory), sdk(async function* () { yield result; }));
+  await session.resumeThread(id, {});
+  expect((await session.listThreadTurns(id, {})).data[0]!.status).toBe("interrupted");
+  session.stop();
 });
 
 test("Claude applies opaque permission options through the shared session boundary", async () => {

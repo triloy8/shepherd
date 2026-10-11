@@ -6,7 +6,7 @@ async (page) => {
     const history = await response.json();
     if (history.data?.length) {
       const text = index => `Message ${index} reference[^same]. Inline math: $E = mc^2$.\n\n${Array.from({ length: 25 }, (_, row) => `Paragraph ${index}.${row}: enough content to require scrolling within the conversation.`).join('\n\n')}\n\n[^same]: Note for message ${index}.`;
-      history.data[0].items = [1, 2].map(index => ({ id: `footnote-${index}`, type: 'agentMessage', phase: 'final_answer', text: text(index) }));
+      history.data[0].items = [1, 2].map(index => ({ id: `footnote-${index}`, type: 'assistant_message', phase: 'final_answer', text: text(index) }));
     }
     await route.fulfill({ response, json: history });
   });

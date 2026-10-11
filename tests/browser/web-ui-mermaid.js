@@ -16,7 +16,7 @@ async page => {
     const response = await route.fetch();
     const history = await response.json();
     history.data = history.data.slice(0, 1);
-    history.data[0].items = [{ id: 'mermaid-checks', type: 'agentMessage', phase: 'final_answer', text: [flow, invalid, sequence, hostile, oversized].map(fence).join('\n\n') }];
+    history.data[0].items = [{ id: 'mermaid-checks', type: 'assistant_message', phase: 'final_answer', text: [flow, invalid, sequence, hostile, oversized].map(fence).join('\n\n') }];
     await route.fulfill({ response, json: history });
   });
   await page.reload();

@@ -18,7 +18,10 @@ export type WebConversationsResponse = { conversations: WebConversation[] };
 export type WebApprovalsResponse = { approvals: ApprovalRecord[] };
 export type WebThreadsResponse = ListStoredThreadsResponse;
 export type WebImage = { url: string; prompt: string | null; name?: string; path?: string; kind?: "generated" | "viewed" };
-export type WebHistoryItem = HistoryItem & { webActivity?: TurnActivityEvent["payload"]; webImage?: WebImage };
+/** History as presented to the browser. Images become server URLs; other non-message items carry their activity. */
+export type WebHistoryItem =
+  | Extract<HistoryItem, { type: "user_message" | "assistant_message" }>
+  | { id: string; type: Exclude<HistoryItem["type"], "user_message" | "assistant_message">; webActivity?: TurnActivityEvent["payload"]; webImage?: WebImage };
 export type WebHistoryTurn = Omit<HistoryTurn, "items"> & { items: WebHistoryItem[] };
 export type WebHistoryResponse = Omit<ListThreadTurnsResponse, "data"> & { data: WebHistoryTurn[]; revision: number };
 export type WebGeneratedImagePayload = TurnImageGeneratedEvent["payload"] & { url: string };

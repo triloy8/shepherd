@@ -3,7 +3,7 @@ import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "
 import { codexInput } from "./input.js";
 import type { NativeInput } from "./input.js";
 import { approvalChoices } from "../approval_choices.js";
-import { historyItem, historyTurn } from "./history.js";
+import { codexItemsView, historyItem, historyTurn, type NativeItemsView } from "./history.js";
 import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
 import { decodeResetOutcome } from "./account_usage.js";
 import { codexCapabilities } from "./capabilities.js";
@@ -136,7 +136,7 @@ type AppServerRequestParams = {
     useStateDbOnly?: boolean;
   };
   "thread/loaded/list": { cursor: string | null; limit: number | null };
-  "thread/turns/list": ListThreadTurnsRequest & { threadId: string };
+  "thread/turns/list": Omit<ListThreadTurnsRequest, "itemsView"> & { threadId: string; itemsView?: NativeItemsView };
   "thread/items/list": ListThreadItemsRequest & { threadId: string };
   "thread/read": { threadId: string; includeTurns: boolean };
   "account/rateLimits/read": undefined;
@@ -426,8 +426,9 @@ export class CodexSession implements ProviderSession {
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
     await this.initialize();
     try {
-      const page = await this.sendRequest("thread/turns/list", { ...request, threadId }) as ListThreadTurnsResponse;
-      return { data: page.data.map(historyTurn), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor };
+      const { itemsView, ...rest } = request;
+      const page = asRecord(await this.sendRequest("thread/turns/list", { ...rest, ...(itemsView ? { itemsView: codexItemsView(itemsView) } : {}), threadId }));
+      return { data: (Array.isArray(page.data) ? page.data : []).map(historyTurn), nextCursor: asString(page.nextCursor), backwardsCursor: asString(page.backwardsCursor) };
     } catch (error) {
       // Codex does not persist a newly created thread until its first user message.
       // Only this explicit first-page condition means empty history; never hide
@@ -442,8 +443,11 @@ export class CodexSession implements ProviderSession {
 
   async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
     await this.initialize();
-    const page = await this.sendRequest("thread/items/list", { ...request, threadId }) as ListThreadItemsResponse;
-    return { data: page.data.map(entry => ({ turnId: entry.turnId, item: historyItem(entry.item, entry.turnId) })), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor };
+    const page = asRecord(await this.sendRequest("thread/items/list", { ...request, threadId }));
+    return { data: (Array.isArray(page.data) ? page.data : []).map(raw => {
+      const entry = asRecord(raw), turnId = String(entry.turnId ?? "");
+      return { turnId, item: historyItem(entry.item, turnId) };
+    }), nextCursor: asString(page.nextCursor), backwardsCursor: asString(page.backwardsCursor) };
   }
 
   async readThread(threadId: string, includeTurns: boolean) {

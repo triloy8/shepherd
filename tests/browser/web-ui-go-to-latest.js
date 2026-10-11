@@ -3,7 +3,7 @@ async page => {
   await page.route('**/api/conversations/*/turns?*', async route => {
     const response = await route.fetch();
     const history = await response.json();
-    history.data[0].items = [{ id: 'long-answer', type: 'agentMessage', phase: 'final_answer', text: Array.from({length:45}, (_, i) => `Paragraph ${i + 1}: a conversation long enough to scroll through older messages.`).join('\n\n') }];
+    history.data[0].items = [{ id: 'long-answer', type: 'assistant_message', phase: 'final_answer', text: Array.from({length:45}, (_, i) => `Paragraph ${i + 1}: a conversation long enough to scroll through older messages.`).join('\n\n') }];
     await route.fulfill({response, json:history});
   });
   await page.getByRole('button', {name:'A new home for Shepherd', exact:true}).click();

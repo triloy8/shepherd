@@ -30,7 +30,7 @@ const TimelineGroupView = memo(function TimelineGroupView({ group, images, waiti
       summary={<>Viewed image{message.image.name ? ` · ${message.image.name}` : ""}</>}>
       <ImageArtifact image={message.image} eager />
     </DeferredDetails> : message.activity ? <details key={message.id} className={message.activity.status === "failed" ? "notice" : "text-xs text-muted"}>
-      <summary className="cursor-pointer">{message.activity.label} · {message.activity.status === "started" && turnStatus && turnStatus !== "inProgress" ? "Stopped" : message.activity.status === "started" ? "Running" : message.activity.status === "failed" ? "Failed" : "Done"}</summary>
+      <summary className="cursor-pointer">{message.activity.label} · {message.activity.status === "started" && turnStatus && turnStatus !== "in_progress" ? "Stopped" : message.activity.status === "started" ? "Running" : message.activity.status === "failed" ? "Failed" : "Done"}</summary>
       {message.activity.detail && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{message.activity.detail.slice(0, 16384)}</pre>}
     </details> : <Message key={message.id} message={message} images={images} writingPaused={waiting} progress showCopy={false} />)}</div>;
     return <section className="timeline-entry space-y-5" aria-label="Assistant turn">

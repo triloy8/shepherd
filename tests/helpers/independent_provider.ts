@@ -24,7 +24,7 @@ export class IndependentSession implements ProviderSession {
   private bootstrap() { return { threadId: this.threadId, model: "third-model", modelProvider: null, reasoningEffort: "focused" }; }
   async startTurn(input: UserInput[]) {
     this.inputs = structuredClone(input); this.activeTurnId = "opaque-turn";
-    this.turns.push({ id: this.activeTurnId, items: [{ id: "reply", type: "agentMessage", text: "Third provider answer", phase: "final_answer" }], itemsView: "full", status: "inProgress", error: null, startedAt: 1, completedAt: null, durationMs: null });
+    this.turns.push({ id: this.activeTurnId, items: [{ id: "reply", type: "assistant_message", text: "Third provider answer", phase: "final_answer" }], itemsView: "full", status: "in_progress", error: null, startedAt: 1, completedAt: null, durationMs: null });
     this.emit("turn.started", { turnId: this.activeTurnId });
     this.emit("turn.stream.delta", { kind: "assistant_text", turnId: this.activeTurnId, itemId: "reply", textDelta: "Third provider answer", phase: "final_answer" });
     return this.activeTurnId;

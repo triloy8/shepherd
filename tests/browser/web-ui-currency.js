@@ -5,7 +5,7 @@ async (page) => {
     const response = await route.fetch();
     const history = await response.json();
     if (history.data?.length) history.data[0].items = [{
-      id: 'currency-regression', type: 'agentMessage', phase: 'final_answer',
+      id: 'currency-regression', type: 'assistant_message', phase: 'final_answer',
       text: 'Compared with Prime’s available **40GB A100 at $1.99/h**, Runpod advertises **80GB at $1.59/h**.\n\nCosts $5 or $10. Formula: $2 + 2 = 4$ and $x^2$.\n\n$$\n\\frac{a}{b}\n$$',
     }];
     await route.fulfill({ response, json: history });

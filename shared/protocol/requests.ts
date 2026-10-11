@@ -192,18 +192,24 @@ export interface ApprovalDecisionApiResponse {
   ok: true;
 }
 
+/**
+ * Token counts. Input includes cache reads and writes; output includes reasoning.
+ * Null means the provider does not report that count, which is different from zero.
+ */
 export interface TokenUsageBreakdown {
-  cachedInputTokens: number;
   inputTokens: number;
+  cacheReadInputTokens: number | null;
+  cacheWriteInputTokens: number | null;
   outputTokens: number;
-  reasoningOutputTokens: number;
+  reasoningOutputTokens: number | null;
   totalTokens: number;
 }
 
+/** `last` is the most recent model request, which fills the context window; `total` is cumulative. */
 export interface ThreadTokenUsage {
   last: TokenUsageBreakdown;
   total: TokenUsageBreakdown;
-  modelContextWindow?: number | null;
+  contextWindow: number | null;
 }
 
 export interface ReadThreadTokenUsageResponse {

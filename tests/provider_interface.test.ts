@@ -14,6 +14,7 @@ import { codexInput } from "../server/providers/codex/input";
 import { historyItem } from "../server/providers/codex/history";
 import { codexToolResponse, codexToolSpecs } from "../server/providers/codex/tools";
 import { codexAccount } from "../server/providers/codex/account_presentation";
+import { codexTokenUsage } from "../server/providers/codex/token_usage";
 import { webHarness } from "./helpers/web_harness";
 import { account } from "./helpers/account";
 
@@ -99,6 +100,16 @@ test("Codex allowance labels keep provider names and humanize opaque limit IDs i
     blank: { primary: window },
   }, rateLimitResetCredits: null }, 1);
   expect(account.windows.map(entry => entry.label)).toEqual(["Provider Label-v2", "New feature quota", "Account allowance"]);
+});
+
+test("Codex token usage is decoded into the neutral breakdown without inventing cache writes", () => {
+  const native = { inputTokens: 100, cachedInputTokens: 40, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 };
+  expect(codexTokenUsage({ last: native, total: native, modelContextWindow: 1000 })).toEqual({
+    last: { inputTokens: 100, cacheReadInputTokens: 40, cacheWriteInputTokens: null, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 },
+    total: { inputTokens: 100, cacheReadInputTokens: 40, cacheWriteInputTokens: null, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 },
+    contextWindow: 1000,
+  });
+  expect(codexTokenUsage({ last: {}, total: native })).toBeNull();
 });
 
 test("opaque permission options retain native policy amendments and reject stale ownership", async () => {

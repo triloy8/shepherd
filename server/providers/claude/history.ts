@@ -1,4 +1,4 @@
-import type { HistoryContentPart, HistoryItem, HistoryTurn, TurnStatus } from "../../../shared/protocol/requests.js";
+import type { HistoryContentPart, HistoryItem, HistoryTurn, ThreadTokenUsage, TokenUsageBreakdown, TurnStatus } from "../../../shared/protocol/requests.js";
 import type { TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -68,4 +68,26 @@ export function historyTurn(value: unknown): HistoryTurn {
     startedAt: typeof turn.startedAt === "number" ? turn.startedAt : null,
     completedAt: typeof turn.completedAt === "number" ? turn.completedAt : null,
     durationMs: typeof turn.durationMs === "number" ? turn.durationMs : null };
+}
+
+const count = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+function usageBreakdown(value: unknown, legacyReasoning: boolean): TokenUsageBreakdown | null {
+  const usage = record(value);
+  const inputTokens = count(usage.inputTokens), outputTokens = count(usage.outputTokens);
+  if (inputTokens === null || outputTokens === null) return null;
+  return {
+    inputTokens, outputTokens, totalTokens: count(usage.totalTokens) ?? inputTokens + outputTokens,
+    cacheReadInputTokens: count(usage.cacheReadInputTokens) ?? count(usage.cachedInputTokens),
+    cacheWriteInputTokens: count(usage.cacheWriteInputTokens),
+    reasoningOutputTokens: legacyReasoning ? null : count(usage.reasoningOutputTokens),
+  };
+}
+
+/** Decode saved usage. Earlier snapshots recorded an unknown per-request reasoning count as zero. */
+export function storedTokenUsage(value: unknown): ThreadTokenUsage | undefined {
+  const usage = record(value);
+  const legacy = Object.hasOwn(usage, "modelContextWindow");
+  const last = usageBreakdown(usage.last, legacy), total = usageBreakdown(usage.total, false);
+  if (!last || !total) return undefined;
+  return { last, total, contextWindow: count(legacy ? usage.modelContextWindow : usage.contextWindow) };
 }

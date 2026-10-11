@@ -192,11 +192,16 @@ function formatRateLimitsForDiscord(limits: import("../../../shared/protocol/acc
   ].join("\n");
 }
 
+/** Null counts are ones the provider does not report. */
+function formatOptionalCount(value: unknown): string {
+  return value === null ? "not reported" : formatNumber(value);
+}
+
 function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): string {
   const usage = asRecord(tokenUsage);
   const last = asRecord(usage.last);
   const total = asRecord(usage.total);
-  const contextWindow = asNumber(usage.modelContextWindow);
+  const contextWindow = asNumber(usage.contextWindow);
 
   const lastTotalTokens = asNumber(last.totalTokens);
   const effectiveWindow =
@@ -228,16 +233,18 @@ function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): s
     "",
     `**Last Token Usage**`,
     `- Input: ${formatNumber(last.inputTokens)}`,
-    `- Cached input: ${formatNumber(last.cachedInputTokens)}`,
+    `- Cache read: ${formatOptionalCount(last.cacheReadInputTokens)}`,
+    `- Cache write: ${formatOptionalCount(last.cacheWriteInputTokens)}`,
     `- Output: ${formatNumber(last.outputTokens)}`,
-    `- Reasoning output: ${formatNumber(last.reasoningOutputTokens)}`,
+    `- Reasoning output: ${formatOptionalCount(last.reasoningOutputTokens)}`,
     `- Total: ${formatNumber(last.totalTokens)}`,
     "",
     `**Total Token Usage**`,
     `- Input: ${formatNumber(total.inputTokens)}`,
-    `- Cached input: ${formatNumber(total.cachedInputTokens)}`,
+    `- Cache read: ${formatOptionalCount(total.cacheReadInputTokens)}`,
+    `- Cache write: ${formatOptionalCount(total.cacheWriteInputTokens)}`,
     `- Output: ${formatNumber(total.outputTokens)}`,
-    `- Reasoning output: ${formatNumber(total.reasoningOutputTokens)}`,
+    `- Reasoning output: ${formatOptionalCount(total.reasoningOutputTokens)}`,
     `- Total: ${formatNumber(total.totalTokens)}`,
   ].join("\n");
 }

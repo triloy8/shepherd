@@ -4,18 +4,18 @@ import type { ThreadModelState, ThreadEffortState, ModelSummary } from "../../sh
 import type { webHarness } from "./web_harness";
 
 export function installWebSettings(h: ReturnType<typeof webHarness>) {
-  const models: ModelSummary[] = ["small", "large"].map((model) => ({ id: model, model, displayName: model === "small" ? "Small model" : "Large model", description: "Fixture model", hidden: false, isDefault: model === "small", defaultReasoningEffort: "low", supportedReasoningEfforts: (model === "small" ? ["low"] : ["low", "high"]).map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })) }));
+  const models: ModelSummary[] = ["small", "large"].map((model) => ({ id: model, displayName: model === "small" ? "Small model" : "Large model", description: "Fixture model", hidden: false, isDefault: model === "small", defaultEffort: "low", supportedEfforts: (model === "small" ? ["low"] : ["low", "high"]).map((value) => ({ value, description: value })) }));
   const states = new Map<string, ThreadModelState>();
   const efforts = new Map<string, string>();
   const getThreadModel = (threadId: string) => {
     let state = states.get(threadId);
-    if (!state) { state = { threadId, currentModel: "small", pendingModel: null, modelProvider: "fixture" }; states.set(threadId, state); }
+    if (!state) { state = { threadId, currentModel: "small", pendingModel: null, provider: "fixture" }; states.set(threadId, state); }
     return state;
   };
   const getThreadEffort = async (threadId: string): Promise<ThreadEffortState> => {
     const state = getThreadModel(threadId);
-    const model = models.find((m) => m.model === (state.pendingModel ?? state.currentModel))!;
-    return { threadId, model: model.model, currentEffort: "low", pendingEffort: efforts.get(threadId) ?? null, defaultEffort: model.defaultReasoningEffort!, supportedEfforts: model.supportedReasoningEfforts! };
+    const model = models.find((m) => m.id === (state.pendingModel ?? state.currentModel))!;
+    return { threadId, model: model.id, currentEffort: "low", pendingEffort: efforts.get(threadId) ?? null, defaultEffort: model.defaultEffort!, supportedEfforts: model.supportedEfforts };
   };
   Object.assign(h.application, { getSurfaceThreadId: (id: string) => h.bindings.get(id) ?? null });
   const controls = {
@@ -25,7 +25,7 @@ export function installWebSettings(h: ReturnType<typeof webHarness>) {
     async setThreadEffort(threadId: string, requested: string) {
       const state = await getThreadEffort(threadId);
       const effort = requested === "default" ? state.defaultEffort! : requested;
-      if (!state.supportedEfforts.some((option) => option.reasoningEffort === effort)) throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested, available: state.supportedEfforts.map((x) => x.reasoningEffort) });
+      if (!state.supportedEfforts.some((option) => option.value === effort)) throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested, available: state.supportedEfforts.map((x) => x.value) });
       efforts.set(threadId, effort); return { ...state, pendingEffort: effort };
     },
     async listModels({ cursor }: { cursor?: string }) { return { data: [models[cursor ? 1 : 0]!], nextCursor: cursor ? null : "next" }; },

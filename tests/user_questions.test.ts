@@ -176,7 +176,7 @@ test("SessionManager expires pending questions when the turn ends or the session
       session.activeTurnId = input.turnId;
       raw = session as unknown as typeof raw;
       raw.writeLine = () => {};
-      session.startThread = async () => ({ threadId: input.threadId, reasoningEffort: null, model: "test", modelProvider: "openai", approvalPolicy: policy });
+      session.startThread = async () => ({ threadId: input.threadId, effort: null, model: "test", approvalPolicy: policy });
       return session;
     });
     try {

@@ -89,7 +89,7 @@ export class ClaudeSession implements ProviderSession {
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
   private bootstrap(): ThreadBootstrapInfo {
     const thread = this.requireThread();
-    return { threadId: thread.id, model: thread.model, modelProvider: "anthropic", reasoningEffort: thread.effort ?? null, approvalPolicy: this.approvalPolicy };
+    return { threadId: thread.id, model: thread.model, effort: thread.effort ?? null, approvalPolicy: this.approvalPolicy };
   }
   async startThread(request: P.CreateThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
@@ -399,7 +399,7 @@ export class ClaudeSession implements ProviderSession {
     }
   }
   async readThread(id: string, includeTurns: boolean) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); return { thread: this.record(thread, includeTurns) }; }
-  private record(thread: ClaudeThreadSummary & { turns?: P.HistoryTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, modelProvider: "anthropic", source: "appServer", ...(includeTurns ? { turns: (thread.turns ?? []).map(historyTurn) } : {}) }; }
+  private record(thread: ClaudeThreadSummary & { turns?: P.HistoryTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, ...(includeTurns ? { turns: (thread.turns ?? []).map(historyTurn) } : {}) }; }
   async listStoredThreads(request: P.ListStoredThreadsRequest) {
     const threads = this.store.list().filter((t) => t.archived === (request.archived ?? false) && (!request.searchTerm || `${t.name ?? ""} ${t.preview}`.toLowerCase().includes(request.searchTerm.toLowerCase())) && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(t.cwd) : request.cwd === t.cwd)));
     const key = request.sortKey === "created_at" ? "createdAt" : "updatedAt";

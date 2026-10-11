@@ -5,7 +5,7 @@ import { createApplicationConversation } from "../server/core/conversation_ports
 class TestConversation extends ConversationService {
   readonly marker = "bound-model";
   override getThreadModel(threadId: string) {
-    return { threadId, currentModel: this.marker, pendingModel: null, modelProvider: "openai" };
+    return { threadId, currentModel: this.marker, pendingModel: null, provider: "fixture" };
   }
 }
 

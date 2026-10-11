@@ -246,7 +246,7 @@ function formatThreadModelForDiscord(modelState: ThreadModelState): string {
   const lines = [
     `- Thread: ${modelState.threadId}`,
     `- Current: ${modelState.currentModel ?? "unknown"}`,
-    `- Provider: ${modelState.modelProvider ?? "unknown"}`,
+    `- Agent: ${modelState.provider}`,
   ];
   if (modelState.pendingModel) {
     lines.push(`- Pending next turn: ${modelState.pendingModel}`);
@@ -726,7 +726,7 @@ export async function handleMessage(
         `- Model: ${state.model}`,
         `- Current: ${state.currentEffort ?? "unknown"}`,
         `- Model default: ${state.defaultEffort ?? "unknown"}`,
-        `- Available: ${state.supportedEfforts.map((option) => option.reasoningEffort).join(", ") || "none"}`,
+        `- Available: ${state.supportedEfforts.map((option) => option.value).join(", ") || "none"}`,
       ];
       if (state.pendingEffort) lines.push(`- Pending next turn: ${state.pendingEffort}`);
       if (args.length) lines.push("Applies to the next new turn and subsequent turns.");

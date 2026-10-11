@@ -21,7 +21,7 @@ export class IndependentSession implements ProviderSession {
   async initialize() {}
   async startThread() { this.threadId = `opaque-${crypto.randomUUID()}`; return this.bootstrap(); }
   async resumeThread(threadId: string) { this.threadId = threadId; return this.bootstrap(); }
-  private bootstrap() { return { threadId: this.threadId, model: "third-model", modelProvider: null, reasoningEffort: "focused" }; }
+  private bootstrap() { return { threadId: this.threadId, model: "third-model", effort: "focused" }; }
   async startTurn(input: UserInput[]) {
     this.inputs = structuredClone(input); this.activeTurnId = "opaque-turn";
     this.turns.push({ id: this.activeTurnId, items: [{ id: "reply", type: "assistant_message", text: "Third provider answer", phase: "final_answer" }], itemsView: "full", status: "in_progress", error: null, startedAt: 1, completedAt: null, durationMs: null });
@@ -43,5 +43,5 @@ export class IndependentSession implements ProviderSession {
   async setThreadName() {}
   async archiveThread() {}
   async unarchiveThread() {}
-  async listModels() { return { data: [{ id: "third-model", model: "third-model", displayName: "Third model", description: "", hidden: false, isDefault: true, defaultReasoningEffort: "focused", supportedReasoningEfforts: [{ reasoningEffort: "focused", description: "Focus" }] }], nextCursor: null }; }
+  async listModels() { return { data: [{ id: "third-model", displayName: "Third model", description: "", hidden: false, isDefault: true, defaultEffort: "focused", supportedEfforts: [{ value: "focused", description: "Focus" }] }], nextCursor: null }; }
 }

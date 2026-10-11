@@ -14,8 +14,6 @@ function thread(value: unknown): ThreadRecord {
     ...(typeof record.createdAt === "number" ? { createdAt: record.createdAt } : {}),
     ...(typeof record.updatedAt === "number" ? { updatedAt: record.updatedAt } : {}),
     ...(asString(record.cwd) ? { cwd: String(record.cwd) } : {}),
-    ...(asString(record.modelProvider) ? { modelProvider: String(record.modelProvider) } : {}),
-    source: asString(record.source) ?? asString(asRecord(record.source).kind),
     ...(Array.isArray(record.turns) ? { turns: record.turns.map(historyTurn) } : {}) };
 }
 export function readResponse(value: unknown): ReadThreadResponse { return { thread: thread(asRecord(value).thread) }; }
@@ -43,20 +41,20 @@ export function modelsResponse(value: unknown): ListModelsResponse {
     return {
       data: items.map((item) => {
         const record = asRecord(item);
+        // Turns and threads select Codex models by slug; the catalog preset ID is not an application value.
+        const id = asString(record.model) ?? asString(record.id) ?? "unknown";
         return {
-          id: asString(record.id) ?? asString(record.model) ?? "unknown",
-          model: asString(record.model) ?? "unknown",
-          displayName: asString(record.displayName) ?? asString(record.model) ?? "unknown",
+          id,
+          displayName: asString(record.displayName) ?? id,
           description: asString(record.description) ?? "",
           hidden: record.hidden === true,
           isDefault: record.isDefault === true,
-          defaultReasoningEffort: asString(record.defaultReasoningEffort),
-          supportedReasoningEfforts: (Array.isArray(record.supportedReasoningEfforts) ? record.supportedReasoningEfforts : [])
+          defaultEffort: asString(record.defaultReasoningEffort),
+          supportedEfforts: (Array.isArray(record.supportedReasoningEfforts) ? record.supportedReasoningEfforts : [])
             .map((value) => {
               const option = asRecord(value);
-              return { reasoningEffort: asString(option.reasoningEffort) ?? "", description: asString(option.description) ?? "" };
-            }).filter((option) => option.reasoningEffort),
-
+              return { value: asString(option.reasoningEffort) ?? "", description: asString(option.description) ?? "" };
+            }).filter((option) => option.value),
         };
       }),
       nextCursor: asString(raw.nextCursor),

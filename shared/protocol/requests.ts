@@ -67,7 +67,6 @@ export interface StoredThreadSummary {
   archived: boolean;
   createdAt: number | null;
   updatedAt: number | null;
-  source: string | null;
   cwd: string | null;
 }
 
@@ -180,8 +179,6 @@ export interface ThreadRecord {
   createdAt?: number;
   updatedAt?: number;
   cwd?: string;
-  modelProvider?: string;
-  source?: string | null;
   turns?: HistoryTurn[];
 }
 
@@ -221,15 +218,21 @@ export interface ListModelsRequest {
   includeHidden?: boolean;
 }
 
+/** An effort level offered by a model. Values are opaque provider-defined strings. */
+export interface EffortOption {
+  value: string;
+  description: string;
+}
+
+/** A selectable model. `id` is the value passed back as a thread or turn model. */
 export interface ModelSummary {
   id: string;
-  model: string;
   displayName: string;
   description: string;
   hidden: boolean;
   isDefault: boolean;
-  supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }>;
-  defaultReasoningEffort?: string | null;
+  supportedEfforts: EffortOption[];
+  defaultEffort: string | null;
 }
 
 export interface ListModelsResponse {
@@ -239,8 +242,8 @@ export interface ListModelsResponse {
 
 export interface ThreadModelState {
   threadId: string;
+  provider: AgentProvider;
   currentModel: string | null;
-  modelProvider: string | null;
   pendingModel: string | null;
 }
 
@@ -314,7 +317,7 @@ export interface ThreadEffortState {
   currentEffort: string | null;
   pendingEffort: string | null;
   defaultEffort: string | null;
-  supportedEfforts: Array<{ reasoningEffort: string; description: string }>;
+  supportedEfforts: EffortOption[];
 }
 
 /** How much of each turn's item list a history page includes. */

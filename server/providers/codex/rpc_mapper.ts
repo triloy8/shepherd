@@ -1,4 +1,4 @@
-export { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "../history_presentation.js";
+export { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
 import type {
   MessagePhase,
 } from "../../../shared/protocol/events.js";

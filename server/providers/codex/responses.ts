@@ -1,4 +1,4 @@
-import { historyTurn } from "../history_mapper.js";
+import { historyTurn } from "./history.js";
 import type {  ReadThreadResponse, RevertThreadResponse, ThreadRecord, ListModelsResponse } from "../../../shared/protocol/requests.js";
 import type { AccountRateLimitsResponse } from "./account_types.js";
 import type { StoredThreadPage, LoadedThreadPage } from "../../ports/provider_session.js";

@@ -1,4 +1,4 @@
-import type { TurnActivityEvent, TurnActivityKind, TurnActivityStatus } from "../../shared/protocol/events.js";
+import type { TurnActivityEvent, TurnActivityKind, TurnActivityStatus } from "../../../shared/protocol/events.js";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
 function asString(value: unknown): string | null { return typeof value === "string" && value.trim() ? value : null; }

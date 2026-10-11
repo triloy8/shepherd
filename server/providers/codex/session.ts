@@ -3,10 +3,10 @@ import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "
 import { codexInput } from "./input.js";
 import type { NativeInput } from "./input.js";
 import { approvalChoices } from "../approval_choices.js";
-import { historyItem, historyTurn } from "../history_mapper.js";
+import { historyItem, historyTurn } from "./history.js";
 import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
 import { decodeResetOutcome } from "./account_usage.js";
-import { codexCapabilities } from "../capabilities.js";
+import { codexCapabilities } from "./capabilities.js";
 import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline, { type Interface as ReadlineInterface } from "node:readline";

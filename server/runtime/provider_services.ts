@@ -5,9 +5,10 @@ import { join } from "node:path";
 import type { ProviderServices } from "../ports/provider_services.js";
 import { CodexSession } from "../providers/codex/session.js";
 import { ClaudeSession } from "../providers/claude/session.js";
-import { codexCapabilities, claudeCapabilities } from "../providers/capabilities.js";
+import { codexCapabilities } from "../providers/codex/capabilities.js";
+import { claudeCapabilities } from "../providers/claude/capabilities.js";
 import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
-import { ClaudeThreadStore } from "../storage/claude_thread_store.js";
+import { ClaudeThreadStore } from "../providers/claude/file_thread_store.js";
 import { assembleProviderServices } from "./provider_registration.js";
 
 /** Provider identities and implementations meet only at production composition. */

@@ -11,7 +11,8 @@ import { CodexSession } from "../server/providers/codex/session.js";
 import { codexOwnsStoredThread } from "../server/providers/codex/thread_ownership.js";
 import { readRuntimeConfig } from "../server/config/runtime_environment.js";
 import { assertInputSupport, assertThreadSupport } from "../shared/protocol/provider_support.js";
-import { codexCapabilities, claudeCapabilities } from "../server/providers/capabilities.js";
+import { codexCapabilities } from "../server/providers/codex/capabilities.js";
+import { claudeCapabilities } from "../server/providers/claude/capabilities.js";
 import { validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest } from "../shared/protocol/validation.js";
 import type { ApprovalPolicy } from "../shared/protocol/requests.js";
 

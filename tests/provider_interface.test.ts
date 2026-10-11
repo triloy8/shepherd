@@ -11,7 +11,7 @@ import { toTextUserInput } from "../shared/protocol/user_input";
 import { CodexSession } from "../server/providers/codex/session";
 import { CodexAccount } from "../server/providers/codex/account";
 import { codexInput } from "../server/providers/codex/input";
-import { historyItem } from "../server/providers/history_mapper";
+import { historyItem } from "../server/providers/codex/history";
 import { webHarness } from "./helpers/web_harness";
 import { account } from "./helpers/account";
 

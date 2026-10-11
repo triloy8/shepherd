@@ -1,4 +1,4 @@
-import { historyItem } from "../server/providers/history_mapper";
+import { historyItem } from "../server/providers/codex/history";
 import { expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

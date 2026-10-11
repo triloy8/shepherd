@@ -1,4 +1,4 @@
-import type { HistoryItem, HistoryTurn } from "../../shared/protocol/requests.js";
+import type { HistoryItem, HistoryTurn } from "../../../shared/protocol/requests.js";
 import { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 /** Decode native persisted items before they cross the provider boundary. */

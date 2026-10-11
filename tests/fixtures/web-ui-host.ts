@@ -1,4 +1,4 @@
-import { historyItem } from "../../server/providers/history_mapper";
+import { historyItem } from "../../server/providers/codex/history";
 import { installWebSkills } from "../helpers/web_skills_harness";
 import { installWebSettings } from "../helpers/web_settings_harness";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";

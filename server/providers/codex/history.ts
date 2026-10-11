@@ -1,4 +1,5 @@
 import type { HistoryContentPart, HistoryItem, HistoryItemsView, HistoryTurn, TurnStatus } from "../../../shared/protocol/requests.js";
+import type { MessagePhase } from "../../../shared/protocol/events.js";
 import { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const optionalString = (value: unknown): string | null => typeof value === "string" ? value : null;
@@ -9,7 +10,8 @@ function itemsView(value: unknown): HistoryItemsView { return value === "notLoad
 function turnStatus(value: unknown): TurnStatus {
   return value === "inProgress" ? "in_progress" : value === "interrupted" || value === "failed" ? value : "completed";
 }
-export function codexPhase(value: unknown) { return value === "commentary" || value === "final_answer" ? value : null; }
+/** Codex labels agent messages with OpenAI response phases. */
+export function codexPhase(value: unknown): MessagePhase | null { return value === "commentary" ? "interim" : value === "final_answer" ? "final" : null; }
 
 function contentPart(raw: unknown): HistoryContentPart {
   const part = record(raw);

@@ -1,7 +1,8 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
 import type { ApprovalPolicy, ThreadTokenUsage } from "./requests.js";
 
-export type MessagePhase = "commentary" | "final_answer";
+/** Interim text reports progress during a turn; final text answers it. */
+export type MessagePhase = "interim" | "final";
 
 export type TurnActivityKind =
   | "command"

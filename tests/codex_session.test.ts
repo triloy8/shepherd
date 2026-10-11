@@ -444,7 +444,7 @@ describe("CodexSession app-server contract", () => {
     });
     expect(events.find((event) => event.type === "turn.message.completed")?.payload).toEqual({
       itemId: "final-1",
-      phase: "final_answer",
+      phase: "final",
       text: "Complete answer",
       turnId: "turn-1",
     });
@@ -485,7 +485,7 @@ describe("CodexSession app-server contract", () => {
       kind: "assistant_text",
       textDelta: "Checking now.",
       itemId: "comment-1",
-      phase: "commentary",
+      phase: "interim",
       turnId: "turn-1",
     });
   });

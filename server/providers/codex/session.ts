@@ -3,7 +3,7 @@ import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "
 import { codexInput } from "./input.js";
 import type { NativeInput } from "./input.js";
 import { approvalChoices } from "../approval_choices.js";
-import { codexItemsView, historyItem, historyTurn, type NativeItemsView } from "./history.js";
+import { codexItemsView, codexPhase, historyItem, historyTurn, type NativeItemsView } from "./history.js";
 import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
 import { decodeResetOutcome } from "./account_usage.js";
 import { codexCapabilities } from "./capabilities.js";
@@ -996,10 +996,7 @@ export class CodexSession implements ProviderSession {
   }
 
   private parseMessagePhase(value: unknown): MessagePhase | null {
-    if (value === "commentary" || value === "final_answer") {
-      return value;
-    }
-    return null;
+    return codexPhase(value);
   }
 }
 

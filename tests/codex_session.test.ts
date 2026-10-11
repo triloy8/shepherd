@@ -121,11 +121,13 @@ describe("CodexSession app-server contract", () => {
       return { thread: { id: "thread-1", modelProvider: "openai" } };
     };
 
-    await session.startThread({ cwd: "/workspace" });
+    await session.startThread({ cwd: "/workspace", instructions: "Prefer small diffs." });
 
     expect(requests[0]?.method).toBe("thread/start");
+    expect(requests[0]?.params).not.toHaveProperty("baseInstructions");
     expect(requests[0]?.params).toMatchObject({
       cwd: "/workspace",
+      developerInstructions: "Prefer small diffs.",
       dynamicTools: [{
         type: "namespace",
         name: "shepherd",
@@ -151,7 +153,7 @@ describe("CodexSession app-server contract", () => {
       inputSchema: { type: "object" },
       async execute(params) {
         calls.push(params);
-        return { success: true, contentItems: [{ type: "inputText", text: "ready" }] };
+        return { success: true, contentItems: [{ type: "text", text: "ready" }] };
       },
     });
     const session = new CodexSession("review_sensitive", tools);
@@ -442,7 +444,7 @@ describe("CodexSession app-server contract", () => {
     });
     expect(events.find((event) => event.type === "turn.message.completed")?.payload).toEqual({
       itemId: "final-1",
-      phase: "final_answer",
+      phase: "final",
       text: "Complete answer",
       turnId: "turn-1",
     });
@@ -483,7 +485,7 @@ describe("CodexSession app-server contract", () => {
       kind: "assistant_text",
       textDelta: "Checking now.",
       itemId: "comment-1",
-      phase: "commentary",
+      phase: "interim",
       turnId: "turn-1",
     });
   });

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isClaudeEffort, type ClaudeThread, type ClaudeThreadRepository, type ClaudeThreadSummary } from "../ports/claude_thread_store.js";
+import { isClaudeEffort, type ClaudeThread, type ClaudeThreadRepository, type ClaudeThreadSummary } from "./thread_store.js";
+import { historyTurn, storedTokenUsage, storedTurnStatuses } from "./history.js";
 
 const threadFile = /^(claude-[0-9a-f-]{36})\.json$/;
 
@@ -16,7 +17,9 @@ export class ClaudeThreadStore implements ClaudeThreadRepository {
     if (!/^claude-[0-9a-f-]{36}$/.test(id)) throw new Error("Invalid Claude thread id.");
     const value = JSON.parse(readFileSync(join(this.directory, `${id}.json`), "utf8")) as ClaudeThread;
     validateSnapshot(value, id);
-    return value;
+    const { tokenUsage: savedUsage, ...thread } = value;
+    const tokenUsage = storedTokenUsage(savedUsage);
+    return { ...thread, turns: value.turns.map(historyTurn), ...(tokenUsage ? { tokenUsage } : {}) };
   }
   write(thread: ClaudeThread): void {
     validateSnapshot(thread, thread.id);
@@ -88,7 +91,7 @@ function validateSummary(value: ClaudeThreadSummary, id: string): void {
 
 function validateSnapshot(value: ClaudeThread, id: string): void {
   validateSummary(value, id);
-  if (!Array.isArray(value.turns) || value.turns.some(turn => !turn || typeof turn.id !== "string" || !["completed", "interrupted", "failed", "inProgress"].includes(turn.status) || !Array.isArray(turn.items) || turn.items.some(item => !item || typeof item.id !== "string" || typeof item.type !== "string"))) {
+  if (!Array.isArray(value.turns) || value.turns.some(turn => !turn || typeof turn.id !== "string" || !storedTurnStatuses.includes(turn.status) || !Array.isArray(turn.items) || turn.items.some(item => !item || typeof item.id !== "string" || typeof item.type !== "string"))) {
     throw new InvalidSnapshotError();
   }
 }

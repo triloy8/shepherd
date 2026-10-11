@@ -3,6 +3,11 @@ import type { AccountRateLimitsResponse } from "./account_types.js";
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const string = (value: unknown): string | null => typeof value === "string" && value.trim() ? value : null;
 const finite = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
+/** Codex display labels keep their punctuation and casing; only opaque limit IDs are humanized. */
+export function humanizeLimitId(value: string): string {
+  const label = value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  return label ? label[0]!.toUpperCase() + label.slice(1) : "Account allowance";
+}
 
 export function codexAccount(value: AccountRateLimitsResponse, now = Date.now() / 1000): ProviderAccountLimits {
   const groups = value.rateLimitsByLimitId && Object.keys(value.rateLimitsByLimitId).length ? value.rateLimitsByLimitId : { account: value.rateLimits }, windows: ProviderAccountLimits["windows"] = [];
@@ -11,7 +16,7 @@ export function codexAccount(value: AccountRateLimitsResponse, now = Date.now() 
     for (const key of ["primary", "secondary"]) {
       const window = record(group[key]); if (!Object.keys(window).length) continue;
       const used = finite(window.usedPercent);
-      windows.push({ id: `${id}:${key}`, groupId: id, label: string(group.limitName) ?? string(group.limitId) ?? "Account allowance", subtitle: key === "primary" ? "Primary window" : "Secondary window",
+      windows.push({ id: `${id}:${key}`, groupId: id, label: string(group.limitName)?.trim() ?? humanizeLimitId(string(group.limitId) ?? ""), subtitle: key === "primary" ? "Primary window" : "Secondary window",
         durationMinutes: finite(window.windowDurationMins), usedPercent: used, resetsAt: finite(window.resetsAt), status: used === null ? null : used >= 100 ? "limited" : used >= 90 ? "warning" : "available", observedAt: now, stale: false });
     }
   }

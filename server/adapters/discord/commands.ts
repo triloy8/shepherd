@@ -192,11 +192,16 @@ function formatRateLimitsForDiscord(limits: import("../../../shared/protocol/acc
   ].join("\n");
 }
 
+/** Null counts are ones the provider does not report. */
+function formatOptionalCount(value: unknown): string {
+  return value === null ? "not reported" : formatNumber(value);
+}
+
 function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): string {
   const usage = asRecord(tokenUsage);
   const last = asRecord(usage.last);
   const total = asRecord(usage.total);
-  const contextWindow = asNumber(usage.modelContextWindow);
+  const contextWindow = asNumber(usage.contextWindow);
 
   const lastTotalTokens = asNumber(last.totalTokens);
   const effectiveWindow =
@@ -228,16 +233,18 @@ function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): s
     "",
     `**Last Token Usage**`,
     `- Input: ${formatNumber(last.inputTokens)}`,
-    `- Cached input: ${formatNumber(last.cachedInputTokens)}`,
+    `- Cache read: ${formatOptionalCount(last.cacheReadInputTokens)}`,
+    `- Cache write: ${formatOptionalCount(last.cacheWriteInputTokens)}`,
     `- Output: ${formatNumber(last.outputTokens)}`,
-    `- Reasoning output: ${formatNumber(last.reasoningOutputTokens)}`,
+    `- Reasoning output: ${formatOptionalCount(last.reasoningOutputTokens)}`,
     `- Total: ${formatNumber(last.totalTokens)}`,
     "",
     `**Total Token Usage**`,
     `- Input: ${formatNumber(total.inputTokens)}`,
-    `- Cached input: ${formatNumber(total.cachedInputTokens)}`,
+    `- Cache read: ${formatOptionalCount(total.cacheReadInputTokens)}`,
+    `- Cache write: ${formatOptionalCount(total.cacheWriteInputTokens)}`,
     `- Output: ${formatNumber(total.outputTokens)}`,
-    `- Reasoning output: ${formatNumber(total.reasoningOutputTokens)}`,
+    `- Reasoning output: ${formatOptionalCount(total.reasoningOutputTokens)}`,
     `- Total: ${formatNumber(total.totalTokens)}`,
   ].join("\n");
 }
@@ -246,7 +253,7 @@ function formatThreadModelForDiscord(modelState: ThreadModelState): string {
   const lines = [
     `- Thread: ${modelState.threadId}`,
     `- Current: ${modelState.currentModel ?? "unknown"}`,
-    `- Provider: ${modelState.modelProvider ?? "unknown"}`,
+    `- Agent: ${modelState.provider}`,
   ];
   if (modelState.pendingModel) {
     lines.push(`- Pending next turn: ${modelState.pendingModel}`);
@@ -384,7 +391,7 @@ export async function handleMessage(
 
   if (command === "!providers") {
     const providers = context.conversation.listProviders();
-    await replyCard(message, "Available agents", providers.map(provider => `- ${provider.displayName}: \`${provider.id}\``).join("\n") || "No agent providers are registered.");
+    await replyCard(message, "Available agents", providers.map(provider => `- ${provider.displayName}: \`${provider.id}\`${provider.isDefault ? " (default)" : ""}`).join("\n") || "No agent providers are registered.");
     return { handled: true, threadId: null, input: null };
   }
 
@@ -726,7 +733,7 @@ export async function handleMessage(
         `- Model: ${state.model}`,
         `- Current: ${state.currentEffort ?? "unknown"}`,
         `- Model default: ${state.defaultEffort ?? "unknown"}`,
-        `- Available: ${state.supportedEfforts.map((option) => option.reasoningEffort).join(", ") || "none"}`,
+        `- Available: ${state.supportedEfforts.map((option) => option.value).join(", ") || "none"}`,
       ];
       if (state.pendingEffort) lines.push(`- Pending next turn: ${state.pendingEffort}`);
       if (args.length) lines.push("Applies to the next new turn and subsequent turns.");

@@ -28,7 +28,7 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
     disposeSurface(id: string) { calls.push(`dispose:${id}`); bindings.delete(id); },
     conversation: {
       getThreadProvider: () => "fixture",
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } }],
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, resets: false } }],
 
       async listStoredThreads(request: unknown) { calls.push("threads"); return { threads: [{ threadId: "stored" }], nextCursor: null, backwardsCursor: null }; },
       async listThreadTurns(threadId: string, request: unknown) { calls.push(`history:${threadId}`); return { data: [{ id: "turn", items: [] }], nextCursor: null, backwardsCursor: null }; },

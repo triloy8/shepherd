@@ -38,7 +38,7 @@ test("web image input rejects unsupported content, remote URLs, invalid base64, 
 
 test("history permits inline raster previews and strips remote or invalid image URLs", async () => {
   const h = webHarness();
-  h.application.conversation.listThreadTurns = async () => ({ data: [{ id: "turn", items: [{ id: "user", type: "userMessage", content: [{ type: "image", url: png }, { type: "image", url: "https://evil.test/track" }, { type: "image", url: "data:image/svg+xml;base64,PHN2Zy8+" }] }] }], nextCursor: null, backwardsCursor: null });
+  h.application.conversation.listThreadTurns = async () => ({ data: [{ id: "turn", items: [{ id: "user", type: "user_message", content: [{ type: "image", url: png }, { type: "image", url: "https://evil.test/track" }, { type: "image", url: "data:image/svg+xml;base64,PHN2Zy8+" }] }] }], nextCursor: null, backwardsCursor: null });
   try {
     const c = await h.create();
     const response = await (await h.request(`/conversations/${c.id}/turns`)).json();

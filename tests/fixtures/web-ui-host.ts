@@ -1,4 +1,3 @@
-import { historyItem } from "../../server/providers/history_mapper";
 import { installWebSkills } from "../helpers/web_skills_harness";
 import { installWebSettings } from "../helpers/web_settings_harness";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
@@ -7,7 +6,8 @@ import { join } from "node:path";
 // Local browser-test fixture. Never imported by production entrypoints.
 import { createWebAdapter } from "../../server/adapters/web/server.js";
 import { webHarness } from "../helpers/web_harness.js";
-import type { HistoryTurn, StoredThreadSummary } from "../../shared/protocol/requests.js";
+import type { HistoryItem, HistoryTurn, StoredThreadSummary } from "../../shared/protocol/requests.js";
+import type { TurnActivityEvent } from "../../shared/protocol/events.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
 const h = webHarness();
@@ -18,9 +18,9 @@ const createThread = h.application.createSurfaceThread;
 h.application.createSurfaceThread = async (id, provider = "codex") => { const threadId = await createThread(id); threadProviders.set(threadId, provider); return threadId; };
 Object.assign(h.application.conversation, {
   listProviders: () => [
-    { id: "codex", displayName: "Codex", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: ["read_only", "workspace_write", "unrestricted"], approvalModes: ["provider_default", "review_sensitive", "review_untrusted", "bypass"], inputKinds: ["text", "image", "localImage", "audio", "localAudio", "skill", "mention"], textAnnotations: true, imageDetail: true, ephemeralThreads: true, resets: true } },
-    { id: "claude", displayName: "Claude", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: true, sandboxModes: ["unrestricted"], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } },
-    { id: "fixture-text-only", displayName: "Text agent", capabilities: { questions: false, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive"], inputKinds: ["text"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } },
+    { id: "codex", displayName: "Codex", isDefault: true, capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: ["read_only", "workspace_write", "unrestricted"], approvalModes: ["provider_default", "review_sensitive", "review_untrusted", "bypass"], inputKinds: ["text", "image", "image_file", "audio", "audio_file", "skill"], imageDetail: true, ephemeralThreads: true, resets: true } },
+    { id: "claude", displayName: "Claude", isDefault: false, capabilities: { questions: true, skills: false, compact: false, revert: false, fork: true, sandboxModes: ["unrestricted"], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image"], imageDetail: false, ephemeralThreads: false, resets: false } },
+    { id: "fixture-text-only", displayName: "Text agent", isDefault: false, capabilities: { questions: false, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive"], inputKinds: ["text"], imageDetail: false, ephemeralThreads: false, resets: false } },
   ],
   getThreadProvider: (threadId: string) => threadProviders.get(threadId) ?? "codex",
   async readAccount(provider: string) {
@@ -43,16 +43,21 @@ await mkdir(uploadDir, { recursive: true });
 for (const name of ["first.png", "second.png", "only.png", "2.png", "3.png", "4.png", "5.png"]) await writeFile(join(uploadDir, name), await readFile(imagePath));
 await writeFile(join(uploadDir, "bad.svg"), "<svg/>");
 const histories = new Map<string, HistoryTurn[]>([["stored", [{ id: "past", status: "completed", itemsView: "full", error: null, startedAt: 1, completedAt: 2, durationMs: 1000, items: [
-  { id: "question", type: "userMessage", content: [{ type: "text", text: "Where did we leave off?" }] },
-  { id: "answer", type: "agentMessage", text: "The shared API is ready. Next, we’re building a **private workspace** for conversations, live responses, and approvals.\n\nEverything runs in the same Shepherd host." },
+  { id: "question", type: "user_message", content: [{ type: "text", text: "Where did we leave off?" }] },
+  { id: "answer", type: "assistant_message", text: "The shared API is ready. Next, we’re building a **private workspace** for conversations, live responses, and approvals.\n\nEverything runs in the same Shepherd host." },
 ] }]]]);
+function previewText(item: HistoryItem | undefined): string {
+  const part = item?.type === "user_message" ? item.content[0] : undefined;
+  return part?.type === "text" ? part.text : "New conversation";
+}
+const activity = (itemId: string, turnId: string, kind: TurnActivityEvent["payload"]["kind"], label: string, detail: string | null, status: TurnActivityEvent["payload"]["status"]) => ({ itemId, turnId, kind, label, detail, status });
 const names = new Map<string, string>();
 const archivedIds = new Set<string>();
-const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: String((turns[0]?.items[0]?.content as Array<{ text: string }> | undefined)?.[0]?.text ?? "New conversation"), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2, source: "appServer" }));
+const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: previewText(turns[0]?.items[0]), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2 }));
 h.application.conversation.listStoredThreads = async (request) => ({ threads: stored().filter((thread) => thread.archived === Boolean((request as { archived?: boolean }).archived)), nextCursor: null, backwardsCursor: null });
 histories.set("paged", Array.from({ length: 35 }, (_, index): HistoryTurn => ({ id: `paged-${index}`, status: "completed", itemsView: "full", error: null, startedAt: index, completedAt: index + 1, durationMs: 1000, items: [
-  { id: `paged-user-${index}`, type: "userMessage", content: [{ type: "text", text: `History turn ${index}` }] },
-  { id: `paged-agent-${index}`, type: "agentMessage", phase: "final_answer", text: `History response ${index}` },
+  { id: `paged-user-${index}`, type: "user_message", content: [{ type: "text", text: `History turn ${index}` }] },
+  { id: `paged-agent-${index}`, type: "assistant_message", phase: "final", text: `History response ${index}` },
 ] })));
 names.set("paged", "Paginated history");
 h.application.conversation.listThreadTurns = async (threadId, request) => {
@@ -95,10 +100,11 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   const text = request.input.filter((item) => item.type === "text").map((item) => (item as { text: string }).text).join("\n");
   const turnId = `turn-${++sequence}`;
   const itemId = `agent-${sequence}`;
-  const turn: HistoryTurn = { id: turnId, status: "inProgress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: `user-${sequence}`, type: "userMessage", content: structuredClone(request.input) }] };
+  const content = request.input.map((part) => part.type === "text" ? { type: "text" as const, text: part.text } : part.type === "image" ? { type: "image" as const, url: part.url } : { type: "attachment" as const, name: null, path: null });
+  const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: `user-${sequence}`, type: "user_message", content }] };
   histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
   h.active.set(threadId, turnId); publish(threadId, "turn.started", { turnId });
-  const progress = { id: `progress-${sequence}`, type: "agentMessage", phase: "commentary", text: "I’ll check the project first." };
+  const progress = { id: `progress-${sequence}`, type: "assistant_message" as const, phase: "interim" as const, text: "I’ll check the project first." };
   turn.items.push(progress);
   publish(threadId, "turn.message.completed", { itemId: progress.id, turnId, phase: progress.phase, text: progress.text });
   if (text.includes("provider question")) {
@@ -123,36 +129,36 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   later(120, () => {
     if (h.active.get(threadId) !== turnId) return;
     if (text.includes("generate unicorn")) {
-      const image = { id: `generated-${sequence}`, type: "imageGeneration", status: "completed", savedPath: generatedImagePath, revisedPrompt: "A white unicorn in an enchanted meadow" };
-      turn.items.push(historyItem(image, turnId));
-      publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: image.savedPath, revisedPrompt: image.revisedPrompt });
-    } else publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final_answer", textDelta: text.includes("mermaid streaming") ? mermaidResponse.slice(0, mermaidResponse.indexOf("Ship")) : text.includes("markdown streaming") ? markdownResponse.slice(0, markdownResponse.indexOf("42")) : "Let’s make it happen." });
+      const image = { itemId: `generated-${sequence}`, turnId, path: generatedImagePath, revisedPrompt: "A white unicorn in an enchanted meadow" };
+      turn.items.push({ id: image.itemId, type: "image", image: { ...image, kind: "generated" } });
+      publish(threadId, "turn.image.generated", image);
+    } else publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final", textDelta: text.includes("mermaid streaming") ? mermaidResponse.slice(0, mermaidResponse.indexOf("Ship")) : text.includes("markdown streaming") ? markdownResponse.slice(0, markdownResponse.indexOf("42")) : "Let’s make it happen." });
   });
   if (text.includes("markdown streaming")) later(350, () => {
-    if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final_answer", textDelta: "42;\n" });
+    if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final", textDelta: "42;\n" });
   });
   if (text.includes("mermaid streaming")) later(350, () => {
-    if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final_answer", textDelta: "Ship]\n" });
+    if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final", textDelta: "Ship]\n" });
   });
   later(650, () => {
     if (!h.active.get(threadId)) return;
-    turn.items.push({ id: itemId, type: "agentMessage", phase: "final_answer", text: response });
-    publish(threadId, "turn.message.completed", { itemId, turnId, phase: "final_answer", text: response });
+    turn.items.push({ id: itemId, type: "assistant_message", phase: "final", text: response });
+    publish(threadId, "turn.message.completed", { itemId, turnId, phase: "final", text: response });
     if (text.includes("view screenshot") || text.includes("answer screenshot")) {
-      const image = { id: `view-${sequence}`, type: "imageView", path: viewedImagePath };
-      turn.items.push(historyItem(image, turnId));
+      const image = { id: `view-${sequence}`, path: viewedImagePath };
+      turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: image.path, kind: "viewed" }, activity: activity(image.id, turnId, "image", "Viewing image", image.path, "completed") });
       publish(threadId, "turn.activity", { itemId: image.id, turnId, kind: "image", label: "Viewing image", detail: image.path, status: "started" });
       publish(threadId, "turn.image.viewed", { itemId: image.id, turnId, path: image.path });
       publish(threadId, "turn.activity", { itemId: image.id, turnId, kind: "image", label: "Viewing image", detail: image.path, status: "completed" });
     }
     if (text.includes("parity")) {
-      const tool = { id: `tool-${sequence}`, type: "commandExecution", command: "bun test", status: "failed" };
-      turn.items.push(historyItem(tool, turnId));
+      const tool = { id: `tool-${sequence}`, command: "bun test" };
+      turn.items.push({ id: tool.id, type: "activity", activity: activity(tool.id, turnId, "command", "Running command", tool.command, "failed") });
       publish(threadId, "turn.activity", { itemId: tool.id, turnId, kind: "command", label: "Running command", detail: tool.command, status: "failed" });
-      const image = { id: `image-${sequence}`, type: "imageGeneration", status: "completed", savedPath: imagePath, revisedPrompt: "Fixture image" };
-      turn.items.push(historyItem(image, turnId));
+      const image = { id: `image-${sequence}`, revisedPrompt: "Fixture image" };
+      turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, revisedPrompt: image.revisedPrompt, kind: "generated" }, activity: activity(image.id, turnId, "image", "Generating image", image.revisedPrompt, "completed") });
       publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: imagePath, revisedPrompt: image.revisedPrompt });
-      const final = { id: `final-${sequence}`, type: "agentMessage", phase: "final_answer", text: "Second final answer part." };
+      const final = { id: `final-${sequence}`, type: "assistant_message" as const, phase: "final" as const, text: "Second final answer part." };
       turn.items.push(final);
       publish(threadId, "turn.message.completed", { itemId: final.id, turnId, phase: final.phase, text: final.text });
     }
@@ -176,13 +182,14 @@ Object.assign(h.application.conversation, {
   async compactThread(threadId: string) {
     const turnId = `compact-${++sequence}`;
     const itemId = `compaction-${sequence}`;
-    const turn: HistoryTurn = { id: turnId, status: "inProgress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: itemId, type: "contextCompaction", status: "inProgress" }] };
+    const compaction = activity(itemId, turnId, "other", "Compacting context", null, "started");
+    const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: itemId, type: "activity", activity: compaction }] };
     histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
     h.active.set(threadId, turnId);
     publish(threadId, "turn.started", { turnId });
     publish(threadId, "turn.activity", { turnId, itemId, kind: "other", label: "Compacting context", detail: null, status: "started" });
     later(1000, () => {
-      turn.items[0]!.status = "completed";
+      compaction.status = "completed";
       publish(threadId, "turn.activity", { turnId, itemId, kind: "other", label: "Compacting context", detail: null, status: "completed" });
       finish(threadId);
     });
@@ -199,9 +206,9 @@ h.context.approvals.applyApprovalDecision = async (threadId, id, decision) => {
   if (request?.userInput) {
     const turn = histories.get(threadId)!.at(-1)!;
     const text = request.choices.find(choice => choice.value === decision.decision)?.intent === "cancel" ? "Questions skipped. No provider choice was submitted." : `Thanks. I’ll use your answer: **${decision.answers?.provider?.answers[0]}**.`;
-    const message = { id: `answer-${++sequence}`, type: "agentMessage", phase: "final_answer", text };
+    const message = { id: `answer-${++sequence}`, type: "assistant_message" as const, phase: "final" as const, text };
     turn.items.push(message);
-    publish(threadId, "turn.message.completed", { itemId: message.id, turnId: turn.id, phase: "final_answer", text });
+    publish(threadId, "turn.message.completed", { itemId: message.id, turnId: turn.id, phase: "final", text });
   }
   publish(threadId, "approval.applied", { approvalId: id }); finish(threadId);
 };

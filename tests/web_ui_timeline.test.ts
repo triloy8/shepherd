@@ -9,9 +9,9 @@ import type { BridgeEvent } from "../shared/protocol/events";
 
 const turn = (status: HistoryTurn["status"] = "completed"): HistoryTurn => ({
   id: "turn", status, itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: 3200,
-  items: [{ id: "user", type: "userMessage", content: [{ type: "text", text: "Help" }] },
-    { id: "progress", type: "agentMessage", phase: "commentary", text: "Checking the project" },
-    { id: "answer", type: "agentMessage", phase: "final_answer", text: "The answer" }],
+  items: [{ id: "user", type: "user_message", content: [{ type: "text", text: "Help" }] },
+    { id: "progress", type: "assistant_message", phase: "interim", text: "Checking the project" },
+    { id: "answer", type: "assistant_message", phase: "final", text: "The answer" }],
 });
 const event = (id: string, type: BridgeEvent["type"], payload: unknown): BridgeEvent => ({ id, type, payload, threadId: "thread", sessionId: "session", ts: "2026-01-01T00:00:00Z" });
 const render = (state: ReturnType<typeof emptyChat>) => renderToStaticMarkup(createElement(Timeline, { chat: state }));
@@ -28,10 +28,10 @@ test("completed history folds commentary with only the final answer copyable", (
 });
 
 test("live message completion does not fold a running turn or add copy buttons", () => {
-  let state = mergeHistory(emptyChat(), [turn("inProgress")]);
+  let state = mergeHistory(emptyChat(), [turn("in_progress")]);
   state.activeTurnId = "turn";
-  state = reduceBridge(state, event("done", "turn.message.completed", { turnId: "turn", itemId: "progress", phase: "commentary", text: "Checking the project" }));
-  expect(state.messages.find((m) => m.id === "progress")?.phase).toBe("commentary");
+  state = reduceBridge(state, event("done", "turn.message.completed", { turnId: "turn", itemId: "progress", phase: "interim", text: "Checking the project" }));
+  expect(state.messages.find((m) => m.id === "progress")?.phase).toBe("interim");
   expect(render(state)).not.toContain("<details");
   expect(render(state)).not.toContain('aria-label="Copy response"');
   expect(render(state)).toContain("Working…");
@@ -62,28 +62,28 @@ test("unphased legacy history uses the last message; commentary-only turns have 
 
 test("user follow-ups stay outside progress and preserve timeline order", () => {
   const history = turn();
-  history.items.splice(2, 0, { id: "followup", type: "userMessage", content: [{ type: "text", text: "Also this" }] });
+  history.items.splice(2, 0, { id: "followup", type: "user_message", content: [{ type: "text", text: "Also this" }] });
   const groups = timelineGroups(mergeHistory(emptyChat(), [history]));
   expect(groups.map((g) => g.id)).toEqual(["user", "progress", "followup", "answer"]);
 });
 
 test("streamed phases survive completion without a repeated phase", () => {
-  let state = reduceBridge(emptyChat(), event("delta", "turn.stream.delta", { kind: "assistant_text", itemId: "progress", turnId: "turn", phase: "commentary", textDelta: "Checking" }));
+  let state = reduceBridge(emptyChat(), event("delta", "turn.stream.delta", { kind: "assistant_text", itemId: "progress", turnId: "turn", phase: "interim", textDelta: "Checking" }));
   state = reduceBridge(state, event("done", "turn.message.completed", { itemId: "progress", turnId: "turn", text: "Checking done" }));
-  expect(state.messages[0]!.phase).toBe("commentary");
+  expect(state.messages[0]!.phase).toBe("interim");
 });
 
 test("legacy follow-ups never promote an earlier update to another final answer", () => {
   const history = turn();
   for (const item of history.items) delete item.phase;
-  history.items.splice(2, 0, { id: "followup", type: "userMessage", content: [{ type: "text", text: "Also this" }] });
+  history.items.splice(2, 0, { id: "followup", type: "user_message", content: [{ type: "text", text: "Also this" }] });
   const groups = timelineGroups(mergeHistory(emptyChat(), [history]));
   expect(groups.flatMap((g) => g.finalIds)).toEqual(["answer"]);
 });
 
 test("activity after an explicit final answer retains its position", () => {
   const history = turn();
-  history.items.push({ id: "trailing", type: "agentMessage", phase: "commentary", text: "Follow-up update" });
+  history.items.push({ id: "trailing", type: "assistant_message", phase: "interim", text: "Follow-up update" });
   const state = mergeHistory(emptyChat(), [history]);
   const html = render(state);
   expect(html).toContain("The answer");
@@ -91,13 +91,13 @@ test("activity after an explicit final answer retains its position", () => {
 });
 
 test("history without phase metadata preserves known streamed phase", () => {
-  const state = reduceBridge(emptyChat(), event("delta", "turn.message.completed", { itemId: "progress", turnId: "turn", phase: "commentary", text: "Checking the project" }));
+  const state = reduceBridge(emptyChat(), event("delta", "turn.message.completed", { itemId: "progress", turnId: "turn", phase: "interim", text: "Checking the project" }));
   const history = turn(); delete history.items[1]!.phase;
-  expect(mergeHistory(state, [history]).messages.find((m) => m.id === "progress")?.phase).toBe("commentary");
+  expect(mergeHistory(state, [history]).messages.find((m) => m.id === "progress")?.phase).toBe("interim");
 });
 
 test("all explicit final messages remain visible and copyable", () => {
-  const history = turn(); history.items.push({ id: "answer2", type: "agentMessage", phase: "final_answer", text: "Second answer part" });
+  const history = turn(); history.items.push({ id: "answer2", type: "assistant_message", phase: "final", text: "Second answer part" });
   const state = mergeHistory(emptyChat(), [history]);
   expect(timelineGroups(state).flatMap((g) => g.finalIds)).toEqual(["answer", "answer2"]);
   expect(render(state).match(/aria-label="Copy response"/g)).toHaveLength(2);
@@ -152,17 +152,17 @@ test("generated images and final text share one assistant response live and afte
   expect(html.indexOf("Shepherd")).toBeLessThan(html.indexOf("<img"));
   expect(html).toContain("Generation details");
   expect(html).not.toContain(" open=");
-  state = reduceBridge(state, event("answer", "turn.message.completed", { itemId: "answer", turnId: "turn", phase: "final_answer", text: "Your unicorn is ready." }));
+  state = reduceBridge(state, event("answer", "turn.message.completed", { itemId: "answer", turnId: "turn", phase: "final", text: "Your unicorn is ready." }));
   html = render(state);
   expect(timelineGroups(state)).toHaveLength(1);
   expect(timelineGroups(state)[0]!.finalIds).toEqual(["image", "answer"]);
   expect(html.match(/>Shepherd</g)).toHaveLength(1);
   expect(html.indexOf("<img")).toBeLessThan(html.indexOf("Your unicorn is ready."));
-  const multipart = reduceBridge(state, event("answer2", "turn.message.completed", { itemId: "answer2", turnId: "turn", phase: "final_answer", text: "It has a rainbow mane." }));
+  const multipart = reduceBridge(state, event("answer2", "turn.message.completed", { itemId: "answer2", turnId: "turn", phase: "final", text: "It has a rainbow mane." }));
   expect(timelineGroups(multipart)).toHaveLength(1);
   expect(render(multipart).match(/>Shepherd</g)).toHaveLength(1);
   const history = turn();
-  history.items = [{ id: "image", type: "imageGeneration", webImage: image }, { id: "answer", type: "agentMessage", phase: "final_answer", text: "Your unicorn is ready." }];
+  history.items = [{ id: "image", type: "image", webImage: image }, { id: "answer", type: "assistant_message", phase: "final", text: "Your unicorn is ready." }];
   state = mergeHistory(emptyChat(), [history]);
   html = render(state);
   expect(timelineGroups(state)).toHaveLength(1);
@@ -172,7 +172,7 @@ test("generated images and final text share one assistant response live and afte
 });
 
 test("viewed images fold with work while images embedded in final answers stay visible", () => {
-  let state = mergeHistory(emptyChat(), [turn("inProgress")]);
+  let state = mergeHistory(emptyChat(), [turn("in_progress")]);
   state.activeTurnId = "turn";
   state = reduceBridge(state, event("view", "turn.image.viewed", { itemId: "view", turnId: "turn", name: "screenshot.png", path: "/tmp/screenshot.png", url: "/api/conversations/abc/images/def" }));
   let html = render(state);
@@ -206,7 +206,7 @@ test("superseded and completed turns cannot restart from late events", () => {
 
 test("a stale history snapshot cannot regress finished tool activity", () => {
   let state = reduceBridge(emptyChat(), event("tool", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "failed" }));
-  const history = turn("inProgress");
+  const history = turn("in_progress");
   history.items.push({ id: "tool", type: "commandExecution", webActivity: { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "started" } });
   state = mergeHistory(state, [history]);
   expect(state.messages.find((m) => m.id === "tool")?.activity?.status).toBe("failed");

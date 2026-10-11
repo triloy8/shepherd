@@ -72,8 +72,8 @@ function makeContext(overrides?: {
   listSkills?: () => Promise<unknown>;
   writeSkillConfig?: (threadId: string, request: { path: string; enabled: boolean }) => Promise<{ effectiveEnabled: boolean }>;
   listModels?: () => Promise<unknown>;
-  getThreadModel?: () => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
-  setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
+  getThreadModel?: () => { threadId: string; currentModel: string | null; provider: string; pendingModel: string | null };
+  setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; provider: string; pendingModel: string | null };
   getSurfaceProject?: () => string | null;
   setSurfaceProject?: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
@@ -147,19 +147,19 @@ function makeContext(overrides?: {
         };
       },
       getThreadProvider: () => "fixture",
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } }],
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, resets: false } }],
       async readAccount() { return account("fixture", "pro"); },
       async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
-        return { threadId, tokenUsage: { total: { totalTokens: 42 }, last: {}, modelContextWindow: 128000 } };
+        return { threadId, tokenUsage: { total: { totalTokens: 42 }, last: {}, contextWindow: 128000 } };
       },
       getThreadModel() {
         if (overrides?.getThreadModel) return overrides.getThreadModel();
         return {
           threadId: "thread-1",
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: null,
         };
       },
@@ -169,7 +169,7 @@ function makeContext(overrides?: {
         return {
           threadId,
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: model,
         };
       },
@@ -406,6 +406,20 @@ describe("Discord !skill commands", () => {
     expect(embed.description).toContain("**Total Token Usage**");
   });
 
+  test("distinguishes token counts the provider does not report from unknown values", async () => {
+    const { message, replies } = makeMessage("!context");
+    const breakdown = { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 5, reasoningOutputTokens: null, totalTokens: 15 };
+    const { context } = makeContext({ readThreadTokenUsage: async (threadId) => ({ threadId, tokenUsage: { last: breakdown, total: breakdown, contextWindow: 100 } }) });
+
+    await handleMessage(message as never, context);
+
+    const description = replyCardAt(replies).description;
+    expect(description).toContain("- Cache read: 4");
+    expect(description).toContain("- Cache write: not reported");
+    expect(description).toContain("- Reasoning output: not reported");
+    expect(description).toContain("- Context left: 85%");
+  });
+
   test("renders skill and thread listings as Components V2 cards", async () => {
     const skills = makeMessage("!skills");
     const threads = makeMessage("!threads");
@@ -486,7 +500,7 @@ describe("Discord !skill commands", () => {
         return {
           threadId: "thread-1",
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: "gpt-5.3-codex",
         };
       },

@@ -20,7 +20,7 @@ export function UsageLimits({ defaultProvider, onOpen, onClosed }: { defaultProv
   useEffect(() => {
     if (!open) return;
     const abort = new AbortController();
-    void api.providers(abort.signal).then(value => { if (!abort.signal.aborted) { setProviders(value.providers); setProvider(current => value.providers.find(entry => pendingMemory.current.has(entry.id) || readAccountReset(entry.id))?.id || value.providers.find(entry => entry.id === defaultProvider)?.id || value.providers.find(entry => entry.id === current)?.id || value.providers[0]?.id || ""); } }).catch(failure => { if (!abort.signal.aborted) setError(explainError(failure)); });
+    void api.providers(abort.signal).then(value => { if (!abort.signal.aborted) { setProviders(value.providers); setProvider(current => value.providers.find(entry => pendingMemory.current.has(entry.id) || readAccountReset(entry.id))?.id || value.providers.find(entry => entry.id === defaultProvider)?.id || value.providers.find(entry => entry.id === current)?.id || (value.providers.find(entry => entry.isDefault) ?? value.providers[0])?.id || ""); } }).catch(failure => { if (!abort.signal.aborted) setError(explainError(failure)); });
     return () => abort.abort();
   }, [open]);
   useEffect(() => {

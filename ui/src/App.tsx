@@ -211,7 +211,7 @@ export default function App() {
   useEffect(() => {
     const abort = new AbortController();
     void api.providers(abort.signal).then(value => {
-      if (!abort.signal.aborted) { setProviders(value.providers); setProvider(current => value.providers.some(entry => entry.id === current) ? current : value.providers[0]?.id ?? ""); }
+      if (!abort.signal.aborted) { setProviders(value.providers); setProvider(current => value.providers.some(entry => entry.id === current) ? current : (value.providers.find(entry => entry.isDefault) ?? value.providers[0])?.id ?? ""); }
     }).catch(failure => { if (!abort.signal.aborted) setError(explainError(failure)); });
     return () => abort.abort();
   }, []);
@@ -347,7 +347,7 @@ export default function App() {
               return { ...all, [selected.threadId]: { text: "", revision: revision + 1 } };
             })}
             send={controller.send} disabled={controller.connection !== "online"} busy={controller.busy} active={active} interrupt={() => { void controller.interrupt(); }} />
-          <ConversationControls key={`controls:${selected.id}`} conversation={selected} draft={drafts[selected.threadId]?.text ?? ""} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
+          <ConversationControls key={`controls:${selected.id}`} conversation={selected} capabilities={controller.capabilities} draft={drafts[selected.threadId]?.text ?? ""} activeTurnId={controller.chat.activeTurnId} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} onHistoryChange={controller.refresh} />
         </div></div>
       </section>}
     </main>

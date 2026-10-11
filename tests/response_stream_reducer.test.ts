@@ -20,7 +20,7 @@ function makeEvent<K extends BridgeEvent["type"]>(type: K, payload: import("../s
 
 function delta(
   textDelta: string,
-  phase: "commentary" | "final_answer",
+  phase: "interim" | "final",
   itemId: string,
   turnId = "turn-1",
 ): BridgeEvent {
@@ -51,13 +51,13 @@ describe("ResponseStreamReducer", () => {
   });
 
   test("keeps commentary independent from the final answer", () => {
-    let reduction = reduceResponseStream(null, delta("thinking\nmore", "commentary", "comment-1"));
+    let reduction = reduceResponseStream(null, delta("thinking\nmore", "interim", "comment-1"));
     expect(reduction.type).toBe("updated");
     if (reduction.type !== "updated") throw new Error("expected update");
     expect(reduction.state.activeCommentary?.text).toBe("thinking\nmore");
     expect(getFinalResponseText(reduction.state)).toBe("");
 
-    reduction = reduceResponseStream(reduction.state, delta("answer", "final_answer", "final-1"));
+    reduction = reduceResponseStream(reduction.state, delta("answer", "final", "final-1"));
     expect(reduction.type).toBe("updated");
     if (reduction.type !== "updated") throw new Error("expected update");
     expect(reduction.completedCommentary?.text).toBe("thinking\nmore");
@@ -66,10 +66,10 @@ describe("ResponseStreamReducer", () => {
   });
 
   test("finalizes commentary when its item changes", () => {
-    const first = reduceResponseStream(null, delta("first", "commentary", "comment-1"));
+    const first = reduceResponseStream(null, delta("first", "interim", "comment-1"));
     if (first.type !== "updated") throw new Error("expected update");
 
-    const second = reduceResponseStream(first.state, delta("second", "commentary", "comment-2"));
+    const second = reduceResponseStream(first.state, delta("second", "interim", "comment-2"));
     expect(second.type).toBe("updated");
     if (second.type !== "updated") throw new Error("expected update");
     expect(second.completedCommentary).toEqual({ itemId: "comment-1", text: "first" });
@@ -77,14 +77,14 @@ describe("ResponseStreamReducer", () => {
   });
 
   test("uses completed message text as the canonical fallback", () => {
-    const partial = reduceResponseStream(null, delta("partial", "final_answer", "final-1"));
+    const partial = reduceResponseStream(null, delta("partial", "final", "final-1"));
     if (partial.type !== "updated") throw new Error("expected update");
 
     const completed = reduceResponseStream(
       partial.state,
       makeEvent("turn.message.completed", {
         itemId: "final-1",
-        phase: "final_answer",
+        phase: "final",
         text: "complete final text",
         turnId: "turn-1",
       }),
@@ -94,9 +94,9 @@ describe("ResponseStreamReducer", () => {
   });
 
   test("preserves multiple final message items in order", () => {
-    const first = reduceResponseStream(null, delta("first answer", "final_answer", "final-1"));
+    const first = reduceResponseStream(null, delta("first answer", "final", "final-1"));
     if (first.type !== "updated") throw new Error("expected update");
-    const second = reduceResponseStream(first.state, delta("second answer", "final_answer", "final-2"));
+    const second = reduceResponseStream(first.state, delta("second answer", "final", "final-2"));
     if (second.type !== "updated") throw new Error("expected update");
 
     expect(getFinalResponseText(second.state)).toBe("first answer\n\nsecond answer");
@@ -111,12 +111,12 @@ describe("ResponseStreamReducer", () => {
           kind: "other",
           textDelta: "ignored",
           itemId: "item-1",
-          phase: "commentary",
+          phase: "interim",
           turnId: "turn-1",
         }),
       ),
     ).toEqual({ type: "none", state: initial });
-    expect(reduceResponseStream(initial, delta("late", "final_answer", "final-old", "turn-old"))).toEqual({
+    expect(reduceResponseStream(initial, delta("late", "final", "final-old", "turn-old"))).toEqual({
       type: "none",
       state: initial,
     });

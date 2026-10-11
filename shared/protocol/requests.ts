@@ -12,8 +12,8 @@ export type AgentProvider = string;
 export interface CreateThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
+  /** Added to the provider's default instructions; never replaces them. */
+  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -67,7 +67,6 @@ export interface StoredThreadSummary {
   archived: boolean;
   createdAt: number | null;
   updatedAt: number | null;
-  source: string | null;
   cwd: string | null;
 }
 
@@ -118,8 +117,8 @@ export interface ReadThreadResponse {
 export interface ResumeThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
+  /** Added to the provider's default instructions; never replaces them. */
+  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -134,8 +133,8 @@ export interface ResumeThreadResponse {
 export interface ForkThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
+  /** Added to the provider's default instructions; never replaces them. */
+  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -180,8 +179,6 @@ export interface ThreadRecord {
   createdAt?: number;
   updatedAt?: number;
   cwd?: string;
-  modelProvider?: string;
-  source?: string | null;
   turns?: HistoryTurn[];
 }
 
@@ -195,18 +192,24 @@ export interface ApprovalDecisionApiResponse {
   ok: true;
 }
 
+/**
+ * Token counts. Input includes cache reads and writes; output includes reasoning.
+ * Null means the provider does not report that count, which is different from zero.
+ */
 export interface TokenUsageBreakdown {
-  cachedInputTokens: number;
   inputTokens: number;
+  cacheReadInputTokens: number | null;
+  cacheWriteInputTokens: number | null;
   outputTokens: number;
-  reasoningOutputTokens: number;
+  reasoningOutputTokens: number | null;
   totalTokens: number;
 }
 
+/** `last` is the most recent model request, which fills the context window; `total` is cumulative. */
 export interface ThreadTokenUsage {
   last: TokenUsageBreakdown;
   total: TokenUsageBreakdown;
-  modelContextWindow?: number | null;
+  contextWindow: number | null;
 }
 
 export interface ReadThreadTokenUsageResponse {
@@ -221,15 +224,21 @@ export interface ListModelsRequest {
   includeHidden?: boolean;
 }
 
+/** An effort level offered by a model. Values are opaque provider-defined strings. */
+export interface EffortOption {
+  value: string;
+  description: string;
+}
+
+/** A selectable model. `id` is the value passed back as a thread or turn model. */
 export interface ModelSummary {
   id: string;
-  model: string;
   displayName: string;
   description: string;
   hidden: boolean;
   isDefault: boolean;
-  supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }>;
-  defaultReasoningEffort?: string | null;
+  supportedEfforts: EffortOption[];
+  defaultEffort: string | null;
 }
 
 export interface ListModelsResponse {
@@ -239,49 +248,26 @@ export interface ListModelsResponse {
 
 export interface ThreadModelState {
   threadId: string;
+  provider: AgentProvider;
   currentModel: string | null;
-  modelProvider: string | null;
   pendingModel: string | null;
 }
 
-export type SkillScope = "user" | "repo" | "system" | "admin";
+/** Where a skill was discovered, as reported by the provider (for example user, repo, or system). */
+export type SkillScope = string;
 
 export interface SkillsListRequest {
   cwds?: string[];
   forceReload?: boolean;
 }
 
-export interface SkillToolDependency {
-  type: string;
-  value: string;
-  command?: string | null;
-  description?: string | null;
-  transport?: string | null;
-  url?: string | null;
-}
-
-export interface SkillDependencies {
-  tools: SkillToolDependency[];
-}
-
-export interface SkillInterface {
-  brandColor?: string | null;
-  defaultPrompt?: string | null;
-  displayName?: string | null;
-  iconLarge?: string | null;
-  iconSmall?: string | null;
-  shortDescription?: string | null;
-}
-
+/** A skill available to a conversation's workspace. */
 export interface SkillMetadata {
-  dependencies?: SkillDependencies | null;
-  description: string;
-  enabled: boolean;
-  interface?: SkillInterface | null;
   name: string;
+  description: string;
   path: string;
   scope: SkillScope;
-  shortDescription?: string | null;
+  enabled: boolean;
 }
 
 export interface SkillErrorInfo {
@@ -314,32 +300,54 @@ export interface ThreadEffortState {
   currentEffort: string | null;
   pendingEffort: string | null;
   defaultEffort: string | null;
-  supportedEfforts: Array<{ reasoningEffort: string; description: string }>;
+  supportedEfforts: EffortOption[];
 }
+
+/** How much of each turn's item list a history page includes. */
+export type HistoryItemsView = "none" | "summary" | "full";
+export type TurnStatus = "completed" | "interrupted" | "failed" | "in_progress";
 
 export interface ListThreadTurnsRequest {
   cursor?: string;
   limit?: number;
   sortDirection?: SortDirection;
-  itemsView?: "notLoaded" | "summary" | "full";
+  itemsView?: HistoryItemsView;
 }
 
-export interface HistoryItem {
-  id: string;
-  type: string;
-  text?: string;
-  phase?: import("./events.js").MessagePhase;
-  content?: Array<{ type: string; text?: string; url?: string; path?: string; name?: string }>;
-  summary?: string[];
-  activity?: import("./events.js").TurnActivityEvent["payload"];
-  image?: { itemId: string; turnId: string | null; path: string; revisedPrompt?: string | null; kind: "generated" | "viewed" };
+/** User message content as recorded in history. Image URLs are absent when withheld or unavailable. */
+export type HistoryContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; url?: string }
+  | { type: "image_file"; path: string }
+  | { type: "attachment"; name: string | null; path: string | null };
+
+export interface HistoryImage {
+  itemId: string;
+  turnId: string | null;
+  path: string;
+  revisedPrompt?: string | null;
+  kind: "generated" | "viewed";
 }
+
+type HistoryActivity = import("./events.js").TurnActivityEvent["payload"];
+
+/** Application history records. Adapters decode native transcripts into these before they leave the provider. */
+export type HistoryItem =
+  | { id: string; type: "user_message"; content: HistoryContentPart[] }
+  | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }
+  | { id: string; type: "plan"; text: string }
+  | { id: string; type: "reasoning"; summary: string[] }
+  | { id: string; type: "activity"; activity: HistoryActivity; output?: string }
+  | { id: string; type: "image"; image: HistoryImage; activity?: HistoryActivity }
+  | { id: string; type: "other" };
+
+export type HistoryItemType = HistoryItem["type"];
 
 export interface HistoryTurn {
   id: string;
   items: HistoryItem[];
-  itemsView: "notLoaded" | "summary" | "full";
-  status: "completed" | "interrupted" | "failed" | "inProgress";
+  itemsView: HistoryItemsView;
+  status: TurnStatus;
   error: { message: string } | null;
   startedAt: number | null;
   completedAt: number | null;

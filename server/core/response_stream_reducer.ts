@@ -107,7 +107,7 @@ export function reduceResponseStream(
     if (
       payload.kind !== "assistant_text" ||
       !delta ||
-      (phase !== "commentary" && phase !== "final_answer") ||
+      (phase !== "interim" && phase !== "final") ||
       !sameTurn(state, payload.turnId)
     ) {
       return { type: "none", state };
@@ -117,7 +117,7 @@ export function reduceResponseStream(
     const itemId = payload.itemId ?? null;
     let completedCommentary: AccumulatedMessage | null = null;
 
-    if (phase === "commentary") {
+    if (phase === "interim") {
       if (next.activeCommentary && next.activeCommentary.itemId !== itemId) {
         const completed = completeCommentary(next);
         next = completed.state;
@@ -150,7 +150,7 @@ export function reduceResponseStream(
 
     const phase = payload.phase ?? null;
     const text = payload.text ?? "";
-    if (phase === "commentary") {
+    if (phase === "interim") {
       const active =
         state.activeCommentary?.itemId === payload.itemId
           ? { itemId: payload.itemId, text: text || state.activeCommentary.text }
@@ -163,7 +163,7 @@ export function reduceResponseStream(
       };
     }
 
-    if (phase === "final_answer") {
+    if (phase === "final") {
       return {
         type: "message-completed",
         phase,

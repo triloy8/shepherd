@@ -5,13 +5,22 @@ import { join } from "node:path";
 import type { ProviderServices } from "../ports/provider_services.js";
 import { CodexSession } from "../providers/codex/session.js";
 import { ClaudeSession } from "../providers/claude/session.js";
-import { codexCapabilities, claudeCapabilities } from "../providers/capabilities.js";
+import { codexCapabilities } from "../providers/codex/capabilities.js";
+import { claudeCapabilities } from "../providers/claude/capabilities.js";
 import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
-import { ClaudeThreadStore } from "../storage/claude_thread_store.js";
+import { ClaudeThreadStore } from "../providers/claude/file_thread_store.js";
 import { assembleProviderServices } from "./provider_registration.js";
 
-/** Provider identities and implementations meet only at production composition. */
-export function createProviderServices(): ProviderServices {
+/** Installed adapters. Provider identities and implementations meet only at production composition. */
+export const installedProviders = ["codex", "claude"] as const;
+const fallbackDefaultProvider = "codex";
+
+export function assertInstalledProvider(id: string): void {
+  if (!(installedProviders as readonly string[]).includes(id)) throw new Error(`SHEPHERD_DEFAULT_PROVIDER must be one of ${installedProviders.join(", ")}.`);
+}
+
+export function createProviderServices(defaultProvider: string = fallbackDefaultProvider): ProviderServices {
+  assertInstalledProvider(defaultProvider);
   const store = new ClaudeThreadStore();
   const claudeLimits = new ClaudeAccountLimits();
   const codexAccount = new CodexAccount();
@@ -31,5 +40,5 @@ export function createProviderServices(): ProviderServices {
       ownsStoredThread: id => store.list().some(thread => thread.id === id),
       shutdown: () => claudeLimits.stop(),
     },
-  ], process.env.SHEPHERD_PROVIDER_STATE_DIR ?? join(homedir(), ".shepherd", "providers"));
+  ], process.env.SHEPHERD_PROVIDER_STATE_DIR ?? join(homedir(), ".shepherd", "providers"), defaultProvider);
 }

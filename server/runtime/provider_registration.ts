@@ -14,23 +14,25 @@ export interface ProviderRegistration {
 }
 
 /** Registration works for any adapter; persistent recovery is evidence-based and unambiguous. */
-export function assembleProviderServices(registrations: readonly ProviderRegistration[], stateDirectory: string): ProviderServices {
+export function assembleProviderServices(registrations: readonly ProviderRegistration[], stateDirectory: string, defaultProvider: string): ProviderServices {
   const factories = new Map<string, ProviderRegistration>();
   for (const registration of registrations) {
     if (!registration.id.trim() || registration.id.trim() !== registration.id || factories.has(registration.id)) throw new Error("Invalid or duplicate provider registration.");
     factories.set(registration.id, { ...registration, capabilities: structuredClone(registration.capabilities) });
   }
+  if (!factories.has(defaultProvider)) throw new Error(`The default agent provider "${defaultProvider}" is not registered.`);
   return {
-    descriptors: [...factories.values()].map(({ id, displayName, capabilities, account }) => ({ id, displayName, capabilities: { ...structuredClone(capabilities), resets: !!account.reset } })),
+    descriptors: [...factories.values()].map(({ id, displayName, capabilities, account }) => ({ id, displayName, isDefault: id === defaultProvider, capabilities: { ...structuredClone(capabilities), resets: !!account.reset } })),
     accounts: new Map(registrations.map(registration => [registration.id, registration.account])),
     providers: [...factories.keys()],
+    defaultProvider,
     createSession: (policy, tools, provider) => {
       const registration = factories.get(provider);
       if (!registration) throw new Error(`Unknown agent provider: ${provider}`);
       const session = registration.create(policy, tools, provider);
       const expected = registration.capabilities;
       const actual = session.capabilities;
-      const matches = (["questions", "skills", "compact", "revert", "fork", "sandboxModes", "approvalModes", "inputKinds", "textAnnotations", "imageDetail", "ephemeralThreads"] satisfies Array<keyof ProviderCapabilities>).every(key => {
+      const matches = (["questions", "skills", "compact", "revert", "fork", "sandboxModes", "approvalModes", "inputKinds", "imageDetail", "ephemeralThreads"] satisfies Array<keyof ProviderCapabilities>).every(key => {
         const left = expected[key], right = actual[key];
         return Array.isArray(left) && Array.isArray(right)
           ? JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())

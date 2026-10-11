@@ -3,29 +3,29 @@ import type { BridgeEvent, TurnActivityEvent } from "../../shared/protocol/event
 import type { WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryTurn } from "../../shared/protocol/requests";
 
-export type ChatMessage = { localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "commentary" | "final_answer"; streamText?: string; snapshotText?: string };
+export type ChatMessage = { localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "interim" | "final"; streamText?: string; snapshotText?: string };
 export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
 export type ChatState = { endedTurns: string[]; turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
 export const emptyChat = (): ChatState => ({ endedTurns: [], turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
-const phase = (value: unknown) => value === "commentary" || value === "final_answer" ? value : undefined;
+const phase = (value: unknown) => value === "interim" || value === "final" ? value : undefined;
 const text = (value: unknown) => typeof value === "string" ? value : "";
 
 export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
   // API pages are newest first; display each page chronologically.
   return [...turns].reverse().flatMap((turn) => turn.items.flatMap((item): ChatMessage[] => {
+    if (item.type === "user_message") {
+      const attachments = item.content.flatMap((part) => part.type === "image" && imageDataParts(part.url) ? [part.url as string] : []).slice(0, WEB_IMAGE_MAX_COUNT);
+      const content = item.content.map((part) => part.type === "text" ? part.text : part.type === "image" ? (attachments.includes(text(part.url)) ? "" : "[Image attachment unavailable]") : part.type === "image_file" ? "[Image attachment]" : "").filter(Boolean).join("\n");
+      return [{ id: item.id, turnId: turn.id, role: "user", text: content, attachments, complete: true }];
+    }
+    if (item.type === "assistant_message") return [{ id: item.id, turnId: turn.id, role: "assistant", text: item.text, attachments: [], phase: phase(item.phase), complete: turn.status !== "in_progress" }];
     if (item.webImage) return [{ id: item.id, turnId: turn.id, role: "assistant", text: "", complete: true, image: item.webImage }];
     if (item.webActivity) {
       const activity = item.webActivity;
       return [{ id: item.id, turnId: turn.id, role: "assistant", text: "", complete: activity.status !== "started", activity }];
     }
-    if (item.type !== "userMessage" && item.type !== "agentMessage") return [];
-    const attachments = Array.isArray(item.content) ? item.content.flatMap((part) => { const value = record(part); return value.type === "image" && imageDataParts(value.url) ? [value.url as string] : []; }).slice(0, WEB_IMAGE_MAX_COUNT) : [];
-    const content = Array.isArray(item.content) ? item.content.map((part) => {
-      const value = record(part);
-      return value.type === "text" ? text(value.text) : value.type === "image" ? (attachments.includes(text(value.url)) ? "" : "[Image attachment unavailable]") : value.type === "localImage" ? "[Image attachment]" : "";
-    }).filter(Boolean).join("\n") : text(item.text);
-    return [{ id: item.id, turnId: turn.id, role: item.type === "userMessage" ? "user" : "assistant", text: content, attachments, phase: phase(item.phase), complete: item.type === "userMessage" || turn.status !== "inProgress" }];
+    return [];
   }));
 }
 
@@ -100,12 +100,12 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   const next = { ...state, seen: [...state.seen.slice(-1023), event.id] };
   const turnId = text(payload.turnId);
   const known = state.turns[turnId];
-  const ended = state.endedTurns.includes(turnId) || (known && known.status !== "inProgress");
+  const ended = state.endedTurns.includes(turnId) || (known && known.status !== "in_progress");
   // A superseded turn may still deliver queued events. They must not change
   // the current turn, append post-completion deltas or replace its activity.
   if (event.type.startsWith("turn.") && ((state.activeTurnId && (!turnId || turnId !== state.activeTurnId) && event.type !== "turn.started") ||
     (ended && ["turn.started", "turn.stream.delta", "turn.activity", "turn.completed", "turn.failed"].includes(event.type)))) return next;
-  if (event.type === "turn.started") return { ...next, endedTurns: state.activeTurnId && state.activeTurnId !== turnId ? [...new Set([...state.endedTurns, state.activeTurnId])] : state.endedTurns, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "inProgress", durationMs: null } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
+  if (event.type === "turn.started") return { ...next, endedTurns: state.activeTurnId && state.activeTurnId !== turnId ? [...new Set([...state.endedTurns, state.activeTurnId])] : state.endedTurns, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "in_progress", durationMs: null } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
   if (["turn.completed", "turn.failed"].includes(event.type)) return { ...next, endedTurns: turnId ? [...new Set([...state.endedTurns, turnId])] : state.endedTurns, messages: next.messages.map((message) => message.turnId === payload.turnId ? { ...message, complete: true } : message), activeTurnId: null, activity: null, error: event.type === "turn.failed" ? text(payload.message) || "The turn failed." : state.error };
   if (event.type === "session.error" || event.type === "session.limit.context") return { ...next, error: text(payload.message) || "The session needs attention." };
   if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {

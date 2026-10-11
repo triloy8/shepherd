@@ -5,6 +5,7 @@ import { readSignalRuntimeConfig, type SignalRuntimeConfig } from "./signal_envi
 export type RuntimeConfig = {
   approvalPolicy: ApprovalPolicy;
   defaultSandbox?: SandboxMode;
+  defaultProvider?: string;
   deploymentCommandTimeoutMs?: number;
   signals: SignalRuntimeConfig;
 };
@@ -19,6 +20,7 @@ export function readRuntimeConfig(environment: Record<string, string | undefined
   return {
     approvalPolicy: defaults.approvalMode ?? "provider_default",
     defaultSandbox: defaults.sandboxMode,
+    ...(defaults.defaultProvider ? { defaultProvider: defaults.defaultProvider } : {}),
     deploymentCommandTimeoutMs: timeout,
     signals: readSignalRuntimeConfig(environment),
   };

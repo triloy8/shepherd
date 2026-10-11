@@ -1,14 +1,15 @@
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { approvalChoices } from "../approval_choices.js";
-import { historyItem, historyTurn } from "../history_mapper.js";
+import { historyContent, historyItem, historyTurn } from "./history.js";
 import { claudeDefaults } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
+import { claudeActivityKind } from "./activity.js";
 import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
 import type { UserQuestionRequest } from "../../../shared/protocol/user_questions.js";
-import { claudeCapabilities } from "../capabilities.js";
-import { claudeEffortLevels, isClaudeEffort, type ClaudeThreadRepository, type ClaudeThread, type ClaudeThreadSummary } from "../../ports/claude_thread_store.js";
+import { claudeCapabilities } from "./capabilities.js";
+import { claudeEffortLevels, isClaudeEffort, type ClaudeThreadRepository, type ClaudeThread, type ClaudeThreadSummary } from "./thread_store.js";
 import { InputQueue } from "./input_queue.js";
 import { randomUUID } from "node:crypto";
 import { query, forkSession, type ModelInfo, type ModelUsage, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
@@ -17,11 +18,11 @@ import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../../shared/protocol/events.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { UnsupportedProviderOperationError, type ProviderSession, type ThreadBootstrapInfo } from "../../ports/provider_session.js";
-import { DynamicToolRegistry } from "../../core/dynamic_tool_registry.js";
+import { noProviderTools, type ProviderTools } from "../../ports/provider_tools.js";
 import { claudeExecutablePath } from "./claude_executable.js";
 import { claudeAuthenticationOptions } from "./authentication.js";
 import type { ClaudeLimitsObserver } from "./account_limits.js";
-import { EventBus } from "../../core/event_bus.js";
+import { EventBus } from "../event_bus.js";
 
 function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) {
   const offset = request.cursor ? Number(request.cursor) : 0;
@@ -41,10 +42,11 @@ function textItemId(messageId: string, index: number): string { return index ===
 
 /** Context fill of one model request, not the turn aggregate on the result message. */
 function requestBreakdown(usage: RequestUsage): P.TokenUsageBreakdown {
-  const cached = usage.cache_read_input_tokens ?? 0;
-  const inputTokens = (usage.input_tokens ?? 0) + cached + (usage.cache_creation_input_tokens ?? 0);
+  const cacheRead = usage.cache_read_input_tokens ?? 0, cacheWrite = usage.cache_creation_input_tokens ?? 0;
+  const inputTokens = (usage.input_tokens ?? 0) + cacheRead + cacheWrite;
   const outputTokens = usage.output_tokens ?? 0;
-  return { inputTokens, cachedInputTokens: cached, outputTokens, reasoningOutputTokens: 0, totalTokens: inputTokens + outputTokens };
+  // Per-request usage does not separate thinking from output.
+  return { inputTokens, cacheReadInputTokens: cacheRead, cacheWriteInputTokens: cacheWrite, outputTokens, reasoningOutputTokens: null, totalTokens: inputTokens + outputTokens };
 }
 
 /** The SDK transcript keeps full tool output. Shepherd history keeps a bounded preview. */
@@ -81,7 +83,7 @@ export class ClaudeSession implements ProviderSession {
   private approvals = new Map<string, { resolve: (result: PermissionResult) => void; input: Record<string, unknown>; suggestions: Parameters<CanUseTool>[2]["suggestions"]; questions?: UserQuestionRequest; replies: Map<string, unknown> }>();
   constructor(
     public approvalPolicy: P.ApprovalPolicy = "provider_default",
-    private readonly dynamicTools = new DynamicToolRegistry(),
+    private readonly dynamicTools: ProviderTools = noProviderTools,
     private readonly store: ClaudeThreadRepository,
     private readonly sdk = { query, forkSession },
     private readonly accountLimits?: ClaudeLimitsObserver,
@@ -89,14 +91,14 @@ export class ClaudeSession implements ProviderSession {
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
   private bootstrap(): ThreadBootstrapInfo {
     const thread = this.requireThread();
-    return { threadId: thread.id, model: thread.model, modelProvider: "anthropic", reasoningEffort: thread.effort ?? null, approvalPolicy: this.approvalPolicy };
+    return { threadId: thread.id, model: thread.model, effort: thread.effort ?? null, approvalPolicy: this.approvalPolicy };
   }
   async startThread(request: P.CreateThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
     this.validateOverrides(request);
     const nativeId = randomUUID();
     const defaults = claudeDefaults();
-    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeThread["effort"] ?? defaults.effort, name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, instructions: [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n"), turns: [] };
+    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeThread["effort"] ?? defaults.effort, name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, instructions: request.instructions ?? "", turns: [] };
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     this.persist();
     this.publish("thread.started", { approvalPolicy: this.approvalPolicy });
@@ -106,11 +108,11 @@ export class ClaudeSession implements ProviderSession {
     await this.initialize(); this.validateOverrides(request);
     this.thread = this.store.read(id);
     // A process crash leaves the last turn incomplete; retain it as interrupted.
-    for (const turn of this.thread.turns) if (turn.status === "inProgress") turn.status = "interrupted";
+    for (const turn of this.thread.turns) if (turn.status === "in_progress") turn.status = "interrupted";
     if (request.cwd) this.thread.cwd = request.cwd;
     if (request.model) this.thread.model = request.model;
     if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
-    if (request.baseInstructions !== undefined || request.developerInstructions !== undefined) this.thread.instructions = [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n");
+    if (request.instructions !== undefined) this.thread.instructions = request.instructions;
     this.approvalPolicy = (request.approvalPolicy === "provider_default" ? undefined : request.approvalPolicy) ?? this.thread.approvalMode ?? this.approvalPolicy;
     assertApprovalSupport("Claude", this.capabilities, this.approvalPolicy);
     this.persist();
@@ -122,7 +124,7 @@ export class ClaudeSession implements ProviderSession {
     const source = this.store.read(id);
     const policy = (request.approvalPolicy === "provider_default" ? undefined : request.approvalPolicy) ?? source.approvalMode ?? this.approvalPolicy;
     assertApprovalSupport("Claude", this.capabilities, policy);
-    if (source.turns.some(turn => turn.status === "inProgress")) throw new Error("Cannot fork an active Claude thread.");
+    if (source.turns.some(turn => turn.status === "in_progress")) throw new Error("Cannot fork an active Claude thread.");
     // The transcript stays in the project directory where it began. A thread's cwd can
     // later move to another workspace, so let the SDK search every project directory.
     const nativeId = source.materialized ? (await this.sdk.forkSession(source.nativeId)).sessionId : randomUUID();
@@ -130,7 +132,7 @@ export class ClaudeSession implements ProviderSession {
     if (request.cwd) this.thread.cwd = request.cwd;
     if (request.model) this.thread.model = request.model;
     if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
-    if (request.baseInstructions !== undefined || request.developerInstructions !== undefined) this.thread.instructions = [request.baseInstructions, request.developerInstructions].filter(Boolean).join("\n\n");
+    if (request.instructions !== undefined) this.thread.instructions = request.instructions;
     this.approvalPolicy = policy;
     this.persist(); return this.bootstrap();
   }
@@ -173,7 +175,7 @@ export class ClaudeSession implements ProviderSession {
     const queue = this.input ?? new InputQueue<SDKUserMessage>();
     const running = existing ?? this.openQuery(queue, options);
     thread.cwd = options.cwd!; thread.model = options.model!; thread.effort = options.effort;
-    const turn: P.HistoryTurn = { id: randomUUID(), status: "inProgress", itemsView: "full", items: [{ id: message.uuid!, type: "userMessage", content: input }], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
+    const turn: P.HistoryTurn = { id: randomUUID(), status: "in_progress", itemsView: "full", items: [{ id: message.uuid!, type: "user_message", content: historyContent(input) }], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
     thread.turns.push(turn); thread.preview ||= input.filter((part) => part.type === "text").map((part) => part.text).join("\n").slice(0, 200);
     this.input = queue; this.running = running; this.activeTurnId = turn.id; this.currentTurn = turn; this.interrupted = false; this.steeredMessages = 0;
     try { this.persist(); }
@@ -243,8 +245,8 @@ export class ClaudeSession implements ProviderSession {
         if (message.type === "user" && !message.parent_tool_use_id && turn && Array.isArray(message.message.content)) {
           for (const block of message.message.content) if (block.type === "tool_result") {
             const item = turn.items.find((item) => item.id === block.tool_use_id);
-            if (item?.activity) {
-              item.text = JSON.stringify(storedToolResult(block.content));
+            if (item?.type === "activity") {
+              item.output = JSON.stringify(storedToolResult(block.content));
               item.activity.status = block.is_error ? "failed" : "completed";
               this.publish("turn.activity", { ...item.activity, detail: null });
             }
@@ -253,18 +255,19 @@ export class ClaudeSession implements ProviderSession {
         }
         if (message.type === "result") {
           // A result ends the response to the queued input, so its last text is an answer.
-          this.flushText("final_answer");
+          this.flushText("final");
           const last = requestBreakdown(this.requestUsage ?? message.usage);
           this.requestUsage = null;
-          const total = Object.values(message.modelUsage).reduce((acc, usage) => {
-            acc.inputTokens += usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
-            acc.cachedInputTokens += usage.cacheReadInputTokens;
-            acc.outputTokens += usage.outputTokens;
-            acc.reasoningOutputTokens += usage.thinkingTokens ?? 0;
-            acc.totalTokens = acc.inputTokens + acc.outputTokens;
-            return acc;
-          }, { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
-          const tokenUsage: P.ThreadTokenUsage = { last, total, modelContextWindow: this.contextWindow(message.modelUsage) };
+          const rows = Object.values(message.modelUsage);
+          const sum = (pick: (usage: ModelUsage) => number) => rows.reduce((acc, usage) => acc + pick(usage), 0);
+          const inputTokens = sum(usage => usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens), outputTokens = sum(usage => usage.outputTokens);
+          const total: P.TokenUsageBreakdown = {
+            inputTokens, cacheReadInputTokens: sum(usage => usage.cacheReadInputTokens), cacheWriteInputTokens: sum(usage => usage.cacheCreationInputTokens), outputTokens,
+            // Thinking counts are optional per model; report them only when every row has one.
+            reasoningOutputTokens: rows.length && rows.every(usage => typeof usage.thinkingTokens === "number") ? sum(usage => usage.thinkingTokens ?? 0) : null,
+            totalTokens: inputTokens + outputTokens,
+          };
+          const tokenUsage: P.ThreadTokenUsage = { last, total, contextWindow: this.contextWindow(message.modelUsage) };
           this.requireThread().tokenUsage = tokenUsage;
           this.publish("thread.tokenUsage.updated", { turnId: turn?.id ?? null, tokenUsage });
           if (message.is_error) throw new Error(message.subtype === "success" ? message.result : message.errors.join("\n"));
@@ -288,14 +291,14 @@ export class ClaudeSession implements ProviderSession {
   }
   private beginWakeTurn(): void {
     if (this.currentTurn) return;
-    this.currentTurn = { id: randomUUID(), status: "inProgress", itemsView: "full", items: [], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
+    this.currentTurn = { id: randomUUID(), status: "in_progress", itemsView: "full", items: [], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
     this.requireThread().turns.push(this.currentTurn); this.activeTurnId = this.currentTurn.id; this.interrupted = false;
     this.persist(); this.publish("turn.started", { turnId: this.currentTurn.id });
   }
   private finishTurn(status: "completed" | "interrupted" | "failed", error?: unknown): void {
     const turn = this.currentTurn;
     if (!turn) return;
-    this.flushText(status === "completed" ? "final_answer" : "commentary"); this.textBlocks.clear(); this.requestUsage = null;
+    this.flushText(status === "completed" ? "final" : "interim"); this.textBlocks.clear(); this.requestUsage = null;
     this.currentTurn = null; this.activeTurnId = null; this.denyPendingApprovals();
     turn.status = status;
     if (error && status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
@@ -316,17 +319,17 @@ export class ClaudeSession implements ProviderSession {
         if (block.text) this.pendingText.push({ itemId: textItemId(message.message.id, index), text: block.text, turn });
       }
       if (block.type === "tool_use") {
-        this.flushText("commentary");
-        const kind = block.name === "Bash" ? "command" : ["Edit", "Write"].includes(block.name) ? "file_change" : "mcp_tool";
+        this.flushText("interim");
+        const kind = claudeActivityKind(block.name);
         turn.items.push({ id: block.id, type: "activity", activity: { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" } });
         this.publish("turn.activity", { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" });
       }
     }
     this.persistSoon();
   }
-  private flushText(phase: "commentary" | "final_answer"): void {
+  private flushText(phase: "interim" | "final"): void {
     for (const pending of this.pendingText.splice(0)) {
-      pending.turn.items.push({ id: pending.itemId, type: "agentMessage", text: pending.text, phase });
+      pending.turn.items.push({ id: pending.itemId, type: "assistant_message", text: pending.text, phase });
       if (!this.stopped) this.publish("turn.message.completed", { itemId: pending.itemId, turnId: pending.turn.id, phase, text: pending.text });
     }
   }
@@ -346,7 +349,9 @@ export class ClaudeSession implements ProviderSession {
     const approvalId = randomUUID();
     const questions = name === "AskUserQuestion" ? claudeQuestions(input, this.requireThread().id, this.activeTurnId!, approvalId) : undefined;
     const suggestions = context.suppressAlwaysAllowRule ? undefined : context.suggestions?.map(update => ({ ...update, destination: "session" as const }));
-    const offered = approvalChoices(questions ? [{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }] : [{ value: "accept", label: "Allow once" }, ...(suggestions?.length ? [{ value: "acceptForSession", label: "Allow for session" }] : []), { value: "decline", label: "Deny" }]);
+    const offered = approvalChoices(questions
+      ? [{ value: "submit", label: "Submit answers", intent: "answer" }, { value: "cancel", label: "Skip questions", intent: "cancel" }]
+      : [{ value: "allow", label: "Allow once", intent: "allow" }, ...(suggestions?.length ? [{ value: "allow_session", label: "Allow for session", intent: "allow" as const }] : []), { value: "deny", label: "Deny", intent: "deny" }]);
     return new Promise((resolve) => {
       const deny = () => { if (this.approvals.delete(approvalId)) this.publish("approval.expired", { approvalId }); resolve({ behavior: "deny", message: "Approval interrupted." }); };
       context.signal.addEventListener("abort", deny, { once: true });
@@ -369,10 +374,10 @@ export class ClaudeSession implements ProviderSession {
       pending.resolve(answers ? { behavior: "allow", updatedInput: { ...pending.input, answers } } : { behavior: "deny", message: "User skipped the questions." });
       return { approvalId };
     }
-    if (decision.decision === "acceptForSession" && !pending.suggestions?.length) throw new Error("Session approval is unavailable for this request.");
-    if (!["accept", "acceptForSession", "decline", "cancel"].includes(decision.decision)) throw new Error("Invalid Claude approval decision.");
+    if (decision.decision === "allow_session" && !pending.suggestions?.length) throw new Error("Session approval is unavailable for this request.");
+    if (!["allow", "allow_session", "deny"].includes(decision.decision)) throw new Error("Invalid Claude approval decision.");
     this.approvals.delete(approvalId);
-    pending.resolve(decision.decision === "accept" || decision.decision === "acceptForSession" ? { behavior: "allow", updatedInput: pending.input, ...(decision.decision === "acceptForSession" ? { updatedPermissions: pending.suggestions } : {}) } : { behavior: "deny", message: decision.reason ?? "Denied by user." });
+    pending.resolve(decision.decision === "allow" || decision.decision === "allow_session" ? { behavior: "allow", updatedInput: pending.input, ...(decision.decision === "allow_session" ? { updatedPermissions: pending.suggestions } : {}) } : { behavior: "deny", message: decision.reason ?? "Denied by user." });
     return { approvalId };
   }
   async steerTurn(input: UserInput[], turnId?: string): Promise<string> {
@@ -380,7 +385,7 @@ export class ClaudeSession implements ProviderSession {
     if (!this.input || !this.activeTurnId || (turnId && turnId !== this.activeTurnId)) throw new Error("No matching active Claude turn.");
     const message = this.userMessage(input);
     this.input.push(message); this.steeredMessages++;
-    this.requireThread().turns.at(-1)!.items.push({ id: message.uuid!, type: "userMessage", content: input });
+    this.requireThread().turns.at(-1)!.items.push({ id: message.uuid!, type: "user_message", content: historyContent(input) });
     this.persist(); return this.activeTurnId;
   }
   async interruptTurn(turnId?: string): Promise<void> {
@@ -399,7 +404,7 @@ export class ClaudeSession implements ProviderSession {
     }
   }
   async readThread(id: string, includeTurns: boolean) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); return { thread: this.record(thread, includeTurns) }; }
-  private record(thread: ClaudeThreadSummary & { turns?: P.HistoryTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, modelProvider: "anthropic", source: "appServer", ...(includeTurns ? { turns: (thread.turns ?? []).map(historyTurn) } : {}) }; }
+  private record(thread: ClaudeThreadSummary & { turns?: P.HistoryTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, ...(includeTurns ? { turns: (thread.turns ?? []).map(historyTurn) } : {}) }; }
   async listStoredThreads(request: P.ListStoredThreadsRequest) {
     const threads = this.store.list().filter((t) => t.archived === (request.archived ?? false) && (!request.searchTerm || `${t.name ?? ""} ${t.preview}`.toLowerCase().includes(request.searchTerm.toLowerCase())) && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(t.cwd) : request.cwd === t.cwd)));
     const key = request.sortKey === "created_at" ? "createdAt" : "updatedAt";
@@ -410,7 +415,7 @@ export class ClaudeSession implements ProviderSession {
   async listThreadTurns(id: string, request: P.ListThreadTurnsRequest) {
     const thread = this.thread?.id === id ? this.thread : this.store.read(id);
     const turns = [...thread.turns]; if (request.sortDirection !== "asc") turns.reverse();
-    return paginate(turns.map((turn) => ({ ...turn, itemsView: request.itemsView ?? "full", items: request.itemsView === "notLoaded" ? [] : turn.items.map(item => historyItem(item, turn.id)) })), request);
+    return paginate(turns.map((turn) => ({ ...turn, itemsView: request.itemsView ?? "full", items: request.itemsView === "none" ? [] : turn.items.map(item => historyItem(item, turn.id)) })), request);
   }
   async listThreadItems(id: string, request: P.ListThreadItemsRequest) {
     const thread = this.thread?.id === id ? this.thread : this.store.read(id);

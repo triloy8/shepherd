@@ -159,7 +159,7 @@ test("waiting questions replace working and writing indicators in the timeline",
   const { emptyChat } = await import("../ui/src/chat-state");
   const chat = emptyChat();
   chat.activeTurnId = "turn-1";
-  chat.messages = [{ id: "partial", turnId: "turn-1", role: "assistant", phase: "commentary", text: "I have a question", complete: false }];
+  chat.messages = [{ id: "partial", turnId: "turn-1", role: "assistant", phase: "interim", text: "I have a question", complete: false }];
   const html = renderToStaticMarkup(createElement(Timeline, { chat, waitingForAnswer: true }));
   expect(html).toContain("Waiting for your answer");
   expect(html).not.toContain("Writing…");
@@ -176,7 +176,7 @@ test("SessionManager expires pending questions when the turn ends or the session
       session.activeTurnId = input.turnId;
       raw = session as unknown as typeof raw;
       raw.writeLine = () => {};
-      session.startThread = async () => ({ threadId: input.threadId, reasoningEffort: null, model: "test", modelProvider: "openai", approvalPolicy: policy });
+      session.startThread = async () => ({ threadId: input.threadId, effort: null, model: "test", approvalPolicy: policy });
       return session;
     });
     try {

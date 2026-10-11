@@ -145,7 +145,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Persist reading position per conversation | Client | No explicit web persistence | Browser scroll anchoring is not a saved position feature |
 
 Sources: [Discord event presentation](../server/adapters/discord/thread_event_handler.ts),
-[shared activity mapping](../shared/protocol/history_presentation.ts), [web timeline](../ui/src/components/Timeline.tsx),
+[Codex activity mapping](../server/providers/codex/history_presentation.ts), [web timeline](../ui/src/components/Timeline.tsx),
 [web messages](../ui/src/components/Message.tsx), [web images](../ui/src/components/ImageArtifact.tsx),
 [Discord signal notices](../server/adapters/discord/signal_notice.ts),
 [web conversation controller](../ui/src/use-conversation.ts).

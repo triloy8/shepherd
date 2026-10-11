@@ -1,4 +1,4 @@
-import { historyItem } from "../server/providers/history_mapper";
+import { historyItem } from "../server/providers/codex/history";
 import { expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -72,7 +72,7 @@ test("live viewed image events replace activity and survive replay without dupli
     expect(html).not.toContain('<img');
     expect(html).toContain("viewed-image-disclosure");
     expect(html).not.toContain(" open=");
-    state = reduceBridge(state, { ...viewed, id: "answer", type: "turn.message.completed", payload: { itemId: "answer", turnId: "turn", phase: "final_answer", text: `Here is your screenshot:\n\n![Desktop view](${viewed.payload.path})` } });
+    state = reduceBridge(state, { ...viewed, id: "answer", type: "turn.message.completed", payload: { itemId: "answer", turnId: "turn", phase: "final", text: `Here is your screenshot:\n\n![Desktop view](${viewed.payload.path})` } });
     const answerHtml = renderToStaticMarkup(createElement(Timeline, { chat: state }));
     expect(answerHtml).toContain('alt="Desktop view"');
     expect(answerHtml).toContain(`src="${event.payload.url}"`);

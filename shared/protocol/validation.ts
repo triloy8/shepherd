@@ -19,7 +19,7 @@ import type {
   ThreadSortKey,
   SubmitTurnRequest,
 } from "./requests.js";
-import { toTextUserInput, type UserInput, type UserInputTextElement } from "./user_input.js";
+import { toTextUserInput, type UserInput } from "./user_input.js";
 
 const APPROVAL_POLICIES = ["provider_default", "review_untrusted", "review_sensitive", "bypass"] as const;
 const SANDBOX_MODES: SandboxMode[] = ["read_only", "workspace_write", "unrestricted"];
@@ -85,11 +85,10 @@ function assertFields(value: Record<string, unknown>, allowed: readonly string[]
 }
 
 function parseCommonThreadOverrides(value: Record<string, unknown>) {
-  assertFields(value, ["provider", "approvalPolicy", "baseInstructions", "developerInstructions", "cwd", "sandbox", "model", "effort", "ephemeral"]);
+  assertFields(value, ["provider", "approvalPolicy", "instructions", "cwd", "sandbox", "model", "effort", "ephemeral"]);
   return {
     provider: parseOptionalString(value.provider, "provider"),
-    baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
-    developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
+    instructions: parseOptionalString(value.instructions, "instructions"),
     sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
     model: parseOptionalString(value.model, "model"),
     effort: parseOptionalString(value.effort, "effort"),
@@ -133,9 +132,9 @@ function parseUserInput(value: unknown, name: string): UserInput {
   }
 
   const fields: Record<string, readonly string[]> = {
-    text: ["type", "text", "annotations"], image: ["type", "url", "detail"],
-    localImage: ["type", "path", "detail"], audio: ["type", "url"], localAudio: ["type", "path"],
-    skill: ["type", "name", "path"], mention: ["type", "name", "path"],
+    text: ["type", "text"], image: ["type", "url", "detail"],
+    image_file: ["type", "path", "detail"], audio: ["type", "url"], audio_file: ["type", "path"],
+    skill: ["type", "name", "path"],
   };
   const allowed = Object.hasOwn(fields, value.type) ? fields[value.type] : undefined;
   if (!allowed) throw new Error(`Invalid ${name}.`);
@@ -145,14 +144,7 @@ function parseUserInput(value: unknown, name: string): UserInput {
       if (typeof value.text !== "string" || !value.text.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      if (value.annotations !== undefined && !Array.isArray(value.annotations)) {
-        throw new Error(`Invalid ${name}.`);
-      }
-      return {
-        type: "text",
-        text: value.text,
-        ...(Array.isArray(value.annotations) ? { annotations: value.annotations.map((element) => parseTextElement(element, name)) } : {}),
-      };
+      return { type: "text", text: value.text };
     }
     case "image": {
       if (typeof value.url !== "string" || !value.url.trim()) {
@@ -161,58 +153,34 @@ function parseUserInput(value: unknown, name: string): UserInput {
       const detail = parseImageDetail(value.detail, name);
       return { type: "image", url: value.url.trim(), ...(detail ? { detail } : {}) };
     }
-    case "localImage": {
+    case "image_file": {
       if (typeof value.path !== "string" || !value.path.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
       const detail = parseImageDetail(value.detail, name);
-      return { type: "localImage", path: value.path.trim(), ...(detail ? { detail } : {}) };
+      return { type: "image_file", path: value.path.trim(), ...(detail ? { detail } : {}) };
     }
     case "audio":
       if (typeof value.url !== "string" || !value.url.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
       return { type: "audio", url: value.url.trim() };
-    case "localAudio":
+    case "audio_file":
       if (typeof value.path !== "string" || !value.path.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      return { type: "localAudio", path: value.path.trim() };
+      return { type: "audio_file", path: value.path.trim() };
     case "skill":
-    case "mention":
       if (typeof value.name !== "string" || !value.name.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
       if (typeof value.path !== "string" || !value.path.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      return { type: value.type, name: value.name.trim(), path: value.path.trim() };
+      return { type: "skill", name: value.name.trim(), path: value.path.trim() };
     default:
       throw new Error(`Invalid ${name}.`);
   }
-}
-
-function parseTextElement(value: unknown, name: string): UserInputTextElement {
-  if (!isRecord(value) || !isRecord(value.byteRange)) {
-    throw new Error(`Invalid ${name}.`);
-  }
-  const start = value.byteRange.start;
-  const end = value.byteRange.end;
-  if (
-    typeof start !== "number" ||
-    !Number.isInteger(start) ||
-    start < 0 ||
-    typeof end !== "number" ||
-    !Number.isInteger(end) ||
-    end < start ||
-    (value.placeholder !== null && typeof value.placeholder !== "string")
-  ) {
-    throw new Error(`Invalid ${name}.`);
-  }
-  return {
-    byteRange: { start, end },
-    placeholder: value.placeholder,
-  };
 }
 
 function parseImageDetail(value: unknown, name: string): "auto" | "low" | "high" | "original" | undefined {

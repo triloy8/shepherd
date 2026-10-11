@@ -8,7 +8,7 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-const started = { threadId: "thread", model: "model", modelProvider: "provider", reasoningEffort: null };
+const started = { threadId: "thread", model: "model", effort: null };
 function harness() {
   const gate = deferred<typeof started>();
   const sessions: CodexSession[] = [];

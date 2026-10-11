@@ -12,8 +12,7 @@ export interface ProviderEvents {
 export type ThreadBootstrapInfo = {
   threadId: string;
   model: string | null;
-  modelProvider: string | null;
-  reasoningEffort: string | null;
+  effort: string | null;
   approvalPolicy?: Protocol.ApprovalPolicy;
 };
 

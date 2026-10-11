@@ -79,7 +79,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true }`; availability, not downstream readiness |
 | GET | `/models?cursor=...&limit=100` | Provider catalog; optional `provider=<registered-id>` defaults to the first registration. Includes hidden model aliases and supports pagination. Conversation-scoped catalogs use the attached provider. |
-| GET | `/providers` | Registered provider IDs, display names, and capabilities |
+| GET | `/providers` | Registered provider IDs, display names, `isDefault`, and capabilities |
 | GET | `/limits?provider=<id>&refresh=true` | `ProviderAccountLimits` for any registered provider. Provider defaults to the first registration; refresh is optional. No conversation needed. |
 | POST | `/limits/reset` | `{ provider, idempotencyKey, creditId? }` → `{ outcome }`; requires the provider’s reset capability. Query parameters are rejected. |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
@@ -207,7 +207,8 @@ new handle using the desired thread ID after restart.
 
 `GET /api/providers` returns capabilities for each registered agent. In addition to
 questions, skills, fork, compact, revert and resets, descriptors advertise `approvalModes`,
-`sandboxModes`, `inputKinds`, `textAnnotations`, `imageDetail`, and `ephemeralThreads`.
+`sandboxModes`, `inputKinds`, `imageDetail`, and `ephemeralThreads`. Input kinds are
+`text`, `image` (URL or data URL), `image_file`, `audio`, `audio_file`, and `skill`.
 Unsupported operations/settings produce `422 unsupported_provider_operation` before execution.
 Public policy values are `provider_default`, `review_sensitive`, `review_untrusted`, and
 `bypass`; sandbox values are `read_only`, `workspace_write`, and `unrestricted`. Native
@@ -242,7 +243,11 @@ remote tailnet connection are not required by these automated tests.
 
 How the browser presents these items is described in [Web UI](web-ui.md#transcript-work-and-images).
 
-History items may include `webActivity` (the shared normalized activity payload)
+History items have an application `type`: `user_message` (with `content` parts `text`,
+`image`, `image_file`, or `attachment`), `assistant_message` (with `text` and an optional
+`phase` of `interim` or `final`), `plan`, `reasoning`, `activity`, `image`, or `other`.
+Turn `status` is `completed`, `interrupted`, `failed`, or `in_progress`.
+Non-message items may include `webActivity` (the shared normalized activity payload)
 or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
 (`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
 as `payload.url` and the file basename as `payload.name`. The browser uses these

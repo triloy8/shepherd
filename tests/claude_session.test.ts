@@ -1,4 +1,4 @@
-import { ClaudeThreadStore } from "../server/storage/claude_thread_store.js";
+import { ClaudeThreadStore } from "../server/providers/claude/file_thread_store.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,7 +65,7 @@ test("Claude streams common events and resumes with the native session in its sa
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(chat.messages.filter((message) => message.role === "assistant")).toMatchObject([{ text: "Hello", complete: true }]);
   expect(events[1]!.payload).toMatchObject({ kind: "assistant_text", phase: null, itemId: "msg-1", textDelta: "Hello", turnId });
-  expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "userMessage" }, { type: "agentMessage", text: "Hello" }] });
+  expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "user_message" }, { type: "assistant_message", text: "Hello" }] });
   const resumed = new ClaudeSession("review_sensitive", undefined, storage, fake);
   await resumed.resumeThread(created.threadId, {});
   await resumed.startTurn([toTextUserInput("again")]); await done(resumed);
@@ -156,7 +156,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
     providers.push(provider);
     if (provider === "claude") return new ClaudeSession(policy, tools, storage, fake);
     const codex = new CodexSession(policy, tools);
-    codex.startThread = async () => ({ threadId: "codex-thread", model: "codex-model", modelProvider: "openai", reasoningEffort: null });
+    codex.startThread = async () => ({ threadId: "codex-thread", model: "codex-model", effort: null });
     return codex;
   }, () => false, { resolve: id => id.startsWith("claude-") ? "claude" : "codex", bind: () => {} }, ["codex", "claude"]);
   await manager.createThread({});
@@ -168,7 +168,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
   expect((await manager.listThreadTurns(unloaded.threadId, {})).data).toEqual([]);
   expect(providers).toEqual(["codex", "claude", "claude"]);
   const models = await manager.listModels({ provider: "claude" });
-  expect(models.data[0]!.model).toBe("sonnet");
+  expect(models.data[0]!.id).toBe("sonnet");
   manager.stopAll(); created.stop();
 });
 
@@ -180,7 +180,7 @@ test("request validation preserves opaque provider identities and rejects native
 
 test("Shepherd dynamic tools retain namespaces and conversation identity through Claude MCP", async () => {
   const registry = new DynamicToolRegistry(); const calls: unknown[] = [];
-  registry.register({ namespace: "signals", namespaceDescription: "Signal controls", name: "callback", description: "Create callback", inputSchema: { type: "object", properties: { kind: { type: "string" } }, required: ["kind"] }, execute: async (params) => { calls.push(params); return { success: true, contentItems: [{ type: "inputText", text: "callback-created" }] }; } });
+  registry.register({ namespace: "signals", namespaceDescription: "Signal controls", name: "callback", description: "Create callback", inputSchema: { type: "object", properties: { kind: { type: "string" } }, required: ["kind"] }, execute: async (params) => { calls.push(params); return { success: true, contentItems: [{ type: "text", text: "callback-created" }] }; } });
   const fake = sdk(async function* (_input, options) {
     const server = options.mcpServers!.shepherd!;
     if (!("instance" in server)) throw new Error("Missing in-process MCP server.");
@@ -233,10 +233,10 @@ test("never approval policy maps to explicit Claude permission bypass", async ()
 test("fork overrides never mutate source metadata or history", async () => {
   const storage = store(); const fake = sdk(async function* () { yield result; });
   const source = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const created = await source.startThread({ cwd: "/source", model: "sonnet", baseInstructions: "source instructions" });
+  const created = await source.startThread({ cwd: "/source", model: "sonnet", instructions: "source instructions" });
   const before = storage.read(created.threadId);
   const fork = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus", baseInstructions: "fork instructions" });
+  const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus", instructions: "fork instructions" });
   expect(storage.read(created.threadId)).toEqual(before);
   expect(storage.read(forked.threadId)).toMatchObject({ cwd: "/fork", model: "opus", instructions: "fork instructions" });
   source.stop(); fork.stop();
@@ -253,7 +253,7 @@ test("renaming and archiving preserve in-memory tool results during an active tu
   await session.startTurn([toTextUserInput("run")]); await emitted.promise;
   await session.setThreadName(created.threadId, "Renamed"); await session.archiveThread(created.threadId);
   gate.resolve(); await done(session);
-  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "userMessage" }, { id: "tool-1", type: "activity", activity: { status: "completed" }, text: JSON.stringify("fresh") }] }] });
+  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "user_message" }, { id: "tool-1", type: "activity", activity: { status: "completed" }, output: JSON.stringify("fresh") }] }] });
   session.stop();
 });
 
@@ -319,7 +319,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   events.push({ type: "assistant", parent_tool_use_id: null, message: { id: "wake-message", content: [{ type: "text", text: "Background result" }] } } as SDKMessage);
   await started; events.push(result); await completed;
   expect(storage.read(threadId).turns).toHaveLength(2);
-  expect(storage.read(threadId).turns[1]!.items).toMatchObject([{ type: "agentMessage", text: "Background result" }]);
+  expect(storage.read(threadId).turns[1]!.items).toMatchObject([{ type: "assistant_message", text: "Background result" }]);
   const cleared = waitFor("thread.status.changed");
   events.push({ type: "system", subtype: "background_tasks_changed", tasks: [] } as SDKMessage); await cleared;
   expect(manager.getRuntimeActivity().activeTurnThreadIds).toEqual([]);
@@ -361,7 +361,7 @@ test("loaded conversations include every provider and respect page size", async 
   const manager = new SessionManager(undefined, (policy, tools, provider) => {
     if (provider === "claude") return new ClaudeSession(policy, tools, storage, fake);
     const session = new CodexSession(policy, tools); session.initialize = async () => {};
-    session.startThread = async () => ({ threadId: "opaque-codex-id", model: "codex", modelProvider: "openai", reasoningEffort: null });
+    session.startThread = async () => ({ threadId: "opaque-codex-id", model: "codex", effort: null });
     session.listLoadedThreads = async () => ({ data: ["opaque-codex-id"], nextCursor: null }); return session;
   }, undefined, undefined, ["codex", "claude"]);
   const codex = await manager.createThread({}); const claude = await manager.createThread({ provider: "claude" });
@@ -436,15 +436,15 @@ test("new Claude defaults reach SDK turns and saved conversations retain explici
   const forked = new ClaudeSession("review_sensitive", undefined, storage, fake);
   try {
     const created = await session.startThread({ cwd: "/project" });
-    expect(created).toMatchObject({ model: "claude-opus-5-5", reasoningEffort: "medium" });
+    expect(created).toMatchObject({ model: "claude-opus-5-5", effort: "medium" });
     await session.startTurn([toTextUserInput("hello")]); await done(session);
     expect(fake.calls[0]!.options).toMatchObject({ model: "claude-opus-5-5", effort: "medium" });
     const saved = storage.read(created.threadId); saved.model = "sonnet"; saved.effort = "high"; saved.materialized = false; storage.write(saved);
     process.env.CLAUDE_MODEL = "haiku"; process.env.CLAUDE_EFFORT = "low";
-    expect(await resumed.resumeThread(created.threadId, {})).toMatchObject({ model: "sonnet", reasoningEffort: "high" });
-    expect(await forked.forkThread(created.threadId, {})).toMatchObject({ model: "sonnet", reasoningEffort: "high" });
+    expect(await resumed.resumeThread(created.threadId, {})).toMatchObject({ model: "sonnet", effort: "high" });
+    expect(await forked.forkThread(created.threadId, {})).toMatchObject({ model: "sonnet", effort: "high" });
     const explicit = new ClaudeSession("review_sensitive", undefined, storage, fake);
-    expect(await explicit.startThread({ model: "opus" })).toMatchObject({ model: "opus", reasoningEffort: "low" });
+    expect(await explicit.startThread({ model: "opus" })).toMatchObject({ model: "opus", effort: "low" });
     explicit.stop();
   } finally {
     session.stop(); resumed.stop(); forked.stop();
@@ -467,7 +467,7 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
     expect(await manager.setThreadEffort(threadId, "default")).toMatchObject({ pendingEffort: "medium" });
     const legacy = await manager.createThread({ provider: "claude", model: "opus" });
     expect(await manager.getThreadEffort(legacy.threadId)).toMatchObject({ model: "opus", currentEffort: "medium" });
-    expect((await manager.listModels({ provider: "claude" })).data.map(row => row.model)).toEqual(["claude-opus-5-5"]);
+    expect((await manager.listModels({ provider: "claude" })).data.map(row => row.id)).toEqual(["claude-opus-5-5"]);
   } finally { manager.stopAll(); }
 });
 
@@ -496,10 +496,10 @@ test("per-block assistant messages mark text before tools as commentary and the 
   await session.startTurn([toTextUserInput("run tests")]); await done(session);
   expect(events.filter(event => event.type === "turn.stream.delta").map(event => (event.payload as { itemId: string }).itemId)).toEqual(["plan", "answer", "answer:1"]);
   expect(events.filter(event => event.type === "turn.message.completed").map(event => event.payload)).toMatchObject([
-    { itemId: "plan", phase: "commentary" }, { itemId: "answer", phase: "final_answer" }, { itemId: "answer:1", phase: "final_answer" },
+    { itemId: "plan", phase: "interim" }, { itemId: "answer", phase: "final" }, { itemId: "answer:1", phase: "final" },
   ]);
   expect((await session.listThreadTurns(threadId, {})).data[0]!.items.map(item => [item.id, item.phase ?? null])).toEqual([
-    [expect.any(String), null], ["plan", "commentary"], ["tool-1", null], ["answer", "final_answer"], ["answer:1", "final_answer"],
+    [expect.any(String), null], ["plan", "interim"], ["tool-1", null], ["answer", "final"], ["answer:1", "final"],
   ]);
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(timelineGroups(chat).flatMap(group => group.finalIds)).toEqual(["answer", "answer:1"]);
@@ -519,7 +519,11 @@ test("token usage reports the last request's context and the model context windo
   await session.startThread({ model: "claude-opus-5-5" });
   const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
   await session.startTurn([toTextUserInput("hello")]); await done(session);
-  expect(updates).toMatchObject([{ tokenUsage: { last: { inputTokens: 1015, cachedInputTokens: 1000, outputTokens: 50, totalTokens: 1065 }, modelContextWindow: 200_000 } }]);
+  expect(updates).toMatchObject([{ tokenUsage: {
+    last: { inputTokens: 1015, cacheReadInputTokens: 1000, cacheWriteInputTokens: 5, outputTokens: 50, reasoningOutputTokens: null, totalTokens: 1065 },
+    total: { inputTokens: 1015, cacheReadInputTokens: 1000, cacheWriteInputTokens: 5, reasoningOutputTokens: null },
+    contextWindow: 200_000,
+  } }]);
   session.stop();
 });
 
@@ -551,8 +555,9 @@ test("streamed blocks coalesce history writes and stored tool output is bounded"
   await session.startTurn([toTextUserInput("read")]); await done(session);
   expect(writes).toBeLessThanOrEqual(3);
   const items = storage.read(threadId).turns[0]!.items;
-  expect(JSON.parse(items[1]!.text!)).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
-  expect(String(items[2]!.text).length).toBeLessThan(8_100);
+  const output = (index: number) => { const item = items[index]!; if (item.type !== "activity") throw new Error("Expected tool activity."); return item.output; };
+  expect(JSON.parse(output(1)!)).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
+  expect(String(output(2)).length).toBeLessThan(8_100);
   session.stop();
 });
 
@@ -595,6 +600,39 @@ test("thread listing reads summaries, rebuilds legacy summaries, and skips unrea
   expect(warnings).toHaveLength(1); expect(storage.hasThreads()).toBe(true);
 });
 
+test("snapshots written with earlier item names decode into the application history contract", async () => {
+  const { writeFileSync } = await import("node:fs");
+  const directory = mkdtempSync(join(tmpdir(), "shepherd-claude-test-")); directories.push(directory);
+  const id = "claude-11111111-1111-4111-8111-111111111111";
+  writeFileSync(join(directory, `${id}.json`), JSON.stringify({
+    id, nativeId: "11111111-1111-4111-8111-111111111111", materialized: true, cwd: "/project", model: "claude-opus-5-5", effort: "medium",
+    name: null, preview: "hi", archived: false, createdAt: 1, updatedAt: 2, instructions: "",
+    turns: [{ id: "turn", status: "inProgress", itemsView: "full", error: null, startedAt: 1, completedAt: null, durationMs: null, items: [
+      { id: "user", type: "userMessage", content: [{ type: "text", text: "hi" }, { type: "image", url: "data:image/png;base64,AA" }] },
+      { id: "tool", type: "activity", activity: { itemId: "tool", turnId: "turn", kind: "command", label: "Bash", detail: null, status: "completed" }, text: "\"ok\"" },
+      { id: "answer", type: "agentMessage", text: "hello", phase: "final_answer" },
+      { id: "unknown", type: "somethingNew" },
+    ] }],
+    tokenUsage: { last: { inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 12 }, total: { inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12 }, modelContextWindow: 200_000 },
+  }));
+  const thread = new ClaudeThreadStore(directory).read(id);
+  expect(thread.turns[0]).toMatchObject({ status: "in_progress", items: [
+    { type: "user_message", content: [{ type: "text", text: "hi" }, { type: "image", url: "data:image/png;base64,AA" }] },
+    { type: "activity", output: "\"ok\"", activity: { kind: "command" } },
+    { type: "assistant_message", text: "hello", phase: "final" },
+    { type: "other" },
+  ] });
+  expect(thread.tokenUsage).toEqual({
+    last: { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 2, reasoningOutputTokens: null, totalTokens: 12 },
+    total: { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12 },
+    contextWindow: 200_000,
+  });
+  const session = new ClaudeSession("review_sensitive", undefined, new ClaudeThreadStore(directory), sdk(async function* () { yield result; }));
+  await session.resumeThread(id, {});
+  expect((await session.listThreadTurns(id, {})).data[0]!.status).toBe("interrupted");
+  session.stop();
+});
+
 test("Claude applies opaque permission options through the shared session boundary", async () => {
   const asked = signal(), decisions: PermissionResult[] = [];
   const fake = sdk(async function* (_input, options) {
@@ -609,7 +647,7 @@ test("Claude applies opaque permission options through the shared session bounda
   const pending = manager.listApprovals(threadId)[0]!;
   expect(pending.kind).toBe("permission"); expect(pending.detail).toContain("/project/readme.md");
   expect(pending.choices.map(choice => choice.intent)).toEqual(["allow", "deny"]);
-  expect(pending.choices.some(choice => ["accept", "decline"].includes(choice.value))).toBe(false);
+  expect(pending.choices.some(choice => ["allow", "deny"].includes(choice.value))).toBe(false);
   await manager.applyApprovalDecision(threadId, pending.approvalId, { decision: pending.choices.find(choice => choice.intent === "allow")!.value });
   await done(session);
   expect(decisions).toEqual([{ behavior: "allow", updatedInput: { file_path: "/project/readme.md" } }]);

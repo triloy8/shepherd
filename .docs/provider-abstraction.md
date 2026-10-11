@@ -22,20 +22,32 @@ there is no parallel provider API, compatibility facade, or alternative transcri
 To add another provider, implement the session port, supply its capabilities and account
 reader, and register its factory and ownership resolver at composition. Core and
 surface code do not need another provider branch. Provider IDs and model IDs are opaque strings. Discord uses `!providers` for discovery,
-with optional provider IDs on `!newthread` and `!limits`; omitted IDs retain existing defaults.
+with optional provider IDs on `!newthread` and `!limits`; omitted IDs use the configured
+default agent. Composition names the default explicitly (`SHEPHERD_DEFAULT_PROVIDER`, Codex
+when unset) and registration rejects an unregistered default; descriptors mark it with
+`isDefault`, so neither core nor clients infer it from registration order.
 
 ## Execution and presentation
 
 Both adapters emit the existing application `BridgeEvent` stream. Assistant deltas
 carry `kind: "assistant_text"`; core and UI never infer their meaning from an SDK method.
+Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
+Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
 Native notifications stay private. User-facing failures, activities, completed messages,
-images, token usage, and background task counts have shared representations.
+images, token usage, and background task counts have shared representations. Token counts
+that a provider does not report (Codex cache writes, Claude per-request reasoning) are `null`
+rather than zero.
 
-Adapters decode stored history before returning it. History records contain application
-message content, activities, and image artifacts; web/Discord do not decode native tool
-records. Native tool arguments, transport envelopes, and arbitrary thread properties do
-not cross the boundary. Codex input annotations are encoded into its wire format inside
-the Codex adapter. Claude converts the same application inputs into SDK content blocks.
+Adapters decode stored history before returning it. History records are a discriminated
+union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
+`activity`, `image`, `other`) with `in_progress`/`completed`/`interrupted`/`failed` turn
+status; web/Discord do not decode native tool records. Codex decodes its thread items in
+its adapter; Claude stores application items and still reads snapshots written with the
+earlier Codex-style names. Native tool arguments, transport envelopes, and arbitrary thread properties do
+not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
+`audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex
+text elements and connector mentions are not part of the shared contract. Claude converts
+the same application inputs into SDK content blocks.
 
 The chat layout, composer, folded work, Markdown, image presentation, scrolling, and
 recent-first turn pagination retain the restored main UI behavior. New-conversation
@@ -105,17 +117,19 @@ for the previous trust-based behavior. Existing `bypass`/`unrestricted` installa
 no further environment edits.
 
 Shared thread requests offer model, effort, instructions, workspace, sandbox, approval
-mode, and optional ephemeral lifetime. Raw SDK `config`, backend overrides, deprecated
+mode, and optional ephemeral lifetime. `instructions` are added to the provider's default
+instructions and never replace them; Codex receives them as developer instructions and
+Claude appends them to its preset system prompt. Raw SDK `config`, backend overrides, deprecated
 personality selectors, analytics service names, and native database/source filters are
 not public fields. Their native configuration remains provider-owned. Unknown request
 fields are rejected, not ignored. Model backend configuration belongs in the provider's
 native settings. List sorting uses creation or update time across every provider.
 
-Descriptors advertise approval modes, sandbox modes, input kinds, text annotations,
+Descriptors advertise approval modes, sandbox modes, input kinds,
 image-detail controls, and ephemeral-thread support, alongside operation capabilities.
 Core checks these before bootstrap, submit, or steer, and adapters enforce them for direct
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
-local-file, audio, skill-reference, annotation, or image-detail support. Model/effort
+local-file, audio, skill-reference, or image-detail support. Model/effort
 options continue to come from each provider's catalog. Thread state includes its provider
 and capabilities, so surfaces do not guess support from identity. Registration rejects a
 session whose capabilities differ from its descriptor or whose advertised operations
@@ -143,8 +157,11 @@ never automatically resends a prompt.
 ## Verification
 
 Architecture tests forbid provider dependencies and fixed provider identities in core
-and shared contracts. Contract checks forbid native account/notification fields at the
-session boundary. Adapter tests cover native codecs, permission responses, cancellation,
+and shared contracts, forbid adapters from importing core services, and reject Codex wire
+values (such as `agentMessage`, `inputText`, `final_answer`) and field names (such as
+`modelProvider`, `cachedInputTokens`, `developerInstructions`) in shared contracts, core,
+surfaces, and the UI. Contract checks forbid native account/notification fields at the
+session boundary and native item, input, tool-output, and metadata shapes in shared types. Adapter tests cover native codecs, permission responses, cancellation,
 questions, model catalogs, history, SDK process ownership, and account limits.
 
 Shared workflow tests register an unrelated provider without a native compatibility

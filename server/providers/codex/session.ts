@@ -2,11 +2,11 @@ import { codexApproval, applicationApproval, codexSandbox, type NativeApprovalPo
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { codexInput } from "./input.js";
 import type { NativeInput } from "./input.js";
-import { approvalChoices } from "../approval_choices.js";
-import { historyItem, historyTurn } from "../history_mapper.js";
+import { approvalChoices, type NativeApprovalChoice } from "../approval_choices.js";
+import { codexItemsView, codexPhase, historyItem, historyTurn, type NativeItemsView } from "./history.js";
 import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
 import { decodeResetOutcome } from "./account_usage.js";
-import { codexCapabilities } from "../capabilities.js";
+import { codexCapabilities } from "./capabilities.js";
 import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline, { type Interface as ReadlineInterface } from "node:readline";
@@ -15,9 +15,11 @@ import { randomUUID } from "node:crypto";
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
   DynamicToolCallParams,
-  DynamicToolSpec,
   JsonValue,
 } from "../../../shared/protocol/dynamic_tools.js";
+import { codexToolResponse, codexToolSpecs, type NativeToolSpec } from "./tools.js";
+import { codexTokenUsage } from "./token_usage.js";
+import { codexSkillConfig, codexSkills } from "./skills.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType, type MessagePhase } from "../../../shared/protocol/events.js";
 import type {
 
@@ -37,17 +39,17 @@ import type {
   SkillsConfigWriteResponse,
   SkillsListRequest,
   SkillsListResponse,
-  ThreadTokenUsage,
 } from "../../../shared/protocol/requests.js";
 import type { ConsumeRateLimitResetRequest } from "./account_types.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import {
-  DynamicToolRegistry,
   InvalidDynamicToolCallError,
+  noProviderTools,
   UnknownDynamicToolError,
-} from "../../core/dynamic_tool_registry.js";
-import type { ProviderSession } from "../../ports/provider_session.js";
-import { EventBus } from "../../core/event_bus.js";
+  type ProviderTools,
+} from "../../ports/provider_tools.js";
+import type { ProviderSession, ThreadBootstrapInfo } from "../../ports/provider_session.js";
+import { EventBus } from "../event_bus.js";
 import {
   extractCompletedAgentMessage,
   extractGeneratedImageArtifact,
@@ -93,7 +95,7 @@ type AppServerRequestParams = {
     modelProvider?: string;
     ephemeral?: boolean;
     serviceName?: string;
-    dynamicTools?: DynamicToolSpec[];
+    dynamicTools?: NativeToolSpec[];
   };
   "thread/resume": {
     threadId: string;
@@ -136,7 +138,7 @@ type AppServerRequestParams = {
     useStateDbOnly?: boolean;
   };
   "thread/loaded/list": { cursor: string | null; limit: number | null };
-  "thread/turns/list": ListThreadTurnsRequest & { threadId: string };
+  "thread/turns/list": Omit<ListThreadTurnsRequest, "itemsView"> & { threadId: string; itemsView?: NativeItemsView };
   "thread/items/list": ListThreadItemsRequest & { threadId: string };
   "thread/read": { threadId: string; includeTurns: boolean };
   "account/rateLimits/read": undefined;
@@ -196,14 +198,6 @@ function parseDynamicToolCallParams(value: unknown): DynamicToolCallParams {
   };
 }
 
-type ThreadBootstrapInfo = {
-  reasoningEffort: string | null;
-  threadId: string;
-  model: string | null;
-  modelProvider: string | null;
-  approvalPolicy: ApprovalPolicy;
-};
-
 function isContextLimitError(params: unknown): boolean {
   const error = asRecord(asRecord(params).error);
   const errorInfo = error.codexErrorInfo;
@@ -251,7 +245,7 @@ export class CodexSession implements ProviderSession {
 
   constructor(
     approvalPolicy: ApprovalPolicy,
-    private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
+    private readonly dynamicTools: ProviderTools = noProviderTools,
   ) {
     this.approvalPolicy = approvalPolicy;
   }
@@ -318,12 +312,11 @@ export class CodexSession implements ProviderSession {
     assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
-    const dynamicTools = this.dynamicTools.specifications();
+    const dynamicTools = codexToolSpecs(this.dynamicTools.specifications());
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
       ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
@@ -343,8 +336,7 @@ export class CodexSession implements ProviderSession {
     const result = await this.sendRequest("thread/resume", {
       threadId,
       ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
@@ -362,8 +354,7 @@ export class CodexSession implements ProviderSession {
     const result = await this.sendRequest("thread/fork", {
       threadId,
       ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
@@ -426,8 +417,9 @@ export class CodexSession implements ProviderSession {
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
     await this.initialize();
     try {
-      const page = await this.sendRequest("thread/turns/list", { ...request, threadId }) as ListThreadTurnsResponse;
-      return { data: page.data.map(historyTurn), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor };
+      const { itemsView, ...rest } = request;
+      const page = asRecord(await this.sendRequest("thread/turns/list", { ...rest, ...(itemsView ? { itemsView: codexItemsView(itemsView) } : {}), threadId }));
+      return { data: (Array.isArray(page.data) ? page.data : []).map(historyTurn), nextCursor: asString(page.nextCursor), backwardsCursor: asString(page.backwardsCursor) };
     } catch (error) {
       // Codex does not persist a newly created thread until its first user message.
       // Only this explicit first-page condition means empty history; never hide
@@ -442,8 +434,11 @@ export class CodexSession implements ProviderSession {
 
   async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
     await this.initialize();
-    const page = await this.sendRequest("thread/items/list", { ...request, threadId }) as ListThreadItemsResponse;
-    return { data: page.data.map(entry => ({ turnId: entry.turnId, item: historyItem(entry.item, entry.turnId) })), nextCursor: page.nextCursor, backwardsCursor: page.backwardsCursor };
+    const page = asRecord(await this.sendRequest("thread/items/list", { ...request, threadId }));
+    return { data: (Array.isArray(page.data) ? page.data : []).map(raw => {
+      const entry = asRecord(raw), turnId = String(entry.turnId ?? "");
+      return { turnId, item: historyItem(entry.item, turnId) };
+    }), nextCursor: asString(page.nextCursor), backwardsCursor: asString(page.backwardsCursor) };
   }
 
   async readThread(threadId: string, includeTurns: boolean) {
@@ -472,18 +467,18 @@ export class CodexSession implements ProviderSession {
 
   async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
     await this.initialize();
-    return this.sendRequest("skills/list", {
+    return codexSkills(await this.sendRequest("skills/list", {
       ...(request.cwds ? { cwds: request.cwds } : {}),
       ...(request.forceReload !== undefined ? { forceReload: request.forceReload } : {}),
-    }) as Promise<SkillsListResponse>;
+    }));
   }
 
   async writeSkillConfig(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
     await this.initialize();
-    return this.sendRequest("skills/config/write", {
+    return codexSkillConfig(await this.sendRequest("skills/config/write", {
       enabled: request.enabled,
       path: request.path,
-    }) as Promise<SkillsConfigWriteResponse>;
+    }));
   }
 
   async startTurn(
@@ -590,15 +585,13 @@ export class CodexSession implements ProviderSession {
     return threadId;
   }
 
-  private extractThreadBootstrapInfo(result: unknown, method: string): ThreadBootstrapInfo {
+  private extractThreadBootstrapInfo(result: unknown, method: string): ThreadBootstrapInfo & { approvalPolicy: ApprovalPolicy } {
     const threadId = this.mustSetThreadIdFromResult(result, method);
     const record = asRecord(result);
-    const thread = asRecord(record.thread);
     return {
       threadId,
       model: asString(record.model),
-      reasoningEffort: asString(record.reasoningEffort),
-      modelProvider: asString(record.modelProvider) ?? asString(thread.modelProvider),
+      effort: asString(record.reasoningEffort),
       approvalPolicy: Object.hasOwn(record, "approvalPolicy") ? applicationApproval(record.approvalPolicy) ?? "provider_default" : this.approvalPolicy,
     };
   }
@@ -735,7 +728,7 @@ export class CodexSession implements ProviderSession {
         if (userInput.threadId !== this.threadId || userInput.turnId !== this.activeTurnId) throw new Error("User question targets a stale turn or the wrong thread.");
         const approvalId = randomUUID();
         this.serverRequestsByApprovalId.set(approvalId, request);
-        const offered = approvalChoices([{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }]);
+        const offered = approvalChoices([{ value: "submit", label: "Submit answers", intent: "answer" }, { value: "cancel", label: "Skip questions", intent: "cancel" }]);
         this.approvalReplies.set(approvalId, offered.replies);
         this.publish("approval.requested", userInput.threadId, {
           approvalId, kind: "question", prompt: userInput.questions.map(q => q.question).join("\n\n"),
@@ -796,7 +789,7 @@ export class CodexSession implements ProviderSession {
         if (params.turnId !== this.activeTurnId) {
           throw new InvalidDynamicToolCallError("Dynamic tool call targets a stale turn.");
         }
-        const result = await this.dynamicTools.execute(params);
+        const result = codexToolResponse(await this.dynamicTools.execute(params));
         this.writeLine({ id: request.id, result });
       } catch (error) {
         if (error instanceof InvalidDynamicToolCallError) {
@@ -925,10 +918,9 @@ export class CodexSession implements ProviderSession {
     }
 
     if (lower === "thread/tokenusage/updated") {
-      const tokenUsage = payload.tokenUsage as ThreadTokenUsage | undefined;
       this.publish("thread.tokenUsage.updated", threadId, {
         turnId: asString(payload.turnId),
-        tokenUsage: tokenUsage ?? null,
+        tokenUsage: codexTokenUsage(payload.tokenUsage),
       });
       return;
     }
@@ -1005,10 +997,7 @@ export class CodexSession implements ProviderSession {
   }
 
   private parseMessagePhase(value: unknown): MessagePhase | null {
-    if (value === "commentary" || value === "final_answer") {
-      return value;
-    }
-    return null;
+    return codexPhase(value);
   }
 }
 
@@ -1019,8 +1008,8 @@ function approvalDetail(value: unknown): string | null {
   return lines.filter(Boolean).join("\n") || null;
 }
 
-function commandApprovalChoices(method: string, value: unknown): Array<{ value: unknown; label: string; intent?: import("../../../shared/protocol/approvals.js").ApprovalChoice["intent"] }> {
-  const choices: Array<{ value: unknown; label: string; intent?: import("../../../shared/protocol/approvals.js").ApprovalChoice["intent"] }> = mapApprovalChoices(method);
+function commandApprovalChoices(method: string, value: unknown): NativeApprovalChoice[] {
+  const choices: NativeApprovalChoice[] = mapApprovalChoices(method);
   const params = asRecord(value);
   if (method === "item/commandExecution/requestApproval") {
     const exec = params.proposedExecpolicyAmendment;

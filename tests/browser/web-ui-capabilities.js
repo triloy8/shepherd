@@ -24,6 +24,10 @@ async (page) => {
     if (!(await page.getByRole('menuitem', { name, exact: true }).isDisabled())) throw Error(`Unsupported ${name} enabled`);
   }
   await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Conversation context', exact: true }).click();
+  const context = page.getByRole('dialog', { name: 'Conversation context', exact: true });
+  if (!(await context.getByRole('button', { name: 'Compact conversation', exact: true }).isDisabled())) throw Error('Unsupported context compaction enabled');
+  await context.getByRole('button', { name: 'Close context', exact: true }).click();
   await create('codex');
   await page.getByRole('button', { name: 'Attach images', exact: true }).waitFor();
   if (await page.getByRole('button', { name: 'Attach images', exact: true }).isDisabled()) throw Error('Supported image attachment disabled after switching');
@@ -33,6 +37,10 @@ async (page) => {
     if (await page.getByRole('menuitem', { name, exact: true }).isDisabled()) throw Error(`Supported ${name} disabled after switching`);
   }
   await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Conversation context', exact: true }).click();
+  const supportedContext = page.getByRole('dialog', { name: 'Conversation context', exact: true });
+  if (await supportedContext.getByRole('button', { name: 'Compact conversation', exact: true }).isDisabled()) throw Error('Supported context compaction disabled after switching');
+  await supportedContext.getByRole('button', { name: 'Close context', exact: true }).click();
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw Error('Mobile overflow');
   if (errors.length) throw Error(errors.join('\n'));
 }

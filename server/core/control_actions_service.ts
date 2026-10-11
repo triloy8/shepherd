@@ -110,11 +110,7 @@ export type ControlActionResult =
 function resolveModelArgument(models: ModelSummary[], raw: string): ModelSummary | null {
   const normalized = raw.trim().toLowerCase();
   if (!normalized) return null;
-  return (
-    models.find((entry) => entry.model.toLowerCase() === normalized) ??
-    models.find((entry) => entry.id.toLowerCase() === normalized) ??
-    null
-  );
+  return models.find((entry) => entry.id.toLowerCase() === normalized) ?? null;
 }
 
 export async function executeControlAction(
@@ -157,7 +153,7 @@ export async function executeControlAction(
   }
   if (request.type === "limits.read") {
     const threadId = request.surfaceId ? context.getSurfaceThreadId(request.surfaceId) : null;
-    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider(threadId) : undefined) ?? context.conversation.listProviders()[0]?.id;
+    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider(threadId) : undefined) ?? context.conversation.listProviders().find(entry => entry.isDefault)?.id;
     if (!provider) throw new Error("No agent provider is configured.");
     return { type: request.type, limits: await context.conversation.readAccount(provider, request.refresh) };
   }
@@ -206,12 +202,12 @@ export async function executeControlAction(
       };
     }
 
-    const updated = context.conversation.setThreadModel(threadId, resolved.model);
+    const updated = context.conversation.setThreadModel(threadId, resolved.id);
     return {
       type: "model.set",
       ok: true,
       threadId: updated.threadId,
-      model: resolved.model,
+      model: resolved.id,
     };
   }
 

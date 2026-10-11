@@ -41,7 +41,7 @@ Legacy note:
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
 | `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools |
-| `thread/start` | Partial | Core | Adapter encodes shared model, effort, instructions, workspace, approval mode, sandbox, ephemeral lifetime, and registered dynamic tools. Raw SDK config/backend/style/analytics selectors are private native settings; no public pass-through. Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
+| `thread/start` | Partial | Core | Adapter encodes shared model, effort, instructions (as `developerInstructions`; `baseInstructions` is not exposed), workspace, approval mode, sandbox, ephemeral lifetime, and registered dynamic tools. Raw SDK config/backend/style/analytics selectors are private native settings; no public pass-through. Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
 | `thread/resume` | Partial | Core | Shared typed overrides only; effort maps to native configuration privately. Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns` |
 | `thread/fork` | Partial | Core | Shared typed overrides only; native fields are not exposed wholesale. Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns` |
 | `thread/archive` | Implemented | Core | |
@@ -76,7 +76,7 @@ Legacy note:
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports URL/local image, audio, text, skill, and mention input; missing the new image `fileId` variant. Supports `approvalPolicy`, `model`, `effort` (Discord `!effort`), and resolved `cwd`; missing disabled plugin IDs, client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
+| `turn/start` | Partial | Core | Supports URL/local image, audio, text, and skill input (application `image_file`/`audio_file` encode to `localImage`/`localAudio`); mention input and text elements are not exposed; missing the new image `fileId` variant. Supports `approvalPolicy`, `model`, `effort` (Discord `!effort`), and resolved `cwd`; missing disabled plugin IDs, client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |

@@ -70,7 +70,6 @@ export type RuntimeActivity = {
 
 type ManagedModelState = {
   currentModel: string | null;
-  modelProvider: string | null;
   pendingModel: string | null;
 };
 
@@ -100,6 +99,7 @@ export class SessionManager {
     private readonly providerHasStoredThreads = (_provider: AgentProvider, _request: ListStoredThreadsRequest) => false,
     private readonly providerDirectory: ThreadProviderDirectory = memoryProviderDirectory(),
     private readonly providers: readonly AgentProvider[] = ["default"],
+    private readonly fallbackProvider: AgentProvider = providers[0] ?? "default",
   ) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
@@ -139,10 +139,8 @@ export class SessionManager {
       this.providerDirectory.bind(created.threadId, request.provider ?? this.defaultProvider());
       this.sessionsByThread.set(created.threadId, { session, createdAt: new Date().toISOString() });
       if (request.cwd) this.cwdByThread.set(created.threadId, request.cwd);
-      this.effortStateByThread.set(created.threadId, { current: created.reasoningEffort, pending: null });
-      this.modelStateByThread.set(created.threadId, {
-        currentModel: created.model, modelProvider: created.modelProvider, pendingModel: null,
-      });
+      this.effortStateByThread.set(created.threadId, { current: created.effort, pending: null });
+      this.modelStateByThread.set(created.threadId, { currentModel: created.model, pendingModel: null });
       return { threadId: created.threadId, sessionId: session.sessionId };
     } catch (error) {
       this.releaseSession(session);
@@ -273,8 +271,8 @@ export class SessionManager {
     const state = this.modelStateByThread.get(threadId);
     return {
       threadId,
+      provider: this.threadProvider(threadId),
       currentModel: state?.currentModel ?? null,
-      modelProvider: state?.modelProvider ?? null,
       pendingModel: state?.pendingModel ?? null,
     };
   }
@@ -283,7 +281,6 @@ export class SessionManager {
     this.mustGet(threadId);
     const current = this.modelStateByThread.get(threadId) ?? {
       currentModel: null,
-      modelProvider: null,
       pendingModel: null,
     };
     const next = {
@@ -293,8 +290,8 @@ export class SessionManager {
     this.modelStateByThread.set(threadId, next);
     return {
       threadId,
+      provider: this.threadProvider(threadId),
       currentModel: next.currentModel,
-      modelProvider: next.modelProvider,
       pendingModel: next.pendingModel,
     };
   }
@@ -306,15 +303,15 @@ export class SessionManager {
     const seen = new Set<string>();
     do {
       const result = await this.listModels({ cursor, limit: 100, includeHidden: true, provider: this.threadProvider(threadId) });
-      const entry = result.data.find((entry) => model ? entry.model === model : entry.isDefault);
+      const entry = result.data.find((entry) => model ? entry.id === model : entry.isDefault);
       if (entry) {
         const state = this.effortStateByThread.get(threadId);
         return {
-          threadId, model: entry.model,
+          threadId, model: entry.id,
           currentEffort: state?.current ?? null,
           pendingEffort: state?.pending ?? null,
-          defaultEffort: entry.defaultReasoningEffort ?? null,
-          supportedEfforts: entry.supportedReasoningEfforts ?? [],
+          defaultEffort: entry.defaultEffort,
+          supportedEfforts: entry.supportedEfforts,
         };
       }
       if (!result.nextCursor || seen.has(result.nextCursor)) break;
@@ -327,8 +324,8 @@ export class SessionManager {
   async setThreadEffort(threadId: string, requested: string): Promise<ThreadEffortState> {
     const state = await this.getThreadEffort(threadId);
     const effort = requested === "default" ? state.defaultEffort : requested;
-    if (!effort || !state.supportedEfforts.some((option) => option.reasoningEffort === effort)) {
-      throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested, available: state.supportedEfforts.map((option) => option.reasoningEffort) });
+    if (!effort || !state.supportedEfforts.some((option) => option.value === effort)) {
+      throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested, available: state.supportedEfforts.map((option) => option.value) });
     }
     this.effortStateByThread.set(threadId, { current: state.currentEffort, pending: effort });
     return { ...state, pendingEffort: effort };
@@ -396,7 +393,6 @@ export class SessionManager {
     if (model) {
       this.modelStateByThread.set(threadId, {
         currentModel: model,
-        modelProvider: modelState?.modelProvider ?? null,
         pendingModel: null,
       });
     }
@@ -481,9 +477,8 @@ export class SessionManager {
   }
 
   private defaultProvider(): string {
-    const provider = this.providers[0];
-    if (!provider) throw new Error("No agent providers are registered.");
-    return provider;
+    if (!this.providers.includes(this.fallbackProvider)) throw new Error("No default agent provider is registered.");
+    return this.fallbackProvider;
   }
 
   private allocateSession(approvalPolicy: ApprovalPolicy, provider: AgentProvider = this.defaultProvider()): ProviderSession {

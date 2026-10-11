@@ -154,8 +154,11 @@ never automatically resends a prompt.
 ## Verification
 
 Architecture tests forbid provider dependencies and fixed provider identities in core
-and shared contracts. Contract checks forbid native account/notification fields at the
-session boundary. Adapter tests cover native codecs, permission responses, cancellation,
+and shared contracts, forbid adapters from importing core services, and reject Codex wire
+values (such as `agentMessage`, `inputText`, `final_answer`) and field names (such as
+`modelProvider`, `cachedInputTokens`, `developerInstructions`) in shared contracts, core,
+surfaces, and the UI. Contract checks forbid native account/notification fields at the
+session boundary and native item, input, tool-output, and metadata shapes in shared types. Adapter tests cover native codecs, permission responses, cancellation,
 questions, model catalogs, history, SDK process ownership, and account limits.
 
 Shared workflow tests register an unrelated provider without a native compatibility

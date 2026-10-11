@@ -6,14 +6,14 @@ import { handleMessage } from "../server/adapters/discord/commands.js";
 async function setup() {
   const starts: unknown[][] = [];
   const session = new CodexSession("review_sensitive");
-  session.startThread = async () => ({ threadId: "thread-1", model: "test-model", modelProvider: null, reasoningEffort: "low" });
+  session.startThread = async () => ({ threadId: "thread-1", model: "test-model", effort: "low" });
   session.startTurn = async (...args) => { starts.push(args); return "turn-1"; };
   const manager = new SessionManager(undefined, () => session);
   const model = {
-    id: "test-model", model: "test-model", displayName: "Test", description: "",
+    id: "test-model", displayName: "Test", description: "",
     hidden: false, isDefault: true,
-    defaultReasoningEffort: "low",
-    supportedReasoningEfforts: ["low", "high"].map((reasoningEffort) => ({ reasoningEffort, description: "" })),
+    defaultEffort: "low",
+    supportedEfforts: ["low", "high"].map((value) => ({ value, description: "" })),
   };
   manager.listModels = async () => ({ data: [model], nextCursor: null });
   await manager.createThread({ cwd: "/repo" });
@@ -52,7 +52,7 @@ test("effort resolves the pending model across catalog pages", async () => {
   const { manager, model } = await setup();
   manager.setThreadModel("thread-1", "other");
   manager.listModels = async (request) => request.cursor
-    ? { data: [{ ...model, model: "other", supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "" }] }], nextCursor: null }
+    ? { data: [{ ...model, id: "other", supportedEfforts: [{ value: "medium", description: "" }] }], nextCursor: null }
     : { data: [model], nextCursor: "next" };
   expect((await manager.setThreadEffort("thread-1", "medium")).model).toBe("other");
   await expect(manager.setThreadEffort("thread-1", "high")).rejects.toMatchObject({ failure: { code: "unsupported_effort", available: ["medium"] } });
@@ -66,7 +66,7 @@ test("Codex turn/start forwards effort and resume exposes the effective effort",
     requests.push({ method, params });
     return { thread: { id: "thread-1" }, turn: { id: "turn-1" }, reasoningEffort: "medium" };
   };
-  expect(await session.resumeThread("thread-1", {})).toMatchObject({ reasoningEffort: "medium" });
+  expect(await session.resumeThread("thread-1", {})).toMatchObject({ effort: "medium" });
   await session.startTurn([], undefined, undefined, "/repo", "high");
   expect(requests.at(-1)).toMatchObject({ method: "turn/start", params: { threadId: "thread-1", effort: "high" } });
 });

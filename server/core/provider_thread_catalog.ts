@@ -15,7 +15,7 @@ export function threadSummary(thread: ThreadRecord, archived: boolean) {
   const string = (value: unknown): string | null => typeof value === "string" && value.trim() ? value : null;
   const number = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
   return { threadId: thread.id, name: string(thread.name), preview: string(thread.preview) ?? "", archived,
-    createdAt: number(thread.createdAt), updatedAt: number(thread.updatedAt), source: string(thread.source), cwd: string(thread.cwd) };
+    createdAt: number(thread.createdAt), updatedAt: number(thread.updatedAt), cwd: string(thread.cwd) };
 }
 
 /** Merge sorted provider pages. Refill a depleted source before selecting the next row. */

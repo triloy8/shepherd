@@ -53,7 +53,7 @@ function previewText(item: HistoryItem | undefined): string {
 const activity = (itemId: string, turnId: string, kind: TurnActivityEvent["payload"]["kind"], label: string, detail: string | null, status: TurnActivityEvent["payload"]["status"]) => ({ itemId, turnId, kind, label, detail, status });
 const names = new Map<string, string>();
 const archivedIds = new Set<string>();
-const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: previewText(turns[0]?.items[0]), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2, source: "appServer" }));
+const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: previewText(turns[0]?.items[0]), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2 }));
 h.application.conversation.listStoredThreads = async (request) => ({ threads: stored().filter((thread) => thread.archived === Boolean((request as { archived?: boolean }).archived)), nextCursor: null, backwardsCursor: null });
 histories.set("paged", Array.from({ length: 35 }, (_, index): HistoryTurn => ({ id: `paged-${index}`, status: "completed", itemsView: "full", error: null, startedAt: index, completedAt: index + 1, durationMs: 1000, items: [
   { id: `paged-user-${index}`, type: "user_message", content: [{ type: "text", text: `History turn ${index}` }] },

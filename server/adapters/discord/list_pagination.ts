@@ -183,12 +183,12 @@ function formatModelEntry(
   defaultModel: string | null,
 ): string {
   const flags: string[] = [];
-  if (model.model === modelState?.currentModel) flags.push("current");
-  if (model.model === modelState?.pendingModel) flags.push("pending");
-  if (model.model === defaultModel || model.isDefault) flags.push("default");
+  if (model.id === modelState?.currentModel) flags.push("current");
+  if (model.id === modelState?.pendingModel) flags.push("pending");
+  if (model.id === defaultModel || model.isDefault) flags.push("default");
   const description = model.description ? ` - ${model.description}` : "";
   const suffix = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
-  return `${index}. \`${model.model}\`${suffix}${description}`;
+  return `${index}. \`${model.id}\`${suffix}${description}`;
 }
 
 export function buildModelsListPage(options: {
@@ -206,14 +206,14 @@ export function buildModelsListPage(options: {
       lines.push(`- Pending next turn: ${options.modelState.pendingModel}`);
     }
   }
-  if (defaultEntry) lines.push(`- App default: ${defaultEntry.model}`);
+  if (defaultEntry) lines.push(`- App default: ${defaultEntry.id}`);
   if (lines.length > 0) lines.push("");
   if (options.result.data.length === 0) {
     lines.push("No models returned by the provider.");
   } else {
     const offset = (options.page - 1) * DISCORD_LIST_PAGE_SIZE;
     for (const [index, entry] of options.result.data.entries()) {
-      lines.push(formatModelEntry(entry, offset + index + 1, options.modelState, defaultEntry?.model ?? null));
+      lines.push(formatModelEntry(entry, offset + index + 1, options.modelState, defaultEntry?.id ?? null));
     }
   }
   return buildCardPages({

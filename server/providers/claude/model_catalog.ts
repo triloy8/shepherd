@@ -9,10 +9,10 @@ export function claudeModelCatalog(models: ModelInfo[], defaults: ReturnType<typ
   const rows = new Map<string, ModelSummary>();
   function row(model: ModelInfo, id: string, hidden: boolean): ModelSummary {
     const efforts = model.supportedEffortLevels ?? [];
-    return { id, model: id, displayName: model.displayName, description: model.description,
+    return { id, displayName: model.displayName, description: model.description,
       hidden, isDefault: !hidden && id === defaultModel,
-      defaultReasoningEffort: model.supportsEffort && efforts.includes(defaults.effort) ? defaults.effort : null,
-      supportedReasoningEfforts: efforts.map(reasoningEffort => ({ reasoningEffort, description: "" })) };
+      defaultEffort: model.supportsEffort && efforts.includes(defaults.effort) ? defaults.effort : null,
+      supportedEfforts: efforts.map(value => ({ value, description: "" })) };
   }
   for (const model of models) {
     const id = model.resolvedModel ?? model.value;

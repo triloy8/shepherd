@@ -72,8 +72,8 @@ function makeContext(overrides?: {
   listSkills?: () => Promise<unknown>;
   writeSkillConfig?: (threadId: string, request: { path: string; enabled: boolean }) => Promise<{ effectiveEnabled: boolean }>;
   listModels?: () => Promise<unknown>;
-  getThreadModel?: () => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
-  setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
+  getThreadModel?: () => { threadId: string; currentModel: string | null; provider: string; pendingModel: string | null };
+  setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; provider: string; pendingModel: string | null };
   getSurfaceProject?: () => string | null;
   setSurfaceProject?: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
@@ -159,7 +159,7 @@ function makeContext(overrides?: {
         return {
           threadId: "thread-1",
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: null,
         };
       },
@@ -169,7 +169,7 @@ function makeContext(overrides?: {
         return {
           threadId,
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: model,
         };
       },
@@ -486,7 +486,7 @@ describe("Discord !skill commands", () => {
         return {
           threadId: "thread-1",
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: "gpt-5.3-codex",
         };
       },

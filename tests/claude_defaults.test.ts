@@ -17,17 +17,17 @@ test("Claude defaults pin Opus 5.5 and medium independently of Codex configurati
 
 test("catalog resolves explicit IDs while retaining aliases for saved conversations", () => {
   const rows = claudeModelCatalog(models, claudeDefaults({}));
-  expect(rows.filter(row => !row.hidden).map(row => row.model)).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
-  expect(rows.filter(row => row.isDefault).map(row => row.model)).toEqual(["claude-opus-5-5"]);
-  expect(rows.find(row => row.model === "claude-opus-5-5")).toMatchObject({ defaultReasoningEffort: "medium", displayName: "Opus 5.5" });
-  expect(rows.find(row => row.model === "opus")).toMatchObject({ hidden: true, isDefault: false });
-  expect(rows.find(row => row.model === "sonnet")).toMatchObject({ hidden: true, defaultReasoningEffort: "medium" });
-  expect(claudeModelCatalog(models, claudeDefaults({ CLAUDE_MODEL: "sonnet" })).find(row => row.isDefault)!.model).toBe("claude-sonnet-5-5");
+  expect(rows.filter(row => !row.hidden).map(row => row.id)).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
+  expect(rows.filter(row => row.isDefault).map(row => row.id)).toEqual(["claude-opus-5-5"]);
+  expect(rows.find(row => row.id === "claude-opus-5-5")).toMatchObject({ defaultEffort: "medium", displayName: "Opus 5.5" });
+  expect(rows.find(row => row.id === "opus")).toMatchObject({ hidden: true, isDefault: false });
+  expect(rows.find(row => row.id === "sonnet")).toMatchObject({ hidden: true, defaultEffort: "medium" });
+  expect(claudeModelCatalog(models, claudeDefaults({ CLAUDE_MODEL: "sonnet" })).find(row => row.isDefault)!.id).toBe("claude-sonnet-5-5");
 });
 
 test("catalog avoids duplicate IDs and does not advertise an unsupported default effort", () => {
   const rows = claudeModelCatalog([...models, { ...models[0]!, value: "claude-opus-5-5" }], claudeDefaults({}));
-  expect(rows.filter(row => row.model === "claude-opus-5-5")).toHaveLength(1);
+  expect(rows.filter(row => row.id === "claude-opus-5-5")).toHaveLength(1);
   const limited = claudeModelCatalog([{ ...models[0]!, supportedEffortLevels: ["high"] }], claudeDefaults({}));
-  expect(limited[0]!.defaultReasoningEffort).toBeNull();
+  expect(limited[0]!.defaultEffort).toBeNull();
 });

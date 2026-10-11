@@ -66,6 +66,30 @@ function assertNeutralConfiguration(create: CreateThreadRequest, list: ListStore
 }
 void assertNeutralConfiguration;
 
+import type { ThreadRecord, ThreadModelState, ModelSummary, HistoryItem } from "../shared/protocol/requests.js";
+import type { UserInput } from "../shared/protocol/user_input.js";
+import type { DynamicToolCallOutputContentItem } from "../shared/protocol/dynamic_tools.js";
+function assertNeutralRecords(thread: ThreadRecord, model: ThreadModelState, summary: ModelSummary) {
+  // @ts-expect-error Native model backends are not thread metadata.
+  thread.modelProvider;
+  // @ts-expect-error Native session origins are not thread metadata.
+  thread.source;
+  // @ts-expect-error Thread model state names the owning agent, not a native backend.
+  model.modelProvider;
+  // @ts-expect-error A model is selected by its application ID.
+  summary.model;
+  // @ts-expect-error Effort options use neutral names.
+  summary.supportedReasoningEfforts;
+  // @ts-expect-error Native thread item names do not cross the boundary.
+  const item: HistoryItem = { id: "item", type: "agentMessage", text: "native" };
+  // @ts-expect-error Native local-file input names do not cross the boundary.
+  const input: UserInput = { type: "localImage", path: "/tmp/image.png" };
+  // @ts-expect-error Native dynamic-tool content names do not cross the boundary.
+  const output: DynamicToolCallOutputContentItem = { type: "inputText", text: "native" };
+  void item; void input; void output;
+}
+void assertNeutralRecords;
+
 
 import { bridgeEvent, type BridgeEvent } from "../shared/protocol/events.js";
 function assertEventPayloads(session: ProviderSession, event: BridgeEvent) {

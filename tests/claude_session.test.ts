@@ -156,7 +156,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
     providers.push(provider);
     if (provider === "claude") return new ClaudeSession(policy, tools, storage, fake);
     const codex = new CodexSession(policy, tools);
-    codex.startThread = async () => ({ threadId: "codex-thread", model: "codex-model", modelProvider: "openai", reasoningEffort: null });
+    codex.startThread = async () => ({ threadId: "codex-thread", model: "codex-model", effort: null });
     return codex;
   }, () => false, { resolve: id => id.startsWith("claude-") ? "claude" : "codex", bind: () => {} }, ["codex", "claude"]);
   await manager.createThread({});
@@ -168,7 +168,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
   expect((await manager.listThreadTurns(unloaded.threadId, {})).data).toEqual([]);
   expect(providers).toEqual(["codex", "claude", "claude"]);
   const models = await manager.listModels({ provider: "claude" });
-  expect(models.data[0]!.model).toBe("sonnet");
+  expect(models.data[0]!.id).toBe("sonnet");
   manager.stopAll(); created.stop();
 });
 
@@ -361,7 +361,7 @@ test("loaded conversations include every provider and respect page size", async 
   const manager = new SessionManager(undefined, (policy, tools, provider) => {
     if (provider === "claude") return new ClaudeSession(policy, tools, storage, fake);
     const session = new CodexSession(policy, tools); session.initialize = async () => {};
-    session.startThread = async () => ({ threadId: "opaque-codex-id", model: "codex", modelProvider: "openai", reasoningEffort: null });
+    session.startThread = async () => ({ threadId: "opaque-codex-id", model: "codex", effort: null });
     session.listLoadedThreads = async () => ({ data: ["opaque-codex-id"], nextCursor: null }); return session;
   }, undefined, undefined, ["codex", "claude"]);
   const codex = await manager.createThread({}); const claude = await manager.createThread({ provider: "claude" });
@@ -436,15 +436,15 @@ test("new Claude defaults reach SDK turns and saved conversations retain explici
   const forked = new ClaudeSession("review_sensitive", undefined, storage, fake);
   try {
     const created = await session.startThread({ cwd: "/project" });
-    expect(created).toMatchObject({ model: "claude-opus-5-5", reasoningEffort: "medium" });
+    expect(created).toMatchObject({ model: "claude-opus-5-5", effort: "medium" });
     await session.startTurn([toTextUserInput("hello")]); await done(session);
     expect(fake.calls[0]!.options).toMatchObject({ model: "claude-opus-5-5", effort: "medium" });
     const saved = storage.read(created.threadId); saved.model = "sonnet"; saved.effort = "high"; saved.materialized = false; storage.write(saved);
     process.env.CLAUDE_MODEL = "haiku"; process.env.CLAUDE_EFFORT = "low";
-    expect(await resumed.resumeThread(created.threadId, {})).toMatchObject({ model: "sonnet", reasoningEffort: "high" });
-    expect(await forked.forkThread(created.threadId, {})).toMatchObject({ model: "sonnet", reasoningEffort: "high" });
+    expect(await resumed.resumeThread(created.threadId, {})).toMatchObject({ model: "sonnet", effort: "high" });
+    expect(await forked.forkThread(created.threadId, {})).toMatchObject({ model: "sonnet", effort: "high" });
     const explicit = new ClaudeSession("review_sensitive", undefined, storage, fake);
-    expect(await explicit.startThread({ model: "opus" })).toMatchObject({ model: "opus", reasoningEffort: "low" });
+    expect(await explicit.startThread({ model: "opus" })).toMatchObject({ model: "opus", effort: "low" });
     explicit.stop();
   } finally {
     session.stop(); resumed.stop(); forked.stop();
@@ -467,7 +467,7 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
     expect(await manager.setThreadEffort(threadId, "default")).toMatchObject({ pendingEffort: "medium" });
     const legacy = await manager.createThread({ provider: "claude", model: "opus" });
     expect(await manager.getThreadEffort(legacy.threadId)).toMatchObject({ model: "opus", currentEffort: "medium" });
-    expect((await manager.listModels({ provider: "claude" })).data.map(row => row.model)).toEqual(["claude-opus-5-5"]);
+    expect((await manager.listModels({ provider: "claude" })).data.map(row => row.id)).toEqual(["claude-opus-5-5"]);
   } finally { manager.stopAll(); }
 });
 

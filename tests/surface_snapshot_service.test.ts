@@ -8,7 +8,7 @@ function reader(threadId: string | null): SurfaceStatusReader {
     getSurfaceListeningMode: () => "open",
     conversation: {
       getThreadState: () => { if (!threadId) throw new Error("unexpected read"); return { activeTurnId: "turn-1" }; },
-      getThreadModel: () => ({ threadId: threadId!, currentModel: "current", pendingModel: "next", modelProvider: "openai" }),
+      getThreadModel: () => ({ threadId: threadId!, currentModel: "current", pendingModel: "next", provider: "fixture" }),
     },
   };
 }
@@ -16,7 +16,7 @@ function reader(threadId: string | null): SurfaceStatusReader {
 test("status preserves current/pending model data and activity without presentation", () => {
   expect(readSurfaceStatus(reader("thread-1"), "terminal-1")).toEqual({
     surfaceId: "terminal-1", project: "~/project with spaces", threadId: "thread-1", listeningMode: "open",
-    activeTurnId: "turn-1", model: { threadId: "thread-1", currentModel: "current", pendingModel: "next", modelProvider: "openai" },
+    activeTurnId: "turn-1", model: { threadId: "thread-1", currentModel: "current", pendingModel: "next", provider: "fixture" },
   });
   expect(readSurfaceStatus(reader(null), "terminal-1")).toMatchObject({ threadId: null, activeTurnId: null, model: null });
 });

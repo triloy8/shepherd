@@ -9,11 +9,11 @@ test("web settings use shared model resolution across pages and pending effort s
     const c = await h.create(); const path = `/conversations/${c.id}`;
     const first = await (await h.request(`${path}/models?limit=1`)).json();
     expect(first.nextCursor).toBe("next");
-    expect((await (await h.request(`${path}/models?cursor=next`)).json()).data[0].model).toBe("large");
+    expect((await (await h.request(`${path}/models?cursor=next`)).json()).data[0].id).toBe("large");
     expect((await h.request(`${path}/model`, "POST", { model: "LARGE" })).status).toBe(200);
     const settings = await (await h.request(`${path}/settings`)).json();
     expect(settings.model.currentModel).toBe("small"); expect(settings.model.pendingModel).toBe("large");
-    expect(settings.effort.supportedEfforts.map((e: { reasoningEffort: string }) => e.reasoningEffort)).toEqual(["low", "high"]);
+    expect(settings.effort.supportedEfforts.map((e: { value: string }) => e.value)).toEqual(["low", "high"]);
     expect((await h.request(`${path}/effort`, "POST", { effort: "high" })).status).toBe(200);
     expect((await (await h.request(`${path}/settings`)).json()).effort.pendingEffort).toBe("high");
     expect((await h.request(`${path}/effort`, "POST", { effort: "default" })).status).toBe(200);

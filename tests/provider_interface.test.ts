@@ -13,6 +13,7 @@ import { CodexAccount } from "../server/providers/codex/account";
 import { codexInput } from "../server/providers/codex/input";
 import { historyItem } from "../server/providers/codex/history";
 import { codexToolResponse, codexToolSpecs } from "../server/providers/codex/tools";
+import { codexAccount } from "../server/providers/codex/account_presentation";
 import { webHarness } from "./helpers/web_harness";
 import { account } from "./helpers/account";
 
@@ -26,7 +27,7 @@ test("an independent provider uses production orchestration, settings, events, h
     const { threadId } = await conversation.createThread({ cwd: "/tmp" });
     expect(conversation.getThreadProvider(threadId)).toBe(descriptor.id);
     expect(conversation.listProviders()).toEqual([descriptor]);
-    expect((await conversation.getThreadEffort(threadId)).supportedEfforts[0]!.reasoningEffort).toBe("focused");
+    expect((await conversation.getThreadEffort(threadId)).supportedEfforts[0]!.value).toBe("focused");
     const events: import("../shared/protocol/events").BridgeEvent[] = [];
     conversation.subscribeToThreadEvents(threadId, event => events.push(event));
     await conversation.submitTurn(threadId, { input: [toTextUserInput("Hello")] });
@@ -88,6 +89,16 @@ test("application tool declarations and results are encoded into Codex dynamic t
     .toEqual([{ type: "namespace", name: "signals", description: "Signals", tools: [{ type: "function", name: "callback", description: "Create", inputSchema: { type: "object" } }] }]);
   expect(codexToolResponse({ success: true, contentItems: [{ type: "text", text: "ok" }, { type: "image", url: "data:image/png;base64,AA" }, { type: "audio", url: "data:audio/wav;base64,AA" }] }))
     .toEqual({ success: true, contentItems: [{ type: "inputText", text: "ok" }, { type: "inputImage", imageUrl: "data:image/png;base64,AA" }, { type: "inputAudio", audioUrl: "data:audio/wav;base64,AA" }] });
+});
+
+test("Codex allowance labels keep provider names and humanize opaque limit IDs inside the adapter", () => {
+  const window = { usedPercent: 10, windowDurationMins: 300, resetsAt: 1 };
+  const account = codexAccount({ rateLimits: {}, rateLimitsByLimitId: {
+    named: { limitId: "named", limitName: "  Provider Label-v2 ", primary: window },
+    opaque: { limitId: "new_feature-quota", primary: window },
+    blank: { primary: window },
+  }, rateLimitResetCredits: null }, 1);
+  expect(account.windows.map(entry => entry.label)).toEqual(["Provider Label-v2", "New feature quota", "Account allowance"]);
 });
 
 test("opaque permission options retain native policy amendments and reject stale ownership", async () => {

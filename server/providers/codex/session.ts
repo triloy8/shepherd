@@ -47,7 +47,7 @@ import {
   UnknownDynamicToolError,
   type ProviderTools,
 } from "../../ports/provider_tools.js";
-import type { ProviderSession } from "../../ports/provider_session.js";
+import type { ProviderSession, ThreadBootstrapInfo } from "../../ports/provider_session.js";
 import { EventBus } from "../event_bus.js";
 import {
   extractCompletedAgentMessage,
@@ -196,14 +196,6 @@ function parseDynamicToolCallParams(value: unknown): DynamicToolCallParams {
     arguments: record.arguments,
   };
 }
-
-type ThreadBootstrapInfo = {
-  reasoningEffort: string | null;
-  threadId: string;
-  model: string | null;
-  modelProvider: string | null;
-  approvalPolicy: ApprovalPolicy;
-};
 
 function isContextLimitError(params: unknown): boolean {
   const error = asRecord(asRecord(params).error);
@@ -595,15 +587,13 @@ export class CodexSession implements ProviderSession {
     return threadId;
   }
 
-  private extractThreadBootstrapInfo(result: unknown, method: string): ThreadBootstrapInfo {
+  private extractThreadBootstrapInfo(result: unknown, method: string): ThreadBootstrapInfo & { approvalPolicy: ApprovalPolicy } {
     const threadId = this.mustSetThreadIdFromResult(result, method);
     const record = asRecord(result);
-    const thread = asRecord(record.thread);
     return {
       threadId,
       model: asString(record.model),
-      reasoningEffort: asString(record.reasoningEffort),
-      modelProvider: asString(record.modelProvider) ?? asString(thread.modelProvider),
+      effort: asString(record.reasoningEffort),
       approvalPolicy: Object.hasOwn(record, "approvalPolicy") ? applicationApproval(record.approvalPolicy) ?? "provider_default" : this.approvalPolicy,
     };
   }

@@ -108,7 +108,7 @@ function makeContext(overrides?: {
         return {
           threadId,
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: null,
         };
       },
@@ -117,7 +117,7 @@ function makeContext(overrides?: {
         return {
           threadId,
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: model,
         };
       },

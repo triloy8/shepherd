@@ -88,13 +88,12 @@ test("application request validators reject SDK fields across create, resume and
   }
 });
 
-test("capabilities reject unsupported settings and annotated/media inputs without claiming identical native policies", () => {
+test("capabilities reject unsupported settings and media inputs without claiming identical native policies", () => {
   expect(() => assertThreadSupport("agent", claudeCapabilities, { approvalPolicy: "review_untrusted" })).toThrow("approval mode review_untrusted");
   expect(() => assertThreadSupport("agent", claudeCapabilities, { sandbox: "workspace_write" })).toThrow("sandbox mode workspace_write");
   expect(() => assertThreadSupport("agent", claudeCapabilities, { ephemeral: true })).toThrow("ephemeral");
-  for (const input of [{ type: "audio", url: "data:audio/wav;base64,AA" }, { type: "localImage", path: "/tmp/image" }, { type: "skill", name: "tool", path: "/tmp/tool" }] as const) expect(() => assertInputSupport("agent", claudeCapabilities, [input])).toThrow("inputs");
+  for (const input of [{ type: "audio", url: "data:audio/wav;base64,AA" }, { type: "image_file", path: "/tmp/image" }, { type: "skill", name: "tool", path: "/tmp/tool" }] as const) expect(() => assertInputSupport("agent", claudeCapabilities, [input])).toThrow("inputs");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "image", url: "https://example.com", detail: "high" }])).toThrow("image detail");
-  expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "text", text: "abc", annotations: [{ byteRange: { start: 0, end: 1 }, placeholder: null }] }])).toThrow("annotations");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "text", text: "abc" }, { type: "image", url: "data:image/png;base64,AA" }])).not.toThrow();
   expect(() => assertThreadSupport("agent", codexCapabilities, { approvalPolicy: "review_untrusted", sandbox: "read_only", ephemeral: true })).not.toThrow();
   expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "provider_default" });

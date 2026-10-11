@@ -4,7 +4,7 @@ import type { ProviderSession } from "../../server/ports/provider_session.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import type { HistoryTurn } from "../../shared/protocol/requests.js";
-export const descriptor: ProviderDescriptor = { id: "unrelated-provider", displayName: "An unrelated agent", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } };
+export const descriptor: ProviderDescriptor = { id: "unrelated-provider", displayName: "An unrelated agent", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, resets: false } };
 
 /** Implements the actual port directly; no SDK session, proxy, or compatibility methods. */
 export class IndependentSession implements ProviderSession {

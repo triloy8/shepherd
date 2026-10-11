@@ -74,7 +74,9 @@ test("account reset calls preserve adapter method ownership and decode native ou
 });
 
 test("native input and history fields are encoded and sanitized inside adapters", () => {
-  expect(codexInput([{ type: "text", text: "hi", annotations: [{ byteRange: { start: 0, end: 2 }, placeholder: null }] }])).toEqual([{ type: "text", text: "hi", text_elements: [{ byteRange: { start: 0, end: 2 }, placeholder: null }] }]);
+  expect(codexInput([{ type: "text", text: "hi" }, { type: "image_file", path: "/tmp/a.png", detail: "high" }, { type: "audio_file", path: "/tmp/a.wav" }])).toEqual([
+    { type: "text", text: "hi", text_elements: [] }, { type: "localImage", path: "/tmp/a.png", detail: "high" }, { type: "localAudio", path: "/tmp/a.wav" },
+  ]);
   const item = historyItem({ id: "tool", type: "commandExecution", command: "bun test", status: "completed", nativeSecret: "private", aggregatedOutput: "private" }, "turn");
   expect(item).toMatchObject({ id: "tool", type: "activity", activity: { kind: "command", status: "completed", detail: "bun test" } });
   expect(JSON.stringify(item)).not.toContain("nativeSecret"); expect(JSON.stringify(item)).not.toContain("aggregatedOutput");

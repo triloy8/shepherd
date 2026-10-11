@@ -207,7 +207,8 @@ new handle using the desired thread ID after restart.
 
 `GET /api/providers` returns capabilities for each registered agent. In addition to
 questions, skills, fork, compact, revert and resets, descriptors advertise `approvalModes`,
-`sandboxModes`, `inputKinds`, `textAnnotations`, `imageDetail`, and `ephemeralThreads`.
+`sandboxModes`, `inputKinds`, `imageDetail`, and `ephemeralThreads`. Input kinds are
+`text`, `image` (URL or data URL), `image_file`, `audio`, `audio_file`, and `skill`.
 Unsupported operations/settings produce `422 unsupported_provider_operation` before execution.
 Public policy values are `provider_default`, `review_sensitive`, `review_untrusted`, and
 `bypass`; sandbox values are `read_only`, `workspace_write`, and `unrestricted`. Native

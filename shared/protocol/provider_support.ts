@@ -19,7 +19,6 @@ export function assertThreadSupport(provider: string, capabilities: ProviderCapa
 export function assertInputSupport(provider: string, capabilities: ProviderCapabilities, input: readonly UserInput[]): void {
   for (const part of input) {
     if (!capabilities.inputKinds.includes(part.type)) throw new UnsupportedProviderOperationError(provider, `${part.type} inputs`);
-    if (part.type === "text" && part.annotations?.length && !capabilities.textAnnotations) throw new UnsupportedProviderOperationError(provider, "text annotations");
-    if ((part.type === "image" || part.type === "localImage") && part.detail && !capabilities.imageDetail) throw new UnsupportedProviderOperationError(provider, "image detail overrides");
+    if ((part.type === "image" || part.type === "image_file") && part.detail && !capabilities.imageDetail) throw new UnsupportedProviderOperationError(provider, "image detail overrides");
   }
 }

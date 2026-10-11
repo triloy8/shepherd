@@ -1,4 +1,4 @@
-import type * as P from "../../shared/protocol/requests.js";
+import type * as P from "../../../shared/protocol/requests.js";
 
 export const claudeEffortLevels = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ClaudeEffort = typeof claudeEffortLevels[number];

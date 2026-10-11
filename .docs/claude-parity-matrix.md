@@ -173,8 +173,8 @@ Primary implementation sources:
 [questions](../server/providers/claude/questions.ts),
 [MCP bridge](../server/providers/claude/mcp_bridge.ts),
 [background tasks](../server/providers/claude/background_tasks.ts),
-[capabilities](../server/providers/capabilities.ts),
-[snapshot storage](../server/storage/claude_thread_store.ts),
+[capabilities](../server/providers/claude/capabilities.ts),
+[snapshot storage](../server/providers/claude/file_thread_store.ts),
 [provider assembly](../server/runtime/provider_services.ts),
 [SDK overview](https://code.claude.com/docs/en/agent-sdk/overview).
 

@@ -1,4 +1,4 @@
-import { ClaudeThreadStore } from "../server/storage/claude_thread_store.js";
+import { ClaudeThreadStore } from "../server/providers/claude/file_thread_store.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,14 +1,14 @@
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { approvalChoices } from "../approval_choices.js";
-import { historyItem, historyTurn } from "../history_mapper.js";
+import { historyItem, historyTurn } from "../codex/history.js";
 import { claudeDefaults } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
 import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
 import type { UserQuestionRequest } from "../../../shared/protocol/user_questions.js";
-import { claudeCapabilities } from "../capabilities.js";
-import { claudeEffortLevels, isClaudeEffort, type ClaudeThreadRepository, type ClaudeThread, type ClaudeThreadSummary } from "../../ports/claude_thread_store.js";
+import { claudeCapabilities } from "./capabilities.js";
+import { claudeEffortLevels, isClaudeEffort, type ClaudeThreadRepository, type ClaudeThread, type ClaudeThreadSummary } from "./thread_store.js";
 import { InputQueue } from "./input_queue.js";
 import { randomUUID } from "node:crypto";
 import { query, forkSession, type ModelInfo, type ModelUsage, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";

@@ -1,4 +1,4 @@
-import { claudeEffortLevels, isClaudeEffort, type ClaudeEffort } from "../../ports/claude_thread_store.js";
+import { claudeEffortLevels, isClaudeEffort, type ClaudeEffort } from "./thread_store.js";
 
 /** Defaults for new Shepherd conversations, independent of Codex configuration. */
 export function claudeDefaults(environment: Record<string, string | undefined> = process.env): { model: string; effort: ClaudeEffort } {

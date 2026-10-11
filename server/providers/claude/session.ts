@@ -17,11 +17,11 @@ import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../../shared/protocol/events.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { UnsupportedProviderOperationError, type ProviderSession, type ThreadBootstrapInfo } from "../../ports/provider_session.js";
-import { DynamicToolRegistry } from "../../core/dynamic_tool_registry.js";
+import { noProviderTools, type ProviderTools } from "../../ports/provider_tools.js";
 import { claudeExecutablePath } from "./claude_executable.js";
 import { claudeAuthenticationOptions } from "./authentication.js";
 import type { ClaudeLimitsObserver } from "./account_limits.js";
-import { EventBus } from "../../core/event_bus.js";
+import { EventBus } from "../event_bus.js";
 
 function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) {
   const offset = request.cursor ? Number(request.cursor) : 0;
@@ -81,7 +81,7 @@ export class ClaudeSession implements ProviderSession {
   private approvals = new Map<string, { resolve: (result: PermissionResult) => void; input: Record<string, unknown>; suggestions: Parameters<CanUseTool>[2]["suggestions"]; questions?: UserQuestionRequest; replies: Map<string, unknown> }>();
   constructor(
     public approvalPolicy: P.ApprovalPolicy = "provider_default",
-    private readonly dynamicTools = new DynamicToolRegistry(),
+    private readonly dynamicTools: ProviderTools = noProviderTools,
     private readonly store: ClaudeThreadRepository,
     private readonly sdk = { query, forkSession },
     private readonly accountLimits?: ClaudeLimitsObserver,

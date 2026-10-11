@@ -180,7 +180,7 @@ test("request validation preserves opaque provider identities and rejects native
 
 test("Shepherd dynamic tools retain namespaces and conversation identity through Claude MCP", async () => {
   const registry = new DynamicToolRegistry(); const calls: unknown[] = [];
-  registry.register({ namespace: "signals", namespaceDescription: "Signal controls", name: "callback", description: "Create callback", inputSchema: { type: "object", properties: { kind: { type: "string" } }, required: ["kind"] }, execute: async (params) => { calls.push(params); return { success: true, contentItems: [{ type: "inputText", text: "callback-created" }] }; } });
+  registry.register({ namespace: "signals", namespaceDescription: "Signal controls", name: "callback", description: "Create callback", inputSchema: { type: "object", properties: { kind: { type: "string" } }, required: ["kind"] }, execute: async (params) => { calls.push(params); return { success: true, contentItems: [{ type: "text", text: "callback-created" }] }; } });
   const fake = sdk(async function* (_input, options) {
     const server = options.mcpServers!.shepherd!;
     if (!("instance" in server)) throw new Error("Missing in-process MCP server.");

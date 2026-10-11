@@ -5,6 +5,10 @@ import type {
   JsonValue,
 } from "../../shared/protocol/dynamic_tools.js";
 
+import { InvalidDynamicToolCallError, UnknownDynamicToolError, type ProviderTools } from "../ports/provider_tools.js";
+
+export { InvalidDynamicToolCallError, UnknownDynamicToolError };
+
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export type DynamicToolRegistration = {
@@ -13,12 +17,9 @@ export type DynamicToolRegistration = {
   name: string;
   description: string;
   inputSchema: JsonValue;
-  deferLoading?: boolean;
   execute: (params: DynamicToolCallParams) => Promise<DynamicToolCallResponse>;
 };
 
-export class InvalidDynamicToolCallError extends Error {}
-export class UnknownDynamicToolError extends Error {}
 
 function toolKey(namespace: string | null, name: string): string {
   return `${namespace ?? ""}\u0000${name}`;
@@ -30,7 +31,7 @@ function assertName(value: string, label: string): void {
   }
 }
 
-export class DynamicToolRegistry {
+export class DynamicToolRegistry implements ProviderTools {
   private readonly registrations = new Map<string, DynamicToolRegistration>();
 
   register(registration: DynamicToolRegistration): () => void {
@@ -93,9 +94,6 @@ export class DynamicToolRegistry {
         name: registration.name,
         description: registration.description,
         inputSchema: registration.inputSchema,
-        ...(registration.deferLoading === undefined
-          ? {}
-          : { deferLoading: registration.deferLoading }),
       };
       if (registration.namespace === null) {
         standalone.push(functionSpec);

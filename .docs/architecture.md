@@ -172,8 +172,6 @@ These files are also in `server/core/*`, but they are better understood as runti
   Surface/thread route resolution and default-thread binding infrastructure.
 - `server/core/session_manager.ts`
   Session lifecycle, thread/session lookup, event subscription, and session bookkeeping.
-- `server/core/event_bus.ts`
-  In-process pub/sub for thread/session events.
 - `server/core/signal_registry.ts`
   Versioned signal-kind registration, envelope parsing, payload validation, and
   trusted target/input resolution.
@@ -266,7 +264,9 @@ See [Provider adapters](provider-abstraction.md) for the complete boundary and
 - `server/config/signal_environment.ts`
   Loads stable opt-in listener, body-limit, and queue configuration.
 - `server/core/dynamic_tool_registry.ts`
-  Advertises and dispatches explicitly registered app-server dynamic tools.
+  Advertises and dispatches explicitly registered application tools through the
+  `ProviderTools` port (`server/ports/provider_tools.ts`). Codex declares them as
+  dynamic tools; Claude exposes them through an in-process MCP server.
 - `server/core/signal_route_registry.ts`
   Owns bounded, expiring, process-local callback routes.
 - `server/core/signal_route_service.ts`

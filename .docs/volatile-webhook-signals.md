@@ -246,7 +246,9 @@ tool.
 ### Tool response
 
 Every successful call creates a distinct route, including repeated calls from
-the same turn. Shepherd returns the complete URL as tool output:
+the same turn. Shepherd returns the complete URL as text tool output
+(`{ "type": "text", "text": ... }` in the application result). Each adapter encodes
+it natively; the Codex JSON-RPC reply is:
 
 ```json
 {
@@ -555,7 +557,8 @@ The narrowly scoped routing components are:
 
 ```text
 server/core/dynamic_tool_registry.ts
-  validate and dispatch explicitly registered item/tool/call handlers
+  validate and dispatch explicitly registered application tools (Codex
+  item/tool/call requests and Claude MCP tool calls)
 
 server/core/signal_route_registry.ts
   create, resolve, expire, revoke, and bound opaque routes

@@ -15,9 +15,9 @@ import { randomUUID } from "node:crypto";
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
   DynamicToolCallParams,
-  DynamicToolSpec,
   JsonValue,
 } from "../../../shared/protocol/dynamic_tools.js";
+import { codexToolResponse, codexToolSpecs, type NativeToolSpec } from "./tools.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType, type MessagePhase } from "../../../shared/protocol/events.js";
 import type {
 
@@ -42,12 +42,13 @@ import type {
 import type { ConsumeRateLimitResetRequest } from "./account_types.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import {
-  DynamicToolRegistry,
   InvalidDynamicToolCallError,
+  noProviderTools,
   UnknownDynamicToolError,
-} from "../../core/dynamic_tool_registry.js";
+  type ProviderTools,
+} from "../../ports/provider_tools.js";
 import type { ProviderSession } from "../../ports/provider_session.js";
-import { EventBus } from "../../core/event_bus.js";
+import { EventBus } from "../event_bus.js";
 import {
   extractCompletedAgentMessage,
   extractGeneratedImageArtifact,
@@ -93,7 +94,7 @@ type AppServerRequestParams = {
     modelProvider?: string;
     ephemeral?: boolean;
     serviceName?: string;
-    dynamicTools?: DynamicToolSpec[];
+    dynamicTools?: NativeToolSpec[];
   };
   "thread/resume": {
     threadId: string;
@@ -251,7 +252,7 @@ export class CodexSession implements ProviderSession {
 
   constructor(
     approvalPolicy: ApprovalPolicy,
-    private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
+    private readonly dynamicTools: ProviderTools = noProviderTools,
   ) {
     this.approvalPolicy = approvalPolicy;
   }
@@ -318,7 +319,7 @@ export class CodexSession implements ProviderSession {
     assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
-    const dynamicTools = this.dynamicTools.specifications();
+    const dynamicTools = codexToolSpecs(this.dynamicTools.specifications());
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
       ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
@@ -800,7 +801,7 @@ export class CodexSession implements ProviderSession {
         if (params.turnId !== this.activeTurnId) {
           throw new InvalidDynamicToolCallError("Dynamic tool call targets a stale turn.");
         }
-        const result = await this.dynamicTools.execute(params);
+        const result = codexToolResponse(await this.dynamicTools.execute(params));
         this.writeLine({ id: request.id, result });
       } catch (error) {
         if (error instanceof InvalidDynamicToolCallError) {

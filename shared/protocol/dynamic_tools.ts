@@ -11,7 +11,6 @@ export type DynamicToolFunctionSpec = {
   name: string;
   description: string;
   inputSchema: JsonValue;
-  deferLoading?: boolean;
 };
 
 export type DynamicToolNamespaceSpec = {
@@ -32,10 +31,11 @@ export type DynamicToolCallParams = {
   arguments: JsonValue;
 };
 
+/** Tool output returned to the model. Media URLs are data URLs or remote URLs. */
 export type DynamicToolCallOutputContentItem =
-  | { type: "inputText"; text: string }
-  | { type: "inputImage"; imageUrl: string }
-  | { type: "inputAudio"; audioUrl: string };
+  | { type: "text"; text: string }
+  | { type: "image"; url: string }
+  | { type: "audio"; url: string };
 
 export type DynamicToolCallResponse = {
   contentItems: DynamicToolCallOutputContentItem[];

@@ -715,13 +715,13 @@ export async function handleMessage(
 
   if (command === "!effort") {
     const threadId = context.getSurfaceThreadId(channelId);
-    if (args.length && (args.length !== 2 || args[0]?.toLowerCase() !== "set")) {
-      await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level|default>");
+    if (args.length && !((args.length === 2 && args[0]?.toLowerCase() === "set") || (args.length === 1 && ["default", "clear"].includes(args[0]!.toLowerCase())))) {
+      await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level>\nUsage: !effort default\nUsage: !effort clear");
       return { handled: true, threadId, input: null };
     }
     try {
       const result = await executeControlAction(context, args.length
-        ? { type: "effort.set", surfaceId: channelId, effort: args[1]!.toLowerCase() }
+        ? { type: "effort.set", surfaceId: channelId, effort: args.length === 2 ? args[1]! : args[0]!.toLowerCase() === "clear" ? null : { mode: "default" } }
         : { type: "effort.get", surfaceId: channelId });
       if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
       if (!result.ok) {
@@ -735,6 +735,7 @@ export async function handleMessage(
         `- Model default: ${state.defaultEffort ?? "unknown"}`,
         `- Available: ${state.supportedEfforts.map((option) => option.value).join(", ") || "none"}`,
       ];
+      if (state.pendingEffortClear) lines.push("- Pending next turn: clear effort override");
       if (state.pendingEffort) lines.push(`- Pending next turn: ${state.pendingEffort}`);
       if (args.length) lines.push("Applies to the next new turn and subsequent turns.");
       await replyCard(message, args.length ? "Effort updated" : "Effort", lines.join("\n"));

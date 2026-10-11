@@ -1,5 +1,5 @@
 import type { ProviderServices } from "../ports/provider_services.js";
-import type { AgentProvider } from "../../shared/protocol/requests.js";
+import type { AgentProvider, EffortSelection } from "../../shared/protocol/requests.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "../../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type {
@@ -273,7 +273,7 @@ export class ConversationService {
     return this.manager.getThreadEffort(threadId, model);
   }
 
-  setThreadEffort(threadId: string, effort: string): Promise<ThreadEffortState> {
+  setThreadEffort(threadId: string, effort: EffortSelection): Promise<ThreadEffortState> {
     return this.manager.setThreadEffort(threadId, effort);
   }
 

@@ -40,7 +40,7 @@ async page => {
   if (await effort.inputValue() !== 'default') throw Error('Saving model overwrote unsaved effort');
   await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   await open();
-  await page.waitForFunction(() => document.querySelector('[aria-label="Effort for next turn"]').value === 'low');
+  await page.waitForFunction(() => document.querySelector('[aria-label="Effort for next turn"]').value === 'value:low');
   if (await model.inputValue() !== 'large') throw Error('Reopening did not load saved model');
   await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   return 'Unsaved model and effort survive turn start/completion, refresh and independent saves; reopening loads server values';

@@ -529,6 +529,26 @@ describe("Discord !skill commands", () => {
     });
   });
 
+  test("effort commands preserve literal provider values and distinguish default and clear", async () => {
+    const { context } = makeContext();
+    const selections: unknown[] = [];
+    Object.assign(context.conversation, {
+      async setThreadEffort(threadId: string, effort: unknown) {
+        selections.push(effort);
+        return { threadId, model: "opaque-model", currentEffort: null,
+          pendingEffort: typeof effort === "string" ? effort : null, pendingEffortClear: effort === null,
+          inputModalities: ["text"], defaultEffort: "Focused", supportedEfforts: [{ value: "default", description: "" }, { value: "Focused", description: "" }] };
+      },
+    });
+    for (const command of ["!effort set default", "!effort set Focused", "!effort default", "!effort clear"]) {
+      const { message, replies } = makeMessage(command);
+      await handleMessage(message as never, context);
+      expect(replyCardAt(replies).title).toBe("Effort updated");
+      if (command.endsWith("clear")) expect(replyCardAt(replies).description).toContain("clear effort override");
+    }
+    expect(selections).toEqual(["default", "Focused", { mode: "default" }, null]);
+  });
+
   test("reports the current repo binding for the channel", async () => {
     const { message, replies } = makeMessage("!repo");
     const { context } = makeContext({

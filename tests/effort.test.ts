@@ -30,7 +30,7 @@ test("effort applies on the next new turn and subsequent turns inherit it", asyn
   expect(await manager.getThreadEffort("thread-1")).toMatchObject({ currentEffort: "high", pendingEffort: null });
   await manager.submitTurn("thread-1", { input: [] });
   expect(starts[1]?.[4]).toBeUndefined();
-  expect((await manager.setThreadEffort("thread-1", "default")).pendingEffort).toBe("low");
+  expect((await manager.setThreadEffort("thread-1", { mode: "default" })).pendingEffort).toBe("low");
   await expect(manager.setThreadEffort("thread-1", "ultra")).rejects.toMatchObject({ failure: { code: "unsupported_effort", available: ["low", "high"] } });
 });
 
@@ -71,7 +71,7 @@ test("a model switch rejects incompatible pending effort before execution and ke
   expect(starts).toHaveLength(0);
   expect(manager.getThreadModel("thread-1").pendingModel).toBe("other");
   expect((await manager.getThreadEffort("thread-1")).pendingEffort).toBe("high");
-  await manager.setThreadEffort("thread-1", "default");
+  await manager.setThreadEffort("thread-1", { mode: "default" });
   await manager.submitTurn("thread-1", { input: [] });
   expect(starts[0]?.[2]).toBe("other");
   expect(starts[0]?.[4]).toBe("medium");

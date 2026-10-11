@@ -1,4 +1,4 @@
-import type { ProviderOperation } from "../../shared/protocol/provider_capabilities.js";
+import type { ProviderOperation, ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation } from "../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
@@ -13,6 +13,7 @@ import type {
 
 
   ApprovalPolicy,
+  EffortSelection,
   AgentProvider,
 
   ArchiveThreadResponse,
@@ -56,7 +57,7 @@ import type {
   UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
-import { UnsupportedProviderOperationError, type ProviderSession } from "../ports/provider_session.js";
+import { UnsupportedProviderOperationError, type ProviderSession, type LoadedThreadPage } from "../ports/provider_session.js";
 import type { ThreadProviderDirectory, ProviderSessionFactory } from "../ports/provider_services.js";
 import { missingSessionFactory, memoryProviderDirectory } from "./provider_directory.js";
 import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
@@ -87,10 +88,11 @@ export class SessionManager {
   private approvals = new ApprovalsStore();
   private tokenUsageByThread = new Map<string, ThreadTokenUsage>();
   private cwdByThread = new Map<string, string>();
-  private effortStateByThread = new Map<string, { current: string | null; pending: string | null }>();
+  private effortStateByThread = new Map<string, { current: string | null; pending: string | null; pendingClear?: boolean }>();
   private modelStateByThread = new Map<string, ManagedModelState>();
   private controlSessions = new Map<AgentProvider, ProviderSession>();
   private controlSessionStarting = new Map<AgentProvider, Promise<ProviderSession>>();
+  private readonly providerCapabilities = new Map<AgentProvider, ProviderCapabilities>();
   private readonly ownedSessions = new Set<ProviderSession>();
   private readonly sessionSubscriptions = new Map<ProviderSession, () => void>();
   private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
@@ -99,7 +101,7 @@ export class SessionManager {
   constructor(
     private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
     private readonly sessionFactory: ProviderSessionFactory = missingSessionFactory,
-    private readonly providerHasStoredThreads = (_provider: AgentProvider, _request: ListStoredThreadsRequest) => false,
+    private readonly providerHasStoredThreads = (_provider: AgentProvider, _request: ListStoredThreadsRequest) => true,
     private readonly providerDirectory: ThreadProviderDirectory = memoryProviderDirectory(),
     private readonly providers: readonly AgentProvider[] = ["default"],
     private readonly fallbackProvider: AgentProvider = providers[0] ?? "default",
@@ -185,11 +187,15 @@ export class SessionManager {
   }
 
   async listStoredThreads(request: ListStoredThreadsRequest): Promise<ListStoredThreadsResponse> {
-    return listProviderThreads({
+    this.assertRunning();
+    const result = await listProviderThreads({
       providers: this.providers, directory: this.providerDirectory,
       hasStoredThreads: this.providerHasStoredThreads,
+      canUnarchive: provider => this.providerCapabilities.get(provider)?.unarchive ?? false,
       listPage: async (provider, page) => (await this.getControlSession(provider)).listStoredThreads(page),
     }, request);
+    this.assertRunning();
+    return result;
   }
 
   async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<ListLoadedThreadsResponse> {
@@ -198,21 +204,28 @@ export class SessionManager {
     const offset = request.cursor ? Number(request.cursor.slice(prefix.length)) : 0;
     const limit = request.limit ?? 20;
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid loaded thread page.");
+    this.assertRunning();
+    const unavailableProviders: AgentProvider[] = [];
     const ids = new Set(this.sessionsByThread.keys());
     await Promise.all(this.providers.map(async provider => {
-      const session = await this.getControlSession(provider);
+      let session: ProviderSession;
+      try { session = await this.getControlSession(provider); }
+      catch { this.assertRunning(); unavailableProviders.push(provider); return; }
       let cursor: string | undefined;
       const seen = new Set<string>();
       do {
-        const page = await session.listLoadedThreads({ cursor, limit: 100 });
+        let page: LoadedThreadPage;
+        try { page = await session.listLoadedThreads({ cursor, limit: 100 }); }
+        catch { this.assertRunning(); unavailableProviders.push(provider); return; }
         for (const id of page.data) { this.providerDirectory.bind(id, provider); ids.add(id); }
         if (!page.nextCursor) break;
         if (seen.has(page.nextCursor)) throw new Error("Provider returned a repeated loaded thread cursor.");
         seen.add(page.nextCursor); cursor = page.nextCursor;
       } while (true);
     }));
+    this.assertRunning();
     const sorted = [...ids].sort();
-    return { threadIds: sorted.slice(offset, offset + limit), nextCursor: offset + limit < sorted.length ? prefix + (offset + limit) : null };
+    return { ...(unavailableProviders.length ? { unavailableProviders: unavailableProviders.sort() } : {}), threadIds: sorted.slice(offset, offset + limit), nextCursor: offset + limit < sorted.length ? prefix + (offset + limit) : null };
   }
 
   getThreadState(threadId: string): GetThreadStateResponse {
@@ -330,7 +343,7 @@ export class SessionManager {
     const state = this.effortStateByThread.get(threadId);
     return {
       threadId, model: entry.id,
-      currentEffort: state?.current ?? null, pendingEffort: state?.pending ?? null,
+      currentEffort: state?.current ?? null, pendingEffort: state?.pending ?? null, pendingEffortClear: state?.pendingClear ?? false,
       inputModalities: entry.inputModalities,
       defaultEffort: entry.defaultEffort, supportedEfforts: entry.supportedEfforts,
     };
@@ -362,15 +375,15 @@ export class SessionManager {
     if (modality) throw new UnsupportedModelInputError(model.id, modality);
   }
 
-  async setThreadEffort(threadId: string, requested: string): Promise<ThreadEffortState> {
+  async setThreadEffort(threadId: string, requested: EffortSelection): Promise<ThreadEffortState> {
     this.requireCapability(threadId, "effortSelection");
     const state = await this.getThreadEffort(threadId);
-    const effort = requested === "default" ? state.defaultEffort : requested;
-    if (!effort || !state.supportedEfforts.some((option) => option.value === effort)) {
-      throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested, available: state.supportedEfforts.map((option) => option.value) });
+    const effort = requested === null ? null : typeof requested === "string" ? requested : state.defaultEffort;
+    if (effort !== null && (!effort || !state.supportedEfforts.some((option) => option.value === effort))) {
+      throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested: typeof requested === "string" ? requested : "model default", available: state.supportedEfforts.map((option) => option.value) });
     }
-    this.effortStateByThread.set(threadId, { current: state.currentEffort, pending: effort });
-    return { ...state, pendingEffort: effort };
+    this.effortStateByThread.set(threadId, { current: state.currentEffort, pending: effort, pendingClear: effort === null });
+    return { ...state, pendingEffort: effort, pendingEffortClear: effort === null };
   }
 
   async listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
@@ -426,31 +439,32 @@ export class SessionManager {
     const model = request.model ?? modelState?.pendingModel ?? undefined;
     const cwd = await this.resolveThreadCwd(threadId);
     const effortState = this.effortStateByThread.get(threadId);
-    let effort: string | null | undefined = request.effort ?? effortState?.pending ?? undefined;
+    let effort: string | null | undefined = request.effort !== undefined ? request.effort : effortState?.pendingClear ? null : effortState?.pending ?? undefined;
     if (model) this.requireCapability(threadId, "modelSelection");
-    if (effort) this.requireCapability(threadId, "effortSelection");
+    if (effort || request.effort === null || effortState?.pendingClear) this.requireCapability(threadId, "effortSelection");
     if (managed.session.capabilities.modelCatalog) {
       const selected = await this.resolveModel(this.threadProvider(threadId), model ?? modelState?.currentModel);
       this.assertModelInput(selected, request.input);
-      if (!effort && effortState?.current && !selected.supportedEfforts.some(option => option.value === effortState.current)) {
+      if (effort === undefined && effortState?.current && !selected.supportedEfforts.some(option => option.value === effortState.current)) {
         // Preserve inherited effort only while the selected model supports it.
         effort = selected.defaultEffort;
       }
       this.assertModelEffort(selected, effort);
     }
-    if (effort) this.requireCapability(threadId, "effortSelection");
+    if (effort || request.effort === null || effortState?.pendingClear) this.requireCapability(threadId, "effortSelection");
     const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
     if (effort !== undefined) {
       const latest = this.effortStateByThread.get(threadId);
       this.effortStateByThread.set(threadId, {
         current: effort,
         pending: latest?.pending === effort ? null : latest?.pending ?? null,
+        pendingClear: effort === null ? false : latest?.pendingClear ?? false,
       });
     }
     if (model) {
       this.modelStateByThread.set(threadId, {
         currentModel: model,
-        pendingModel: null,
+        pendingModel: this.modelStateByThread.get(threadId)?.pendingModel === model ? null : this.modelStateByThread.get(threadId)?.pendingModel ?? null,
       });
     }
     return { ok: true, turnId };
@@ -549,6 +563,7 @@ export class SessionManager {
   private allocateSession(approvalPolicy: ApprovalPolicy, provider: AgentProvider = this.defaultProvider()): ProviderSession {
     this.assertRunning();
     const session = this.sessionFactory(approvalPolicy, this.dynamicTools, provider);
+    this.providerCapabilities.set(provider, session.capabilities);
     this.ownedSessions.add(session);
     this.attachSessionSubscriptions(session);
     return session;

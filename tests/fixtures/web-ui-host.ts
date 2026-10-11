@@ -38,7 +38,7 @@ const viewedImagePath = join(imageDir, "desktop-screenshot.png");
 await writeFile(viewedImagePath, await readFile(process.env.UI_TEST_SCREENSHOT ?? imagePath));
 const generatedImagePath = join(imageDir, "unicorn.png");
 await writeFile(generatedImagePath, await readFile(process.env.UI_TEST_GENERATED_IMAGE ?? imagePath));
-const uploadDir = join(tmpdir(), "shepherd-image-input-fixtures");
+const uploadDir = process.env.UI_TEST_UPLOAD_DIR ?? join(tmpdir(), "shepherd-image-input-fixtures");
 await mkdir(uploadDir, { recursive: true });
 for (const name of ["first.png", "second.png", "only.png", "2.png", "3.png", "4.png", "5.png"]) await writeFile(join(uploadDir, name), await readFile(imagePath));
 await writeFile(join(uploadDir, "bad.svg"), "<svg/>");
@@ -53,7 +53,7 @@ function previewText(item: HistoryItem | undefined): string {
 const activity = (itemId: string, turnId: string, kind: TurnActivityEvent["payload"]["kind"], label: string, detail: string | null, status: TurnActivityEvent["payload"]["status"]) => ({ itemId, turnId, kind, label, detail, status });
 const names = new Map<string, string>();
 const archivedIds = new Set<string>();
-const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: previewText(turns[0]?.items[0]), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2 }));
+const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, provider: threadProviders.get(threadId) ?? "codex", canUnarchive: true, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: previewText(turns[0]?.items[0]), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2 }));
 h.application.conversation.listStoredThreads = async (request) => ({ threads: stored().filter((thread) => thread.archived === Boolean((request as { archived?: boolean }).archived)), nextCursor: null, backwardsCursor: null });
 histories.set("paged", Array.from({ length: 35 }, (_, index): HistoryTurn => ({ id: `paged-${index}`, status: "completed", itemsView: "full", error: null, startedAt: index, completedAt: index + 1, durationMs: 1000, items: [
   { id: `paged-user-${index}`, type: "user_message", content: [{ type: "text", text: `History turn ${index}` }] },

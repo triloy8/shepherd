@@ -28,8 +28,11 @@ export interface CreateThreadResponse {
   sessionId: string;
 }
 
+/** Strings select opaque provider values; null clears, and mode default selects the model default. */
+export type EffortSelection = string | null | { mode: "default" };
+
 export interface SubmitTurnRequest {
-  effort?: string;
+  effort?: string | null;
   input: UserInput[];
   approvalPolicy?: ApprovalPolicy;
   model?: string;
@@ -64,6 +67,8 @@ export interface ListThreadsResponse {
 
 export interface StoredThreadSummary {
   threadId: string;
+  provider: AgentProvider;
+  canUnarchive: boolean;
   name: string | null;
   preview: string;
   archived: boolean;
@@ -83,6 +88,8 @@ export interface ListStoredThreadsRequest {
 }
 
 export interface ListStoredThreadsResponse {
+  /** Partial results omit these unavailable providers until the list is reloaded. */
+  unavailableProviders?: AgentProvider[];
   threads: StoredThreadSummary[];
   nextCursor: string | null;
   backwardsCursor: string | null;
@@ -94,6 +101,7 @@ export interface ListLoadedThreadsRequest {
 }
 
 export interface ListLoadedThreadsResponse {
+  unavailableProviders?: AgentProvider[];
   threadIds: string[];
   nextCursor: string | null;
 }
@@ -295,6 +303,8 @@ export interface ThreadEffortState extends ModelCapabilities {
   model: string;
   currentEffort: string | null;
   pendingEffort: string | null;
+  /** True means the next turn explicitly clears effort; null alone means unchanged. */
+  pendingEffortClear?: boolean;
 }
 
 /** How much of each turn's item list a history page includes. */

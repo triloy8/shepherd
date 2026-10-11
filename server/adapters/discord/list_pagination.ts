@@ -147,7 +147,7 @@ export function buildStoredThreadsListPage(options: {
   });
   return buildCardPages({
     title,
-    text,
+    text: options.result.unavailableProviders?.length ? `${text}\n\nUnavailable agents: ${options.result.unavailableProviders.join(", ")}. Reload the first page to retry.` : text,
     tone: options.archived ? "neutral" : "info",
     actionRows: [row],
   })[0]!;
@@ -155,6 +155,7 @@ export function buildStoredThreadsListPage(options: {
 
 export function buildLoadedThreadsListPage(options: {
   threadIds: string[];
+  unavailableProviders?: string[];
   nextCursor: string | null;
   requesterId: string;
   page: number;
@@ -165,7 +166,7 @@ export function buildLoadedThreadsListPage(options: {
     : "No loaded threads.";
   return buildCardPages({
     title: "Loaded threads",
-    text,
+    text: options.unavailableProviders?.length ? `${text}\n\nUnavailable agents: ${options.unavailableProviders.join(", ")}. Reload the first page to retry.` : text,
     tone: "info",
     actionRows: [navigationRow({
       target: "threads-loaded",

@@ -2,11 +2,11 @@ import type { DraftImage } from "../image-input";
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from "react";
 import { Icon } from "./Icon";
 
-export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, reading, imageError, addFiles: readFiles, clearImageError, send, disabled, busy, active, interrupt, imageSupported = true }: {
+export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, reading, imageError, addFiles: readFiles, clearImageError, send, disabled, busy, active, interrupt, imageSupported = true, steerSupported = true, interruptSupported = true }: {
   draft: string; draftRevision: number; onDraft: (value: string) => void; clearDraft: (revision: number) => void;
   images: DraftImage[]; onImages: (update: (current: DraftImage[]) => DraftImage[]) => void; send: (text: string, images: string[]) => Promise<boolean>;
   reading: boolean; imageError: string | null; addFiles: (files: File[]) => Promise<void>; clearImageError: () => void;
-  imageSupported?: boolean;
+  imageSupported?: boolean; steerSupported?: boolean; interruptSupported?: boolean;
   disabled: boolean; busy: boolean; active: boolean; interrupt: () => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
@@ -57,7 +57,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
     void addFiles(files);
   }
   async function submit() {
-    if ((!draft.trim() && !images.length) || disabled || busy || sendingRef.current || reading || readingRef.current) return;
+    if ((!draft.trim() && !images.length) || disabled || (active && !steerSupported) || busy || sendingRef.current || reading || readingRef.current) return;
     const value = draft;
     const revision = draftRevision;
     sendingRef.current = true; setSending(true);
@@ -88,7 +88,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
         }} />
       <span id="composer-help" className="sr-only">Enter to send on a keyboard. Shift + Enter for a new line. Follow-ups steer the active turn.</span>
       <button type={stop ? "button" : "submit"} className={`send-button${stop ? " stop-button" : ""}`} aria-label={actionLabel} title={actionLabel}
-        disabled={disabled || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : "arrow"} className="size-5!" /></button>
+        disabled={disabled || (stop ? !interruptSupported : active && !steerSupported) || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : "arrow"} className="size-5!" /></button>
     </div>
     {disabled && <p role="status" className="px-4 pb-2 text-xs text-dim">Waiting for connection</p>}
   </form>;

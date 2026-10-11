@@ -4,7 +4,7 @@ import type { ModelSummary } from "../../../shared/protocol/requests";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
 
-export function ConversationSettings({ id, activeTurnId, disabled, open: controlledOpen, onOpenChange, onSaved }: { id: string; activeTurnId: string | null; disabled: boolean; open?: boolean; onOpenChange?: (open: boolean) => void; onSaved?: () => void }) {
+export function ConversationSettings({ id, activeTurnId, disabled, open: controlledOpen, onOpenChange, onSaved, modelSelection = true, effortSelection = true }: { id: string; activeTurnId: string | null; disabled: boolean; open?: boolean; onOpenChange?: (open: boolean) => void; onSaved?: () => void; modelSelection?: boolean; effortSelection?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -74,7 +74,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
     finally { if (version === generation.current) setPaging(false); }
   }
   async function save(kind: "model" | "effort") {
-    if (mutation.current) return;
+    if (mutation.current || (kind === "model" ? !modelSelection : !effortSelection)) return;
     const version = session.current;
     const edit = edits.current[kind];
     mutation.current = true; setSaving(true); setNotice(null);
@@ -105,23 +105,23 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
         {settings && <p className="text-xs text-muted">Model inputs: {settings.modelCapabilities?.next.inputModalities?.join(", ") ?? "Not reported by this agent"}</p>}
         {errors.settings && <p role="alert" className="notice">{errors.settings}</p>}
         {errors.models && <p role="alert" className="notice">{errors.models}</p>}
-        <label className="block text-xs text-muted">Model for next turn<select aria-label="Model for next turn" value={model} disabled={blocked} onChange={(event) => { edits.current.model++; dirty.current.model = true; setModel(event.target.value); }}>
+        <label className="block text-xs text-muted">Model for next turn<select aria-label="Model for next turn" value={model} disabled={blocked || !modelSelection} onChange={(event) => { edits.current.model++; dirty.current.model = true; setModel(event.target.value); }}>
           <option value="" disabled>{modelsLoading ? "Loading models…" : "Choose a model"}</option>
           {model && !models.some((item) => item.id === model) && <option value={model}>{model}</option>}
           {models.map((item) => <option key={item.id} value={item.id}>{item.displayName || item.id}</option>)}
         </select></label>
-        <div className="flex flex-wrap gap-2"><button className="button-secondary" disabled={blocked || !model || model === effectiveModel} onClick={() => void save("model")}>Use model</button>{cursor && <button className="button-secondary" disabled={blocked || paging} onClick={() => void loadMore()}>{paging ? "Loading…" : "More models"}</button>}</div>
+        <div className="flex flex-wrap gap-2"><button className="button-secondary" disabled={blocked || !modelSelection || !model || model === effectiveModel} onClick={() => void save("model")}>Use model</button>{cursor && <button className="button-secondary" disabled={blocked || paging} onClick={() => void loadMore()}>{paging ? "Loading…" : "More models"}</button>}</div>
       </section>
       <section className="mt-6 space-y-3" aria-label="Reasoning effort">
         <h3 className="text-sm font-medium">Reasoning effort</h3>
         {model !== effectiveModel && <p className="text-xs text-muted">Apply the model change first to see its effort options.</p>}
-        <label className="block text-xs text-muted">Effort for next turn<select aria-label="Effort for next turn" value={effort} disabled={blocked || !settings || !supported.length || model !== effectiveModel} onChange={(event) => { edits.current.effort++; dirty.current.effort = true; setEffort(event.target.value); }}>
+        <label className="block text-xs text-muted">Effort for next turn<select aria-label="Effort for next turn" value={effort} disabled={blocked || !effortSelection || !settings || !supported.length || model !== effectiveModel} onChange={(event) => { edits.current.effort++; dirty.current.effort = true; setEffort(event.target.value); }}>
           <option value="" disabled>Choose effort</option>{effort && effort !== "default" && !supported.some((option) => option.value === effort) && <option value={effort} disabled>{effort} (not supported)</option>}{defaultSupported && <option value="default">Model default ({settings?.effort.defaultEffort})</option>}
           {supported.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
         </select></label>
         {settings?.effort.pendingEffort && !supported.some((option) => option.value === settings.effort.pendingEffort) && <p className="notice">The pending effort is not supported by the next model. Choose a supported effort before starting the next turn.</p>}
         {!supported.length && !loading && <p className="text-xs text-muted">No effort controls available for this model.</p>}
-        <button className="button-secondary" disabled={blocked || !settings || !supported.length || model !== effectiveModel || !(effort === "default" ? defaultSupported : supported.some((option) => option.value === effort))} onClick={() => void save("effort")}>Use effort</button>
+        <button className="button-secondary" disabled={blocked || !effortSelection || !settings || !supported.length || model !== effectiveModel || !(effort === "default" ? defaultSupported : supported.some((option) => option.value === effort))} onClick={() => void save("effort")}>Use effort</button>
       </section>
       {settings && <details className="mt-5 border-t border-line pt-4"><summary className="cursor-pointer text-xs text-muted">Current and pending values</summary><dl className="settings-facts mt-3"><dt>Current model</dt><dd>{settings.model.currentModel ?? "Default"}</dd><dt>Next model</dt><dd>{settings.model.pendingModel ?? "Unchanged"}</dd><dt>Current effort</dt><dd>{settings.effort.currentEffort ?? "Unknown"}</dd><dt>Next effort</dt><dd>{settings.effort.pendingEffort ?? "Unchanged"}</dd><dt>Default effort</dt><dd>{settings.effort.defaultEffort ?? "Unknown"}</dd></dl></details>}
       <button className="button-secondary mt-5" disabled={saving || loading} onClick={() => setRevision((value) => value + 1)}>Refresh settings</button>

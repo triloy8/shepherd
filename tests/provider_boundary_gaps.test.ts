@@ -233,3 +233,95 @@ test("the default provider is explicit configuration rather than registration or
   expect(() => assertInstalledProvider("not-installed")).toThrow("SHEPHERD_DEFAULT_PROVIDER must be one of");
   expect(() => assertInstalledProvider("claude")).not.toThrow();
 });
+
+const optionalOperations = [
+  ["steer", "steerTurn"], ["interrupt", "interruptTurn"], ["rename", "setThreadName"],
+  ["archive", "archiveThread"], ["unarchive", "unarchiveThread"],
+  ["workspaceChange", "setCwd"], ["modelCatalog", "listModels"],
+] as const;
+
+test("disabled provider operations are exposed and rejected before adapter calls or pending state changes", async () => {
+  const capabilities = { ...descriptor.capabilities, steer: false, interrupt: false, rename: false,
+    archive: false, unarchive: false, workspaceChange: false, modelCatalog: false,
+    modelSelection: false, effortSelection: false };
+  const calls: string[] = [];
+  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => {
+    const session = new IndependentSession();
+    Object.assign(session, { capabilities });
+    for (const [, method] of optionalOperations) Object.assign(session, { [method]: () => { calls.push(method); throw Error("Adapter must not be called"); } });
+    return session;
+  } }], directory(), descriptor.id);
+  const conversation = new ConversationService({ providers: services });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect(conversation.listProviders()[0]!.capabilities).toMatchObject(capabilities);
+    expect(conversation.getThreadState(threadId).capabilities).toMatchObject(capabilities);
+    const actions = [
+      () => conversation.steerTurn(threadId, { input: [{ type: "text", text: "steer" }] }),
+      () => conversation.interruptTurn(threadId), () => conversation.setThreadName(threadId, { name: "changed" }),
+      () => conversation.archiveThread(threadId), () => conversation.unarchiveThread(threadId),
+      () => conversation.setThreadCwd(threadId, "/changed"), () => conversation.listModels({}),
+      () => conversation.setThreadModel(threadId, "other"), () => conversation.setThreadEffort(threadId, "focused"),
+      () => conversation.submitTurn(threadId, { model: "other", input: [{ type: "text", text: "hello" }] }),
+      () => conversation.submitTurn(threadId, { effort: "focused", input: [{ type: "text", text: "hello" }] }),
+      () => conversation.writeSkillConfig(threadId, { path: "/tmp/skill", enabled: false }),
+      () => conversation.createThread({ model: "other" }), () => conversation.resumeThread(threadId, { effort: "focused" }),
+    ];
+    for (const action of actions) await expect(Promise.resolve().then(action)).rejects.toThrow("does not support");
+    expect(calls).toEqual([]);
+    expect(conversation.getThreadModel(threadId).pendingModel).toBeNull();
+    expect((await conversation.getThreadEffort(threadId)).pendingEffort).toBeNull();
+    expect(await conversation.getThreadCwd(threadId)).toBe("/tmp");
+  } finally { conversation.stopAll(); }
+});
+
+test("a provider can omit optional methods and still execute media turns without a model catalog", async () => {
+  const capabilities = { ...descriptor.capabilities, steer: false, interrupt: false, rename: false,
+    archive: false, unarchive: false, workspaceChange: false, modelCatalog: false,
+    modelSelection: false, effortSelection: false };
+  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => {
+    const session = new IndependentSession(); Object.assign(session, { capabilities });
+    for (const [, method] of optionalOperations) Object.assign(session, { [method]: undefined });
+    return session;
+  } }], directory(), descriptor.id);
+  const conversation = new ConversationService({ providers: services });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect(await conversation.getThreadEffort(threadId)).toMatchObject({ inputModalities: null, supportedEfforts: [] });
+    await conversation.submitTurn(threadId, { input: [{ type: "image", url: "https://example.com/image.png" }] });
+    expect(conversation.getThreadState(threadId).activeTurnId).toBe("opaque-turn");
+    expect((await conversation.listThreadTurns(threadId, {})).data).toHaveLength(1);
+  } finally { conversation.stopAll(); }
+});
+
+test("registration validates every advertised optional method and effort catalog dependency", () => {
+  for (const [, method] of optionalOperations) {
+    const session = new IndependentSession(); Object.assign(session, { [method]: undefined });
+    const services = assembleProviderServices([{ ...registration(), create: () => session }], directory(), descriptor.id);
+    expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
+    expect(session.stopped).toBe(true);
+  }
+  const capabilities = { ...descriptor.capabilities, modelCatalog: false, effortSelection: true };
+  const session = new IndependentSession(); Object.assign(session, { capabilities });
+  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory(), descriptor.id);
+  expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
+});
+
+test("skill discovery and model catalogs can be read-only", async () => {
+  const capabilities = { ...descriptor.capabilities, skills: true, skillConfig: false,
+    modelSelection: false, effortSelection: false };
+  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => {
+    const session = new IndependentSession();
+    Object.assign(session, { capabilities, listSkills: async () => ({ data: [] }) });
+    return session;
+  } }], directory(), descriptor.id);
+  const conversation = new ConversationService({ providers: services });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect(await conversation.listSkills(threadId, {})).toEqual({ data: [] });
+    expect((await conversation.listModels({})).data).toHaveLength(1);
+    await expect(conversation.writeSkillConfig(threadId, { path: "/tmp/skill", enabled: true })).rejects.toThrow("skillConfig");
+    expect(() => conversation.setThreadModel(threadId, "third-model")).toThrow("modelSelection");
+    await expect(conversation.setThreadEffort(threadId, "focused")).rejects.toThrow("effortSelection");
+  } finally { conversation.stopAll(); }
+});

@@ -1,4 +1,5 @@
-import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../shared/protocol/provider_support.js";
+import type { ProviderOperation } from "../../shared/protocol/provider_capabilities.js";
+import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation } from "../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
 import { ApplicationActionError } from "./action_error.js";
@@ -230,18 +231,24 @@ export class SessionManager {
 
   async setThreadName(threadId: string, request: SetThreadNameRequest): Promise<{ ok: true }> {
     const session = this.mustGet(threadId).session;
+    assertProviderOperation(this.threadProvider(threadId), session.capabilities, "rename");
+    if (!session.setThreadName) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "rename");
     await session.setThreadName(threadId, request.name);
     return { ok: true };
   }
 
   async archiveThread(threadId: string): Promise<ArchiveThreadResponse> {
     const session = this.mustGet(threadId).session;
+    assertProviderOperation(this.threadProvider(threadId), session.capabilities, "archive");
+    if (!session.archiveThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "archive");
     await session.archiveThread(threadId);
     return { ok: true };
   }
 
   async unarchiveThread(threadId: string): Promise<UnarchiveThreadResponse> {
     const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
+    assertProviderOperation(this.threadProvider(threadId), session.capabilities, "unarchive");
+    if (!session.unarchiveThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "unarchive");
     await session.unarchiveThread(threadId);
     return { ok: true };
   }
@@ -265,6 +272,8 @@ export class SessionManager {
 
   async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
     const session = await this.getControlSession(request.provider ?? this.defaultProvider());
+    assertProviderOperation(request.provider ?? this.defaultProvider(), session.capabilities, "modelCatalog");
+    if (!session.listModels) throw new UnsupportedProviderOperationError(request.provider ?? this.defaultProvider(), "modelCatalog");
     return session.listModels(request);
   }
 
@@ -280,7 +289,7 @@ export class SessionManager {
   }
 
   setThreadModel(threadId: string, model: string): ThreadModelState {
-    this.mustGet(threadId);
+    this.requireCapability(threadId, "modelSelection");
     const current = this.modelStateByThread.get(threadId) ?? {
       currentModel: null,
       pendingModel: null,
@@ -301,7 +310,9 @@ export class SessionManager {
   async getThreadEffort(threadId: string, requestedModel?: string): Promise<ThreadEffortState> {
     const modelState = this.getThreadModel(threadId);
     const model = requestedModel ?? modelState.pendingModel ?? modelState.currentModel;
-    const entry = await this.resolveModel(this.threadProvider(threadId), model);
+    const entry = this.mustGet(threadId).session.capabilities.modelCatalog
+      ? await this.resolveModel(this.threadProvider(threadId), model)
+      : { id: model ?? "", inputModalities: null, defaultEffort: null, supportedEfforts: [] };
     const state = this.effortStateByThread.get(threadId);
     return {
       threadId, model: entry.id,
@@ -331,6 +342,7 @@ export class SessionManager {
   }
 
   async setThreadEffort(threadId: string, requested: string): Promise<ThreadEffortState> {
+    this.requireCapability(threadId, "effortSelection");
     const state = await this.getThreadEffort(threadId);
     const effort = requested === "default" ? state.defaultEffort : requested;
     if (!effort || !state.supportedEfforts.some((option) => option.value === effort)) {
@@ -353,7 +365,10 @@ export class SessionManager {
   }
 
   setThreadCwd(threadId: string, cwd: string): void {
-    this.mustGet(threadId).session.setCwd(cwd);
+    this.requireCapability(threadId, "workspaceChange");
+    const session = this.mustGet(threadId).session;
+    if (!session.setCwd) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "workspaceChange");
+    session.setCwd(cwd);
     this.cwdByThread.set(threadId, cwd);
   }
 
@@ -361,7 +376,7 @@ export class SessionManager {
     threadId: string,
     request: SkillsConfigWriteRequest,
   ): Promise<SkillsConfigWriteResponse> {
-    this.requireCapability(threadId, "skills");
+    this.requireCapability(threadId, "skillConfig");
     const managed = this.mustGet(threadId);
     await this.resolveThreadCwd(threadId);
     if (!managed.session.writeSkillConfig) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "skill configuration");
@@ -391,7 +406,9 @@ export class SessionManager {
     const cwd = await this.resolveThreadCwd(threadId);
     const effortState = this.effortStateByThread.get(threadId);
     let effort = request.effort ?? effortState?.pending ?? undefined;
-    if (effort || model || request.input.some(part => part.type !== "text" && part.type !== "skill")) {
+    if (model) this.requireCapability(threadId, "modelSelection");
+    if (effort) this.requireCapability(threadId, "effortSelection");
+    if (managed.session.capabilities.modelCatalog && (effort || model || request.input.some(part => part.type !== "text" && part.type !== "skill"))) {
       const selected = await this.resolveModel(this.threadProvider(threadId), model ?? modelState?.currentModel);
       this.assertModelInput(selected, request.input);
       if (!effort && model && effortState?.current && !selected.supportedEfforts.some(option => option.value === effortState.current)) {
@@ -402,6 +419,7 @@ export class SessionManager {
         throw new ApplicationActionError({ code: "unsupported_effort", model: selected.id, requested: effort, available: selected.supportedEfforts.map(option => option.value) });
       }
     }
+    if (effort) this.requireCapability(threadId, "effortSelection");
     const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
     if (effort) {
       const latest = this.effortStateByThread.get(threadId);
@@ -421,13 +439,17 @@ export class SessionManager {
 
   async interruptTurn(threadId: string, turnId?: string): Promise<void> {
     const managed = this.mustGet(threadId);
+    this.requireCapability(threadId, "interrupt");
+    if (!managed.session.interruptTurn) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "interrupt");
     await managed.session.interruptTurn(turnId);
   }
 
   async steerTurn(threadId: string, request: SteerTurnRequest): Promise<SteerTurnResponse> {
+    this.requireCapability(threadId, "steer");
     const managed = this.mustGet(threadId);
+    if (!managed.session.steerTurn) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "steer");
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
-    if (request.input.some(part => part.type !== "text" && part.type !== "skill")) {
+    if (managed.session.capabilities.modelCatalog && request.input.some(part => part.type !== "text" && part.type !== "skill")) {
       const model = await this.resolveModel(this.threadProvider(threadId), this.modelStateByThread.get(threadId)?.currentModel);
       this.assertModelInput(model, request.input);
     }
@@ -585,8 +607,8 @@ export class SessionManager {
     finally { this.controlSessionStarting.delete(provider); }
   }
 
-  private requireCapability(threadId: string, operation: "compact" | "revert" | "skills"): void {
-    if (!this.mustGet(threadId).session.capabilities[operation]) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), operation);
+  private requireCapability(threadId: string, operation: ProviderOperation): void {
+    assertProviderOperation(this.threadProvider(threadId), this.mustGet(threadId).session.capabilities, operation);
   }
 
   private mustGet(threadId: string): ManagedSession {

@@ -3,7 +3,7 @@ import type { WebSkillsResponse } from "../../../shared/protocol/web";
 import { api, explainError } from "../api";
 
 /** Workspace discovery and shared skill configuration, independent of model settings. */
-export function ConversationSkills({ id, disabled }: { id: string; disabled: boolean }) {
+export function ConversationSkills({ id, disabled, configSupported = true }: { id: string; disabled: boolean; configSupported?: boolean }) {
   const [data, setData] = useState<WebSkillsResponse | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +24,7 @@ export function ConversationSkills({ id, disabled }: { id: string; disabled: boo
   }, [id]);
 
   async function change(path?: string, enabled?: boolean) {
-    if (mutation.current || busy || disabled) return;
+    if (mutation.current || busy || disabled || (path !== undefined && !configSupported)) return;
     mutation.current = true; setBusy(true); setError(null); setNotice(null);
     const version = generation.current;
     try {
@@ -68,7 +68,7 @@ export function ConversationSkills({ id, disabled }: { id: string; disabled: boo
         <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="break-all text-sm font-medium">{skill.name}</h4><span className="text-xs text-muted">{skill.scope} · {skill.enabled ? "Enabled" : "Disabled"}</span></div>
         <p className="break-words text-xs text-muted">{skill.description}</p>
         <details className="text-xs text-muted"><summary className="cursor-pointer">Skill path</summary><p className="mt-2 break-all">{skill.path}</p></details>
-        <button className="button-secondary" aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name} (${skill.scope})`} disabled={disabled || busy} onClick={() => void change(skill.path, !skill.enabled)}>{skill.enabled ? "Disable" : "Enable"}</button>
+        <button className="button-secondary" aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name} (${skill.scope})`} disabled={disabled || busy || !configSupported} onClick={() => void change(skill.path, !skill.enabled)}>{skill.enabled ? "Disable" : "Enable"}</button>
       </article>)}
     </div>)}
   </section>;

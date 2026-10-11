@@ -206,9 +206,15 @@ new handle using the desired thread ID after restart.
 ## Provider support
 
 `GET /api/providers` returns capabilities for each registered agent. In addition to
-questions, skills, fork, compact, revert and resets, descriptors advertise `approvalModes`,
+questions, skills, fork, compact, revert and resets, descriptors advertise `steer`,
+`interrupt`, `rename`, `archive`, `unarchive`, `workspaceChange`, `modelCatalog`,
+`modelSelection`, `effortSelection`, `skillConfig`, and `approvalModes`,
 `sandboxModes`, `inputKinds`, `imageDetail`, and `ephemeralThreads`. Input kinds are
 `text`, `image` (URL or data URL), `image_file`, `audio`, `audio_file`, and `skill`.
+Thread state exposes the same session capabilities. `skills` controls discovery;
+`skillConfig` controls configuration writes. A catalog can be read-only; model and effort
+selection require a catalog. Flags describe adapter support, while
+model capabilities constrain the selected model. Missing catalog metadata remains unknown.
 Unsupported operations/settings produce `422 unsupported_provider_operation` before execution.
 Public policy values are `provider_default`, `review_sensitive`, `review_untrusted`, and
 `bypass`; sandbox values are `read_only`, `workspace_write`, and `unrestricted`. Native

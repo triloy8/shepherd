@@ -32,14 +32,23 @@ export function assembleProviderServices(registrations: readonly ProviderRegistr
       const session = registration.create(policy, tools, provider);
       const expected = registration.capabilities;
       const actual = session.capabilities;
-      const matches = (["questions", "skills", "compact", "revert", "fork", "sandboxModes", "approvalModes", "inputKinds", "imageDetail", "ephemeralThreads"] satisfies Array<keyof ProviderCapabilities>).every(key => {
+      const matches = (Object.keys(expected) as Array<keyof ProviderCapabilities>).every(key => {
         const left = expected[key], right = actual[key];
         return Array.isArray(left) && Array.isArray(right)
           ? JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())
           : left === right;
       });
-      const methodsPresent = (!expected.fork || !!session.forkThread) && (!expected.compact || !!session.compactThread) && (!expected.revert || !!session.revertThread) && (!expected.skills || (!!session.listSkills && !!session.writeSkillConfig));
-      if (!matches || !methodsPresent) { session.stop(); throw new Error(`Provider capability contract mismatch: ${provider}`); }
+      const operations = {
+        steer: session.steerTurn, interrupt: session.interruptTurn,
+        rename: session.setThreadName, archive: session.archiveThread, unarchive: session.unarchiveThread,
+        workspaceChange: session.setCwd, modelCatalog: session.listModels,
+        fork: session.forkThread, compact: session.compactThread, revert: session.revertThread,
+        skills: session.listSkills, skillConfig: session.writeSkillConfig,
+      };
+      const methodsPresent = (Object.keys(operations) as Array<keyof typeof operations>)
+        .every(operation => !expected[operation] || typeof operations[operation] === "function");
+      const consistent = !(expected.modelSelection || expected.effortSelection) || expected.modelCatalog;
+      if (!matches || !methodsPresent || !consistent) { session.stop(); throw new Error(`Provider capability contract mismatch: ${provider}`); }
       return session;
     },
     hasStoredThreads: (provider, request) => factories.get(provider)?.hasStoredThreads(provider, request) ?? false,

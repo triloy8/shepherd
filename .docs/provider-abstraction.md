@@ -78,7 +78,30 @@ forms direct the user to the web UI.
 Unsupported operations are absent from the session port implementation, and the shared
 capability descriptor controls their availability. Claude does not provide fake skill,
 compact, revert, or reset methods. Core rejects unavailable operations consistently.
-Model and effort options come from the selected provider's catalog.
+`shared/protocol/provider_capabilities.ts` is the shared provider contract. Descriptors
+and attached thread state expose the same flags. Creation/resumption, turn submission,
+history access, approvals, and event delivery form the required session baseline.
+Optional operations are negotiated independently:
+
+| Area | Fields |
+| --- | --- |
+| Active turns | `steer`, `interrupt` |
+| Thread management | `rename`, `archive`, `unarchive`, `fork`, `compact`, `revert` |
+| Workspace | `workspaceChange` (changing an existing thread's workspace) |
+| Models | `modelCatalog`, `modelSelection`, `effortSelection` |
+| Skills | `skills` (discovery), `skillConfig` (configuration writes) |
+| Interaction and transport | `questions`, `inputKinds`, `imageDetail` |
+| Execution policy | `approvalModes`, `sandboxModes`, `ephemeralThreads` |
+| Account service | `resets` on the provider descriptor, derived from the registered account reset implementation |
+
+False means unsupported, including when a method exists. Optional methods may be
+omitted when their flag is false. Registration checks descriptor/session agreement,
+advertised method presence, and the model/effort selection dependency on `modelCatalog`.
+Core checks flags before execution and pending-state changes. Clients use them to
+disable unavailable actions; server validation remains authoritative. A catalog can be read-only when selection flags are false. Without a catalog,
+model metadata stays unknown
+and adapter input checks still apply. Effort selection requires advertised model effort
+options. Model and effort options come from the selected provider's catalog.
 
 `shared/protocol/model_capabilities.ts` defines model input modalities and effort
 options. Every model catalog row implements this contract; provider capabilities

@@ -30,12 +30,12 @@ export function ConversationControls({ conversation, capabilities, activeTurnId,
     if (disabled) return;
     const abort = new AbortController();
     setErrors({});
-    void api.settings(conversation.id, abort.signal).then(value => { if (!abort.signal.aborted) setSettings(value); })
+    if (capabilities?.modelCatalog) void api.settings(conversation.id, abort.signal).then(value => { if (!abort.signal.aborted) setSettings(value); })
       .catch(error => { if (!abort.signal.aborted) { setSettings(null); setErrors(current => ({ ...current, settings: explainError(error) })); } });
     void api.context(conversation.id, abort.signal).then(value => { if (!abort.signal.aborted) setContext(value); })
       .catch(error => { if (!abort.signal.aborted) { setContext(null); setErrors(current => ({ ...current, context: explainError(error) })); } });
     return () => abort.abort();
-  }, [conversation.id, activeTurnId, disabled, revision]);
+  }, [conversation.id, activeTurnId, disabled, revision, capabilities?.modelCatalog]);
   useEffect(() => {
     if (panel === "context") contextDialog.current?.showModal(); else contextDialog.current?.close();
     if (panel === "preview") previewDialog.current?.showModal(); else previewDialog.current?.close();
@@ -53,7 +53,7 @@ export function ConversationControls({ conversation, capabilities, activeTurnId,
   const percent = usage && usage.contextWindow && usage.contextWindow > 0 ? Math.round(100 * usage.last.totalTokens / usage.contextWindow) : null;
   return <>
     <div className="mt-1 flex min-w-0 items-center justify-between gap-2" aria-label="Next turn controls">
-      <button ref={modelTrigger} className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-lg px-2 text-xs text-muted hover:bg-panel hover:text-ink" aria-label="Model and effort" title={model ? `${model} · ${effort ?? "Default effort"} — applies to the next turn` : "Choose model and effort for the next turn"} disabled={disabled} onClick={() => show("model")}>
+      <button ref={modelTrigger} className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-lg px-2 text-xs text-muted hover:bg-panel hover:text-ink" aria-label="Model and effort" title={model ? `${model} · ${effort ?? "Default effort"} — applies to the next turn` : "Choose model and effort for the next turn"} disabled={disabled || !capabilities?.modelCatalog || (!capabilities?.modelSelection && !capabilities?.effortSelection)} onClick={() => show("model")}>
         <span className="truncate">{model ? `${model} · ${effort ?? "Default effort"}` : "Model and effort"}</span><Icon name="down" className="size-3" />
       </button>
       <div className="flex shrink-0 items-center gap-1">
@@ -66,7 +66,7 @@ export function ConversationControls({ conversation, capabilities, activeTurnId,
       {panel === "preview" && <MessageMarkdown text={draft} images={noImages} prefix={`preview-${previewId}-`} />}
       <button className="button-secondary mt-5" onClick={() => { returnFocus.current = modelTrigger.current?.closest(".composer-dock")?.querySelector<HTMLTextAreaElement>("textarea") ?? previewTrigger.current; close(); }}>Back to editing</button>
     </dialog>
-    {panel === "model" && <Suspense fallback={null}><ConversationSettings id={conversation.id} activeTurnId={activeTurnId} disabled={disabled} open onOpenChange={value => { if (!value) close(); }} onSaved={() => { setRevision(value => value + 1); void onHistoryChange(); }} /></Suspense>}
+    {panel === "model" && <Suspense fallback={null}><ConversationSettings modelSelection={capabilities?.modelSelection === true} effortSelection={capabilities?.effortSelection === true} id={conversation.id} activeTurnId={activeTurnId} disabled={disabled} open onOpenChange={value => { if (!value) close(); }} onSaved={() => { setRevision(value => value + 1); void onHistoryChange(); }} /></Suspense>}
     <dialog ref={contextDialog} className="project-dialog settings-dialog" aria-labelledby="context-title" onCancel={close} onClose={() => { if (panel === "context") close(); }}>
       <div className="mb-5 flex items-center justify-between"><h2 id="context-title" className="text-lg font-medium">Conversation context</h2><button className="icon-button" aria-label="Close context" onClick={close}><Icon name="close" /></button></div>
       {errors.context ? <p role="alert" className="notice">{errors.context}</p> : context ? <ContextUsage usage={context.tokenUsage} /> : <p className="text-xs text-muted">Loading context…</p>}

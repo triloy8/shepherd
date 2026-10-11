@@ -88,8 +88,8 @@ export function useConversation(conversation: WebConversation | null) {
             });
             // Model metadata is optional for rendering and must not block stream recovery.
             const metadataRevision = ++modelMetadataRevision;
-            void api.settings(id, abort.signal).then(settings => {
-              if (current() && revision === turnRevision && metadataRevision === modelMetadataRevision) setModelCapabilities(settings.modelCapabilities ?? null);
+            void stateRequest.then(state => state.state.capabilities?.modelCatalog ? api.settings(id, abort.signal) : null).then(settings => {
+              if (current() && revision === turnRevision && metadataRevision === modelMetadataRevision) setModelCapabilities(settings?.modelCapabilities ?? null);
             }).catch(() => { if (current() && revision === turnRevision && metadataRevision === modelMetadataRevision) setModelCapabilities(null); });
             const historyRequest = api.history(id, undefined, abort.signal).then((history) => {
               if (!current() || epoch !== historyEpoch.current) return history;

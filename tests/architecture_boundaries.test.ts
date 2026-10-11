@@ -124,3 +124,34 @@ test("application contracts and ports cannot depend on provider implementations 
   }
   expect(violations).toEqual([]);
 });
+
+// Codex app-server vocabulary that once leaked into shared contracts. Adapters translate it at the boundary.
+const nativeValues = new Set([
+  "userMessage", "agentMessage", "inProgress", "notLoaded", "localImage", "localAudio",
+  "inputText", "inputImage", "inputAudio", "appServer", "commentary", "final_answer", "acceptForSession",
+  "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "imageGeneration", "imageView", "contextCompaction",
+]);
+const nativeFields = new Set([
+  "modelProvider", "reasoningEffort", "supportedReasoningEfforts", "defaultReasoningEffort", "cachedInputTokens",
+  "modelContextWindow", "baseInstructions", "developerInstructions", "text_elements", "byteRange", "deferLoading",
+  "normalModelSlug", "limitName", "planType", "imageUrl", "audioUrl",
+]);
+
+test("shared contracts, core, surfaces and UI use application vocabulary rather than Codex wire names", async () => {
+  const files = [
+    ...await sourceFiles(path.join(root, "shared/protocol")), ...await sourceFiles(path.join(root, "server/core")),
+    ...await sourceFiles(path.join(root, "server/adapters")), ...await sourceFiles(path.join(root, "server/ports")),
+    ...await sourceFiles(path.join(root, "ui/src")),
+  ];
+  const violations: string[] = [];
+  for (const file of files) {
+    const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node) => {
+      if (ts.isStringLiteralLike(node) && nativeValues.has(node.text)) violations.push(`${path.relative(root, file)}: "${node.text}"`);
+      if ((ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) && nativeFields.has(node.text)) violations.push(`${path.relative(root, file)}: ${node.text}`);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  expect(violations).toEqual([]);
+});

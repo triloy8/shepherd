@@ -151,7 +151,7 @@ type AppServerRequestParams = {
     approvalPolicy?: NativeApprovalPolicy;
     input: NativeInput[];
     model?: string;
-    effort?: string;
+    effort?: string | null;
     cwd?: string;
   };
   "turn/interrupt": { threadId: string; turnId: string };
@@ -486,7 +486,7 @@ export class CodexSession implements ProviderSession {
     approvalPolicy?: ApprovalPolicy,
     model?: string,
     cwd?: string,
-    effort?: string,
+    effort?: string | null,
   ): Promise<string | null> {
     assertApprovalSupport("Codex", this.capabilities, approvalPolicy ?? this.approvalPolicy);
     assertInputSupport("Codex", this.capabilities, input);
@@ -502,7 +502,7 @@ export class CodexSession implements ProviderSession {
       input: codexInput(input),
       ...(model ? { model } : {}),
       ...(cwd ? { cwd } : {}),
-      ...(effort ? { effort } : {}),
+      ...(effort !== undefined ? { effort } : {}),
     });
 
     const turnId = extractTurnId(result);

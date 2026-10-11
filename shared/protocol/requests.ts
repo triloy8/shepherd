@@ -176,6 +176,8 @@ export interface RevertThreadResponse {
 
 export interface ThreadRecord {
   id: string;
+  /** Saved model selection, when reported by the provider. */
+  model?: string | null;
   name?: string | null;
   preview?: string;
   createdAt?: number;

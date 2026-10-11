@@ -140,7 +140,7 @@ export class ClaudeSession implements ProviderSession {
     assertApprovalSupport("Claude", this.capabilities, request.approvalPolicy ?? this.approvalPolicy);
     if (request.effort && !isClaudeEffort(request.effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
   }
-  async startTurn(input: UserInput[], policy?: P.ApprovalPolicy, model?: string, cwd?: string, effort?: string): Promise<string> {
+  async startTurn(input: UserInput[], policy?: P.ApprovalPolicy, model?: string, cwd?: string, effort?: string | null): Promise<string> {
     await this.initialize();
     if (this.activeTurnId) throw new Error("A Claude turn is already active.");
     const thread = this.requireThread();
@@ -149,7 +149,7 @@ export class ClaudeSession implements ProviderSession {
     if (effort && !isClaudeEffort(effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
     const message = this.userMessage(input);
     const nextPolicy = policy === "provider_default" ? this.approvalPolicy : policy ?? this.approvalPolicy;
-    const settingsChanged = (cwd && cwd !== thread.cwd) || (model && model !== thread.model) || (effort && effort !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
+    const settingsChanged = (cwd && cwd !== thread.cwd) || (model && model !== thread.model) || (effort !== undefined && (effort ?? undefined) !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
     // The SDK fixes MCP tools when its process starts; reopen when Shepherd tools change.
     const tools = JSON.stringify(this.dynamicTools.specifications());
     const toolsChanged = this.runningTools !== null && tools !== this.runningTools;
@@ -160,7 +160,7 @@ export class ClaudeSession implements ProviderSession {
     }
     this.approvalPolicy = nextPolicy;
     const options: Options = {
-      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: (effort as ClaudeThread["effort"]) ?? thread.effort,
+      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: effort === null ? undefined : (effort as ClaudeThread["effort"]) ?? thread.effort,
       ...(thread.materialized ? { resume: thread.nativeId } : { sessionId: thread.nativeId }),
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
       includePartialMessages: true, settingSources: ["user", "project", "local"],
@@ -403,7 +403,7 @@ export class ClaudeSession implements ProviderSession {
     }
   }
   async readThread(id: string, includeTurns: boolean) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); return { thread: this.record(thread, includeTurns) }; }
-  private record(thread: ClaudeThreadSummary & { turns?: P.HistoryTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, ...(includeTurns ? { turns: (thread.turns ?? []).map(historyTurn) } : {}) }; }
+  private record(thread: ClaudeThreadSummary & { turns?: P.HistoryTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, model: thread.model, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, ...(includeTurns ? { turns: (thread.turns ?? []).map(historyTurn) } : {}) }; }
   async listStoredThreads(request: P.ListStoredThreadsRequest) {
     const threads = this.store.list().filter((t) => t.archived === (request.archived ?? false) && (!request.searchTerm || `${t.name ?? ""} ${t.preview}`.toLowerCase().includes(request.searchTerm.toLowerCase())) && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(t.cwd) : request.cwd === t.cwd)));
     const key = request.sortKey === "created_at" ? "createdAt" : "updatedAt";

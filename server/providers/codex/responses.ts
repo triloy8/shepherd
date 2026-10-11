@@ -13,6 +13,7 @@ function thread(value: unknown): ThreadRecord {
   return { id, name: asString(record.name), preview: asString(record.preview) ?? "",
     ...(typeof record.createdAt === "number" ? { createdAt: record.createdAt } : {}),
     ...(typeof record.updatedAt === "number" ? { updatedAt: record.updatedAt } : {}),
+    ...(Object.hasOwn(record, "model") ? { model: asString(record.model) } : {}),
     ...(asString(record.cwd) ? { cwd: String(record.cwd) } : {}),
     ...(Array.isArray(record.turns) ? { turns: record.turns.map(historyTurn) } : {}) };
 }

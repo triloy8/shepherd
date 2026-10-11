@@ -37,7 +37,7 @@ export class IndependentSession implements ProviderSession {
   private emit<K extends BridgeEventType>(type: K, payload: BridgeEventPayloads[K]) { this.eventBus.publish(bridgeEvent({ id: crypto.randomUUID(), type, payload, threadId: this.threadId, sessionId: this.sessionId, ts: new Date().toISOString() })); }
   async listStoredThreads() { return { data: [{ id: this.threadId, cwd: this.cwd }], nextCursor: null }; }
   async listLoadedThreads() { return { data: this.threadId ? [this.threadId] : [], nextCursor: null }; }
-  async readThread(threadId: string) { return { thread: { id: threadId, cwd: this.cwd } }; }
+  async readThread(threadId: string) { return { thread: { id: threadId, cwd: this.cwd, model: "third-model" } }; }
   async listThreadTurns() { return { data: this.turns, nextCursor: null, backwardsCursor: null }; }
   async listThreadItems() { return { data: this.turns.flatMap(turn => turn.items.map(item => ({ turnId: turn.id, item }))), nextCursor: null, backwardsCursor: null }; }
   async setThreadName() {}

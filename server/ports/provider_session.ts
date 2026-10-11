@@ -33,7 +33,8 @@ export interface ProviderExecution {
   startThread(request: Protocol.CreateThreadRequest): Promise<ThreadBootstrapInfo>;
   resumeThread(threadId: string, request: Protocol.ResumeThreadRequest): Promise<ThreadBootstrapInfo>;
   forkThread?(threadId: string, request: Protocol.ForkThreadRequest): Promise<ThreadBootstrapInfo>;
-  startTurn(input: UserInput[], policy?: Protocol.ApprovalPolicy, model?: string, cwd?: string, effort?: string): Promise<string | null>;
+  /** Effort: undefined preserves settings, null clears, a string selects. */
+  startTurn(input: UserInput[], policy?: Protocol.ApprovalPolicy, model?: string, cwd?: string, effort?: string | null): Promise<string | null>;
   steerTurn?(input: UserInput[], turnId?: string): Promise<string | null>;
   interruptTurn?(turnId?: string): Promise<void>;
   applyApprovalDecision(id: string, decision: ApprovalDecisionRequest): Promise<{ approvalId: string }>;

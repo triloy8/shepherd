@@ -30,7 +30,7 @@ function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) =>
   const queryFn = (({ prompt, options }: Parameters<typeof query>[0]) => {
     const input = prompt as AsyncIterable<SDKUserMessage>;
     calls.push({ options: options!, input });
-    return Object.assign(script(input, options!), { close: () => { closed++; }, interrupt: async () => { interruptions++; interrupt(); }, supportedModels: async () => [{ value: "sonnet", displayName: "Sonnet", description: "Claude", supportsEffort: true, supportedEffortLevels: ["low", "high"] }] }) as Query;
+    return Object.assign(script(input, options!), { close: () => { closed++; }, interrupt: async () => { interruptions++; interrupt(); }, supportedModels: async () => [{ value: "sonnet", displayName: "Sonnet", description: "Claude", supportsEffort: true, supportedEffortLevels: ["low", "high"] }, { value: "claude-opus-5-5", displayName: "Opus", description: "Default", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high"] }] }) as Query;
   }) as typeof query;
   const forks: unknown[][] = [];
   return { query: queryFn, forkSession: async (...args: unknown[]) => { forks.push(args); return { sessionId: "12345678-1234-1234-1234-123456789abc" }; }, forks, calls, closed: () => closed, interruptions: () => interruptions, onInterrupt: (fn: () => void) => { interrupt = fn; } };
@@ -309,13 +309,15 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   const manager = new SessionManager(undefined, () => session, undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
   function waitFor(type: string) { return new Promise<void>(resolve => { const off = session.eventBus.subscribe(event => { if (event.type === type) { off(); resolve(); } }, { replay: false }); }); }
   await manager.submitTurn(threadId, { input: [toTextUserInput("background work")] });
+  const closedBeforeResult = fake.closed();
+  const callsBeforeResult = fake.calls.length;
   const first = done(session);
   events.push({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "task-1", ambient: false }] } as SDKMessage);
   events.push(result); await first;
-  expect(session.activeTurnId).toBeNull(); expect(fake.closed()).toBe(0);
+  expect(session.activeTurnId).toBeNull(); expect(fake.closed()).toBe(closedBeforeResult);
   expect(manager.getRuntimeActivity().activeTurnThreadIds).toEqual([threadId]);
   await expect(session.startTurn([toTextUserInput("change")], undefined, "opus")).rejects.toThrow("Wait for background tasks");
-  expect(fake.calls).toHaveLength(1);
+  expect(fake.calls).toHaveLength(callsBeforeResult);
   const started = waitFor("turn.started"); const completed = waitFor("turn.completed");
   events.push({ type: "assistant", parent_tool_use_id: null, message: { id: "wake-message", content: [{ type: "text", text: "Background result" }] } } as SDKMessage);
   await started; events.push(result); await completed;
@@ -326,7 +328,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   expect(manager.getRuntimeActivity().activeTurnThreadIds).toEqual([]);
   await manager.submitTurn(threadId, { input: [toTextUserInput("continue")] });
   const third = done(session); events.push(result); await third;
-  expect(fake.calls).toHaveLength(1); expect(storage.read(threadId).turns).toHaveLength(3);
+  expect(fake.calls).toHaveLength(callsBeforeResult); expect(storage.read(threadId).turns).toHaveLength(3);
   manager.stopAll(); events.close();
 });
 
@@ -705,5 +707,23 @@ test("Claude rejects trust-review mode before creation, execution, or steering a
     await expect(session.steerTurn([{ type: "audio", url: "audio" }])).rejects.toThrow("audio inputs");
     expect(fake.calls).toHaveLength(0); expect(fake.forks).toHaveLength(0);
     expect(session.activeTurnId).toBeNull(); expect(storage.read(created.threadId).turns).toEqual([]);
+  } finally { session.stop(); }
+});
+
+
+test("Claude clears effort by restarting with no SDK effort and persisting the cleared setting", async () => {
+  const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });
+  const storage = store();
+  const session = new ClaudeSession("review_sensitive", undefined, storage, fake);
+  try {
+    const { threadId } = await session.startThread({});
+    await session.startTurn([toTextUserInput("first")]); await done(session);
+    expect(fake.calls[0]!.options.effort).toBe("medium");
+    await session.startTurn([toTextUserInput("second")], undefined, undefined, undefined, null); await done(session);
+    expect(fake.calls).toHaveLength(2);
+    expect(fake.calls[1]!.options.effort).toBeUndefined();
+    expect(storage.read(threadId).effort).toBeUndefined();
+    await session.startTurn([toTextUserInput("third")]); await done(session);
+    expect(fake.calls).toHaveLength(2);
   } finally { session.stop(); }
 });

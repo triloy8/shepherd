@@ -115,12 +115,16 @@ absent. Claude's SDK does not report modalities, so they remain unknown. Unknown
 model metadata leaves input validation to the adapter and never grants additional
 adapter support. Effort values come from the model catalog rather than model names.
 
-Turn submission resolves the selected or explicitly overridden model; steering
-uses the current model even when another model is pending. Known unsupported media
-is rejected before execution. Unsupported explicit/pending effort stays retryable;
+Lifecycle requests validate explicit model/effort selections against the catalog
+before calling the provider. Effort-only resume/fork requests use the saved model.
+Turn submission always resolves the selected or explicitly overridden model; steering
+uses the current model even when another model is pending. Known unsupported text, image and audio inputs
+are rejected before execution. Unsupported explicit/pending effort stays retryable;
 when switching models, incompatible inherited effort uses the new model's advertised
-default. If no supported default exists, the switch fails rather than forwarding
-an incompatible effort. Settings expose separate current and next model capabilities,
+default. If no supported default exists, the adapter is told to clear effort. The provider
+turn port uses undefined to preserve effort, null to clear it, and strings to select
+a value. Codex forwards the explicit null; Claude reopens its SDK session without
+an effort override. Settings expose separate current and next model capabilities,
 and the browser uses the appropriate set to gate image attachments.
 
 Every account reader returns `ProviderAccountLimits`: account metadata, allowance

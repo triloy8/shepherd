@@ -121,11 +121,13 @@ describe("CodexSession app-server contract", () => {
       return { thread: { id: "thread-1", modelProvider: "openai" } };
     };
 
-    await session.startThread({ cwd: "/workspace" });
+    await session.startThread({ cwd: "/workspace", instructions: "Prefer small diffs." });
 
     expect(requests[0]?.method).toBe("thread/start");
+    expect(requests[0]?.params).not.toHaveProperty("baseInstructions");
     expect(requests[0]?.params).toMatchObject({
       cwd: "/workspace",
+      developerInstructions: "Prefer small diffs.",
       dynamicTools: [{
         type: "namespace",
         name: "shepherd",

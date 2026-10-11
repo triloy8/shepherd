@@ -12,8 +12,8 @@ export type AgentProvider = string;
 export interface CreateThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
+  /** Added to the provider's default instructions; never replaces them. */
+  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -117,8 +117,8 @@ export interface ReadThreadResponse {
 export interface ResumeThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
+  /** Added to the provider's default instructions; never replaces them. */
+  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -133,8 +133,8 @@ export interface ResumeThreadResponse {
 export interface ForkThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
+  /** Added to the provider's default instructions; never replaces them. */
+  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;

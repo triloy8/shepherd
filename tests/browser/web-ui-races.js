@@ -5,7 +5,12 @@ async page => {
   const other=page.getByRole('button',{name:'Paginated history',exact:true});
   const connected=page.getByRole('status',{name:'Connected',exact:true});
   const composer=page.getByRole('textbox',{name:'Message Shepherd',exact:true});
-  const select=async(button,title)=>{await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));await button.click();await page.getByRole('heading',{name:title,exact:true}).waitFor();await connected.waitFor();};
+  // Recent-list refreshes can move a row between mouse down and mouse up.
+  // Keyboard activation targets the intended button independently of its position.
+  const select=async(button,title)=>{
+    await button.focus(); await page.keyboard.press('Enter');
+    await page.getByRole('heading',{name:title,exact:true}).waitFor(); await connected.waitFor();
+  };
   await select(stored,'A new home for Shepherd');
   const sentText='Delayed receipt '+Date.now();
   let releaseSend,accepted;const receipt=new Promise(resolve=>accepted=resolve);

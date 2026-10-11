@@ -97,3 +97,20 @@ test("account model metadata is paginated, includes hidden aliases, and needs no
     expect(calls).toHaveLength(2);
   } finally { h.api.dispose(); }
 });
+
+test("account limits use the configured default rather than registration order", async () => {
+  const h = webHarness();
+  const original = h.application.conversation.listProviders()[0]!;
+  const calls: Array<[string, boolean]> = [];
+  Object.assign(h.application.conversation, {
+    listProviders: () => [{ ...original, id: "first", isDefault: false }, { ...original, id: "configured", isDefault: true }],
+    async readAccount(provider: string, refresh: boolean) { calls.push([provider, refresh]); return account(provider); },
+  });
+  try {
+    expect((await (await h.request("/limits")).json()).provider).toBe("configured");
+    expect((await (await h.request("/limits?refresh=true")).json()).provider).toBe("configured");
+    expect((await (await h.request("/limits?provider=first")).json()).provider).toBe("first");
+    expect((await h.request("/limits?provider=missing")).status).toBe(400);
+    expect(calls).toEqual([["configured", false], ["configured", true], ["first", false]]);
+  } finally { h.api.dispose(); }
+});

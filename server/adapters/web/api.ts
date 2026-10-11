@@ -146,7 +146,7 @@ export class WebSurfaceApi {
         return json(200, await this.application.conversation.resetAccount(provider, { idempotencyKey: requiredString(data, "idempotencyKey", 100), ...(data.creditId !== undefined ? { creditId: requiredString(data, "creditId", 256) } : {}) }));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
-        const provider = url.searchParams.get("provider") ?? this.application.conversation.listProviders()[0]?.id;
+        const provider = url.searchParams.get("provider") ?? this.application.conversation.listProviders().find(entry => entry.isDefault)?.id;
         const refresh = url.searchParams.get("refresh");
         if ([...url.searchParams.keys()].some(key => !["provider", "refresh"].includes(key)) || ["provider", "refresh"].some(key => url.searchParams.getAll(key).length > 1) || (refresh !== null && !["true", "false"].includes(refresh)) || !this.application.conversation.listProviders().some(entry => entry.id === provider)) throw new WebRequestError(400, "invalid_query", "Choose a registered provider and valid refresh option.");
         return json(200, await this.application.conversation.readAccount(provider!, refresh === "true"));

@@ -9,7 +9,9 @@ import { Icon } from "./Icon";
 export function UsageLimits({ defaultProvider, onOpen, onClosed }: { defaultProvider?: string; onOpen?: () => void; onClosed?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false), [providers, setProviders] = useState<ProviderDescriptor[]>([]);
-  const [provider, setProvider] = useState(defaultProvider ?? ""), [limits, setLimits] = useState<ProviderAccountLimits | null>(null);
+  const [provider, setProvider] = useState(defaultProvider ?? ""), [storedLimits, setLimits] = useState<ProviderAccountLimits | null>(null);
+  const limits = storedLimits?.provider === provider ? storedLimits : null;
+  useEffect(() => { setLimits(null); }, [provider]);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAccountReset | null>(() => readAccountReset(defaultProvider ?? ""));
   const [revision, setRevision] = useState(0);
@@ -25,8 +27,8 @@ export function UsageLimits({ defaultProvider, onOpen, onClosed }: { defaultProv
   }, [open]);
   useEffect(() => {
     if (!open || !provider) return;
-    const abort = new AbortController(); setPending(pendingMemory.current.get(provider) ?? readAccountReset(provider)); setBusy(true); setError(null); setLimits(null); setNotice(null);
-    void api.account(provider, abort.signal, revision > 0).then(value => { if (!abort.signal.aborted) setLimits(value); }).catch(failure => { if (!abort.signal.aborted) setError(explainError(failure)); }).finally(() => { if (!abort.signal.aborted) setBusy(false); });
+    const abort = new AbortController(); setPending(pendingMemory.current.get(provider) ?? readAccountReset(provider)); setBusy(true); setError(null); setNotice(null);
+    void api.account(provider, abort.signal, revision > 0).then(value => { if (!abort.signal.aborted) setLimits(value); }).catch(failure => { if (!abort.signal.aborted) { setError(explainError(failure)); setLimits(current => current?.provider === provider ? { ...current, stale: true } : current); } }).finally(() => { if (!abort.signal.aborted) setBusy(false); });
     return () => abort.abort();
   }, [open, provider, revision]);
   async function reset(creditId?: string) {

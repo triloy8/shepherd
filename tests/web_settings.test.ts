@@ -14,6 +14,8 @@ test("web settings use shared model resolution across pages and pending effort s
     const settings = await (await h.request(`${path}/settings`)).json();
     expect(settings.model.currentModel).toBe("small"); expect(settings.model.pendingModel).toBe("large");
     expect(settings.effort.supportedEfforts.map((e: { value: string }) => e.value)).toEqual(["low", "high"]);
+    expect(settings.modelCapabilities.current).toMatchObject({ inputModalities: ["text", "image"], supportedEfforts: [{ value: "low" }] });
+    expect(settings.modelCapabilities.next).toMatchObject({ inputModalities: ["text", "image"], supportedEfforts: [{ value: "low" }, { value: "high" }] });
     expect((await h.request(`${path}/effort`, "POST", { effort: "high" })).status).toBe(200);
     expect((await (await h.request(`${path}/settings`)).json()).effort.pendingEffort).toBe("high");
     expect((await h.request(`${path}/effort`, "POST", { effort: "default" })).status).toBe(200);

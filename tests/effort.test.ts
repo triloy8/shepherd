@@ -12,7 +12,7 @@ async function setup() {
   const model = {
     id: "test-model", displayName: "Test", description: "",
     hidden: false, isDefault: true,
-    defaultEffort: "low",
+    inputModalities: ["text", "image"] as const, defaultEffort: "low",
     supportedEfforts: ["low", "high"].map((value) => ({ value, description: "" })),
   };
   manager.listModels = async () => ({ data: [model], nextCursor: null });
@@ -61,7 +61,7 @@ test("effort resolves the pending model across catalog pages", async () => {
 test("a model switch rejects incompatible pending effort before execution and keeps it retryable", async () => {
   const { manager, starts, model } = await setup();
   manager.listModels = async () => ({ data: [model, {
-    ...model, id: "other", defaultEffort: "medium", supportedEfforts: [{ value: "medium", description: "" }],
+    ...model, id: "other", inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [{ value: "medium", description: "" }],
   }], nextCursor: null });
   await manager.setThreadEffort("thread-1", "high");
   manager.setThreadModel("thread-1", "other");

@@ -66,7 +66,7 @@ export function ConversationControls({ conversation, capabilities, activeTurnId,
       {panel === "preview" && <MessageMarkdown text={draft} images={noImages} prefix={`preview-${previewId}-`} />}
       <button className="button-secondary mt-5" onClick={() => { returnFocus.current = modelTrigger.current?.closest(".composer-dock")?.querySelector<HTMLTextAreaElement>("textarea") ?? previewTrigger.current; close(); }}>Back to editing</button>
     </dialog>
-    {panel === "model" && <Suspense fallback={null}><ConversationSettings id={conversation.id} activeTurnId={activeTurnId} disabled={disabled} open onOpenChange={value => { if (!value) close(); }} onSaved={() => setRevision(value => value + 1)} /></Suspense>}
+    {panel === "model" && <Suspense fallback={null}><ConversationSettings id={conversation.id} activeTurnId={activeTurnId} disabled={disabled} open onOpenChange={value => { if (!value) close(); }} onSaved={() => { setRevision(value => value + 1); void onHistoryChange(); }} /></Suspense>}
     <dialog ref={contextDialog} className="project-dialog settings-dialog" aria-labelledby="context-title" onCancel={close} onClose={() => { if (panel === "context") close(); }}>
       <div className="mb-5 flex items-center justify-between"><h2 id="context-title" className="text-lg font-medium">Conversation context</h2><button className="icon-button" aria-label="Close context" onClick={close}><Icon name="close" /></button></div>
       {errors.context ? <p role="alert" className="notice">{errors.context}</p> : context ? <ContextUsage usage={context.tokenUsage} /> : <p className="text-xs text-muted">Loading context…</p>}

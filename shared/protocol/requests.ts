@@ -1,6 +1,8 @@
 import type { ProviderCapabilities } from "./provider_capabilities.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { UserInput } from "./user_input.js";
+import type { ModelCapabilities } from "./model_capabilities.js";
+export type { EffortOption, ModelCapabilities, ModelInputModality } from "./model_capabilities.js";
 
 /** Review thresholds refer to the provider's trust/permission model. No mode promises universal review. */
 export type ApprovalPolicy = "provider_default" | "review_sensitive" | "review_untrusted" | "bypass";
@@ -224,21 +226,13 @@ export interface ListModelsRequest {
   includeHidden?: boolean;
 }
 
-/** An effort level offered by a model. Values are opaque provider-defined strings. */
-export interface EffortOption {
-  value: string;
-  description: string;
-}
-
 /** A selectable model. `id` is the value passed back as a thread or turn model. */
-export interface ModelSummary {
+export interface ModelSummary extends ModelCapabilities {
   id: string;
   displayName: string;
   description: string;
   hidden: boolean;
   isDefault: boolean;
-  supportedEfforts: EffortOption[];
-  defaultEffort: string | null;
 }
 
 export interface ListModelsResponse {
@@ -294,13 +288,11 @@ export interface SkillsConfigWriteResponse {
   effectiveEnabled: boolean;
 }
 
-export interface ThreadEffortState {
+export interface ThreadEffortState extends ModelCapabilities {
   threadId: string;
   model: string;
   currentEffort: string | null;
   pendingEffort: string | null;
-  defaultEffort: string | null;
-  supportedEfforts: EffortOption[];
 }
 
 /** How much of each turn's item list a history page includes. */

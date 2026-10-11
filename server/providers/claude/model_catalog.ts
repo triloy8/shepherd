@@ -8,9 +8,11 @@ export function claudeModelCatalog(models: ModelInfo[], defaults: ReturnType<typ
   const defaultModel = preferred?.resolvedModel ?? preferred?.value;
   const rows = new Map<string, ModelSummary>();
   function row(model: ModelInfo, id: string, hidden: boolean): ModelSummary {
-    const efforts = model.supportedEffortLevels ?? [];
+    const efforts = model.supportsEffort === false ? [] : model.supportedEffortLevels ?? [];
     return { id, displayName: model.displayName, description: model.description,
       hidden, isDefault: !hidden && id === defaultModel,
+      // The SDK's ModelInfo has no modality metadata. Do not invent model support.
+      inputModalities: null,
       defaultEffort: model.supportsEffort && efforts.includes(defaults.effort) ? defaults.effort : null,
       supportedEfforts: efforts.map(value => ({ value, description: "" })) };
   }

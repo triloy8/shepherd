@@ -49,6 +49,9 @@ export function modelsResponse(value: unknown): ListModelsResponse {
           description: asString(record.description) ?? "",
           hidden: record.hidden === true,
           isDefault: record.isDefault === true,
+          // Older Codex catalogs document text/image as their compatibility default.
+          inputModalities: record.inputModalities === undefined ? ["text", "image"] as const
+            : Array.isArray(record.inputModalities) ? record.inputModalities.filter((value): value is "text" | "image" | "audio" => value === "text" || value === "image" || value === "audio") : null,
           defaultEffort: asString(record.defaultReasoningEffort),
           supportedEfforts: (Array.isArray(record.supportedReasoningEfforts) ? record.supportedReasoningEfforts : [])
             .map((value) => {

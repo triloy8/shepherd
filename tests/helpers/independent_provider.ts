@@ -43,5 +43,5 @@ export class IndependentSession implements ProviderSession {
   async setThreadName() {}
   async archiveThread() {}
   async unarchiveThread() {}
-  async listModels() { return { data: [{ id: "third-model", displayName: "Third model", description: "", hidden: false, isDefault: true, defaultEffort: "focused", supportedEfforts: [{ value: "focused", description: "Focus" }] }], nextCursor: null }; }
+  async listModels() { return { data: [{ id: "third-model", displayName: "Third model", description: "", hidden: false, isDefault: true, inputModalities: ["text", "image"] as const, defaultEffort: "focused", supportedEfforts: [{ value: "focused", description: "Focus" }] }], nextCursor: null }; }
 }

@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { UnsupportedModelInputError } from "../../../shared/protocol/model_capabilities.js";
 import { UnsupportedProviderOperationError } from "../../ports/provider_session.js";
 import type { AgentProvider } from "../../../shared/protocol/requests.js";
 import { presentHistoryItem } from "./history.js";
@@ -243,7 +244,12 @@ export class WebSurfaceApi {
         const model = this.application.conversation.getThreadModel(threadId);
         const result = await webControl(this.application, { type: "effort.get", surfaceId: entry.id });
         if (result.type !== "effort.get" || !result.ok) throw new Error("Unexpected effort response.");
-        return json(200, { model, effort: result.state });
+        const current = model.currentModel && model.currentModel !== result.state.model
+          ? await this.application.conversation.getThreadEffort(threadId, model.currentModel) : result.state;
+        const capabilities = (state: typeof result.state) => ({
+          inputModalities: state.inputModalities, supportedEfforts: state.supportedEfforts, defaultEffort: state.defaultEffort,
+        });
+        return json(200, { model, effort: result.state, modelCapabilities: { current: capabilities(current), next: capabilities(result.state) } });
       }
       if (action === "models" && request.method === "GET") {
         const result = await webControl(this.application, { type: "models.list", surfaceId: entry.id, ...pagination(url) });
@@ -313,6 +319,7 @@ export class WebSurfaceApi {
       }
       return fail(405, "method_not_allowed", "Method is not supported for this route.");
     } catch (error) {
+      if (error instanceof UnsupportedModelInputError) return fail(422, "unsupported_model_input", error.message);
       if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
       if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
       if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");

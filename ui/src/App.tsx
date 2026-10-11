@@ -336,7 +336,7 @@ export default function App() {
         <div ref={composerRef} className="composer-area"><div className="composer-dock">
           {controller.error && <div role="alert" className="notice mb-3">{controller.error}</div>}
           {controller.connection === "detached" && <button className="button-secondary mb-3" onClick={() => { setConversations((items) => items.filter((item) => item.id !== selected.id)); void openThread(selected.threadId, true); }}>Resume conversation</button>}
-          <Composer imageSupported={controller.capabilities?.inputKinds.includes("image") === true} key={selected.id} images={imageDrafts.images[selected.threadId] ?? []} onImages={(update) => imageDrafts.update(selected.threadId, update)}
+          <Composer imageSupported={controller.capabilities?.inputKinds.includes("image") === true && (controller.modelCapabilities?.inputModalities == null || controller.modelCapabilities.inputModalities.includes("image"))} key={selected.id} images={imageDrafts.images[selected.threadId] ?? []} onImages={(update) => imageDrafts.update(selected.threadId, update)}
             reading={imageDrafts.reading[selected.threadId] ?? false} imageError={imageDrafts.errors[selected.threadId] ?? null}
             addFiles={(files) => imageDrafts.addFiles(selected.threadId, files)} clearImageError={() => imageDrafts.clearError(selected.threadId)}
             draft={drafts[selected.threadId]?.text ?? ""} draftRevision={drafts[selected.threadId]?.revision ?? 0}

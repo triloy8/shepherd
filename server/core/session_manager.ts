@@ -1,4 +1,5 @@
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../shared/protocol/provider_support.js";
+import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
 import { ApplicationActionError } from "./action_error.js";
 import type {
@@ -28,6 +29,7 @@ import type {
   ListThreadItemsRequest,
   ListThreadItemsResponse,
   ListModelsResponse,
+  ModelSummary,
   ListStoredThreadsRequest,
   ListStoredThreadsResponse,
   ListThreadsResponse,
@@ -299,26 +301,33 @@ export class SessionManager {
   async getThreadEffort(threadId: string, requestedModel?: string): Promise<ThreadEffortState> {
     const modelState = this.getThreadModel(threadId);
     const model = requestedModel ?? modelState.pendingModel ?? modelState.currentModel;
+    const entry = await this.resolveModel(this.threadProvider(threadId), model);
+    const state = this.effortStateByThread.get(threadId);
+    return {
+      threadId, model: entry.id,
+      currentEffort: state?.current ?? null, pendingEffort: state?.pending ?? null,
+      inputModalities: entry.inputModalities,
+      defaultEffort: entry.defaultEffort, supportedEfforts: entry.supportedEfforts,
+    };
+  }
+
+  private async resolveModel(provider: AgentProvider, model: string | null | undefined): Promise<ModelSummary> {
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
-      const result = await this.listModels({ cursor, limit: 100, includeHidden: true, provider: this.threadProvider(threadId) });
+      const result = await this.listModels({ cursor, limit: 100, includeHidden: true, provider });
       const entry = result.data.find((entry) => model ? entry.id === model : entry.isDefault);
-      if (entry) {
-        const state = this.effortStateByThread.get(threadId);
-        return {
-          threadId, model: entry.id,
-          currentEffort: state?.current ?? null,
-          pendingEffort: state?.pending ?? null,
-          defaultEffort: entry.defaultEffort,
-          supportedEfforts: entry.supportedEfforts,
-        };
-      }
+      if (entry) return entry;
       if (!result.nextCursor || seen.has(result.nextCursor)) break;
       seen.add(result.nextCursor);
       cursor = result.nextCursor;
     } while (true);
     throw new ApplicationActionError({ code: "model_unavailable" });
+  }
+
+  private assertModelInput(model: ModelSummary, input: readonly import("../../shared/protocol/user_input.js").UserInput[]): void {
+    const modality = unsupportedModelInput(model, input);
+    if (modality) throw new UnsupportedModelInputError(model.id, modality);
   }
 
   async setThreadEffort(threadId: string, requested: string): Promise<ThreadEffortState> {
@@ -381,11 +390,16 @@ export class SessionManager {
     const model = request.model ?? modelState?.pendingModel ?? undefined;
     const cwd = await this.resolveThreadCwd(threadId);
     const effortState = this.effortStateByThread.get(threadId);
-    const effort = request.effort ?? effortState?.pending ?? undefined;
-    if (effort) {
-      const state = await this.getThreadEffort(threadId, model);
-      if (!state.supportedEfforts.some(option => option.value === effort)) {
-        throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested: effort, available: state.supportedEfforts.map(option => option.value) });
+    let effort = request.effort ?? effortState?.pending ?? undefined;
+    if (effort || model || request.input.some(part => part.type !== "text" && part.type !== "skill")) {
+      const selected = await this.resolveModel(this.threadProvider(threadId), model ?? modelState?.currentModel);
+      this.assertModelInput(selected, request.input);
+      if (!effort && model && effortState?.current && !selected.supportedEfforts.some(option => option.value === effortState.current)) {
+        // A model switch must not silently inherit another model's effort.
+        effort = selected.defaultEffort ?? effortState.current;
+      }
+      if (effort && !selected.supportedEfforts.some(option => option.value === effort)) {
+        throw new ApplicationActionError({ code: "unsupported_effort", model: selected.id, requested: effort, available: selected.supportedEfforts.map(option => option.value) });
       }
     }
     const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
@@ -413,6 +427,10 @@ export class SessionManager {
   async steerTurn(threadId: string, request: SteerTurnRequest): Promise<SteerTurnResponse> {
     const managed = this.mustGet(threadId);
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
+    if (request.input.some(part => part.type !== "text" && part.type !== "skill")) {
+      const model = await this.resolveModel(this.threadProvider(threadId), this.modelStateByThread.get(threadId)?.currentModel);
+      this.assertModelInput(model, request.input);
+    }
     const turnId = await managed.session.steerTurn(request.input, request.turnId);
     return { ok: true, turnId };
   }

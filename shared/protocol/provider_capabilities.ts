@@ -1,7 +1,7 @@
 import type { ApprovalPolicy, SandboxMode } from "./requests.js";
 import type { UserInput } from "./user_input.js";
 
-/** Support is advertised before a request is sent; unsupported settings never silently degrade. */
+/** Adapter transport and operation support. Selected-model constraints live in ModelCapabilities. */
 export interface ProviderCapabilities {
   questions: boolean;
   skills: boolean;

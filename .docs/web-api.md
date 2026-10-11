@@ -436,6 +436,14 @@ created. Images are stored as part of provider conversation history.
 User-message history preserves bounded valid inline images for previews. Unsupported
 or remote image URLs become an unavailable-image placeholder, never a browser fetch.
 
+Model catalog rows include the shared `ModelCapabilities` fields: `inputModalities`
+(`text`, `image`, `audio`, or `null` when unreported), `supportedEfforts`, and
+`defaultEffort`. `GET /api/conversations/:id/settings` also returns
+`modelCapabilities.current` and `modelCapabilities.next`; these differ when a model
+change is pending. The active turn continues to use the current model. Unsupported
+model media returns HTTP 422 with `unsupported_model_input`; adapter restrictions
+still return `unsupported_provider_operation`.
+
 ### Conversation list freshness
 
 Stored conversation pages explicitly use `updated_at` descending, matching Discord

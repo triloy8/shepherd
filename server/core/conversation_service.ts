@@ -269,8 +269,8 @@ export class ConversationService {
     return this.manager.listModels(request);
   }
 
-  getThreadEffort(threadId: string): Promise<ThreadEffortState> {
-    return this.manager.getThreadEffort(threadId);
+  getThreadEffort(threadId: string, model?: string): Promise<ThreadEffortState> {
+    return this.manager.getThreadEffort(threadId, model);
   }
 
   setThreadEffort(threadId: string, effort: string): Promise<ThreadEffortState> {

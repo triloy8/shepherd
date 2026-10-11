@@ -4,7 +4,7 @@ import type { ThreadModelState, ThreadEffortState, ModelSummary } from "../../sh
 import type { webHarness } from "./web_harness";
 
 export function installWebSettings(h: ReturnType<typeof webHarness>) {
-  const models: ModelSummary[] = ["small", "large"].map((model) => ({ id: model, displayName: model === "small" ? "Small model" : "Large model", description: "Fixture model", hidden: false, isDefault: model === "small", defaultEffort: "low", supportedEfforts: (model === "small" ? ["low"] : ["low", "high"]).map((value) => ({ value, description: value })) }));
+  const models: ModelSummary[] = ["small", "large"].map((model) => ({ id: model, displayName: model === "small" ? "Small model" : "Large model", description: "Fixture model", hidden: false, isDefault: model === "small", inputModalities: ["text", "image"] as const, defaultEffort: "low", supportedEfforts: (model === "small" ? ["low"] : ["low", "high"]).map((value) => ({ value, description: value })) }));
   const states = new Map<string, ThreadModelState>();
   const efforts = new Map<string, string>();
   const getThreadModel = (threadId: string) => {
@@ -12,10 +12,10 @@ export function installWebSettings(h: ReturnType<typeof webHarness>) {
     if (!state) { state = { threadId, currentModel: "small", pendingModel: null, provider: "fixture" }; states.set(threadId, state); }
     return state;
   };
-  const getThreadEffort = async (threadId: string): Promise<ThreadEffortState> => {
+  const getThreadEffort = async (threadId: string, requestedModel?: string): Promise<ThreadEffortState> => {
     const state = getThreadModel(threadId);
-    const model = models.find((m) => m.id === (state.pendingModel ?? state.currentModel))!;
-    return { threadId, model: model.id, currentEffort: "low", pendingEffort: efforts.get(threadId) ?? null, defaultEffort: model.defaultEffort!, supportedEfforts: model.supportedEfforts };
+    const model = models.find((m) => m.id === (requestedModel ?? state.pendingModel ?? state.currentModel))!;
+    return { threadId, model: model.id, currentEffort: "low", pendingEffort: efforts.get(threadId) ?? null, inputModalities: ["text", "image"] as const, defaultEffort: model.defaultEffort!, supportedEfforts: model.supportedEfforts };
   };
   Object.assign(h.application, { getSurfaceThreadId: (id: string) => h.bindings.get(id) ?? null });
   const controls = {

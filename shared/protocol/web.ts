@@ -33,7 +33,14 @@ export type WebEventData = {
   reset: { reason: "event_too_large" | "history_changed" };
 };
 
-export type WebSettingsResponse = { model: ThreadModelState; effort: ThreadEffortState };
+export type WebSettingsResponse = {
+  model: ThreadModelState;
+  effort: ThreadEffortState;
+  modelCapabilities: {
+    current: import("./model_capabilities.js").ModelCapabilities;
+    next: import("./model_capabilities.js").ModelCapabilities;
+  };
+};
 export type WebModelsResponse = ListModelsResponse;
 export type WebContextResponse = ReadThreadTokenUsageResponse;
 export type WebLimitsResponse = import("./account_limits.js").ProviderAccountLimits;

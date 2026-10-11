@@ -17,7 +17,7 @@ import type { AgentProvider } from "../../shared/protocol/requests.js";
 
 type ControlConversation = {
   getThreadProvider: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
-  getThreadEffort: (threadId: string) => Promise<ThreadEffortState>;
+  getThreadEffort: (threadId: string, model?: string) => Promise<ThreadEffortState>;
   setThreadEffort: (threadId: string, effort: string) => Promise<ThreadEffortState>;
   listSkills: (threadId: string, request: Record<string, never>) => Promise<SkillsListResponse>;
   writeSkillConfig: (

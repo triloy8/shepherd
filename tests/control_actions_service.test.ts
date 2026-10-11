@@ -51,10 +51,10 @@ function makeContext(overrides?: {
   const context: ControlActionsContext = {
     conversation: {
       async getThreadEffort(threadId) {
-        return { threadId, model: "model", currentEffort: "medium", pendingEffort: null, defaultEffort: "medium", supportedEfforts: [] };
+        return { threadId, model: "model", currentEffort: "medium", pendingEffort: null, inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [] };
       },
       async setThreadEffort(threadId, effort) {
-        return { threadId, model: "model", currentEffort: "medium", pendingEffort: effort, defaultEffort: "medium", supportedEfforts: [] };
+        return { threadId, model: "model", currentEffort: "medium", pendingEffort: effort, inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [] };
       },
       async listSkills() {
         if (overrides?.listSkills) return overrides.listSkills();

@@ -80,6 +80,26 @@ capability descriptor controls their availability. Claude does not provide fake 
 compact, revert, or reset methods. Core rejects unavailable operations consistently.
 Model and effort options come from the selected provider's catalog.
 
+`shared/protocol/model_capabilities.ts` defines model input modalities and effort
+options. Every model catalog row implements this contract; provider capabilities
+continue to describe adapter transports and operations. Both constraints apply:
+a model supporting audio does not make an adapter support audio.
+
+`inputModalities: null` means the adapter has no model metadata, while `[]` means
+no supported modalities. Codex preserves its native model modalities, using its
+documented text/image compatibility default only for older catalogs with the field
+absent. Claude's SDK does not report modalities, so they remain unknown. Unknown
+model metadata leaves input validation to the adapter and never grants additional
+adapter support. Effort values come from the model catalog rather than model names.
+
+Turn submission resolves the selected or explicitly overridden model; steering
+uses the current model even when another model is pending. Known unsupported media
+is rejected before execution. Unsupported explicit/pending effort stays retryable;
+when switching models, incompatible inherited effort uses the new model's advertised
+default. If no supported default exists, the switch fails rather than forwarding
+an incompatible effort. Settings expose separate current and next model capabilities,
+and the browser uses the appropriate set to gate image attachments.
+
 Every account reader returns `ProviderAccountLimits`: account metadata, allowance
 windows, extra usage, optional spend controls, optional reset credits, freshness, and
 availability. Missing provider data stays unknown. Reset requests use a shared outcome

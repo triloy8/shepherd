@@ -102,6 +102,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
       {errors.save && <p role="alert" className="notice mb-4">{errors.save}</p>}
       <section className="space-y-3" aria-label="Model settings">
         <h3 className="text-sm font-medium">Model</h3>
+        {settings && <p className="text-xs text-muted">Model inputs: {settings.modelCapabilities?.next.inputModalities?.join(", ") ?? "Not reported by this agent"}</p>}
         {errors.settings && <p role="alert" className="notice">{errors.settings}</p>}
         {errors.models && <p role="alert" className="notice">{errors.models}</p>}
         <label className="block text-xs text-muted">Model for next turn<select aria-label="Model for next turn" value={model} disabled={blocked} onChange={(event) => { edits.current.model++; dirty.current.model = true; setModel(event.target.value); }}>

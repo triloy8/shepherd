@@ -21,8 +21,8 @@ export function codexToolResponse(response: DynamicToolCallResponse): NativeTool
     contentItems: response.contentItems.map((item): NativeContentItem => {
       switch (item.type) {
         case "text": return { type: "inputText", text: item.text };
-        case "image": return { type: "inputImage", imageUrl: item.url };
-        case "audio": return { type: "inputAudio", audioUrl: item.url };
+        case "image": return { type: "inputImage", imageUrl: `data:${item.mimeType};base64,${item.data}` };
+        case "audio": return { type: "inputAudio", audioUrl: `data:${item.mimeType};base64,${item.data}` };
       }
     }),
   };

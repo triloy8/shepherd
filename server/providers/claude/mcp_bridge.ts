@@ -20,9 +20,7 @@ export function shepherdMcpServers(tools: ProviderTools, currentTurn: () => { th
     if (currentTurn()?.turnId !== identity.turnId) return { isError: true, content: [{ type: "text", text: "The originating turn has ended." }] };
     const content = result.contentItems.map(item => {
       if (item.type === "text") return { type: "text" as const, text: item.text };
-      const match = /^data:([^;,]+);base64,(.+)$/s.exec(item.url);
-      if (!match) throw new Error("MCP media output must contain a base64 data URL.");
-      return { type: item.type, mimeType: match[1]!, data: match[2]! };
+      return { type: item.type, mimeType: item.mimeType, data: item.data };
     });
     return { isError: !result.success, content };
   });

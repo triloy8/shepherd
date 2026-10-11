@@ -5,6 +5,8 @@ import type {
   JsonValue,
 } from "../../shared/protocol/dynamic_tools.js";
 
+import { assertDynamicToolResponse } from "../../shared/protocol/dynamic_tools.js";
+
 import { InvalidDynamicToolCallError, UnknownDynamicToolError, type ProviderTools } from "../ports/provider_tools.js";
 
 export { InvalidDynamicToolCallError, UnknownDynamicToolError };
@@ -126,6 +128,9 @@ export class DynamicToolRegistry implements ProviderTools {
         `Unknown dynamic tool: ${params.namespace ? `${params.namespace}.` : ""}${params.tool}.`,
       );
     }
-    return registration.execute(params);
+    return registration.execute(params).then(response => {
+      assertDynamicToolResponse(response);
+      return response;
+    });
   }
 }

@@ -89,8 +89,8 @@ test("native input and history fields are encoded and sanitized inside adapters"
 test("application tool declarations and results are encoded into Codex dynamic tool wire values", () => {
   expect(codexToolSpecs([{ type: "namespace", name: "signals", description: "Signals", tools: [{ type: "function", name: "callback", description: "Create", inputSchema: { type: "object" } }] }]))
     .toEqual([{ type: "namespace", name: "signals", description: "Signals", tools: [{ type: "function", name: "callback", description: "Create", inputSchema: { type: "object" } }] }]);
-  expect(codexToolResponse({ success: true, contentItems: [{ type: "text", text: "ok" }, { type: "image", url: "data:image/png;base64,AA" }, { type: "audio", url: "data:audio/wav;base64,AA" }] }))
-    .toEqual({ success: true, contentItems: [{ type: "inputText", text: "ok" }, { type: "inputImage", imageUrl: "data:image/png;base64,AA" }, { type: "inputAudio", audioUrl: "data:audio/wav;base64,AA" }] });
+  expect(codexToolResponse({ success: true, contentItems: [{ type: "text", text: "ok" }, { type: "image", data: "AA==", mimeType: "image/png" }, { type: "audio", data: "AA==", mimeType: "audio/wav" }] }))
+    .toEqual({ success: true, contentItems: [{ type: "inputText", text: "ok" }, { type: "inputImage", imageUrl: "data:image/png;base64,AA==" }, { type: "inputAudio", audioUrl: "data:audio/wav;base64,AA==" }] });
 });
 
 test("Codex allowance labels keep provider names and humanize opaque limit IDs inside the adapter", () => {

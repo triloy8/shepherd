@@ -266,7 +266,9 @@ See [Provider adapters](provider-abstraction.md) for the complete boundary and
 - `server/core/dynamic_tool_registry.ts`
   Advertises and dispatches explicitly registered application tools through the
   `ProviderTools` port (`server/ports/provider_tools.ts`). Codex declares them as
-  dynamic tools; Claude exposes them through an in-process MCP server.
+  dynamic tools; Claude exposes them through an in-process MCP server. The registry
+  validates tool media as base64 `data` plus a matching `mimeType`; adapters encode
+  it into Codex data URLs or MCP media blocks. Remote tool media URLs are unsupported.
 - `server/core/signal_route_registry.ts`
   Owns bounded, expiring, process-local callback routes.
 - `server/core/signal_route_service.ts`

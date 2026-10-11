@@ -134,6 +134,12 @@ default is `.shepherd/claude` under the current user's home directory. Preserve
 both that directory and Claude's transcript storage to resume after restarting.
 The compiled Shepherd binary includes the SDK executable for the build host.
 
+Shepherd application tools return media as `{ type: "image" | "audio", data, mimeType }`,
+with standard padded base64 data and a matching MIME type. The shared tool registry
+validates these results. Codex's adapter builds data URLs; Claude's MCP bridge emits
+MCP media blocks. Remote URLs are not supported as application tool media results.
+User message attachments and provider-managed external MCP tools use separate paths.
+
 Claude supports text and image messages, streaming, follow-up input, interruption,
 approvals, structured questions (including multiple selections), model/effort selection, stored history, rename, archive, resume, fork,
 and Shepherd dynamic tools through MCP. The common approval policy applies to

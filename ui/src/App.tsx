@@ -211,7 +211,7 @@ export default function App() {
   useEffect(() => {
     const abort = new AbortController();
     void api.providers(abort.signal).then(value => {
-      if (!abort.signal.aborted) { setProviders(value.providers); setProvider(current => value.providers.some(entry => entry.id === current) ? current : value.providers[0]?.id ?? ""); }
+      if (!abort.signal.aborted) { setProviders(value.providers); setProvider(current => value.providers.some(entry => entry.id === current) ? current : (value.providers.find(entry => entry.isDefault) ?? value.providers[0])?.id ?? ""); }
     }).catch(failure => { if (!abort.signal.aborted) setError(explainError(failure)); });
     return () => abort.abort();
   }, []);

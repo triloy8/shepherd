@@ -78,8 +78,10 @@ SHEPHERD_SANDBOX_MODE=workspace_write
 ```
 
 Choose **Codex** or **Claude** in the web UI's new-conversation dialog. The choice
-belongs to the conversation; resume and fork preserve it. Codex remains the
-default. Core/API callers can pass `provider: "claude"` in `CreateThreadRequest`.
+belongs to the conversation; resume and fork preserve it. Codex is the default
+unless `SHEPHERD_DEFAULT_PROVIDER=claude` is set; the dialog preselects the default and
+Discord's `!newthread` uses it when no agent is named. Core/API callers can pass
+`provider: "claude"` in `CreateThreadRequest`.
 Model backend configuration stays in the provider’s native settings.
 
 Claude defaults to subscription authentication (`CLAUDE_AUTH_MODE=subscription`).

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { FileThreadProviderDirectory } from "../server/storage/thread_provider_directory.js";
 import { assembleProviderServices } from "../server/runtime/provider_registration.js";
+import { assertInstalledProvider } from "../server/runtime/provider_services.js";
 import { ConversationService } from "../server/core/conversation_service.js";
 import { IndependentSession, descriptor } from "./helpers/independent_provider.js";
 import { account } from "./helpers/account.js";
@@ -26,11 +27,11 @@ function registration() {
 
 test("an unrelated provider creates, survives process restart and resumes through production registration and file storage", async () => {
   const path = directory();
-  const first = new ConversationService({ providers: assembleProviderServices([registration()], path) });
+  const first = new ConversationService({ providers: assembleProviderServices([registration()], path, descriptor.id) });
   let threadId: string;
   try { threadId = (await first.createThread({ provider: descriptor.id, cwd: "/tmp" })).threadId; }
   finally { first.stopAll(); }
-  const second = new ConversationService({ providers: assembleProviderServices([registration()], path) });
+  const second = new ConversationService({ providers: assembleProviderServices([registration()], path, descriptor.id) });
   try {
     expect(second.getThreadProvider(threadId!)).toBe(descriptor.id);
     await second.resumeThread(threadId!, {});
@@ -42,14 +43,14 @@ test("an unrelated provider creates, survives process restart and resumes throug
 
 test("ownership discovery requires unique native evidence, persists it once, and never guesses missing or ambiguous owners", () => {
   const path = directory(); let lookups = 0;
-  const services = assembleProviderServices([{ ...registration(), ownsStoredThread: id => { lookups++; return id === "known"; } }], path);
+  const services = assembleProviderServices([{ ...registration(), ownsStoredThread: id => { lookups++; return id === "known"; } }], path, descriptor.id);
   expect(services.directory.resolve("known")).toBe(descriptor.id);
   expect(services.directory.resolve("known")).toBe(descriptor.id);
   expect(lookups).toBe(1);
   expect(() => services.directory.resolve("unknown")).toThrow("ownership is unknown");
-  const ambiguous = assembleProviderServices([{ ...registration(), ownsStoredThread: () => true }, { ...registration(), id: "another-adapter", ownsStoredThread: () => true }], directory());
+  const ambiguous = assembleProviderServices([{ ...registration(), ownsStoredThread: () => true }, { ...registration(), id: "another-adapter", ownsStoredThread: () => true }], directory(), descriptor.id);
   expect(() => ambiguous.directory.resolve("collision")).toThrow("Ambiguous");
-  expect(() => assembleProviderServices([registration(), registration()], directory())).toThrow("duplicate");
+  expect(() => assembleProviderServices([registration(), registration()], directory(), descriptor.id)).toThrow("duplicate");
 });
 
 test("persistent bindings validate their shape on both reads and repeated writes for arbitrary provider IDs", () => {
@@ -103,7 +104,7 @@ test("capabilities reject unsupported settings and media inputs without claiming
 
 test("core rejects unsupported create, submit and steer before provider execution or state changes", async () => {
   const sessions: IndependentSession[] = [];
-  const services = assembleProviderServices([{ ...registration(), create: () => { const session = new IndependentSession(); sessions.push(session); return session; } }], directory());
+  const services = assembleProviderServices([{ ...registration(), create: () => { const session = new IndependentSession(); sessions.push(session); return session; } }], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
     await expect(conversation.createThread({ ephemeral: true })).rejects.toThrow("ephemeral");
@@ -150,17 +151,17 @@ test("registration rejects conflicting capabilities and missing advertised metho
   for (const capabilities of [{ ...descriptor.capabilities, compact: true }, { ...descriptor.capabilities, inputKinds: ["text"] }]) {
     const session = new IndependentSession(); let initialized = false;
     session.initialize = async () => { initialized = true; };
-    const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory());
+    const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory(), descriptor.id);
     expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
     expect(session.stopped).toBe(true); expect(initialized).toBe(false);
   }
   const session = new IndependentSession();
   const capabilities = { ...descriptor.capabilities, fork: true };
   Object.assign(session, { capabilities });
-  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory());
+  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory(), descriptor.id);
   expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
   expect(session.stopped).toBe(true);
-  const equivalent = assembleProviderServices([{ ...registration(), capabilities: { ...descriptor.capabilities, approvalModes: [...descriptor.capabilities.approvalModes].reverse() }, create: () => new IndependentSession() }], directory());
+  const equivalent = assembleProviderServices([{ ...registration(), capabilities: { ...descriptor.capabilities, approvalModes: [...descriptor.capabilities.approvalModes].reverse() }, create: () => new IndependentSession() }], directory(), descriptor.id);
   const accepted = equivalent.createSession("provider_default", undefined as never, descriptor.id); accepted.stop();
 });
 
@@ -171,7 +172,7 @@ test("loaded discovery queries all registered providers including unmanaged thre
     session.listLoadedThreads = async (request: { cursor?: string } = {}) => { queried.push(id); return { data: [id + (request.cursor ? "-older" : "-external")], nextCursor: request.cursor ? null : "native-next" }; };
     return session;
   } }));
-  const path = directory(), services = assembleProviderServices(registrations, path);
+  const path = directory(), services = assembleProviderServices(registrations, path, "first-adapter");
   const conversation = new ConversationService({ providers: services });
   try {
     expect(() => conversation.getThreadState("first-adapter-external")).toThrow();
@@ -197,7 +198,7 @@ test("stored catalogs always use shared cursors and navigate backwards for one o
         return { data: rows.slice(offset, offset + limit), nextCursor: offset + limit < rows.length ? String(offset + limit) : null };
       }; return session;
     } }));
-    const conversation = new ConversationService({ providers: assembleProviderServices(registrations, directory()) });
+    const conversation = new ConversationService({ providers: assembleProviderServices(registrations, directory(), registrations[0]!.id) });
     try {
       const request = { limit: 2, sortDirection: "desc" as const };
       const first = await conversation.listStoredThreads(request);
@@ -212,4 +213,23 @@ test("stored catalogs always use shared cursors and navigate backwards for one o
       await expect(conversation.listStoredThreads({ ...request, cwd: "/different", cursor: first.nextCursor! })).rejects.toThrow("Invalid provider thread cursor");
     } finally { conversation.stopAll(); }
   }
+});
+
+test("the default provider is explicit configuration rather than registration order", async () => {
+  const created: string[] = [];
+  const registrations = ["first-adapter", "second-adapter"].map(id => ({ ...registration(), id, create: () => { created.push(id); return new IndependentSession(); } }));
+  expect(() => assembleProviderServices(registrations, directory(), "missing-adapter")).toThrow("not registered");
+  const services = assembleProviderServices(registrations, directory(), "second-adapter");
+  expect(services.descriptors.map(entry => [entry.id, entry.isDefault])).toEqual([["first-adapter", false], ["second-adapter", true]]);
+  const conversation = new ConversationService({ providers: services });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect(conversation.getThreadProvider(threadId)).toBe("second-adapter");
+    expect(created).toEqual(["second-adapter"]);
+  } finally { conversation.stopAll(); }
+  expect(readRuntimeConfig({ SHEPHERD_DEFAULT_PROVIDER: " claude " }).defaultProvider).toBe("claude");
+  expect(readRuntimeConfig({}).defaultProvider).toBeUndefined();
+  expect(() => readRuntimeConfig({ SHEPHERD_DEFAULT_PROVIDER: "two words" })).toThrow("SHEPHERD_DEFAULT_PROVIDER");
+  expect(() => assertInstalledProvider("not-installed")).toThrow("SHEPHERD_DEFAULT_PROVIDER must be one of");
+  expect(() => assertInstalledProvider("claude")).not.toThrow();
 });

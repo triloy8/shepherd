@@ -83,7 +83,7 @@ export class ConversationService {
 
   constructor(options: ConversationServiceOptions = {}) {
     this.providerServices = options.providers;
-    this.manager = new SessionManager(this.dynamicTools, options.providers?.createSession, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers);
+    this.manager = new SessionManager(this.dynamicTools, options.providers?.createSession, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers, options.providers?.defaultProvider);
     this.routing = new ConversationRoutingService(this.manager, options.routing);
   }
 

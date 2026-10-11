@@ -99,6 +99,7 @@ export class SessionManager {
     private readonly providerHasStoredThreads = (_provider: AgentProvider, _request: ListStoredThreadsRequest) => false,
     private readonly providerDirectory: ThreadProviderDirectory = memoryProviderDirectory(),
     private readonly providers: readonly AgentProvider[] = ["default"],
+    private readonly fallbackProvider: AgentProvider = providers[0] ?? "default",
   ) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
@@ -476,9 +477,8 @@ export class SessionManager {
   }
 
   private defaultProvider(): string {
-    const provider = this.providers[0];
-    if (!provider) throw new Error("No agent providers are registered.");
-    return provider;
+    if (!this.providers.includes(this.fallbackProvider)) throw new Error("No default agent provider is registered.");
+    return this.fallbackProvider;
   }
 
   private allocateSession(approvalPolicy: ApprovalPolicy, provider: AgentProvider = this.defaultProvider()): ProviderSession {

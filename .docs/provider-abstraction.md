@@ -22,7 +22,10 @@ there is no parallel provider API, compatibility facade, or alternative transcri
 To add another provider, implement the session port, supply its capabilities and account
 reader, and register its factory and ownership resolver at composition. Core and
 surface code do not need another provider branch. Provider IDs and model IDs are opaque strings. Discord uses `!providers` for discovery,
-with optional provider IDs on `!newthread` and `!limits`; omitted IDs retain existing defaults.
+with optional provider IDs on `!newthread` and `!limits`; omitted IDs use the configured
+default agent. Composition names the default explicitly (`SHEPHERD_DEFAULT_PROVIDER`, Codex
+when unset) and registration rejects an unregistered default; descriptors mark it with
+`isDefault`, so neither core nor clients infer it from registration order.
 
 ## Execution and presentation
 

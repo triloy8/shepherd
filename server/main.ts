@@ -4,10 +4,12 @@ import { surfaceRegistry } from "./surface_definitions.js";
 import { prepareSurfaces } from "./runtime/surface_registry.js";
 import { createSurfaceHost } from "./runtime/surface_host.js";
 import { installShutdownHandlers } from "./runtime/process_lifecycle.js";
+import { assertInstalledProvider } from "./runtime/provider_services.js";
 
 async function main(): Promise<void> {
   loadCommonEnvironment();
   const config = readRuntimeConfig();
+  if (config.defaultProvider) assertInstalledProvider(config.defaultProvider);
   const surfaces = await prepareSurfaces(process.env, surfaceRegistry);
   // Complete all config validation before creating a runtime or opening clients.
   if (process.argv.includes("--check-config")) {

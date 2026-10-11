@@ -5,6 +5,7 @@ import { claudeDefaults } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
+import { claudeActivityKind } from "./activity.js";
 import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
 import type { UserQuestionRequest } from "../../../shared/protocol/user_questions.js";
 import { claudeCapabilities } from "./capabilities.js";
@@ -319,7 +320,7 @@ export class ClaudeSession implements ProviderSession {
       }
       if (block.type === "tool_use") {
         this.flushText("interim");
-        const kind = block.name === "Bash" ? "command" : ["Edit", "Write"].includes(block.name) ? "file_change" : "mcp_tool";
+        const kind = claudeActivityKind(block.name);
         turn.items.push({ id: block.id, type: "activity", activity: { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" } });
         this.publish("turn.activity", { itemId: block.id, turnId: turn.id, kind, label: block.name, detail: JSON.stringify(block.input), status: "started" });
       }
@@ -348,7 +349,9 @@ export class ClaudeSession implements ProviderSession {
     const approvalId = randomUUID();
     const questions = name === "AskUserQuestion" ? claudeQuestions(input, this.requireThread().id, this.activeTurnId!, approvalId) : undefined;
     const suggestions = context.suppressAlwaysAllowRule ? undefined : context.suggestions?.map(update => ({ ...update, destination: "session" as const }));
-    const offered = approvalChoices(questions ? [{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }] : [{ value: "accept", label: "Allow once" }, ...(suggestions?.length ? [{ value: "acceptForSession", label: "Allow for session" }] : []), { value: "decline", label: "Deny" }]);
+    const offered = approvalChoices(questions
+      ? [{ value: "submit", label: "Submit answers", intent: "answer" }, { value: "cancel", label: "Skip questions", intent: "cancel" }]
+      : [{ value: "allow", label: "Allow once", intent: "allow" }, ...(suggestions?.length ? [{ value: "allow_session", label: "Allow for session", intent: "allow" as const }] : []), { value: "deny", label: "Deny", intent: "deny" }]);
     return new Promise((resolve) => {
       const deny = () => { if (this.approvals.delete(approvalId)) this.publish("approval.expired", { approvalId }); resolve({ behavior: "deny", message: "Approval interrupted." }); };
       context.signal.addEventListener("abort", deny, { once: true });
@@ -371,10 +374,10 @@ export class ClaudeSession implements ProviderSession {
       pending.resolve(answers ? { behavior: "allow", updatedInput: { ...pending.input, answers } } : { behavior: "deny", message: "User skipped the questions." });
       return { approvalId };
     }
-    if (decision.decision === "acceptForSession" && !pending.suggestions?.length) throw new Error("Session approval is unavailable for this request.");
-    if (!["accept", "acceptForSession", "decline", "cancel"].includes(decision.decision)) throw new Error("Invalid Claude approval decision.");
+    if (decision.decision === "allow_session" && !pending.suggestions?.length) throw new Error("Session approval is unavailable for this request.");
+    if (!["allow", "allow_session", "deny"].includes(decision.decision)) throw new Error("Invalid Claude approval decision.");
     this.approvals.delete(approvalId);
-    pending.resolve(decision.decision === "accept" || decision.decision === "acceptForSession" ? { behavior: "allow", updatedInput: pending.input, ...(decision.decision === "acceptForSession" ? { updatedPermissions: pending.suggestions } : {}) } : { behavior: "deny", message: decision.reason ?? "Denied by user." });
+    pending.resolve(decision.decision === "allow" || decision.decision === "allow_session" ? { behavior: "allow", updatedInput: pending.input, ...(decision.decision === "allow_session" ? { updatedPermissions: pending.suggestions } : {}) } : { behavior: "deny", message: decision.reason ?? "Denied by user." });
     return { approvalId };
   }
   async steerTurn(input: UserInput[], turnId?: string): Promise<string> {

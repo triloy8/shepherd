@@ -38,9 +38,12 @@ images, token usage, and background task counts have shared representations. Tok
 that a provider does not report (Codex cache writes, Claude per-request reasoning) are `null`
 rather than zero.
 
-Adapters decode stored history before returning it. History records contain application
-message content, activities, and image artifacts; web/Discord do not decode native tool
-records. Native tool arguments, transport envelopes, and arbitrary thread properties do
+Adapters decode stored history before returning it. History records are a discriminated
+union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
+`activity`, `image`, `other`) with `in_progress`/`completed`/`interrupted`/`failed` turn
+status; web/Discord do not decode native tool records. Codex decodes its thread items in
+its adapter; Claude stores application items and still reads snapshots written with the
+earlier Codex-style names. Native tool arguments, transport envelopes, and arbitrary thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
 `audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex
 text elements and connector mentions are not part of the shared contract. Claude converts

@@ -243,7 +243,11 @@ remote tailnet connection are not required by these automated tests.
 
 How the browser presents these items is described in [Web UI](web-ui.md#transcript-work-and-images).
 
-History items may include `webActivity` (the shared normalized activity payload)
+History items have an application `type`: `user_message` (with `content` parts `text`,
+`image`, `image_file`, or `attachment`), `assistant_message` (with `text` and an optional
+`phase` of `interim` or `final`), `plan`, `reasoning`, `activity`, `image`, or `other`.
+Turn `status` is `completed`, `interrupted`, `failed`, or `in_progress`.
+Non-message items may include `webActivity` (the shared normalized activity payload)
 or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
 (`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
 as `payload.url` and the file basename as `payload.name`. The browser uses these

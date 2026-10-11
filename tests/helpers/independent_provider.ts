@@ -1,5 +1,5 @@
 import { bridgeEvent, type BridgeEventType, type BridgeEventPayloads } from "../../shared/protocol/events.js";
-import { EventBus } from "../../server/core/event_bus.js";
+import { EventBus } from "../../server/providers/event_bus.js";
 import type { ProviderSession } from "../../server/ports/provider_session.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";

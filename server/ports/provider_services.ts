@@ -1,8 +1,8 @@
 import type { AgentProvider, ApprovalPolicy, ListStoredThreadsRequest } from "../../shared/protocol/requests.js";
 import type { ProviderSession } from "./provider_session.js";
-import type { DynamicToolRegistry } from "../core/dynamic_tool_registry.js";
+import type { ProviderTools } from "./provider_tools.js";
 
-export type ProviderSessionFactory = (policy: ApprovalPolicy, tools: DynamicToolRegistry, provider: AgentProvider) => ProviderSession;
+export type ProviderSessionFactory = (policy: ApprovalPolicy, tools: ProviderTools, provider: AgentProvider) => ProviderSession;
 
 /** Identity is supplied by composition; application code never inspects native IDs. */
 export interface ThreadProviderDirectory {

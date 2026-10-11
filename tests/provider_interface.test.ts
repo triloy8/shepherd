@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { ConversationService } from "../server/core/conversation_service";
 import { memoryProviderDirectory } from "../server/core/provider_directory";
-import { EventBus } from "../server/core/event_bus";
+import { EventBus } from "../server/providers/event_bus";
 import type { ProviderSession } from "../server/ports/provider_session";
 import type { ProviderServices } from "../server/ports/provider_services";
 import type { ProviderDescriptor } from "../shared/protocol/providers";
@@ -12,6 +12,7 @@ import { CodexSession } from "../server/providers/codex/session";
 import { CodexAccount } from "../server/providers/codex/account";
 import { codexInput } from "../server/providers/codex/input";
 import { historyItem } from "../server/providers/codex/history";
+import { codexToolResponse, codexToolSpecs } from "../server/providers/codex/tools";
 import { webHarness } from "./helpers/web_harness";
 import { account } from "./helpers/account";
 
@@ -80,6 +81,13 @@ test("native input and history fields are encoded and sanitized inside adapters"
   const item = historyItem({ id: "tool", type: "commandExecution", command: "bun test", status: "completed", nativeSecret: "private", aggregatedOutput: "private" }, "turn");
   expect(item).toMatchObject({ id: "tool", type: "activity", activity: { kind: "command", status: "completed", detail: "bun test" } });
   expect(JSON.stringify(item)).not.toContain("nativeSecret"); expect(JSON.stringify(item)).not.toContain("aggregatedOutput");
+});
+
+test("application tool declarations and results are encoded into Codex dynamic tool wire values", () => {
+  expect(codexToolSpecs([{ type: "namespace", name: "signals", description: "Signals", tools: [{ type: "function", name: "callback", description: "Create", inputSchema: { type: "object" } }] }]))
+    .toEqual([{ type: "namespace", name: "signals", description: "Signals", tools: [{ type: "function", name: "callback", description: "Create", inputSchema: { type: "object" } }] }]);
+  expect(codexToolResponse({ success: true, contentItems: [{ type: "text", text: "ok" }, { type: "image", url: "data:image/png;base64,AA" }, { type: "audio", url: "data:audio/wav;base64,AA" }] }))
+    .toEqual({ success: true, contentItems: [{ type: "inputText", text: "ok" }, { type: "inputImage", imageUrl: "data:image/png;base64,AA" }, { type: "inputAudio", audioUrl: "data:audio/wav;base64,AA" }] });
 });
 
 test("opaque permission options retain native policy amendments and reject stale ownership", async () => {

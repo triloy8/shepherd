@@ -86,7 +86,9 @@ test("provider SDKs and persistence stay outside application and transport layer
           const native = target.includes("/server/providers/");
           const storage = target.includes("/server/storage/");
           const upward = target.includes("/server/runtime/") || target.includes("/server/adapters/");
-          const forbidden = directory === "server/providers" ? upward : directory === "server/storage" ? sdk || native || upward : sdk || native || storage;
+          // Adapters implement ports; application services are never a provider dependency.
+          const core = target.includes("/server/core/");
+          const forbidden = directory === "server/providers" ? upward || core : directory === "server/storage" ? sdk || native || upward : sdk || native || storage;
           if (forbidden) violations.push(`${path.relative(root, file)} -> ${specifier}`);
         }
         ts.forEachChild(node, visit);

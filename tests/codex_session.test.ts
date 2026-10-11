@@ -151,7 +151,7 @@ describe("CodexSession app-server contract", () => {
       inputSchema: { type: "object" },
       async execute(params) {
         calls.push(params);
-        return { success: true, contentItems: [{ type: "inputText", text: "ready" }] };
+        return { success: true, contentItems: [{ type: "text", text: "ready" }] };
       },
     });
     const session = new CodexSession("review_sensitive", tools);

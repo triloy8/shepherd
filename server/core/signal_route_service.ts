@@ -33,7 +33,7 @@ function isRecord(value: JsonValue): value is { [key: string]: JsonValue } {
 function failed(message: string): DynamicToolCallResponse {
   return {
     success: false,
-    contentItems: [{ type: "inputText", text: message }],
+    contentItems: [{ type: "text", text: message }],
   };
 }
 
@@ -129,7 +129,7 @@ export class SignalRouteService {
         success: true,
         contentItems: [
           {
-            type: "inputText",
+            type: "text",
             text: JSON.stringify({ url: callbackUrl(baseUrl, route.id) }),
           },
         ],

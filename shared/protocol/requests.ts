@@ -253,44 +253,21 @@ export interface ThreadModelState {
   pendingModel: string | null;
 }
 
-export type SkillScope = "user" | "repo" | "system" | "admin";
+/** Where a skill was discovered, as reported by the provider (for example user, repo, or system). */
+export type SkillScope = string;
 
 export interface SkillsListRequest {
   cwds?: string[];
   forceReload?: boolean;
 }
 
-export interface SkillToolDependency {
-  type: string;
-  value: string;
-  command?: string | null;
-  description?: string | null;
-  transport?: string | null;
-  url?: string | null;
-}
-
-export interface SkillDependencies {
-  tools: SkillToolDependency[];
-}
-
-export interface SkillInterface {
-  brandColor?: string | null;
-  defaultPrompt?: string | null;
-  displayName?: string | null;
-  iconLarge?: string | null;
-  iconSmall?: string | null;
-  shortDescription?: string | null;
-}
-
+/** A skill available to a conversation's workspace. */
 export interface SkillMetadata {
-  dependencies?: SkillDependencies | null;
-  description: string;
-  enabled: boolean;
-  interface?: SkillInterface | null;
   name: string;
+  description: string;
   path: string;
   scope: SkillScope;
-  shortDescription?: string | null;
+  enabled: boolean;
 }
 
 export interface SkillErrorInfo {

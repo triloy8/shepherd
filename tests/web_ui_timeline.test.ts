@@ -158,7 +158,7 @@ test("tool history survives reload and is not mistaken for a final answer", () =
 });
 
 test("generated images stay visible, use only scoped URLs and deduplicate by item", () => {
-  const imageEvent = event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: "/api/conversations/abc/images/def", revisedPrompt: "A picture" });
+  const imageEvent = event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: "/api/conversations/abc/images/def", prompt: "A picture" });
   let state = reduceBridge(emptyChat(), imageEvent);
   state = reduceBridge(state, { ...imageEvent, id: "replay" });
   expect(state.messages).toHaveLength(1);
@@ -171,7 +171,7 @@ test("generated images stay visible, use only scoped URLs and deduplicate by ite
 test("generated images and final text share one assistant response live and after reload", () => {
   const image = { url: "/api/conversations/abc/images/def", prompt: "A white unicorn in an enchanted meadow", name: "unicorn.png" };
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
-  state = reduceBridge(state, event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: image.url, name: image.name, revisedPrompt: image.prompt }));
+  state = reduceBridge(state, event("image", "turn.image.generated", { itemId: "image", turnId: "turn", url: image.url, name: image.name, prompt: image.prompt }));
   let html = render(state);
   expect(html).toContain("assistant-response");
   expect(html.indexOf("Shepherd")).toBeLessThan(html.indexOf("<img"));

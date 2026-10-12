@@ -20,7 +20,17 @@ export const input = {
     { id: "notes", header: "Notes", question: "Any other requirements?", isOther: true, isSecret: false, options: null },
   ],
 };
-const answers = { provider: { answers: [input.questions[0]!.options![0]!.label] }, notes: { answers: ["Remember my last choice."] } };
+const answers = { provider: [input.questions[0]!.options![0]!.label], notes: ["Remember my last choice."] };
+/** Codex's requestUserInput reply wraps each question's answers. */
+const nativeAnswers = { provider: { answers: answers.provider }, notes: { answers: answers.notes } };
+
+test("question providers can omit answer masking and explicitly opt into it", () => {
+  const question = { id: "q", header: "Q", question: "Which?", isOther: true, options: null };
+  const request = { threadId: "t", turnId: "turn", itemId: "item", questions: [question] };
+  expect(parseUserQuestionRequest(request).questions[0]).not.toHaveProperty("isSecret");
+  expect(parseUserQuestionRequest({ ...request, questions: [{ ...question, isSecret: true }] }).questions[0]!.isSecret).toBe(true);
+  expect(() => parseUserQuestionRequest({ ...request, questions: [{ ...question, isSecret: "true" }] })).toThrow("Invalid user question");
+});
 function sessionHarness() {
   const session = new CodexSession("bypass");
   session.threadId = input.threadId; session.activeTurnId = input.turnId;
@@ -47,13 +57,13 @@ test("questions stay pending without a JSON-RPC response until the human submits
   expect(h.store.listPending()).toHaveLength(1);
   h.store.markDecided(input.threadId, h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers });
   await h.session.applyApprovalDecision(h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers });
-  expect(h.writes).toEqual([{ id: 7, result: { answers } }]);
+  expect(h.writes).toEqual([{ id: 7, result: { answers: nativeAnswers } }]);
   await expect(h.session.applyApprovalDecision(h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers })).rejects.toThrow("Unknown approval");
 });
 
 test("missing, extra, empty and invalid choice answers leave questions pending for retry", () => {
   const h = sessionHarness();
-  for (const invalid of [undefined, {}, { ...answers, extra: { answers: ["extra"] } }, { ...answers, notes: { answers: [""] } }]) {
+  for (const invalid of [undefined, {}, { ...answers, extra: ["extra"] }, { ...answers, notes: [""] }]) {
     expect(() => h.store.markDecided(input.threadId, h.request.approvalId, { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers: invalid })).toThrow();
     expect(h.store.listPending()).toHaveLength(1);
   }
@@ -61,7 +71,7 @@ test("missing, extra, empty and invalid choice answers leave questions pending f
   restricted.approvalId = "restricted";
   restricted.userInput!.questions[0]!.isOther = false;
   h.store.create(restricted, { threadId: input.threadId, sessionId: h.session.sessionId });
-  expect(() => h.store.markDecided(input.threadId, "restricted", { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers: { ...answers, provider: { answers: ["Unknown provider"] } } })).toThrow("offered");
+  expect(() => h.store.markDecided(input.threadId, "restricted", { decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers: { ...answers, provider: ["Unknown provider"] } })).toThrow("offered");
   expect(h.writes).toEqual([]);
 });
 
@@ -137,7 +147,7 @@ test("Discord answer buttons open a form without answering, then modal submissio
   expect(modal!.toJSON().components).toHaveLength(2);
   expect(decisions).toEqual([]);
   const replies: unknown[] = [];
-  await handleModalInteraction({ customId, fields: { getTextInputValue(id: string) { return id === "answer-0" ? answers.provider.answers[0] : answers.notes.answers[0]; } }, async reply(value: unknown) { replies.push(value); } } as never, conversation as never);
+  await handleModalInteraction({ customId, fields: { getTextInputValue(id: string) { return id === "answer-0" ? answers.provider[0] : answers.notes[0]; } }, async reply(value: unknown) { replies.push(value); } } as never, conversation as never);
   expect(decisions).toEqual([{ decision: h.request.choices.find(choice => choice.intent === "answer")!.value, answers }]);
   expect(replies).toHaveLength(1);
 });
@@ -193,9 +203,9 @@ test("SessionManager expires pending questions when the turn ends or the session
 
 test("multiple-choice questions render checkboxes and validate several distinct answers", () => {
   const question = { id: "parts", header: "Parts", question: "Which parts?", isOther: false, isSecret: false, multiSelect: true, options: [{ label: "API", description: "Server" }, { label: "UI", description: "Browser" }] };
-  validateUserQuestionAnswers([question], { parts: { answers: ["API", "UI"] } });
-  expect(() => validateUserQuestionAnswers([question], { parts: { answers: ["API", "API"] } })).toThrow();
-  expect(() => validateUserQuestionAnswers([question], { parts: { answers: ["other"] } })).toThrow();
-  expect(() => validateUserQuestionAnswers([{ ...question, multiSelect: false }], { parts: { answers: ["API", "UI"] } })).toThrow();
+  validateUserQuestionAnswers([question], { parts: ["API", "UI"] });
+  expect(() => validateUserQuestionAnswers([question], { parts: ["API", "API"] })).toThrow();
+  expect(() => validateUserQuestionAnswers([question], { parts: ["other"] })).toThrow();
+  expect(() => validateUserQuestionAnswers([{ ...question, multiSelect: false }], { parts: ["API", "UI"] })).toThrow();
 
 });

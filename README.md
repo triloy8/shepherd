@@ -77,6 +77,12 @@ SHEPHERD_APPROVAL_MODE=review_sensitive
 SHEPHERD_SANDBOX_MODE=workspace_write
 ```
 
+These are host defaults. Each agent applies the ones it supports and keeps its own
+default for the rest; Shepherd prints a notice at startup and with `--check-config`
+when an installed agent cannot apply one. For example, Claude has no workspace sandbox
+and does not offer `review_untrusted`. Values passed explicitly in an API request are
+never adjusted: a request for an unsupported mode is rejected.
+
 Choose **Codex** or **Claude** in the web UI's new-conversation dialog. The choice
 belongs to the conversation; resume and fork preserve it. Codex is the default
 unless `SHEPHERD_DEFAULT_PROVIDER=claude` is set; the dialog preselects the default and

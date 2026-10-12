@@ -19,7 +19,7 @@ import type {
   ThreadSortKey,
   SubmitTurnRequest,
 } from "./requests.js";
-import { toTextUserInput, type UserInput } from "./user_input.js";
+import { IMAGE_DETAILS, toTextUserInput, type ImageDetail, type UserInput } from "./user_input.js";
 
 const APPROVAL_POLICIES = ["provider_default", "review_untrusted", "review_sensitive", "bypass"] as const;
 const SANDBOX_MODES: SandboxMode[] = ["read_only", "workspace_write", "unrestricted"];
@@ -183,10 +183,10 @@ function parseUserInput(value: unknown, name: string): UserInput {
   }
 }
 
-function parseImageDetail(value: unknown, name: string): "auto" | "low" | "high" | "original" | undefined {
+function parseImageDetail(value: unknown, name: string): ImageDetail | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  if (value === "auto" || value === "low" || value === "high" || value === "original") {
-    return value;
+  if (typeof value === "string" && (IMAGE_DETAILS as readonly string[]).includes(value)) {
+    return value as ImageDetail;
   }
   throw new Error(`Invalid ${name}.`);
 }
@@ -340,10 +340,9 @@ export function validateApprovalDecisionRequest(value: unknown): ApprovalDecisio
 }
 
 export function validateSkillsListRequest(value: unknown): SkillsListRequest {
-  if (!isRecord(value)) throw new Error("Invalid skills list payload.");
+  if (!isRecord(value) || Object.keys(value).some(key => key !== "refresh")) throw new Error("Invalid skills list payload.");
   return {
-    cwds: parseOptionalStringList(value.cwds, "cwds"),
-    forceReload: parseOptionalBoolean(value.forceReload, "forceReload"),
+    refresh: parseOptionalBoolean(value.refresh, "refresh"),
   };
 }
 

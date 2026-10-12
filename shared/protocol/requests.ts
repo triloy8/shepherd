@@ -233,6 +233,7 @@ export interface ListModelsRequest {
   provider?: AgentProvider;
   cursor?: string;
   limit?: number;
+  /** Include models omitted from the normal picker; explicit IDs may still select them. */
   includeHidden?: boolean;
 }
 
@@ -261,8 +262,8 @@ export interface ThreadModelState {
 export type SkillScope = string;
 
 export interface SkillsListRequest {
-  cwds?: string[];
-  forceReload?: boolean;
+  /** Ask the provider to refresh discovery rather than use cached results. */
+  refresh?: boolean;
 }
 
 /** A skill available to a conversation's workspace. */
@@ -294,8 +295,9 @@ export interface SkillsConfigWriteRequest {
   path: string;
 }
 
+/** The skill's resulting state. Provider configuration policy can keep it from matching the request. */
 export interface SkillsConfigWriteResponse {
-  effectiveEnabled: boolean;
+  enabled: boolean;
 }
 
 export interface ThreadEffortState extends ModelCapabilities {
@@ -307,7 +309,8 @@ export interface ThreadEffortState extends ModelCapabilities {
   pendingEffortClear?: boolean;
 }
 
-/** How much of each turn's item list a history page includes. */
+/** How much of each turn's item list a history page includes. `summary` is a provider-chosen
+ * display summary, such as the user messages and final answer; `full` is every recorded item. */
 export type HistoryItemsView = "none" | "summary" | "full";
 export type TurnStatus = "completed" | "interrupted" | "failed" | "in_progress";
 
@@ -329,7 +332,8 @@ export interface HistoryImage {
   itemId: string;
   turnId: string | null;
   path: string;
-  revisedPrompt?: string | null;
+  /** The prompt the image was generated from, when the provider reports it. */
+  prompt?: string | null;
   kind: "generated" | "viewed";
 }
 

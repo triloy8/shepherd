@@ -49,6 +49,8 @@ test("a pending effort can be cleared on a model without effort controls, includ
     await h.manager.setThreadEffort(threadId, "focused");
     h.manager.setThreadModel(threadId, "simple");
     await expect(h.manager.submitTurn(threadId, { input: [] })).rejects.toMatchObject({ failure: { code: "unsupported_effort" } });
+    await expect(h.manager.setThreadEffort(threadId, { mode: "default" })).rejects.toMatchObject({ failure: { code: "unsupported_effort" } });
+    expect((await h.manager.getThreadEffort(threadId)).pendingEffort).toBe("focused");
     await h.manager.setThreadEffort(threadId, null);
     const start = h.session.startTurn;
     h.session.startTurn = async () => { throw new Error("transport failed"); };

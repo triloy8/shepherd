@@ -58,9 +58,9 @@ test("a pending settings change shares the existing conversation mutation lock",
 
 test("account usage and idempotent resets use the same provider boundary without a conversation", async () => {
   const h = webHarness(); installWebSettings(h);
-  const limits = account(); limits.resets = { supported: true, availableCount: 2, credits: [{ id: "reset-1", supported: true, status: "available", grantedAt: 100, expiresAt: 200, title: "Reset", description: null }] };
+  const limits = account(); limits.resets = { availableCount: 2, credits: [{ id: "reset-1", supported: true, status: "available", grantedAt: 100, expiresAt: 200, title: "Reset", description: null }] };
   const requests: unknown[] = [], seen = new Set<string>();
-  const descriptors = h.application.conversation.listProviders(); descriptors[0]!.capabilities.resets = true;
+  const descriptors = h.application.conversation.listProviders(); descriptors[0]!.capabilities.accountReset = true;
   Object.assign(h.application.conversation, {
     listProviders: () => descriptors,
     async readAccount() { return limits; },
@@ -86,7 +86,7 @@ test("account usage and idempotent resets use the same provider boundary without
   } finally { h.api.dispose(); }
 });
 
-test("account model metadata is paginated, includes hidden aliases, and needs no conversation", async () => {
+test("account model metadata is paginated and includes hidden aliases only on request", async () => {
   const h = webHarness(); installWebSettings(h);
   const calls: unknown[] = [];
   Object.assign(h.application.conversation, { async listModels(request: { cursor?: string }) {
@@ -94,12 +94,15 @@ test("account model metadata is paginated, includes hidden aliases, and needs no
     return { data: [{ id: "future", model: "future-model", displayName: "Future Model", hidden: true }], nextCursor: request.cursor ? null : "page-2" };
   } });
   try {
-    expect((await (await h.request("/models?limit=100")).json()).nextCursor).toBe("page-2");
-    expect((await (await h.request("/models?cursor=page-2&limit=100")).json()).data[0].displayName).toBe("Future Model");
+    expect((await (await h.request("/models?limit=100&includeHidden=true")).json()).nextCursor).toBe("page-2");
+    expect((await (await h.request("/models?cursor=page-2&limit=100&includeHidden=true")).json()).data[0].displayName).toBe("Future Model");
     expect(calls).toEqual([{ limit: 100, includeHidden: true }, { limit: 100, cursor: "page-2", includeHidden: true }]);
+    await h.request("/models?limit=100");
+    expect(calls.at(-1)).toEqual({ limit: 100 });
+    for (const query of ["includeHidden=invalid", "includeHidden=true&includeHidden=false"]) expect((await h.request(`/models?${query}`)).status).toBe(400);
     for (const route of ["/models?limit=0", "/models?limit=101", "/models?extra=true"]) expect((await h.request(route)).status).toBe(400);
     expect((await h.request("/models", "GET", undefined, { origin: "https://evil.test" })).status).toBe(403);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
   } finally { h.api.dispose(); }
 });
 

@@ -25,9 +25,9 @@ test("skill loading scopes the inventory and preserves explicit reload", async (
   const source = { async listSkills(threadId: string, options: unknown) {
     requests.push({ threadId, options }); return inventory;
   } };
-  await loadSkillsPage(source, { threadId: "thread", page: 1, pageSize: 2, forceReload: true });
+  await loadSkillsPage(source, { threadId: "thread", page: 1, pageSize: 2, refresh: true });
   await loadSkillsPage(source, { threadId: "thread", page: 2, pageSize: 2 });
-  expect(requests).toEqual([{ threadId: "thread", options: { forceReload: true } }, { threadId: "thread", options: {} }]);
+  expect(requests).toEqual([{ threadId: "thread", options: { refresh: true } }, { threadId: "thread", options: {} }]);
 });
 
 test("invalid skill pagination fails explicitly", () => {

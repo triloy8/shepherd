@@ -48,7 +48,7 @@ export interface BridgeEventPayloads {
     itemId: string;
     turnId: string | null;
     path: string;
-    revisedPrompt: string | null;
+    prompt: string | null;
   };
   "turn.image.viewed": {
     itemId: string;

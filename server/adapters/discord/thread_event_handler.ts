@@ -464,7 +464,7 @@ export function createDiscordThreadEventHandler(
       flushProgress(channelId, state);
       enqueue(channelId, state, async (channel) => {
         const result = await sendDiscordGeneratedImage(channel, image.path, {
-          description: image.revisedPrompt,
+          description: image.prompt,
           ...(generatedImageLoader ? { loadAttachment: generatedImageLoader } : {}),
         });
         if (result.success) return;

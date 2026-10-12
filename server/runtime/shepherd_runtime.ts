@@ -36,9 +36,11 @@ export class ShepherdRuntime {
       providers: createProviderServices(options.defaultProvider),
       routing: {
         autoCreateIfMissing: true,
-        defaultApprovalPolicy: options.approvalPolicy,
-        defaultSandbox: options.defaultSandbox,
         exclusiveThreadBinding: true,
+      },
+      threadDefaults: {
+        approvalPolicy: options.approvalPolicy,
+        ...(options.defaultSandbox ? { sandbox: options.defaultSandbox } : {}),
       },
     });
     this.lifecycle = new RuntimeLifecycleOrchestrator({

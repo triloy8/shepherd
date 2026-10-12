@@ -130,28 +130,59 @@ const nativeValues = new Set([
   "userMessage", "agentMessage", "inProgress", "notLoaded", "localImage", "localAudio",
   "inputText", "inputImage", "inputAudio", "appServer", "commentary", "final_answer", "acceptForSession",
   "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "imageGeneration", "imageView", "contextCompaction",
+  // OpenAI image detail, and Claude SDK permission modes, tools and presets.
+  "original", "bypassPermissions", "acceptEdits", "dontAsk", "AskUserQuestion", "claude_code",
 ]);
 const nativeFields = new Set([
   "modelProvider", "reasoningEffort", "supportedReasoningEfforts", "defaultReasoningEffort", "cachedInputTokens",
   "modelContextWindow", "baseInstructions", "developerInstructions", "text_elements", "byteRange", "deferLoading",
-  "normalModelSlug", "limitName", "planType", "imageUrl", "audioUrl",
+  "normalModelSlug", "limitName", "planType", "imageUrl", "audioUrl", "revisedPrompt", "effectiveEnabled", "savedPath",
+  // Anthropic usage and Claude SDK option names.
+  "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
+  "permissionMode", "allowDangerouslySkipPermissions", "cwds", "forceReload",
 ]);
+/** Codex app-server JSON-RPC methods, such as thread/start or item/tool/requestUserInput. */
+const nativeMethod = /^(?:thread|turn|item|account|model|skills|config|review|fs|command|mcpServer)\/[A-Za-z]/;
+/** New provider directories automatically join the guard, along with SDK vendor names. */
+const providerNames = ["anthropic", "openai", ...(await readdir(path.join(root, "server/providers"), { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name)];
+const providerName = new RegExp(providerNames.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i");
 
-test("shared contracts, core, surfaces and UI use application vocabulary rather than Codex wire names", async () => {
+function vocabularyViolations(source: ts.SourceFile): string[] {
+  const violations: string[] = [];
+  const visit = (node: ts.Node) => {
+    const literal = ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ? (node as ts.LiteralLikeNode).text : undefined;
+    const identifier = ts.isIdentifier(node) || ts.isPrivateIdentifier(node) ? node.text : undefined;
+    if (literal !== undefined && (nativeValues.has(literal) || nativeFields.has(literal) || nativeMethod.test(literal))) violations.push(`"${literal}"`);
+    if (identifier !== undefined && nativeFields.has(identifier)) violations.push(identifier);
+    if ((literal ?? identifier) !== undefined && providerName.test(literal ?? identifier!)) violations.push(`names a provider: ${literal ?? identifier}`);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return violations;
+}
+
+test("vocabulary guard checks quoted keys, provider identifiers, template fragments and native method families", () => {
+  const source = ts.createSourceFile("probe.ts", 'const ClaudeOptions = { "forceReload": true, "permissionMode": "bypassPermissions", method: "thread/newNativeMethod", prompt: `OpenAI ${value} request`, usage: { cache_creation_input_tokens: 0 } };', ts.ScriptTarget.Latest, true);
+  expect(vocabularyViolations(source)).toEqual(expect.arrayContaining([
+    "names a provider: ClaudeOptions", '"forceReload"', '"permissionMode"', '"bypassPermissions"', '"thread/newNativeMethod"', "names a provider: OpenAI ", "cache_creation_input_tokens",
+  ]));
+  const application = ts.createSourceFile("application.ts", 'type Input = { includeHidden?: boolean; isSecret?: boolean }; const event = "turn.image.generated";', ts.ScriptTarget.Latest, true);
+  expect(vocabularyViolations(application)).toEqual([]);
+});
+
+test("shared contracts, core, surfaces and UI use application vocabulary rather than provider wire names", async () => {
+  // Provider identities and implementations meet only at the composition root.
+  const runtime = (await sourceFiles(path.join(root, "server/runtime"))).filter(file => path.basename(file) !== "provider_services.ts");
   const files = [
     ...await sourceFiles(path.join(root, "shared/protocol")), ...await sourceFiles(path.join(root, "server/core")),
     ...await sourceFiles(path.join(root, "server/adapters")), ...await sourceFiles(path.join(root, "server/ports")),
-    ...await sourceFiles(path.join(root, "ui/src")),
+    ...await sourceFiles(path.join(root, "server/storage")), ...await sourceFiles(path.join(root, "server/config")),
+    ...await sourceFiles(path.join(root, "server/signals")), ...await sourceFiles(path.join(root, "ui/src")), ...runtime,
   ];
   const violations: string[] = [];
   for (const file of files) {
     const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
-    const visit = (node: ts.Node) => {
-      if (ts.isStringLiteralLike(node) && nativeValues.has(node.text)) violations.push(`${path.relative(root, file)}: "${node.text}"`);
-      if ((ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) && nativeFields.has(node.text)) violations.push(`${path.relative(root, file)}: ${node.text}`);
-      ts.forEachChild(node, visit);
-    };
-    visit(source);
+    violations.push(...vocabularyViolations(source).map(violation => `${path.relative(root, file)}: ${violation}`));
   }
   expect(violations).toEqual([]);
 });

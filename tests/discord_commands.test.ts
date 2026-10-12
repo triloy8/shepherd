@@ -70,7 +70,7 @@ function editedCardAt(edits: Array<string | MessageEditOptions>, index = 0) {
 
 function makeContext(overrides?: {
   listSkills?: () => Promise<unknown>;
-  writeSkillConfig?: (threadId: string, request: { path: string; enabled: boolean }) => Promise<{ effectiveEnabled: boolean }>;
+  writeSkillConfig?: (threadId: string, request: { path: string; enabled: boolean }) => Promise<{ enabled: boolean }>;
   listModels?: () => Promise<unknown>;
   getThreadModel?: () => { threadId: string; currentModel: string | null; provider: string; pendingModel: string | null };
   setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; provider: string; pendingModel: string | null };
@@ -120,7 +120,7 @@ function makeContext(overrides?: {
       async writeSkillConfig(threadId: string, request: { path: string; enabled: boolean }) {
         writes.push({ threadId, path: request.path, enabled: request.enabled });
         if (overrides?.writeSkillConfig) return overrides.writeSkillConfig(threadId, request);
-        return { effectiveEnabled: !request.enabled ? false : true };
+        return { enabled: !request.enabled ? false : true };
       },
       async listModels() {
         if (overrides?.listModels) return overrides.listModels();
@@ -147,7 +147,7 @@ function makeContext(overrides?: {
         };
       },
       getThreadProvider: () => "fixture",
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, resets: false } }],
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, accountReset: false } }],
       async readAccount() { return account("fixture", "pro"); },
       async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
@@ -394,6 +394,20 @@ describe("Discord !skill commands", () => {
     expect(embed.description).not.toContain("!rollback");
   });
 
+  test("help hides commands the conversation's agent does not support", async () => {
+    const { message, replies } = makeMessage("!help");
+    const { context } = makeContext();
+    const capabilities = { ...context.conversation.listProviders()[0]!.capabilities, compact: false, skills: false, skillConfig: false, effortSelection: false };
+    Object.assign(context.conversation, { getThreadState: (threadId: string) => ({ threadId, sessionId: "s", activeTurnId: null, approvalPolicy: "review_sensitive", capabilities }) });
+
+    await handleMessage(message as never, context);
+
+    const description = replyCardAt(replies).description;
+    expect(description).toContain("this conversation's agent does not support are hidden");
+    for (const hidden of ["!compact", "!skills", "!skill enable", "set <level|default>"]) expect(description).not.toContain(hidden);
+    for (const shown of ["!fork", "!model set", "- !effort"]) expect(description).toContain(shown);
+  });
+
   test("renders context telemetry as a structured Components V2 card", async () => {
     const { message, replies } = makeMessage("!context");
     const { context } = makeContext();
@@ -449,7 +463,7 @@ describe("Discord !skill commands", () => {
     ]);
     expect(replyCardAt(replies)).toEqual({
       title: "Skill disabled",
-      description: "Disabled skill github (effectiveEnabled=false)",
+      description: "Disabled skill github (now disabled)",
     });
   });
 
@@ -514,6 +528,21 @@ describe("Discord !skill commands", () => {
     expect(embed.description).toContain("`gpt-5.3-codex` [pending, default]");
     expect(embed.description).toContain("`o4-mini` [current]");
     expect(embed.description).toContain("Current: o4-mini");
+  });
+
+  test("!effort set preserves literal values regardless of the advertised model default", async () => {
+    for (const [offered, requested, expected] of [[["low", "high"], "default", "default"], [["default", "high"], "default", "default"], [["DEFAULT", "high"], "DEFAULT", "DEFAULT"]] as const) {
+      const { message } = makeMessage(`!effort set ${requested}`);
+      const { context } = makeContext();
+      const requests: Array<string | null> = [];
+      const state = { threadId: "thread-1", model: "o4-mini", currentEffort: "low", pendingEffort: null, inputModalities: null, defaultEffort: "high", supportedEfforts: offered.map((value) => ({ value, description: value })) };
+      Object.assign(context.conversation, {
+        async getThreadEffort() { return state; },
+        async setThreadEffort(_threadId: string, effort: string | null) { requests.push(effort); return { ...state, pendingEffort: effort ?? state.defaultEffort }; },
+      });
+      await handleMessage(message as never, context);
+      expect(requests).toEqual([expected]);
+    }
   });
 
   test("stores a thread-scoped pending model override", async () => {

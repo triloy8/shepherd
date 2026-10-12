@@ -11,7 +11,7 @@ import { toTextUserInput } from "../shared/protocol/user_input";
 import { CodexSession } from "../server/providers/codex/session";
 import { CodexAccount } from "../server/providers/codex/account";
 import { codexInput } from "../server/providers/codex/input";
-import { historyItem } from "../server/providers/codex/history";
+import { historyItem, historyTurn as codexHistoryTurn } from "../server/providers/codex/history";
 import { codexToolResponse, codexToolSpecs } from "../server/providers/codex/tools";
 import { codexAccount } from "../server/providers/codex/account_presentation";
 import { codexTokenUsage } from "../server/providers/codex/token_usage";
@@ -78,8 +78,8 @@ test("account reset calls preserve adapter method ownership and decode native ou
 });
 
 test("native input and history fields are encoded and sanitized inside adapters", () => {
-  expect(codexInput([{ type: "text", text: "hi" }, { type: "image_file", path: "/tmp/a.png", detail: "high" }, { type: "audio_file", path: "/tmp/a.wav" }])).toEqual([
-    { type: "text", text: "hi", text_elements: [] }, { type: "localImage", path: "/tmp/a.png", detail: "high" }, { type: "localAudio", path: "/tmp/a.wav" },
+  expect(codexInput([{ type: "text", text: "hi" }, { type: "image_file", path: "/tmp/a.png", detail: "high" }, { type: "image", url: "https://example.com/a.png", detail: "full" }, { type: "audio_file", path: "/tmp/a.wav" }])).toEqual([
+    { type: "text", text: "hi", text_elements: [] }, { type: "localImage", path: "/tmp/a.png", detail: "high" }, { type: "image", url: "https://example.com/a.png", detail: "original" }, { type: "localAudio", path: "/tmp/a.wav" },
   ]);
   const item = historyItem({ id: "tool", type: "commandExecution", command: "bun test", status: "completed", nativeSecret: "private", aggregatedOutput: "private" }, "turn");
   expect(item).toMatchObject({ id: "tool", type: "activity", activity: { kind: "command", status: "completed", detail: "bun test" } });
@@ -142,4 +142,11 @@ test("opaque permission options retain native policy amendments and reject stale
   raw.onServerRequest({ id: 2, method: "item/commandExecution/requestApproval", params: { threadId: "thread", turnId: "turn" } });
   expect(requests).toHaveLength(1); expect(writes.at(-1)).toMatchObject({ id: 2, error: { code: -32602 } });
   session.stop();
+});
+
+test("Codex turn statuses decode explicitly and unknown statuses are not reported as success", () => {
+  const status = (value: unknown) => codexHistoryTurn({ id: "turn", items: [], ...(value === undefined ? {} : { status: value }) }).status;
+  expect([status("completed"), status("interrupted"), status("failed"), status("inProgress")]).toEqual(["completed", "interrupted", "failed", "in_progress"]);
+  expect(status("cancelledByPolicy")).toBe("interrupted");
+  for (const value of [undefined, null, "", 42]) expect(status(value)).toBe("interrupted");
 });

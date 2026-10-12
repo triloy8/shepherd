@@ -8,12 +8,12 @@ export function claudeQuestions(input: Record<string, unknown>, threadId: string
     const q = value as Record<string, unknown> | null;
     if (!q || typeof q.question !== "string" || texts.has(q.question) || (q.multiSelect !== undefined && typeof q.multiSelect !== "boolean")) throw new Error("Invalid Claude question.");
     texts.add(q.question);
-    return { id: `question-${index}`, header: q.header, question: q.question, options: q.options, multiSelect: q.multiSelect ?? false, isOther: true, isSecret: false };
+    return { id: `question-${index}`, header: q.header, question: q.question, options: q.options, multiSelect: q.multiSelect ?? false, isOther: true };
   });
   return parseUserQuestionRequest({ threadId, turnId, itemId, questions, isBlocking: true });
 }
 
 export function claudeQuestionAnswers(request: UserQuestionRequest, value: unknown): Record<string, string | string[]> {
   validateUserQuestionAnswers(request.questions, value);
-  return Object.fromEntries(request.questions.map(q => [q.question, q.multiSelect ? value[q.id]!.answers : value[q.id]!.answers[0]!]));
+  return Object.fromEntries(request.questions.map(q => [q.question, q.multiSelect ? value[q.id]! : value[q.id]![0]!]));
 }

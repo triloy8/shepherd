@@ -4,6 +4,8 @@ import type { ModelSummary } from "../../../shared/protocol/requests";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
 
+const effortOption = (value: string) => JSON.stringify(["effort", value]);
+
 export function ConversationSettings({ id, activeTurnId, disabled, open: controlledOpen, onOpenChange, onSaved, modelSelection = true, effortSelection = true }: { id: string; activeTurnId: string | null; disabled: boolean; open?: boolean; onOpenChange?: (open: boolean) => void; onSaved?: () => void; modelSelection?: boolean; effortSelection?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [internalOpen, setInternalOpen] = useState(false);
@@ -40,7 +42,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
         if (abort.signal.aborted) return;
         setSettings(value);
         if (!dirty.current.model) setModel(value.model.pendingModel ?? value.model.currentModel ?? value.effort.model);
-        if (!dirty.current.effort) setEffort(value.effort.pendingEffortClear ? "clear" : value.effort.pendingEffort !== null ? `value:${value.effort.pendingEffort}` : value.effort.currentEffort !== null ? `value:${value.effort.currentEffort}` : "default");
+        if (!dirty.current.effort) setEffort(value.effort.pendingEffortClear ? "clear" : value.effort.pendingEffort !== null ? effortOption(value.effort.pendingEffort) : value.effort.currentEffort !== null ? effortOption(value.effort.currentEffort) : "default");
       }).catch((error) => { if (!abort.signal.aborted) setSettings(null); fail("settings", error); })
       .finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
@@ -80,7 +82,7 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
     mutation.current = true; setSaving(true); setNotice(null);
     setErrors((current) => { const { save, ...rest } = current; return rest; });
     try {
-      if (kind === "model") await api.setModel(id, model); else await api.setEffort(id, effort === "clear" ? null : effort === "default" ? { mode: "default" } : effort.slice(6));
+      if (kind === "model") await api.setModel(id, model); else await api.setEffort(id, effort === "clear" ? null : effort === "default" ? { mode: "default" } : JSON.parse(effort)[1]);
       if (version !== session.current) return;
       if (edit === edits.current[kind]) dirty.current[kind] = false;
       onSaved?.();
@@ -116,12 +118,12 @@ export function ConversationSettings({ id, activeTurnId, disabled, open: control
         <h3 className="text-sm font-medium">Reasoning effort</h3>
         {model !== effectiveModel && <p className="text-xs text-muted">Apply the model change first to see its effort options.</p>}
         <label className="block text-xs text-muted">Effort for next turn<select aria-label="Effort for next turn" value={effort} disabled={blocked || !effortSelection || !settings || model !== effectiveModel} onChange={(event) => { edits.current.effort++; dirty.current.effort = true; setEffort(event.target.value); }}>
-          <option value="" disabled>Choose effort</option><option value="clear">Clear effort override</option>{effort.startsWith("value:") && !supported.some((option) => `value:${option.value}` === effort) && <option value={effort} disabled>{effort.slice(6)} (not supported)</option>}{defaultSupported && <option value="default">Model default ({settings?.effort.defaultEffort})</option>}
-          {supported.map((option) => <option key={option.value} value={`value:${option.value}`}>{option.value}</option>)}
+          <option value="" disabled>Choose effort</option><option value="clear">Clear effort override</option>{effort.startsWith("[") && !supported.some((option) => effortOption(option.value) === effort) && <option value={effort} disabled>{JSON.parse(effort)[1]} (not supported)</option>}{defaultSupported && <option value="default">Model default ({settings?.effort.defaultEffort})</option>}
+          {supported.map((option) => <option key={option.value} value={effortOption(option.value)}>{option.value}</option>)}
         </select></label>
         {settings?.effort.pendingEffort && !supported.some((option) => option.value === settings.effort.pendingEffort) && <p className="notice">The pending effort is not supported by the next model. Choose a supported effort or clear the override before starting the next turn.</p>}
         {!supported.length && !loading && <p className="text-xs text-muted">No effort controls available for this model.</p>}
-        <button className="button-secondary" disabled={blocked || !effortSelection || !settings || model !== effectiveModel || !(effort === "clear" || (effort === "default" ? defaultSupported : supported.some((option) => `value:${option.value}` === effort)))} onClick={() => void save("effort")}>Use effort</button>
+        <button className="button-secondary" disabled={blocked || !effortSelection || !settings || model !== effectiveModel || !(effort === "clear" || (effort === "default" ? defaultSupported : supported.some((option) => effortOption(option.value) === effort)))} onClick={() => void save("effort")}>Use effort</button>
       </section>
       {settings && <details className="mt-5 border-t border-line pt-4"><summary className="cursor-pointer text-xs text-muted">Current and pending values</summary><dl className="settings-facts mt-3"><dt>Current model</dt><dd>{settings.model.currentModel ?? "Default"}</dd><dt>Next model</dt><dd>{settings.model.pendingModel ?? "Unchanged"}</dd><dt>Current effort</dt><dd>{settings.effort.currentEffort ?? "Unknown"}</dd><dt>Next effort</dt><dd>{settings.effort.pendingEffortClear ? "Clear override" : settings.effort.pendingEffort ?? "Unchanged"}</dd><dt>Default effort</dt><dd>{settings.effort.defaultEffort ?? "Unknown"}</dd></dl></details>}
       <button className="button-secondary mt-5" disabled={saving || loading} onClick={() => setRevision((value) => value + 1)}>Refresh settings</button>

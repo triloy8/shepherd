@@ -8,6 +8,14 @@ import type { ProjectTarget } from "./project_target_service.js";
 type FileSystemLike = {
   stat: typeof fs.stat;
   mkdir: typeof fs.mkdir;
+  rm: typeof fs.rm;
+};
+
+export type WorkspaceReservation = {
+  workspaceId: string;
+  cwd: string;
+  /** Removes only a dedicated directory exclusively created by this reservation. */
+  rollback(): Promise<void>;
 };
 
 export type WorkspaceProvisionerOptions = {
@@ -40,6 +48,37 @@ export class WorkspaceProvisioner {
       if (!path.isAbsolute(cwd) || !(await this.fsImpl.stat(cwd)).isDirectory()) throw new Error("Invalid directory");
     } catch {
       throw new ApplicationActionError({ code: "workspace_unavailable" });
+    }
+  }
+
+  async reserveWorkspace(target: ProjectTarget, workspaceId: string): Promise<WorkspaceReservation> {
+    const dedicated = target.kind === "github" || target.appendWorkspaceId;
+    const cwd = target.kind === "github"
+      ? path.join(this.homedirPath, ".agent-workspaces", repoNameFromSlug(target.slug), workspaceId)
+      : target.appendWorkspaceId ? path.join(target.rootPath, workspaceId) : target.rootPath;
+    let owned = false;
+    const rollback = async () => {
+      if (owned) {
+        await this.fsImpl.rm(cwd, { recursive: true, force: true });
+        owned = false;
+      }
+    };
+    if (dedicated) {
+      await this.fsImpl.mkdir(path.dirname(cwd), { recursive: true });
+      try {
+        // Exclusive creation establishes ownership; existing workspaces are never rolled back.
+        await this.fsImpl.mkdir(cwd);
+        owned = true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
+    try {
+      await this.provisionWorkspace(target, workspaceId);
+      return { workspaceId, cwd, rollback };
+    } catch (error) {
+      await rollback();
+      throw error;
     }
   }
 

@@ -1,6 +1,16 @@
 import type { ProviderServices, ProviderAccount, ProviderSessionFactory } from "../ports/provider_services.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
 import { FileThreadProviderDirectory } from "../storage/thread_provider_directory.js";
+import { unsupportedThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
+
+/** Check the same capability metadata used to register providers, without constructing sessions. */
+export function describeThreadDefaults(defaults: ThreadDefaults, providers: readonly Pick<ProviderRegistration, "displayName" | "capabilities">[]): string[] {
+  const settings = { approvalPolicy: ["SHEPHERD_APPROVAL_MODE", defaults.approvalPolicy], sandbox: ["SHEPHERD_SANDBOX_MODE", defaults.sandbox] } as const;
+  return providers.flatMap(({ displayName, capabilities }) => unsupportedThreadDefaults(defaults, capabilities).map(key => {
+    const [name, value] = settings[key];
+    return `${displayName} does not support ${name}=${value}; its conversations use the agent's own default for that setting.`;
+  }));
+}
 
 export interface ProviderRegistration {
   id: string;
@@ -18,11 +28,12 @@ export function assembleProviderServices(registrations: readonly ProviderRegistr
   const factories = new Map<string, ProviderRegistration>();
   for (const registration of registrations) {
     if (!registration.id.trim() || registration.id.trim() !== registration.id || factories.has(registration.id)) throw new Error("Invalid or duplicate provider registration.");
+    if (registration.capabilities.accountReset !== (typeof registration.account.reset === "function")) throw new Error(`Provider capability contract mismatch: ${registration.id}`);
     factories.set(registration.id, { ...registration, capabilities: structuredClone(registration.capabilities) });
   }
   if (!factories.has(defaultProvider)) throw new Error(`The default agent provider "${defaultProvider}" is not registered.`);
   return {
-    descriptors: [...factories.values()].map(({ id, displayName, capabilities, account }) => ({ id, displayName, isDefault: id === defaultProvider, capabilities: { ...structuredClone(capabilities), resets: !!account.reset } })),
+    descriptors: [...factories.values()].map(({ id, displayName, capabilities }) => ({ id, displayName, isDefault: id === defaultProvider, capabilities: structuredClone(capabilities) })),
     accounts: new Map(registrations.map(registration => [registration.id, registration.account])),
     providers: [...factories.keys()],
     defaultProvider,

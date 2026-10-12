@@ -20,6 +20,8 @@ export interface ProviderCapabilities {
   compact: boolean;
   revert: boolean;
   fork: boolean;
+  /** Redeeming account usage resets; the account reader must implement reset. */
+  accountReset: boolean;
   sandboxModes: readonly SandboxMode[];
   approvalModes: readonly ApprovalPolicy[];
   inputKinds: readonly UserInput["type"][];

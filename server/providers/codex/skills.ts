@@ -26,5 +26,5 @@ export function codexSkills(value: unknown): SkillsListResponse {
 export function codexSkillConfig(value: unknown): SkillsConfigWriteResponse {
   const effectiveEnabled = record(value).effectiveEnabled;
   if (typeof effectiveEnabled !== "boolean") throw new Error("Invalid skill configuration response.");
-  return { effectiveEnabled };
+  return { enabled: effectiveEnabled };
 }

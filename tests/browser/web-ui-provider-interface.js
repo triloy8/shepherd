@@ -26,7 +26,7 @@ async (page) => {
   await form.getByRole('checkbox').nth(1).check();
   await form.getByRole('button', { name: 'Submit answers', exact: true }).click();
   await page.getByText('Thanks. I’ll use your answer:', { exact: false }).waitFor();
-  if (answers.at(-1)?.answers.provider.answers.length !== 2) throw Error('Multiple answers were not preserved');
+  if (answers.at(-1)?.answers.provider.length !== 2) throw Error('Multiple answers were not preserved');
   if (['submit', 'accept'].includes(answers.at(-1)?.decision)) throw Error('Native decision leaked into the form');
   const revert = page.getByRole('button', { name: 'Revert from here', exact: true });
   if (await revert.count() && !(await revert.first().isDisabled())) throw Error('Claude revert was enabled');

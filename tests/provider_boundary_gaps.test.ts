@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync, readdirSync, writeFileSync, mkdirSync } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { FileThreadProviderDirectory } from "../server/storage/thread_provider_directory.js";
-import { assembleProviderServices } from "../server/runtime/provider_registration.js";
-import { assertInstalledProvider } from "../server/runtime/provider_services.js";
+import { assembleProviderServices, describeThreadDefaults } from "../server/runtime/provider_registration.js";
+import { assertInstalledProvider, threadDefaultNotices } from "../server/runtime/provider_services.js";
 import { ConversationService } from "../server/core/conversation_service.js";
 import { IndependentSession, descriptor } from "./helpers/independent_provider.js";
 import { account } from "./helpers/account.js";
@@ -12,6 +12,7 @@ import { CodexSession } from "../server/providers/codex/session.js";
 import { codexOwnsStoredThread } from "../server/providers/codex/thread_ownership.js";
 import { readRuntimeConfig } from "../server/config/runtime_environment.js";
 import { assertInputSupport, assertThreadSupport } from "../shared/protocol/provider_support.js";
+import { historyItem as claudeHistoryItem } from "../server/providers/claude/history.js";
 import { codexCapabilities } from "../server/providers/codex/capabilities.js";
 import { claudeCapabilities } from "../server/providers/claude/capabilities.js";
 import { validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest } from "../shared/protocol/validation.js";
@@ -324,4 +325,123 @@ test("skill discovery and model catalogs can be read-only", async () => {
     expect(() => conversation.setThreadModel(threadId, "third-model")).toThrow("modelSelection");
     await expect(conversation.setThreadEffort(threadId, "focused")).rejects.toThrow("effortSelection");
   } finally { conversation.stopAll(); }
+});
+
+test("host approval and sandbox defaults apply only where the provider supports them", async () => {
+  const requests: unknown[] = [];
+  class RecordingSession extends IndependentSession {
+    override async startThread(request?: unknown) { requests.push(request); return super.startThread(); }
+    override async resumeThread(threadId: string, request?: unknown) { requests.push(request); return super.resumeThread(threadId); }
+  }
+  const supported = { ...descriptor.capabilities, sandboxModes: ["workspace_write"] as const };
+  const create = (capabilities: typeof descriptor.capabilities, threadDefaults: { approvalPolicy?: ApprovalPolicy; sandbox?: "workspace_write" }) => new ConversationService({
+    threadDefaults,
+    providers: assembleProviderServices([{ ...registration(), capabilities, create: () => { const session = new RecordingSession(); Object.assign(session, { capabilities }); return session; } }], directory(), descriptor.id),
+  });
+  const unsupported = create(descriptor.capabilities, { approvalPolicy: "review_untrusted", sandbox: "workspace_write" });
+  const honored = create(supported, { approvalPolicy: "bypass", sandbox: "workspace_write" });
+  try {
+    const { threadId } = await unsupported.createThread({});
+    expect(requests.at(-1)).not.toHaveProperty("sandbox");
+    expect(requests.at(-1)).not.toHaveProperty("approvalPolicy");
+    // Explicit request values are never adjusted.
+    await expect(unsupported.createThread({ sandbox: "workspace_write" })).rejects.toThrow("sandbox mode");
+    await expect(unsupported.createThread({ approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode");
+    await honored.createThread({});
+    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "bypass", sandbox: "workspace_write" });
+    await honored.createThread({ approvalPolicy: "review_sensitive" });
+    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "review_sensitive", sandbox: "workspace_write" });
+    expect(unsupported.getThreadState(threadId).threadId).toBe(threadId);
+  } finally { unsupported.stopAll(); honored.stopAll(); }
+});
+
+test("startup notices name the host defaults an installed agent cannot apply", () => {
+  expect(threadDefaultNotices({ approvalPolicy: "bypass", sandbox: "unrestricted" })).toEqual([]);
+  const notices = threadDefaultNotices({ approvalPolicy: "review_untrusted", sandbox: "workspace_write" });
+  expect(notices).toEqual([
+    expect.stringContaining("Claude does not support SHEPHERD_APPROVAL_MODE=review_untrusted"),
+    expect.stringContaining("Claude does not support SHEPHERD_SANDBOX_MODE=workspace_write"),
+  ]);
+});
+
+test("keeping a thread's workspace does not require workspace changes", async () => {
+  const capabilities = { ...descriptor.capabilities, workspaceChange: false };
+  const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, create: () => { const session = new IndependentSession(); Object.assign(session, { capabilities }); return session; } }], directory(), descriptor.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect(() => conversation.setThreadCwd(threadId, "/tmp")).not.toThrow();
+    expect(() => conversation.setThreadCwd(threadId, "/elsewhere")).toThrow("does not support");
+  } finally { conversation.stopAll(); }
+});
+
+test("Claude snapshots saved with the earlier image prompt field still decode", () => {
+  const image = (fields: Record<string, unknown>) => claudeHistoryItem({ id: "image", type: "image", image: { path: "/tmp/a.png", kind: "generated", ...fields } }, "turn");
+  expect(image({ revisedPrompt: "A meadow" })).toMatchObject({ image: { prompt: "A meadow" } });
+  expect(image({ prompt: "A forest" })).toMatchObject({ image: { prompt: "A forest" } });
+});
+
+test("account reset support is a declared capability that registration checks against the account reader", () => {
+  const reset = async () => ({ outcome: "reset" as const });
+  const withReset = { ...registration(), capabilities: { ...descriptor.capabilities, accountReset: true }, account: { read: async () => account(descriptor.id), reset } };
+  expect(assembleProviderServices([withReset], directory(), descriptor.id).descriptors[0]!.capabilities.accountReset).toBe(true);
+  expect(() => assembleProviderServices([{ ...withReset, account: { read: withReset.account.read } }], directory(), descriptor.id)).toThrow("capability contract mismatch");
+  expect(() => assembleProviderServices([{ ...registration(), account: withReset.account }], directory(), descriptor.id)).toThrow("capability contract mismatch");
+});
+
+test("question requests from a provider that does not declare questions are failed, not recorded", async () => {
+  const capabilities = { ...descriptor.capabilities, questions: false };
+  let session!: IndependentSession;
+  const decisions: unknown[] = [];
+  const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, create: () => { session = new IndependentSession(); Object.assign(session, { capabilities }); return session; } }], directory(), descriptor.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    const events: string[] = [];
+    conversation.subscribeToThreadEvents(threadId, event => events.push(event.type), { replay: false });
+    session.applyApprovalDecision = async (id, decision) => { decisions.push({ id, decision }); return { approvalId: id }; };
+    const userInput = { threadId, turnId: "turn", itemId: "item", isBlocking: true, questions: [{ id: "q", header: "Q", question: "Which?", isOther: true, isSecret: false, options: null }] };
+    session.eventBus.publish({ id: "question", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: { approvalId: "ask", kind: "question", prompt: "Which?", choices: [{ value: "opaque-skip", label: "Skip", intent: "cancel" }], detail: null, userInput } });
+    session.eventBus.publish({ id: "permission", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: { approvalId: "allow", kind: "permission", prompt: "Run?", choices: [], detail: null } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(conversation.listApprovals(threadId).map(approval => approval.approvalId)).toEqual(["allow"]);
+    expect(events).toEqual(["approval.requested", "approval.failed"]);
+    expect(decisions).toEqual([{ id: "ask", decision: { decision: "opaque-skip", reason: "This agent does not support questions." } }]);
+    const replay: string[] = [];
+    conversation.subscribeToThreadEvents(threadId, event => replay.push(event.id));
+    expect(replay).toEqual(["permission", "question:rejected"]);
+  } finally { conversation.stopAll(); }
+});
+
+test("invalid question cancellation stops the session instead of leaving a provider waiting", async () => {
+  for (const cancellation of ["missing", "failed"] as const) {
+    const capabilities = { ...descriptor.capabilities, questions: false };
+    let session!: IndependentSession;
+    const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, create: () => {
+      session = new IndependentSession(); Object.assign(session, { capabilities });
+      session.applyApprovalDecision = async () => { throw new Error("Cannot cancel"); };
+      return session;
+    } }], directory(), descriptor.id) });
+    try {
+      const { threadId } = await conversation.createThread({});
+      const threadSession = session;
+      await conversation.submitTurn(threadId, { input: [{ type: "text", text: "hello" }] });
+      session = threadSession;
+      const events: string[] = [];
+      conversation.subscribeToThreadEvents(threadId, event => events.push(event.type), { replay: false });
+      session.eventBus.publish({ id: "invalid", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: {
+        approvalId: "ask", kind: "question", prompt: "Which?", choices: cancellation === "missing" ? [] : [{ value: "opaque", label: "Skip", intent: "cancel" }], detail: null,
+      } });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(session.stopped).toBe(true);
+      expect(events).toEqual(["turn.failed", "session.error", "approval.failed"]);
+      expect(conversation.listApprovals(threadId)).toEqual([]);
+      await expect(conversation.submitTurn(threadId, { input: [{ type: "text", text: "next" }] })).rejects.toThrow("Unknown thread");
+    } finally { conversation.stopAll(); }
+  }
+});
+
+test("config notices validate arbitrary provider registrations, including providers without sandbox settings", () => {
+  expect(describeThreadDefaults({ sandbox: "unrestricted", approvalPolicy: "review_untrusted" }, [registration()])).toEqual([
+    expect.stringContaining("SHEPHERD_APPROVAL_MODE=review_untrusted"),
+    expect.stringContaining("SHEPHERD_SANDBOX_MODE=unrestricted"),
+  ]);
 });

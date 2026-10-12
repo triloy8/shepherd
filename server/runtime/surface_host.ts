@@ -71,8 +71,6 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
           createApplication: (onThreadEvent) => createSurfaceRuntime({
             adapter: prepared.id,
             conversation: shepherd.conversation,
-            approvalPolicy: config.approvalPolicy,
-            defaultSandbox: config.defaultSandbox,
             runtimeLifecycle: shepherd.lifecycle,
             onThreadEvent,
             ...workspace,

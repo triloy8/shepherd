@@ -32,12 +32,18 @@ async page => {
   await dialog.getByLabel('Model for next turn', { exact: true }).selectOption('large');
   await dialog.getByRole('button', { name: 'Use model', exact: true }).click();
   const effort = dialog.getByLabel('Effort for next turn', { exact: true });
-  await effort.selectOption('value:default');
-  await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
-  await dialog.getByText('Saved. Applies to the next new turn and subsequent turns.', { exact: true }).waitFor();
+  const saveEffort = async () => {
+    await Promise.all([
+      page.waitForResponse(response => response.url().endsWith('/effort') && response.request().method() === 'POST'),
+      dialog.getByRole('button', { name: 'Use effort', exact: true }).click(),
+    ]);
+    await dialog.getByText('Saved. Applies to the next new turn and subsequent turns.', { exact: true }).waitFor();
+  };
+  await effort.selectOption(JSON.stringify(['effort', 'default']));
+  await saveEffort();
   if (efforts.at(-1) !== 'default') throw Error('Literal default effort was reinterpreted');
   await effort.selectOption('default');
-  await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
+  await saveEffort();
   if (efforts.at(-1)?.mode !== 'default') throw Error('Model default was not a distinct action');
   await dialog.getByRole('button', { name: 'Close settings', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('button[aria-label="Attach images"]')?.disabled);
@@ -48,7 +54,7 @@ async page => {
   await dialog.getByRole('button', { name: 'Use model', exact: true }).click();
   await dialog.getByText('No effort controls available for this model.', { exact: true }).waitFor();
   await effort.selectOption('clear');
-  await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
+  await saveEffort();
   if (efforts.at(-1) !== null) throw Error('Could not clear effort on a model without effort controls');
   await dialog.getByRole('button', { name: 'Close settings', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('button[aria-label="Attach images"]')?.disabled);

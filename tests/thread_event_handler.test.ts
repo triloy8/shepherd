@@ -494,7 +494,7 @@ describe("Discord thread event handler", () => {
       itemId: "image-1",
       turnId: "turn-1",
       path: "/tmp/unicorn.png",
-      revisedPrompt: "A pastel unicorn",
+      prompt: "A pastel unicorn",
     });
 
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
@@ -517,7 +517,7 @@ describe("Discord thread event handler", () => {
         itemId: "image-2",
         turnId: "turn-1",
         path: "/tmp/landscape.webp",
-        revisedPrompt: "A pastel landscape",
+        prompt: "A pastel landscape",
       }),
     );
     handler.handleThreadEvent("chan-1", finalDelta("Here is the generated image."));
@@ -562,7 +562,7 @@ describe("Discord thread event handler", () => {
         itemId: "image-old",
         turnId: "turn-old",
         path: "/tmp/stale.png",
-        revisedPrompt: null,
+        prompt: null,
       }),
     );
     await handler.waitForIdle("chan-1");
@@ -588,7 +588,7 @@ describe("Discord thread event handler", () => {
         itemId: "image-1",
         turnId: "turn-1",
         path: "/private/generated.png",
-        revisedPrompt: null,
+        prompt: null,
       }),
     );
     await handler.waitForIdle("chan-1");

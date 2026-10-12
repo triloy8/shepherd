@@ -42,11 +42,19 @@ function textItemId(messageId: string, index: number): string { return index ===
 
 /** Context fill of one model request, not the turn aggregate on the result message. */
 function requestBreakdown(usage: RequestUsage): P.TokenUsageBreakdown {
-  const cacheRead = usage.cache_read_input_tokens ?? 0, cacheWrite = usage.cache_creation_input_tokens ?? 0;
-  const inputTokens = (usage.input_tokens ?? 0) + cacheRead + cacheWrite;
+  // An absent cache count is unreported, not zero; input still includes every reported count.
+  const cacheRead = usage.cache_read_input_tokens ?? null, cacheWrite = usage.cache_creation_input_tokens ?? null;
+  const inputTokens = (usage.input_tokens ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
   const outputTokens = usage.output_tokens ?? 0;
   // Per-request usage does not separate thinking from output.
   return { inputTokens, cacheReadInputTokens: cacheRead, cacheWriteInputTokens: cacheWrite, outputTokens, reasoningOutputTokens: null, totalTokens: inputTokens + outputTokens };
+}
+
+/** A turn's display summary: what the user sent and the answer, falling back to the last reply. */
+function summaryItems(items: P.HistoryItem[]): P.HistoryItem[] {
+  const replies = items.filter((item): item is Extract<P.HistoryItem, { type: "assistant_message" }> => item.type === "assistant_message");
+  const answers = replies.some((item) => item.phase === "final") ? replies.filter((item) => item.phase === "final") : replies.slice(-1);
+  return items.filter((item) => item.type === "user_message" || (item.type === "assistant_message" && answers.includes(item)));
 }
 
 /** The SDK transcript keeps full tool output. Shepherd history keeps a bounded preview. */
@@ -410,11 +418,13 @@ export class ClaudeSession implements ProviderSession {
     threads.sort((a, b) => (request.sortDirection === "asc" ? 1 : -1) * (a[key] - b[key]));
     return paginate(threads.map((t) => this.record(t)), request);
   }
-  async listLoadedThreads(request: P.ListLoadedThreadsRequest) { return paginate(this.thread ? [this.thread.id] : [], request); }
   async listThreadTurns(id: string, request: P.ListThreadTurnsRequest) {
     const thread = this.thread?.id === id ? this.thread : this.store.read(id);
     const turns = [...thread.turns]; if (request.sortDirection !== "asc") turns.reverse();
-    return paginate(turns.map((turn) => ({ ...turn, itemsView: request.itemsView ?? "full", items: request.itemsView === "none" ? [] : turn.items.map(item => historyItem(item, turn.id)) })), request);
+    return paginate(turns.map((turn) => {
+      const items = request.itemsView === "none" ? [] : turn.items.map(item => historyItem(item, turn.id));
+      return { ...turn, itemsView: request.itemsView ?? "full", items: request.itemsView === "summary" ? summaryItems(items) : items };
+    }), request);
   }
   async listThreadItems(id: string, request: P.ListThreadItemsRequest) {
     const thread = this.thread?.id === id ? this.thread : this.store.read(id);

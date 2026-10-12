@@ -31,8 +31,8 @@ export function ConversationSkills({ id, disabled, configSupported = true }: { i
       if (path !== undefined && enabled !== undefined) {
         const result = await api.setSkill(id, path, enabled);
         if (version !== generation.current) return;
-        setData((current) => current && ({ data: current.data.map((entry) => ({ ...entry, skills: entry.skills.map((skill) => skill.path === path ? { ...skill, enabled: result.effectiveEnabled } : skill) })) }));
-        setNotice(result.effectiveEnabled === enabled ? "Skill setting saved." : "Setting saved, but the effective state differs. A configuration policy may override it.");
+        setData((current) => current && ({ data: current.data.map((entry) => ({ ...entry, skills: entry.skills.map((skill) => skill.path === path ? { ...skill, enabled: result.enabled } : skill) })) }));
+        setNotice(result.enabled === enabled ? "Skill setting saved." : "Setting saved, but the effective state differs. A configuration policy may override it.");
       } else {
         const result = await api.reloadSkills(id);
         if (version !== generation.current) return;

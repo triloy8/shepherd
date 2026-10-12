@@ -31,7 +31,7 @@ async (page) => {
   await skills.getByRole('button', { name: 'Reload skills', exact: true }).click();
   await skills.getByRole('button', { name: 'Enable review (repo)', exact: true }).waitFor();
   await page.route('**/api/conversations/*/skills', route => route.request().method() === 'POST'
-    ? route.fulfill({ json: { effectiveEnabled: false } }) : route.continue());
+    ? route.fulfill({ json: { enabled: false } }) : route.continue());
   await skills.getByRole('button', { name: 'Enable review (repo)', exact: true }).click();
   await skills.getByText('Setting saved, but the effective state differs.', { exact: false }).waitFor();
   await skills.getByRole('button', { name: 'Enable review (repo)', exact: true }).waitFor();

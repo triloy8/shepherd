@@ -15,7 +15,7 @@ export function installWebSkills(h: ReturnType<typeof webHarness>) {
       const skill = data.data[0]!.skills.find((skill) => skill.path === request.path);
       if (!skill) throw new Error("Unknown fixture skill");
       skill.enabled = request.enabled;
-      return { effectiveEnabled: skill.enabled };
+      return { enabled: skill.enabled };
     },
   });
   return { calls, data };

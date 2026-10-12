@@ -7,8 +7,11 @@ const optionalString = (value: unknown): string | null => typeof value === "stri
 export type NativeItemsView = "notLoaded" | "summary" | "full";
 export function codexItemsView(view: HistoryItemsView): NativeItemsView { return view === "none" ? "notLoaded" : view; }
 function itemsView(value: unknown): HistoryItemsView { return value === "notLoaded" ? "none" : value === "summary" ? "summary" : "full"; }
+/** Only an explicit completion is success; missing and unfamiliar statuses remain conservative. */
 function turnStatus(value: unknown): TurnStatus {
-  return value === "inProgress" ? "in_progress" : value === "interrupted" || value === "failed" ? value : "completed";
+  if (value === "inProgress") return "in_progress";
+  if (value === "completed" || value === "interrupted" || value === "failed") return value;
+  return "interrupted";
 }
 /** Codex labels agent messages with OpenAI response phases. */
 export function codexPhase(value: unknown): MessagePhase | null { return value === "commentary" ? "interim" : value === "final_answer" ? "final" : null; }

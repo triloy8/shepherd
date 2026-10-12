@@ -271,7 +271,7 @@ test("Claude questions support multiple answers, invalid retries, and bypass per
   expect(approval.userInput!.questions[0]).toMatchObject({ id: "question-0", multiSelect: true });
   await expect(manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: {} })).rejects.toThrow("Answer every question");
   expect(manager.listApprovals(threadId)[0]!.status).toBe("pending");
-  await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": { answers: ["API", "UI"] } } }); await done(session);
+  await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": ["API", "UI"] } }); await done(session);
   expect(permission).toEqual({ behavior: "allow", updatedInput: { ...native, answers: { "Which parts?": ["API", "UI"] } } });
   manager.stopAll();
 });
@@ -386,7 +386,7 @@ test("background questions create a pending wake turn before an assistant messag
   const request = manager.listApprovals(threadId).find(approval => approval.status === "pending")!;
   expect(request.userInput!.turnId).toBe(session.activeTurnId);
   await expect(Promise.resolve().then(() => session.setCwd("/different"))).rejects.toThrow("Wait for Claude work");
-  await manager.applyApprovalDecision(threadId, request.approvalId, { decision: request.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": { answers: ["Yes"] } } }); await done(session);
+  await manager.applyApprovalDecision(threadId, request.approvalId, { decision: request.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": ["Yes"] } }); await done(session);
   expect((await session.listThreadTurns(threadId, {})).data).toHaveLength(2); manager.stopAll();
 });
 
@@ -506,6 +506,19 @@ test("per-block assistant messages mark text before tools as commentary and the 
   ]);
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(timelineGroups(chat).flatMap(group => group.finalIds)).toEqual(["answer", "answer:1"]);
+  session.stop();
+});
+
+test("per-request cache counts the SDK omits are unreported, not zero", async () => {
+  const fake = sdk(async function* () {
+    yield { type: "assistant", parent_tool_use_id: null, message: { id: "m", usage: { input_tokens: 7, output_tokens: 2 }, content: [{ type: "text", text: "Done" }] } } as SDKMessage;
+    yield result;
+  });
+  const session = new ClaudeSession("review_sensitive", undefined, store(), fake);
+  await session.startThread({});
+  const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
+  await session.startTurn([toTextUserInput("hello")]); await done(session);
+  expect(updates).toMatchObject([{ tokenUsage: { last: { inputTokens: 7, cacheReadInputTokens: null, cacheWriteInputTokens: null, outputTokens: 2, totalTokens: 9 } } }]);
   session.stop();
 });
 
@@ -643,6 +656,10 @@ test("snapshots written with earlier item names decode into the application hist
   const session = new ClaudeSession("review_sensitive", undefined, new ClaudeThreadStore(directory), sdk(async function* () { yield result; }));
   await session.resumeThread(id, {});
   expect((await session.listThreadTurns(id, {})).data[0]!.status).toBe("interrupted");
+  // A summary keeps what the user sent and the answer, not tool activity or unknown items.
+  expect((await session.listThreadTurns(id, { itemsView: "summary" })).data[0]).toMatchObject({ itemsView: "summary", items: [{ id: "user" }, { id: "answer" }] });
+  expect((await session.listThreadTurns(id, { itemsView: "summary" })).data[0]!.items).toHaveLength(2);
+  expect((await session.listThreadTurns(id, { itemsView: "none" })).data[0]!.items).toEqual([]);
   session.stop();
 });
 

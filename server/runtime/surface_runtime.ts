@@ -1,6 +1,6 @@
 import { createApplicationConversation } from "../core/conversation_ports.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
-import type { AgentProvider, ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
+import type { AgentProvider } from "../../shared/protocol/requests.js";
 import type { SurfaceApplicationContext } from "../core/surface_application_context.js";
 import { SurfaceConversationOrchestrator } from "../core/surface_conversation_orchestrator.js";
 import { SurfaceStateService } from "../core/surface_state_service.js";
@@ -13,8 +13,6 @@ import type { ConversationService } from "../core/conversation_service.js";
 export type SurfaceRuntimeOptions = {
   adapter: string;
   conversation: ConversationService;
-  approvalPolicy: ApprovalPolicy;
-  defaultSandbox?: SandboxMode;
   onThreadEvent: (surfaceId: string, event: BridgeEvent) => void;
   cloneGithubRepo: (slug: string, workspacePath: string) => Promise<void>;
   resolveGithubRepo: (slug: string) => Promise<string>;
@@ -41,8 +39,6 @@ export function createSurfaceRuntime(
     workspaceProvisioner,
     {
       adapter: options.adapter,
-      approvalPolicy: options.approvalPolicy,
-      sandbox: options.defaultSandbox,
       projectTargetResolver: {
         resolveGithubRepo: options.resolveGithubRepo,
       },

@@ -1,5 +1,5 @@
-import type { ProviderOperation, ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
-import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation } from "../../shared/protocol/provider_support.js";
+import type { ProviderCapabilities, ProviderOperation } from "../../shared/protocol/provider_capabilities.js";
+import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation, unsupportedThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
 import { ApplicationActionError } from "./action_error.js";
@@ -61,6 +61,7 @@ import { UnsupportedProviderOperationError, type ProviderSession, type LoadedThr
 import type { ThreadProviderDirectory, ProviderSessionFactory } from "../ports/provider_services.js";
 import { missingSessionFactory, memoryProviderDirectory } from "./provider_directory.js";
 import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
+import { EventBus } from "../ports/event_bus.js";
 
 interface ManagedSession {
   session: ProviderSession;
@@ -82,6 +83,7 @@ function asString(value: unknown): string | null {
 }
 
 export const extractThreadSummary = threadSummary;
+export type { ThreadDefaults };
 
 export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
@@ -95,6 +97,7 @@ export class SessionManager {
   private readonly providerCapabilities = new Map<AgentProvider, ProviderCapabilities>();
   private readonly ownedSessions = new Set<ProviderSession>();
   private readonly sessionSubscriptions = new Map<ProviderSession, () => void>();
+  private readonly applicationEvents = new Map<ProviderSession, EventBus>();
   private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
   private stopped = false;
 
@@ -105,10 +108,11 @@ export class SessionManager {
     private readonly providerDirectory: ThreadProviderDirectory = memoryProviderDirectory(),
     private readonly providers: readonly AgentProvider[] = ["default"],
     private readonly fallbackProvider: AgentProvider = providers[0] ?? "default",
+    private readonly threadDefaults: ThreadDefaults = {},
   ) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
-    return this.bootstrap(request, (session) => session.startThread(request));
+    return this.bootstrap(request, (session, effective) => session.startThread(effective), undefined, true);
   }
 
   async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ResumeThreadResponse> {
@@ -125,23 +129,26 @@ export class SessionManager {
     }
     const pending = this.resuming.get(threadId);
     if (pending) return pending;
-    const operation = this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session) => session.resumeThread(threadId, request), threadId);
+    const operation = this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session, effective) => session.resumeThread(threadId, effective), threadId);
     this.resuming.set(threadId, operation);
     try { return await operation; }
     finally { this.resuming.delete(threadId); }
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
-    return this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session) => { if (!session.capabilities.fork || !session.forkThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "fork"); return session.forkThread(threadId, request); }, threadId);
+    return this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session, effective) => { if (!session.capabilities.fork || !session.forkThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "fork"); return session.forkThread(threadId, effective); }, threadId);
   }
 
+  /** Resume and fork keep the saved approval mode, so only creation applies the host approval default. */
   private async bootstrap(
-    request: CreateThreadRequest,
-    start: (session: ProviderSession) => ReturnType<ProviderSession["startThread"]>,
+    requested: CreateThreadRequest,
+    start: (session: ProviderSession, request: CreateThreadRequest) => ReturnType<ProviderSession["startThread"]>,
     sourceThreadId?: string,
+    applyApprovalDefault = false,
   ): Promise<CreateThreadResponse> {
-    const session = this.allocateSession(request.approvalPolicy ?? "provider_default", request.provider ?? this.defaultProvider());
+    const session = this.allocateSession(requested.approvalPolicy ?? "provider_default", requested.provider ?? this.defaultProvider());
     try {
+      const request = this.withThreadDefaults(requested, session.capabilities, applyApprovalDefault);
       assertThreadSupport(request.provider ?? this.defaultProvider(), session.capabilities, request);
       assertApprovalSupport(request.provider ?? this.defaultProvider(), session.capabilities, request.approvalPolicy ?? session.approvalPolicy);
       if (session.capabilities.modelCatalog && (request.model || request.effort)) {
@@ -150,7 +157,7 @@ export class SessionManager {
         const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? savedModel, session);
         this.assertModelEffort(selected, request.effort);
       }
-      const created = await start(session);
+      const created = await start(session, request);
       this.assertRunning();
       if (typeof created.cwd !== "string" || !created.cwd.trim()) {
         throw new ApplicationActionError({ code: "workspace_unavailable" });
@@ -165,6 +172,16 @@ export class SessionManager {
       this.releaseSession(session);
       throw error;
     }
+  }
+
+  private withThreadDefaults(request: CreateThreadRequest, capabilities: ProviderCapabilities, applyApproval: boolean): CreateThreadRequest {
+    const unsupported = unsupportedThreadDefaults(this.threadDefaults, capabilities);
+    const { approvalPolicy, sandbox } = this.threadDefaults;
+    return {
+      ...request,
+      ...(applyApproval && request.approvalPolicy === undefined && approvalPolicy && !unsupported.includes("approvalPolicy") ? { approvalPolicy } : {}),
+      ...(request.sandbox === undefined && sandbox && !unsupported.includes("sandbox") ? { sandbox } : {}),
+    };
   }
 
   listThreads(): ListThreadsResponse {
@@ -211,6 +228,7 @@ export class SessionManager {
       let session: ProviderSession;
       try { session = await this.getControlSession(provider); }
       catch { this.assertRunning(); unavailableProviders.push(provider); return; }
+      if (!session.listLoadedThreads) return;
       let cursor: string | undefined;
       const seen = new Set<string>();
       do {
@@ -379,7 +397,7 @@ export class SessionManager {
     this.requireCapability(threadId, "effortSelection");
     const state = await this.getThreadEffort(threadId);
     const effort = requested === null ? null : typeof requested === "string" ? requested : state.defaultEffort;
-    if (effort !== null && (!effort || !state.supportedEfforts.some((option) => option.value === effort))) {
+    if (requested !== null && (!effort || !state.supportedEfforts.some((option) => option.value === effort))) {
       throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested: typeof requested === "string" ? requested : "model default", available: state.supportedEfforts.map((option) => option.value) });
     }
     this.effortStateByThread.set(threadId, { current: state.currentEffort, pending: effort, pendingClear: effort === null });
@@ -389,9 +407,9 @@ export class SessionManager {
   async listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> {
     this.requireCapability(threadId, "skills");
     const managed = this.mustGet(threadId);
-    const cwds = request.cwds ?? [await this.resolveThreadCwd(threadId)];
+    const workspacePath = await this.resolveThreadCwd(threadId);
     if (!managed.session.listSkills) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "skills");
-    return managed.session.listSkills({ ...request, cwds });
+    return managed.session.listSkills({ refresh: request.refresh, workspacePath });
   }
 
   async getThreadCwd(threadId: string): Promise<string> {
@@ -399,6 +417,8 @@ export class SessionManager {
   }
 
   setThreadCwd(threadId: string, cwd: string): void {
+    // Keeping the current workspace is not a workspace change.
+    if (this.sessionsByThread.has(threadId) && this.cwdByThread.get(threadId) === cwd) return;
     this.requireCapability(threadId, "workspaceChange");
     const session = this.mustGet(threadId).session;
     if (!session.setCwd) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "workspaceChange");
@@ -428,7 +448,7 @@ export class SessionManager {
     cursorOrOptions?: string | { afterId?: string; replay?: boolean },
   ): () => void {
     const managed = this.mustGet(threadId);
-    return managed.session.eventBus.subscribe(listener, cursorOrOptions);
+    return this.applicationEvents.get(managed.session)!.subscribe(listener, cursorOrOptions);
   }
 
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
@@ -572,17 +592,49 @@ export class SessionManager {
   private releaseSession(session: ProviderSession): void {
     if (this.ownedSessions.delete(session)) {
       try { session.stop(); }
-      finally { this.sessionSubscriptions.get(session)?.(); this.sessionSubscriptions.delete(session); }
+      finally {
+        this.sessionSubscriptions.get(session)?.();
+        this.sessionSubscriptions.delete(session);
+        this.applicationEvents.delete(session);
+      }
     }
   }
 
   private attachSessionSubscriptions(session: ProviderSession): void {
+    const events = new EventBus();
+    const rejectedQuestions = new Set<string>();
+    this.applicationEvents.set(session, events);
     this.sessionSubscriptions.set(session, session.eventBus.subscribe((event) => {
+      if (event.type.startsWith("approval.") && "approvalId" in event.payload && rejectedQuestions.has(event.payload.approvalId)) return;
       if (event.type === "approval.requested") {
+        if (event.payload.kind === "question" && !session.capabilities.questions) {
+          const { approvalId, choices } = event.payload;
+          rejectedQuestions.add(approvalId);
+          // Never expose this request, including through replay. Resolve the provider's pending request.
+          void Promise.resolve().then(async () => {
+            if (!this.ownedSessions.has(session)) return;
+            let message = "This agent does not support questions.";
+            try {
+              const cancellation = choices.find(choice => choice.intent === "cancel" || choice.intent === "deny");
+              if (!cancellation) throw new Error("The question has no cancellation choice.");
+              await session.applyApprovalDecision(approvalId, { decision: cancellation.value, reason: message });
+            } catch (error) {
+              message += ` The session was stopped because cancellation failed: ${error instanceof Error ? error.message : String(error)}`;
+              const turnId = session.activeTurnId;
+              if (turnId) events.publish({ ...event, id: `${event.id}:turn-failed`, type: "turn.failed", payload: { turnId, message } });
+              events.publish({ ...event, id: `${event.id}:session-error`, type: "session.error", payload: { message } });
+              for (const [threadId, managed] of this.sessionsByThread) if (managed.session === session) this.discardThreadSession(threadId);
+              this.releaseSession(session);
+            }
+            events.publish({ ...event, id: `${event.id}:rejected`, type: "approval.failed", payload: { approvalId, message } });
+          });
+          return;
+        }
         this.approvals.create(event.payload as ApprovalRequestPayload, {
           threadId: event.threadId,
           sessionId: session.sessionId,
         });
+        events.publish(event);
         return;
       }
 
@@ -604,10 +656,20 @@ export class SessionManager {
       }
       if (event.type === "thread.tokenUsage.updated") {
         const payload = event.payload as ThreadTokenUsageUpdatedEvent["payload"];
-        if (!payload.tokenUsage) return;
-        this.tokenUsageByThread.set(event.threadId, payload.tokenUsage);
+        if (payload.tokenUsage) this.tokenUsageByThread.set(event.threadId, payload.tokenUsage);
       }
+      events.publish(event);
     }, { replay: false }));
+  }
+
+  /** Release an unusable session without deleting its provider history or workspace. */
+  private discardThreadSession(threadId: string): void {
+    this.sessionsByThread.delete(threadId);
+    this.cwdByThread.delete(threadId);
+    this.tokenUsageByThread.delete(threadId);
+    this.effortStateByThread.delete(threadId);
+    this.modelStateByThread.delete(threadId);
+    for (const approval of this.approvals.listByThread(threadId)) if (approval.status === "pending") this.approvals.markExpired(threadId, approval.approvalId);
   }
 
   getThreadProvider(threadId: string): AgentProvider { return this.threadProvider(threadId); }

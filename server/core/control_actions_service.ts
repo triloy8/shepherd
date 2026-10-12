@@ -86,7 +86,7 @@ export type ControlActionResult =
   | { type: "model.set"; ok: false; error: ActionFailure }
   | { type: "context.read"; ok: true; threadId: string; tokenUsage: ReadThreadTokenUsageResponse["tokenUsage"] }
   | { type: "context.read"; ok: false; error: ActionFailure }
-  | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; effectiveEnabled: boolean }
+  | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; appliedEnabled: boolean }
   | { type: "skill.set-enabled"; ok: false; error: ActionFailure }
   | { type: "thread.get-current"; threadId: string | null }
   | { type: "thread.create"; threadId: string }
@@ -421,6 +421,6 @@ export async function executeControlAction(
     ok: true,
     requestedSkill: request.requestedSkill,
     enabled: request.enabled,
-    effectiveEnabled: result.effectiveEnabled,
+    appliedEnabled: result.enabled,
   };
 }

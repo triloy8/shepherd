@@ -49,6 +49,20 @@ function assertProviderBoundary(session: ProviderSession, delta: TurnStreamDelta
 void assertProviderBoundary;
 
 import type { CreateThreadRequest, ListStoredThreadsRequest, ApprovalPolicy, SandboxMode } from "../shared/protocol/requests.js";
+import type { ProviderSkillsRequest } from "../server/ports/provider_session.js";
+import type { SkillsListRequest } from "../shared/protocol/requests.js";
+import type { ProviderAccountLimits } from "../shared/protocol/account_limits.js";
+function assertDiscoveryAndResetContracts(skills: SkillsListRequest, discovery: ProviderSkillsRequest, account: ProviderAccountLimits) {
+  // @ts-expect-error Surfaces cannot redirect discovery into arbitrary directories.
+  skills.workspacePath;
+  // @ts-expect-error Native multi-directory discovery does not cross the port.
+  discovery.cwds;
+  // @ts-expect-error Native reload flags remain adapter-owned.
+  discovery.forceReload;
+  // @ts-expect-error Reset operation support comes only from provider capabilities.
+  account.resets.supported;
+}
+void assertDiscoveryAndResetContracts;
 function assertNeutralConfiguration(create: CreateThreadRequest, list: ListStoredThreadsRequest) {
   // @ts-expect-error Raw SDK configuration belongs inside the adapter.
   create.config;
@@ -116,3 +130,12 @@ function assertWorkspaceContract() {
   return [complete, incomplete];
 }
 void assertWorkspaceContract;
+
+import type { WebEffortRequest } from "../shared/protocol/web.js";
+function assertEffortRequestContract() {
+  const selections: WebEffortRequest[] = [{ effort: "default" }, { effort: null }, { effort: { mode: "default" } }];
+  // @ts-expect-error Clearing is null, not another object mode.
+  const invalid: WebEffortRequest = { effort: { mode: "clear" } };
+  return [selections, invalid];
+}
+void assertEffortRequestContract;

@@ -97,7 +97,7 @@ export class WebSurfaceApi {
       }
       if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {
         const image = event.payload;
-        const presentation = entry.images.present(image.turnId, image.itemId, image.path, "revisedPrompt" in image ? image.revisedPrompt : null, event.type === "turn.image.viewed" ? "viewed" : undefined);
+        const presentation = entry.images.present(image.turnId, image.itemId, image.path, "prompt" in image ? image.prompt : null, event.type === "turn.image.viewed" ? "viewed" : undefined);
         if (event.type === "turn.image.generated") entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
         else entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
       } else entry.feed.publish("bridge", event);
@@ -147,12 +147,14 @@ export class WebSurfaceApi {
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/models`) {
         const provider = url.searchParams.get("provider");
         if (url.searchParams.getAll("provider").length > 1 || (provider !== null && !this.application.conversation.listProviders().some(entry => entry.id === provider))) throw new WebRequestError(400, "invalid_query", "Choose a registered provider.");
-        return json(200, await this.application.conversation.listModels({ ...pagination(url, ["provider"]), ...(provider ? { provider } : {}), includeHidden: true }));
+        const hidden = url.searchParams.get("includeHidden");
+        if (url.searchParams.getAll("includeHidden").length > 1 || (hidden !== null && hidden !== "true" && hidden !== "false")) throw new WebRequestError(400, "invalid_query", "includeHidden must be true or false.");
+        return json(200, await this.application.conversation.listModels({ ...pagination(url, ["provider", "includeHidden"]), ...(provider ? { provider } : {}), ...(hidden !== null ? { includeHidden: hidden === "true" } : {}) }));
       }
       if (request.method === "POST" && url.pathname === `${WEB_API_PREFIX}/limits/reset`) {
         const data = await body(request, ["provider", "idempotencyKey", "creditId"]);
         const provider = requiredString(data, "provider", 64);
-        if (!this.application.conversation.listProviders().some(entry => entry.id === provider && entry.capabilities.resets)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
+        if (!this.application.conversation.listProviders().some(entry => entry.id === provider && entry.capabilities.accountReset)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
         return json(200, await this.application.conversation.resetAccount(provider, { idempotencyKey: requiredString(data, "idempotencyKey", 100), ...(data.creditId !== undefined ? { creditId: requiredString(data, "creditId", 256) } : {}) }));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
@@ -237,7 +239,7 @@ export class WebSurfaceApi {
       }
       if (action === "skills-reload" && request.method === "POST") {
         await body(request, []);
-        return await this.mutate(entry, async () => json(200, await this.application.conversation.listSkills(threadId, { forceReload: true })));
+        return await this.mutate(entry, async () => json(200, await this.application.conversation.listSkills(threadId, { refresh: true })));
       }
       if (action === "skills" && request.method === "POST") {
         const data = await body(request, ["path", "enabled"]);
@@ -247,7 +249,7 @@ export class WebSurfaceApi {
         return await this.mutate(entry, async () => {
           const result = await webControl(this.application, { type: "skill.set-enabled", surfaceId: entry.id, requestedSkill: path, enabled });
           if (result.type !== "skill.set-enabled" || !result.ok) throw new Error("Unexpected skill response.");
-          return json(200, { effectiveEnabled: result.effectiveEnabled });
+          return json(200, { enabled: result.appliedEnabled });
         });
       }
       if (action === "settings" && request.method === "GET") {

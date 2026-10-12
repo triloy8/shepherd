@@ -131,7 +131,7 @@ to the handle's thread.
 The existing approvals routes carry Codex `item/tool/requestUserInput` requests
 and Claude `AskUserQuestion` callbacks through the same shared question contract.
 Records include `userInput: { threadId, turnId, itemId, isBlocking, questions }`;
-each question has `id`, `header`, `question`, optional `multiSelect`, `isOther`, `isSecret`, and nullable
+each question has `id`, `header`, `question`, `isOther`, optional `multiSelect` and `isSecret`, and nullable
 `options: [{ label, description }]`. Use `status === "pending"` to decide whether
 the request can still be answered. Submit to the record's `approvalId` using:
 
@@ -139,8 +139,8 @@ the request can still be answered. Submit to the record's `approvalId` using:
 {
   "decision": "<value of the offered answer choice>",
   "answers": {
-    "provider": { "answers": ["Select per conversation (Recommended)"] },
-    "notes": { "answers": ["Remember my last choice."] }
+    "provider": ["Select per conversation (Recommended)"],
+    "notes": ["Remember my last choice."]
   }
 }
 ```
@@ -206,11 +206,13 @@ new handle using the desired thread ID after restart.
 ## Provider support
 
 `GET /api/providers` returns capabilities for each registered agent. In addition to
-questions, skills, fork, compact, revert and resets, descriptors advertise `steer`,
+questions, skills, fork, compact, revert and `accountReset`, descriptors advertise `steer`,
 `interrupt`, `rename`, `archive`, `unarchive`, `workspaceChange`, `modelCatalog`,
 `modelSelection`, `effortSelection`, `skillConfig`, and `approvalModes`,
 `sandboxModes`, `inputKinds`, `imageDetail`, and `ephemeralThreads`. Input kinds are
 `text`, `image` (URL or data URL), `image_file`, `audio`, `audio_file`, and `skill`.
+Image inputs may set `detail` to `low`, `high`, or `full` (no downscaling) when
+`imageDetail` is true; omit it to let the provider choose.
 Thread state exposes the same session capabilities. `skills` controls discovery;
 `skillConfig` controls configuration writes. A catalog can be read-only; model and effort
 selection require a catalog. Flags describe adapter support, while
@@ -272,6 +274,8 @@ Reloading the relevant history registers images again. Unknown references return
 
 ## Conversation settings
 
+`GET /api/models` lists the selected/default provider’s normal model catalog, with cursor and limit pagination. Optional `includeHidden=true` also lists models omitted from the normal picker. Hidden does not mean forbidden: explicit model-ID validation includes hidden entries so saved selections remain usable. Duplicate or invalid boolean filters return 400.
+
 Model and effort routes delegate to the same control service as Discord. They
 queue changes for the next new turn and subsequent turns; steering an active
 turn does not apply them. `settings` distinguishes current and pending values.
@@ -283,6 +287,8 @@ resolves the model's advertised default; `null` queues an explicit clear. Settin
 report `pendingEffortClear` to distinguish clearing from leaving effort unchanged.
 Discord uses `!effort set <level>`, `!effort default`, and `!effort clear`.
 
+Masked answers (`isSecret: true`) use password inputs; omitting the flag uses a normal answer field. Masking does not encrypt answers or change provider storage.
+
 Unknown models and unsupported effort return 400 with stable error codes;
 unavailable model metadata returns 409. Writes share the conversation mutation
 lock with sending, interrupting and detaching (409 when busy). Malformed bodies
@@ -290,7 +296,7 @@ and extra fields are rejected. Unexpected backend failures remain sanitized 502
 responses. A failed usage read does not prevent unrelated settings requests.
 
 Model/effort overrides follow existing loaded-session lifetime rules; the web
-surface adds no persistence or global defaults. Account limits are provider data
+surface adds no persistence or global defaults. `accountReset` in the provider descriptor is the sole operation-support flag; account `resets` contains availability counts and credits, not a second support flag. Account limits are provider data
 and may be incomplete/unavailable. They are host account allowances shared across
 conversations. Codex exposes reported usage buckets and banked reset counts/details.
 The [Usage & limits panel](web-ui.md#usage-and-limits) presents both providers.
@@ -315,8 +321,8 @@ Unknown, duplicate or malformed limits query parameters return 400.
 Codex reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
 be non-empty (maximum 100 characters); an optional non-empty credit ID (maximum
 256 characters) selects a particular reset. Without an ID, Codex selects the next
-available reset. Outcomes are `reset`, `alreadyRedeemed`, `nothingToReset`, and
-`noCredit`. Read `/limits` after a known result. Retry an unknown result with the
+available reset. Shared outcomes are `reset`, `already_redeemed`, `nothing_to_reset`, and
+`no_credit`. Read `/limits` after a known result. Retry an unknown result with the
 same key; never generate a new key for the same attempt. Malformed bodies
 and extra fields return 400; backend failures remain sanitized 502 responses.
 
@@ -346,10 +352,12 @@ The attached conversation exposes `GET /api/conversations/:id/skills` returning
 effective enabled state, and discovery errors). Workspace selection comes from the
 shared conversation service, not a client-supplied directory.
 
+Discovery is scoped to the conversation’s effective workspace; clients cannot override it with arbitrary directories. The provider port receives one `workspacePath` and an optional refresh preference.
+
 `POST /api/conversations/:id/skills-reload` with `{}` repeats discovery with
-`forceReload: true` and returns the same shape. `POST /api/conversations/:id/skills`
+`refresh: true` and returns the same shape. `POST /api/conversations/:id/skills`
 with `{ "path": "/absolute/skill/SKILL.md", "enabled": false }` uses the same shared
-`skill.set-enabled` action as Discord and returns `{ "effectiveEnabled": false }`.
+`skill.set-enabled` action as Discord and returns the resulting state, such as `{ "enabled": false }`.
 The action also supports the shared name resolution semantics; the UI always sends
 the listed path to distinguish duplicate names. Unknown/ambiguous names return 400.
 Both writes share the conversation mutation lock and existing origin/host checks.

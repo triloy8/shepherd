@@ -29,7 +29,7 @@ when unset) and registration rejects an unregistered default; descriptors mark i
 
 ## Execution and presentation
 
-Both adapters emit the existing application `BridgeEvent` stream. Assistant deltas
+Both adapters emit application `BridgeEvent` records. Core owns a separate bounded stream for surface delivery and replay, after applying capability checks. Assistant deltas
 carry `kind: "assistant_text"`; core and UI never infer their meaning from an SDK method.
 Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
 Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
@@ -67,7 +67,7 @@ Core validates ownership, pending state, the offered token, and question answers
 claiming a decision. Invalid answers remain retryable. Duplicate replies cannot apply
 twice. Terminal turns and native cancellation expire pending interactions. Answers do
 not enter approval decision records or event replay. Questions use the existing form;
-multiple-choice questions use checkboxes, and secret answers use masked fields.
+multiple-choice questions use checkboxes, and optional secret answers use masked fields. Masking is presentation only; it does not encrypt answers. A provider declaring `questions: false` cannot deliver a question to live subscribers or replay. Core uses the offered cancel/deny token to resolve the native request; if cancellation is unavailable or fails, it stops the unusable session and reports failure.
 
 Discord uses bounded opaque button handles so long thread/choice IDs fit its platform
 limit. Its modal handles supported single-answer forms; secret, multi-select, or large
@@ -81,6 +81,8 @@ compact, revert, or reset methods. Core rejects unavailable operations consisten
 `shared/protocol/provider_capabilities.ts` is the shared provider contract. Descriptors
 and attached thread state expose the same flags. Creation/resumption, turn submission,
 history access, approvals, and event delivery form the required session baseline.
+Individual item history remains required because Discord’s turn drill-down pages use it. Provider-managed loaded-thread discovery is optional; core already lists its own managed sessions. Skill discovery receives one effective conversation workspace (`workspacePath`) and an optional `refresh` preference. Native multi-directory and cache-reload parameters stay inside adapters.
+
 Optional operations are negotiated independently:
 
 | Area | Fields |
@@ -90,9 +92,9 @@ Optional operations are negotiated independently:
 | Workspace | `workspaceChange` (changing an existing thread's workspace) |
 | Models | `modelCatalog`, `modelSelection`, `effortSelection` |
 | Skills | `skills` (discovery), `skillConfig` (configuration writes) |
-| Interaction and transport | `questions`, `inputKinds`, `imageDetail` |
+| Interaction and transport | `questions` (core fails question requests from providers that do not declare it), `inputKinds`, `imageDetail` |
 | Execution policy | `approvalModes`, `sandboxModes`, `ephemeralThreads` |
-| Account service | `resets` on the provider descriptor, derived from the registered account reset implementation |
+| Account service | `accountReset`; registration rejects a mismatch with the account reader's `reset` method |
 
 False means unsupported, including when a method exists. Optional methods may be
 omitted when their flag is false. Registration checks descriptor/session agreement,
@@ -101,7 +103,7 @@ Core checks flags before execution and pending-state changes. Clients use them t
 disable unavailable actions; server validation remains authoritative. A catalog can be read-only when selection flags are false. Without a catalog,
 model metadata stays unknown
 and adapter input checks still apply. Effort selection requires advertised model effort
-options. Model and effort options come from the selected provider's catalog.
+options. Model and effort options come from the selected provider's catalog. Hidden models are excluded from normal catalogs unless explicitly requested; hidden entries remain available for explicit-ID validation. Provider effort strings are case-sensitive and preserved unchanged.
 
 `shared/protocol/model_capabilities.ts` defines model input modalities and effort
 options. Every model catalog row implements this contract; provider capabilities
@@ -142,8 +144,13 @@ Neither account reporting nor opening the usage panel sends a user conversation 
 Common policy is configured with `SHEPHERD_APPROVAL_MODE` (`provider_default`,
 `review_sensitive`, `review_untrusted`, `bypass`) and `SHEPHERD_SANDBOX_MODE`
 (`read_only`, `workspace_write`, `unrestricted`). Model/authentication settings remain
-provider-specific inside their adapters. An unavailable sandbox is rejected rather than
-silently changing execution privileges.
+provider-specific inside their adapters. These are host defaults, not requests: core
+applies each one only when the conversation's provider supports it, and otherwise the
+provider keeps its own default for that setting. Startup and `--check-config` print a
+notice for each installed agent that cannot apply a configured default. An explicitly
+requested sandbox or approval mode that a provider lacks is rejected rather than
+silently changing execution privileges. Creation applies both defaults; resume and fork
+apply only the sandbox default and keep the saved approval mode.
 
 The shared configuration no longer reads `CODEX_APPROVAL_POLICY` or `CODEX_SANDBOX`.
 For existing installations, rename those common settings before redeployment:
@@ -184,8 +191,9 @@ have no implementation, and stops it before initialization. Shared events form a
 discriminated union: each event name requires its application payload at the session port
 and adapter emitter. Raw native envelopes cannot be published through that contract.
 
-Loaded-thread discovery queries every registered provider, including threads loaded
-outside Shepherd, and persists their owners. Stored-thread listing always merges through
+Loaded-thread discovery lists Shepherd's live sessions and adds threads from providers
+that report threads loaded outside Shepherd (the optional `listLoadedThreads` port
+method; Codex implements it, Claude does not), persisting their owners. Stored-thread listing always merges through
 application pagination, even for one provider; shared cursors retain forward and backward
 positions and validate the listing filters. Native cursor compatibility paths are removed.
 Discord list controls keep these opaque cursors in a bounded, expiring server-side map so
@@ -226,3 +234,13 @@ or blank workspaces before registering a session and caches the returned value f
 turns. An omitted request `cwd` asks the adapter to resolve its workspace; it does
 not request a workspace-free thread. Historical listing metadata may be incomplete,
 but a live bootstrapped thread must satisfy this requirement.
+
+Surfaces name a new conversation's workspace after its thread when the provider can
+move a thread into a workspace after creation (`workspaceChange`). A provider without
+that capability gets its workspace provisioned first, under a generated name, and starts
+the thread there; forks follow the same rule. Setting a thread's workspace to its current
+value is not a workspace change, so resuming in the saved workspace never requires it.
+
+Workspace provisioning checks fork support before creating directories or cloning. Failed bootstrap and partial-clone attempts remove only dedicated directories exclusively created for that attempt. Existing workspaces and configured shared project roots are preserved. Once a thread bootstraps successfully, its workspace remains available for recovery even if surface binding fails.
+
+Account reset support comes only from `ProviderCapabilities.accountReset`; the account snapshot reports counts and individual-credit availability. Installed-provider metadata, config notices, and runtime factories come from one composition table, and the config-notice helper accepts arbitrary registrations without starting sessions.

@@ -471,3 +471,11 @@ Stored-thread summaries include `provider` and `canUnarchive`; Restore is disabl
 when the owning provider cannot unarchive. Stored and loaded listings can return
 `unavailableProviders` with partial results. Stored-list cursors retain that notice
 until the first page is reloaded, which retries the unavailable providers.
+
+## Independent provider metadata
+
+Provider descriptors expose `accountReporting`; a provider without an account reader returns an unsupported-operation error from `/limits`, and clients should omit reporting requests for it. `signedIn: null` means login state is unknown.
+
+Conversation model discovery uses the attached session. Model/effort selection does not require discovery: clients can submit opaque selections to adapters without catalogs. Unknown current/default models remain null, `supportedEfforts: null` means effort metadata is unreported, and `effortOptionsKnown: false` distinguishes unknown options from a reported empty set. Known catalog constraints remain enforced. `modelCatalogAuthoritative` determines whether unlisted selections are rejected by shared controls; advisory catalogs also permit custom IDs in the picker. `modelCatalogScope` specifies whether bootstrap can validate before provider execution or needs the newly established conversation context.
+
+Token input/output/total counts may be null. `last` and `total` token breakdowns may each be null; cumulative-only reports remain usable. Thread IDs exposed to clients are application identities, not native provider handles. Provider-local IDs are scoped at registration; approval IDs are scoped to their thread.

@@ -1,0 +1,246 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ConversationService } from "../server/core/conversation_service.js";
+import { executeControlAction } from "../server/core/control_actions_service.js";
+import { assembleProviderServices, type ProviderRegistration } from "../server/runtime/provider_registration.js";
+import { scopedThreadId } from "../server/runtime/provider_thread_identity.js";
+import { LocalSession, capabilities, model } from "./helpers/portable_provider.js";
+import { noProviderTools } from "../server/ports/provider_tools.js";
+import { codexTokenUsage } from "../server/providers/codex/token_usage.js";
+import { storedTokenUsage } from "../server/providers/claude/history.js";
+import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
+import type { ProviderCapabilities } from "../shared/protocol/provider_capabilities.js";
+import type { ThreadTokenUsage } from "../shared/protocol/requests.js";
+
+const roots: string[] = [];
+afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
+function directory() { const root = mkdtempSync(join(tmpdir(), "shepherd-portability-")); roots.push(root); return root; }
+function registration(id: string, configure: (session: LocalSession) => void = () => {}, flags = capabilities) {
+  const sessions: LocalSession[] = [];
+  const entry: ProviderRegistration = { id, displayName: id, capabilities: flags,
+    create: () => { const session = new LocalSession(flags); configure(session); sessions.push(session); return session; },
+    hasStoredThreads: () => true, ownsStoredThread: id => id === "1" };
+  return { entry, sessions };
+}
+
+test("selection and opaque effort work without discovery, and native rejection retains pending selections", async () => {
+  const h = registration("selectable", () => {}, { ...capabilities, modelSelection: true, effortSelection: true });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    const context = { conversation, getSurfaceThreadId: () => threadId };
+    expect(await executeControlAction(context as never, { type: "model.set", surfaceId: "surface", requestedModel: "Project/CaseSensitive" })).toMatchObject({ ok: true });
+    expect(await conversation.setThreadEffort(threadId, "NativeEffort")).toMatchObject({ effortOptionsKnown: false, pendingEffort: "NativeEffort" });
+    await expect(conversation.setThreadEffort(threadId, { mode: "default" })).rejects.toMatchObject({ failure: { code: "unsupported_effort" } });
+    const session = h.sessions[0]!;
+    const start = session.startTurn;
+    session.startTurn = async () => { throw new Error("Native selection rejected"); };
+    await expect(conversation.submitTurn(threadId, { input: [] })).rejects.toThrow("Native selection rejected");
+    expect(conversation.getThreadModel(threadId).pendingModel).toBe("Project/CaseSensitive");
+    expect((await conversation.getThreadEffort(threadId)).pendingEffort).toBe("NativeEffort");
+    session.startTurn = start;
+    await conversation.submitTurn(threadId, { input: [] });
+    expect(session.calls).toEqual([{ model: "Project/CaseSensitive", effort: "NativeEffort" }]);
+  } finally { conversation.stopAll(); }
+});
+
+test("read-only discovery with unknown current/default model never prevents execution or settings reads", async () => {
+  const h = registration("readonly", s => { s.rows = [model("alpha")]; }, { ...capabilities, modelCatalog: true });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect(await conversation.getThreadEffort(threadId)).toMatchObject({ model: null, effortOptionsKnown: false, inputModalities: null });
+    await conversation.submitTurn(threadId, { input: [{ type: "text", text: "hello" }] });
+    expect(h.sessions[0]!.calls).toHaveLength(1);
+    expect((await conversation.listModels({ threadId })).data[0]!.id).toBe("alpha");
+    expect(h.sessions).toHaveLength(1);
+  } finally { conversation.stopAll(); }
+});
+
+test("discovered models can leave effort levels unreported without disabling native selection", async () => {
+  const h = registration("partial-catalog", s => {
+    s.selectedModel = "alpha"; s.rows = [{ ...model("alpha"), supportedEfforts: null }];
+  }, { ...capabilities, modelCatalog: true, effortSelection: true });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect(await conversation.setThreadEffort(threadId, "provider-value")).toMatchObject({ supportedEfforts: null, effortOptionsKnown: false });
+    await conversation.submitTurn(threadId, { input: [] });
+    expect(h.sessions[0]!.calls[0]!.effort).toBe("provider-value");
+  } finally { conversation.stopAll(); }
+});
+
+test("advisory discovery preserves reported models and permits native IDs absent from its catalog", async () => {
+  const h = registration("advisory", s => { s.selectedModel = "provider-managed"; s.rows = [model("alpha")]; },
+    { ...capabilities, modelCatalog: true, modelSelection: true });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect(await conversation.getThreadEffort(threadId)).toMatchObject({ model: "provider-managed", supportedEfforts: null });
+    await conversation.submitTurn(threadId, { input: [] });
+    const context = { conversation, getSurfaceThreadId: () => threadId };
+    expect(await executeControlAction(context as never, { type: "model.set", surfaceId: "s", requestedModel: "native-alias" })).toMatchObject({ ok: true });
+    await conversation.submitTurn(threadId, { input: [] });
+    expect(h.sessions[0]!.calls.at(-1)!.model).toBe("native-alias");
+  } finally { conversation.stopAll(); }
+});
+
+test("conversation-specific bootstrap validates only after native workspace establishment", async () => {
+  const flags = { ...capabilities, modelCatalog: true, modelCatalogScope: "conversation" as const,
+    modelCatalogAuthoritative: true, modelSelection: true, fork: true };
+  const h = registration("bootstrap-scoped", s => {
+    s.startThread = async request => { s.bound = true; s.selectedModel = request?.cwd === "/other" ? "other-model" : "project-model";
+      return { threadId: "1", cwd: request?.cwd ?? "/tmp", model: s.selectedModel, effort: null }; };
+    Object.assign(s, { forkThread: async (_id: string, request: import("../shared/protocol/requests.js").ForkThreadRequest) => ({ ...await s.startThread(request), threadId: "2" }) });
+    s.listModels = async () => { if (!s.bound) throw new Error("Catalog requires a bound conversation");
+      return { data: [model(s.selectedModel!)], nextCursor: null }; };
+  }, flags);
+  const root = directory();
+  const createService = () => new ConversationService({ providers: assembleProviderServices([h.entry], root, h.entry.id) });
+  let conversation = createService();
+  try {
+    const { threadId } = await conversation.createThread({ cwd: "/workspace", model: "project-model" });
+    expect(await conversation.resolveThreadCwd(threadId)).toBe("/workspace");
+    const fork = await conversation.forkThread(threadId, { cwd: "/other", model: "other-model" });
+    expect(conversation.getThreadModel(fork.threadId).currentModel).toBe("other-model");
+    conversation.stopAll(); conversation = createService();
+    await conversation.resumeThread(threadId, { cwd: "/workspace", model: "project-model" });
+    await expect(conversation.createThread({ model: "missing" })).rejects.toMatchObject({ failure: { code: "model_unavailable" } });
+    expect(h.sessions.at(-1)!.stopped).toBe(true);
+    expect(conversation.getThreadModel(threadId).currentModel).toBe("project-model");
+  } finally { conversation.stopAll(); }
+});
+
+test("conversation settings, control selection, submission and steering use the attached session catalog", async () => {
+  const flags = { ...capabilities, modelCatalog: true, modelSelection: true, steer: true };
+  const h = registration("scoped", s => {
+    s.selectedModel = "project-model";
+    s.listModels = async () => ({ data: [model(s.bound ? "project-model" : "host-model", true)], nextCursor: null });
+    Object.assign(s, { steerTurn: async () => "turn" });
+  }, flags);
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    await conversation.listModels({}); // Independently initialize provider-wide discovery.
+    const { threadId } = await conversation.createThread({});
+    expect((await conversation.getThreadEffort(threadId)).model).toBe("project-model");
+    expect((await conversation.listModels({ threadId })).data.map(row => row.id)).toEqual(["project-model"]);
+    const context = { conversation, getSurfaceThreadId: () => threadId };
+    expect(await executeControlAction(context as never, { type: "model.set", surfaceId: "s", requestedModel: "project-model" })).toMatchObject({ ok: true });
+    await conversation.submitTurn(threadId, { input: [] });
+    await conversation.steerTurn(threadId, { input: [] });
+    expect(h.sessions[1]!.calls).toHaveLength(1);
+    expect(h.sessions[0]!.calls).toHaveLength(0);
+  } finally { conversation.stopAll(); }
+});
+
+test("overlapping native thread and approval IDs stay independent through history, decisions, replay and restart", async () => {
+  const a = registration("first"), b = registration("second");
+  const root = directory(); const services = () => assembleProviderServices([a.entry, b.entry], root, a.entry.id);
+  let conversation = new ConversationService({ providers: services() });
+  try {
+    const first = (await conversation.createThread({ provider: "first" })).threadId;
+    const second = (await conversation.createThread({ provider: "second" })).threadId;
+    expect(first).not.toBe(second);
+    expect(first).toBe(scopedThreadId("first", "1"));
+    for (const session of [a.sessions[0]!, b.sessions[0]!]) session.eventBus.publish({ id: "approval", type: "approval.requested",
+      threadId: "1", sessionId: session.sessionId, ts: "now", payload: { approvalId: "1", kind: "permission", prompt: "Run?",
+        choices: [{ value: "allow", intent: "allow", label: "Allow" }], detail: null } });
+    expect(conversation.listApprovals(first)).toHaveLength(1);
+    expect(conversation.listApprovals(second)).toHaveLength(1);
+    const replay: string[] = [];
+    conversation.subscribeToThreadEvents(first, event => replay.push(event.threadId));
+    expect(replay).toEqual([first]);
+    await conversation.applyApprovalDecision(first, "1", { decision: "allow" });
+    expect(a.sessions[0]!.decisions).toEqual(["1"]);
+    expect(b.sessions[0]!.decisions).toEqual([]);
+    expect(conversation.listApprovals(second)[0]!.status).toBe("pending");
+    expect((await conversation.listStoredThreads({})).threads.map(row => row.threadId).sort()).toEqual([first, second].sort());
+    await conversation.listThreadTurns(first, {});
+    expect(a.sessions[0]!.readIds).toContain("1");
+    conversation.stopAll(); conversation = new ConversationService({ providers: services() });
+    await conversation.resumeThread(first, {});
+    await conversation.resumeThread(second, {});
+    expect(conversation.getThreadProvider(first)).toBe("first");
+    expect(conversation.getThreadProvider(second)).toBe("second");
+    expect(a.sessions.at(-1)!.readIds).toContain("1");
+    await expect(conversation.listModels({ threadId: first, provider: "second" })).rejects.toThrow("Cannot change");
+  } finally { conversation.stopAll(); }
+});
+
+test("account reporting is optional and partial cumulative telemetry stays unknown", async () => {
+  const h = registration("local-only");
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    expect(conversation.listProviders()[0]!.accountReporting).toBe(false);
+    await expect(conversation.readAccount(h.entry.id)).rejects.toThrow("account reporting");
+    const { threadId } = await conversation.createThread({});
+    const usage: ThreadTokenUsage = { last: null, total: { inputTokens: null, outputTokens: null, totalTokens: 42,
+      cacheReadInputTokens: null, cacheWriteInputTokens: null, reasoningOutputTokens: null }, contextWindow: null };
+    h.sessions[0]!.eventBus.publish({ id: "usage", type: "thread.tokenUsage.updated", threadId: "1",
+      sessionId: h.sessions[0]!.sessionId, ts: "now", payload: { turnId: null, tokenUsage: usage } });
+    expect((await conversation.readThreadTokenUsage(threadId)).tokenUsage).toEqual(usage);
+  } finally { conversation.stopAll(); }
+});
+
+test("unavailable discovery does not block a provider-chosen default", async () => {
+  const h = registration("offline-discovery", s => { s.listModels = async () => { throw new Error("Discovery offline"); }; }, { ...capabilities, modelCatalog: true });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    expect((await conversation.getThreadEffort(threadId)).effortOptionsKnown).toBe(false);
+    await conversation.submitTurn(threadId, { input: [] });
+    expect(h.sessions[0]!.calls).toHaveLength(1);
+  } finally { conversation.stopAll(); }
+});
+
+test("identity translation covers tools, nested question targets, loaded discovery and foreign-ID rejection", async () => {
+  let nativeTools = noProviderTools;
+  const flags = { ...capabilities, questions: true };
+  const native = new LocalSession(flags);
+  Object.assign(native, { listLoadedThreads: async () => ({ data: ["1"], nextCursor: null }) });
+  const entry: ProviderRegistration = { id: "tool-provider", displayName: "Tools", capabilities: flags,
+    create: (_policy, tools) => { nativeTools = tools; return native; }, hasStoredThreads: () => true };
+  const services = assembleProviderServices([entry], directory(), entry.id);
+  const calls: string[] = [];
+  const session = services.createSession("provider_default", { ...noProviderTools, execute: async request => { calls.push(request.threadId); return { contentItems: [], success: true }; } }, entry.id);
+  try {
+    const { threadId } = await session.startThread({});
+    await nativeTools.execute({ threadId: "1", turnId: "turn", callId: "call", namespace: null, tool: "probe", arguments: null });
+    expect(calls).toEqual([threadId]);
+    native.eventBus.publish({ id: "question", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested",
+      payload: { approvalId: "1", kind: "question", prompt: "Which?", choices: [], detail: null,
+        userInput: { threadId: "1", turnId: "turn", itemId: "item", isBlocking: true, questions: [] } } });
+    const targets: string[] = [];
+    const unsubscribe = session.eventBus.subscribe(event => { if (event.type === "approval.requested") targets.push(event.threadId, event.payload.userInput!.threadId); });
+    expect(targets).toEqual([threadId, threadId]); unsubscribe();
+    expect((await session.listLoadedThreads!({})).data).toEqual([threadId]);
+    await expect(session.readThread(scopedThreadId("another", "1"), false)).rejects.toThrow("another provider");
+    await expect(session.readThread("shepherd-thread:invalid", false)).rejects.toThrow("Invalid scoped");
+    expect(session.forkThread).toBeUndefined();
+  } finally { session.stop(); }
+});
+
+test("native and stored usage codecs preserve total-only reports without fabricated counts", () => {
+  const expected = { last: null, total: { inputTokens: null, outputTokens: null, totalTokens: 42, cacheReadInputTokens: null,
+    cacheWriteInputTokens: null, reasoningOutputTokens: null }, contextWindow: null };
+  expect(codexTokenUsage({ total: { totalTokens: 42 } })).toEqual(expected);
+  expect(storedTokenUsage({ total: { totalTokens: 42 } })).toEqual(expected);
+});
+
+test("opaque application IDs use bounded workspace names while deployed UUID paths stay unchanged", async () => {
+  const root = directory(); const provisioner = new WorkspaceProvisioner();
+  const target = { kind: "local" as const, rootPath: root, display: "local", appendWorkspaceId: true };
+  const id = scopedThreadId("provider", "../" + "x".repeat(300));
+  const first = await provisioner.reserveWorkspace(target, id);
+  const again = await provisioner.reserveWorkspace(target, id);
+  expect(first.cwd).toBe(again.cwd);
+  expect(first.cwd).toMatch(new RegExp(`^${root}/[a-f0-9]{64}$`));
+  await again.rollback();
+  await provisioner.requireExistingWorkspace(first.cwd);
+  const uuid = crypto.randomUUID();
+  const deployed = await provisioner.provisionWorkspace(target, uuid);
+  expect(deployed.cwd).toBe(join(root, uuid));
+  await first.rollback();
+});

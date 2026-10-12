@@ -19,7 +19,7 @@ there is no parallel provider API, compatibility facade, or alternative transcri
 - `server/runtime/provider_services.ts` assembles registrations and persistence. This is
   where installed providers are named; clients discover them through descriptors.
 
-To add another provider, implement the session port, supply its capabilities and account
+To add another provider, implement the session port, supply its capabilities, optionally supply an account
 reader, and register its factory and ownership resolver at composition. Core and
 surface code do not need another provider branch. Provider IDs and model IDs are opaque strings. Discord uses `!providers` for discovery,
 with optional provider IDs on `!newthread` and `!limits`; omitted IDs use the configured
@@ -34,9 +34,7 @@ carry `kind: "assistant_text"`; core and UI never infer their meaning from an SD
 Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
 Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
 Native notifications stay private. User-facing failures, activities, completed messages,
-images, token usage, and background task counts have shared representations. Token counts
-that a provider does not report (Codex cache writes, Claude per-request reasoning) are `null`
-rather than zero.
+images, token usage, and background task counts have shared representations. Token counts that a provider does not report are `null`, including input, output and total counts. The most recent request and cumulative breakdowns can each be absent (`last: null` / `total: null`); reporting a cumulative total does not require inventing a last-request measurement.
 
 Adapters decode stored history before returning it. History records are a discriminated
 union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
@@ -98,12 +96,11 @@ Optional operations are negotiated independently:
 
 False means unsupported, including when a method exists. Optional methods may be
 omitted when their flag is false. Registration checks descriptor/session agreement,
-advertised method presence, and the model/effort selection dependency on `modelCatalog`.
+advertised method presence. Model discovery, model selection, and effort selection are independent capabilities.
 Core checks flags before execution and pending-state changes. Clients use them to
 disable unavailable actions; server validation remains authoritative. A catalog can be read-only when selection flags are false. Without a catalog,
 model metadata stays unknown
-and adapter input checks still apply. Effort selection requires advertised model effort
-options. Model and effort options come from the selected provider's catalog. Hidden models are excluded from normal catalogs unless explicitly requested; hidden entries remain available for explicit-ID validation. Provider effort strings are case-sensitive and preserved unchanged.
+and adapter input checks still apply. When discovery is available, model and effort options come from the attached conversation's session catalog. Provider-wide discovery uses a separate control session. Without discovery, selection controls accept opaque values and the adapter validates them; unsupported native selections remain retryable. An unreported current/default model does not block ordinary turns or settings reads. `supportedEfforts: null` means unreported, while an empty array means no supported levels. Hidden models are excluded from normal catalogs unless explicitly requested; hidden entries remain available for explicit-ID validation. Provider effort strings are case-sensitive and preserved unchanged.
 
 `shared/protocol/model_capabilities.ts` defines model input modalities and effort
 options. Every model catalog row implements this contract; provider capabilities
@@ -117,9 +114,8 @@ absent. Claude's SDK does not report modalities, so they remain unknown. Unknown
 model metadata leaves input validation to the adapter and never grants additional
 adapter support. Effort values come from the model catalog rather than model names.
 
-Lifecycle requests validate explicit model/effort selections against the catalog
-before calling the provider. Effort-only resume/fork requests use the saved model.
-Turn submission always resolves the selected or explicitly overridden model; steering
+Providers declare `modelCatalogScope`: provider-wide catalogs can validate selections before bootstrap, while conversation-specific catalogs validate after the adapter establishes its effective workspace. Omitted scope means conversation-specific. `modelCatalogAuthoritative: true` promises an exhaustive list of selectable IDs; omitted/false means advisory discovery, so unlisted IDs are validated by the adapter. The installed adapters declare provider-wide, authoritative discovery. Ordinary turns can preserve a provider-reported model even when its metadata is no longer listed. Native adapters validate bootstrap selections themselves; core checks advertised constraints before publishing a live session. Effort-only resume/fork requests use the saved/effective model.
+Turn submission validates known selected or explicitly overridden models against the attached session; steering
 uses the current model even when another model is pending. Known unsupported text, image and audio inputs
 are rejected before execution. Unsupported explicit/pending effort stays retryable;
 when switching models, incompatible inherited effort uses the new model's advertised
@@ -129,7 +125,7 @@ a value. Codex forwards the explicit null; Claude reopens its SDK session withou
 an effort override. Settings expose separate current and next model capabilities,
 and the browser uses the appropriate set to gate image attachments.
 
-Every account reader returns `ProviderAccountLimits`: account metadata, allowance
+Account reporting is optional at registration. Descriptors expose `accountReporting`; the web UI does not query an absent reader, and unsupported API/Discord reads report an unavailable operation rather than fabricated account data. Unknown login state is `signedIn: null`. Every installed account reader returns `ProviderAccountLimits`: account metadata, allowance
 windows, extra usage, optional spend controls, optional reset credits, freshness, and
 availability. Missing provider data stays unknown. Reset requests use a shared outcome
 format and retain the same idempotency key during recovery, scoped by provider.
@@ -184,7 +180,7 @@ image-detail controls, and ephemeral-thread support, alongside operation capabil
 Core checks these before bootstrap, submit, or steer, and adapters enforce them for direct
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
 local-file, audio, skill-reference, or image-detail support. Model/effort
-options continue to come from each provider's catalog. Thread state includes its provider
+options are discovered where available; otherwise the adapter validates opaque selections. Thread state includes its provider
 and capabilities, so surfaces do not guess support from identity. Registration rejects a
 session whose capabilities differ from its descriptor or whose advertised operations
 have no implementation, and stops it before initialization. Shared events form a
@@ -200,6 +196,8 @@ Discord list controls keep these opaque cursors in a bounded, expiring server-si
 button IDs stay within Discord limits.
 
 Thread ownership is persisted independently of UI handles using arbitrary provider IDs.
+
+Registrations expose provider-local thread IDs by default. Composition translates them to stable, provider-scoped application IDs across execution, stored/loaded history, native ownership discovery, event delivery/replay, nested question targets, and application tool calls. Existing installed adapters explicitly use `threadIdentity: "application"` to preserve deployed globally unique IDs. Adapters opting into application identities must guarantee global uniqueness and avoid the reserved `shepherd-thread:` namespace. Approval IDs need only be unique within their thread; core stores and decides them using both thread and approval ID.
 For an unbound stored conversation, registered adapters identify ownership from native
 records; exactly one match is required and the binding is then persisted. Unknown or
 ambiguous identities fail rather than guessing a default provider or inspecting an ID
@@ -235,7 +233,7 @@ turns. An omitted request `cwd` asks the adapter to resolve its workspace; it do
 not request a workspace-free thread. Historical listing metadata may be incomplete,
 but a live bootstrapped thread must satisfy this requirement.
 
-Surfaces name a new conversation's workspace after its thread when the provider can
+Opaque thread identities use stable, bounded directory hashes; existing UUID directory names stay unchanged. Surfaces name a new conversation's workspace after its thread when the provider can
 move a thread into a workspace after creation (`workspaceChange`). A provider without
 that capability gets its workspace provisioned first, under a generated name, and starts
 the thread there; forks follow the same rule. Setting a thread's workspace to its current

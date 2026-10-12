@@ -41,6 +41,25 @@ test("plans and reasoning survive web presentation and render as progress rather
   expect(timelineGroups(progressOnly)[0]?.finalIds).toEqual([]);
 });
 
+test("empty reasoning summaries do not create activity rows in live or completed history", () => {
+  for (const status of ["in_progress", "completed"] as const) {
+    const source = turn(status);
+    source.items.splice(1, 0,
+      { id: "empty-reasoning", type: "reasoning", summary: [] },
+      { id: "blank-reasoning", type: "reasoning", summary: ["", " \n\t"] },
+    );
+    const images = new WebImages("conversation");
+    const presented = { ...source, items: source.items.map(item => presentHistoryItem(item, source.id, images)) };
+    const state = mergeHistory(emptyChat(), [presented]);
+    expect(state.messages.map(message => message.id)).toEqual(["user", "progress", "answer"]);
+    expect(render(state)).not.toContain("Reasoning summary");
+    // A later history refresh can supply a real summary for the same item.
+    presented.items[1] = { id: "empty-reasoning", type: "reasoning", summary: ["A useful summary."] };
+    const refreshed = mergeHistory(state, [presented]);
+    expect(refreshed.messages.find(message => message.id === "empty-reasoning")?.activity?.detail).toBe("A useful summary.");
+  }
+});
+
 test("completed history folds commentary with only the final answer copyable", () => {
   const state = mergeHistory(emptyChat(), [turn()]);
   expect(timelineGroups(state)[1]).toMatchObject({ finalIds: ["answer"], settled: true, label: "Worked for 3s" });

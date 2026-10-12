@@ -1,7 +1,7 @@
 /** Expected application failures; adapters own their presentation. */
 export type ActionFailure =
   | { code: "model_unavailable" }
-  | { code: "unsupported_effort"; model: string; requested: string; available: string[] }
+  | { code: "unsupported_effort"; model: string | null; requested: string; available: string[] }
   | { code: "thread_required" }
   | { code: "project_required" }
   | { code: "workspace_unavailable" }

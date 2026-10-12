@@ -5,14 +5,14 @@ const count = (value: unknown): number | null => typeof value === "number" && Nu
 function breakdown(value: unknown): TokenUsageBreakdown | null {
   const native = record(value);
   const inputTokens = count(native.inputTokens), outputTokens = count(native.outputTokens);
-  if (inputTokens === null || outputTokens === null) return null;
+  if (!["inputTokens", "outputTokens", "totalTokens", "cacheWriteInputTokens", "cachedInputTokens", "reasoningOutputTokens"].some(key => count(native[key]) !== null)) return null;
   return {
     inputTokens,
     cacheReadInputTokens: count(native.cachedInputTokens),
     cacheWriteInputTokens: count(native.cacheWriteInputTokens),
     outputTokens,
     reasoningOutputTokens: count(native.reasoningOutputTokens),
-    totalTokens: count(native.totalTokens) ?? inputTokens + outputTokens,
+    totalTokens: count(native.totalTokens) ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null),
   };
 }
 
@@ -20,6 +20,6 @@ function breakdown(value: unknown): TokenUsageBreakdown | null {
 export function codexTokenUsage(value: unknown): ThreadTokenUsage | null {
   const native = record(value);
   const last = breakdown(native.last), total = breakdown(native.total);
-  if (!last || !total) return null;
+  if (!last && !total) return null;
   return { last, total, contextWindow: count(native.modelContextWindow) };
 }

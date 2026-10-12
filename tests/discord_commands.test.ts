@@ -147,7 +147,7 @@ function makeContext(overrides?: {
         };
       },
       getThreadProvider: () => "fixture",
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, accountReset: false } }],
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, accountReset: false } }],
       async readAccount() { return account("fixture", "pro"); },
       async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
@@ -218,6 +218,7 @@ function makeContext(overrides?: {
           sessionId: "session-1",
           activeTurnId: null,
           approvalPolicy: "review_sensitive",
+          capabilities: context.conversation.listProviders()[0]!.capabilities,
         };
       },
     } as unknown as CommandContext["conversation"],

@@ -58,6 +58,6 @@ export function threadDefaultNotices(defaults: ThreadDefaults): string[] {
 
 export function createProviderServices(defaultProvider: string = fallbackDefaultProvider): ProviderServices {
   assertInstalledProvider(defaultProvider);
-  return assembleProviderServices(installedDefinitions.map(({ register, ...definition }) => ({ ...definition, ...register() })),
+  return assembleProviderServices(installedDefinitions.map(({ register, ...definition }) => ({ ...definition, ...register(), threadIdentity: "application" as const })),
     process.env.SHEPHERD_PROVIDER_STATE_DIR ?? join(homedir(), ".shepherd", "providers"), defaultProvider);
 }

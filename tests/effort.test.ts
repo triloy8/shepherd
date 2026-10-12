@@ -15,7 +15,7 @@ async function setup() {
     inputModalities: ["text", "image"] as const, defaultEffort: "low",
     supportedEfforts: ["low", "high"].map((value) => ({ value, description: "" })),
   };
-  manager.listModels = async () => ({ data: [model], nextCursor: null });
+  session.listModels = async () => ({ data: [model], nextCursor: null });
   await manager.createThread({ cwd: "/repo" });
   return { manager, session, starts, model };
 }
@@ -49,9 +49,9 @@ test("failed turn starts retain pending effort, and new selections survive an in
 });
 
 test("effort resolves the pending model across catalog pages", async () => {
-  const { manager, model } = await setup();
+  const { manager, session, model } = await setup();
   manager.setThreadModel("thread-1", "other");
-  manager.listModels = async (request) => request.cursor
+  session.listModels = async (request) => request.cursor
     ? { data: [{ ...model, id: "other", supportedEfforts: [{ value: "medium", description: "" }] }], nextCursor: null }
     : { data: [model], nextCursor: "next" };
   expect((await manager.setThreadEffort("thread-1", "medium")).model).toBe("other");
@@ -59,8 +59,8 @@ test("effort resolves the pending model across catalog pages", async () => {
 });
 
 test("a model switch rejects incompatible pending effort before execution and keeps it retryable", async () => {
-  const { manager, starts, model } = await setup();
-  manager.listModels = async () => ({ data: [model, {
+  const { manager, session, starts, model } = await setup();
+  session.listModels = async () => ({ data: [model, {
     ...model, id: "other", inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [{ value: "medium", description: "" }],
   }], nextCursor: null });
   await manager.setThreadEffort("thread-1", "high");
@@ -78,8 +78,8 @@ test("a model switch rejects incompatible pending effort before execution and ke
 });
 
 test("direct turn model and effort overrides are validated against the requested model", async () => {
-  const { manager, starts, model } = await setup();
-  manager.listModels = async request => request.cursor
+  const { manager, session, starts, model } = await setup();
+  session.listModels = async request => request.cursor
     ? { data: [{ ...model, id: "other", supportedEfforts: [{ value: "medium", description: "" }] }], nextCursor: null }
     : { data: [model], nextCursor: "next" };
   await expect(manager.submitTurn("thread-1", { input: [], model: "other", effort: "high" })).rejects.toMatchObject({

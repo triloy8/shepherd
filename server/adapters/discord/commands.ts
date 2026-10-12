@@ -16,6 +16,7 @@ import type {
 } from "../../core/runtime_lifecycle_orchestrator.js";
 import type { RuntimeActivity } from "../../core/session_manager.js";
 import type { SurfaceListeningMode } from "../../core/surface_state_service.js";
+import { UnsupportedProviderOperationError } from "../../../shared/protocol/provider_support.js";
 import type { ProviderCapabilities, ProviderOperation } from "../../../shared/protocol/provider_capabilities.js";
 import type { ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
@@ -679,12 +680,17 @@ export async function handleMessage(
   }
 
   if (command === "!limits") {
-    const result = await executeControlAction(context, { type: "limits.read", surfaceId: message.channelId, ...(args[0] ? { provider: args[0] } : {}) });
-    if (result.type !== "limits.read") {
-      throw new Error("Unexpected control action result for limits.read.");
+    try {
+      const result = await executeControlAction(context, { type: "limits.read", surfaceId: message.channelId, ...(args[0] ? { provider: args[0] } : {}) });
+      if (result.type !== "limits.read") {
+        throw new Error("Unexpected control action result for limits.read.");
+      }
+      const text = formatRateLimitsForDiscord(result.limits);
+      await replyCard(message, "Rate limits", text);
+    } catch (error) {
+      if (!(error instanceof UnsupportedProviderOperationError)) throw error;
+      await replyCard(message, "Usage unavailable", error.message, "warning");
     }
-    const text = formatRateLimitsForDiscord(result.limits);
-    await replyCard(message, "Rate limits", text);
     return { handled: true, threadId: null, input: null };
   }
 
@@ -747,7 +753,7 @@ export async function handleMessage(
         `- Model: ${state.model}`,
         `- Current: ${state.currentEffort ?? "unknown"}`,
         `- Model default: ${state.defaultEffort ?? "unknown"}`,
-        `- Available: ${state.supportedEfforts.map((option) => option.value).join(", ") || "none"}`,
+        `- Available: ${state.supportedEfforts?.map((option) => option.value).join(", ") || (state.supportedEfforts === null ? "not reported" : "none")}`,
       ];
       if (state.pendingEffortClear) lines.push("- Pending next turn: clear effort override");
       if (state.pendingEffort) lines.push(`- Pending next turn: ${state.pendingEffort}`);

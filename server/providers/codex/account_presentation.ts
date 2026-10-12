@@ -21,7 +21,7 @@ export function codexAccount(value: AccountRateLimitsResponse, now = Date.now() 
     }
   }
   const main = record(value.rateLimits), credits = record(main.credits), resets = value.rateLimitResetCredits;
-  return { provider: "codex", account: { plan: string(main.planType), authentication: "unknown", signedIn: windows.length > 0 }, availability: windows.length ? "available" : "unavailable", source: "provider", checkedAt: now, stale: false,
+  return { provider: "codex", account: { plan: string(main.planType), authentication: "unknown", signedIn: windows.length > 0 ? true : null }, availability: windows.length ? "available" : "unavailable", source: "provider", checkedAt: now, stale: false,
     ordinaryUsageAllowed: windows.length ? windows.some(window => window.status === "limited") ? false : windows.every(window => window.usedPercent !== null) ? true : null : null, windows,
     extraUsage: Object.keys(credits).length ? { enabled: typeof credits.hasCredits === "boolean" ? credits.hasCredits : null, unlimited: typeof credits.unlimited === "boolean" ? credits.unlimited : null, balanceLabel: string(credits.balance), usedPercent: null, active: null, status: null, observedAt: now, stale: false } : null,
     spendControls: [], resets: { availableCount: resets?.availableCount ?? null, credits: resets?.credits?.map(credit => ({ id: credit.id, supported: credit.resetType === "codexRateLimits", status: credit.status, grantedAt: credit.grantedAt, expiresAt: credit.expiresAt, title: credit.title, description: credit.description ? credit.description : null })) ?? null }, message: windows.length ? null : "The provider has not reported account allowance windows." };

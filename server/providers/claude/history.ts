@@ -77,9 +77,9 @@ const count = (value: unknown): number | null => typeof value === "number" && Nu
 function usageBreakdown(value: unknown, legacyReasoning: boolean): TokenUsageBreakdown | null {
   const usage = record(value);
   const inputTokens = count(usage.inputTokens), outputTokens = count(usage.outputTokens);
-  if (inputTokens === null || outputTokens === null) return null;
+  if (!["inputTokens", "outputTokens", "totalTokens", "cacheReadInputTokens", "cacheWriteInputTokens", "cachedInputTokens", "reasoningOutputTokens"].some(key => count(usage[key]) !== null)) return null;
   return {
-    inputTokens, outputTokens, totalTokens: count(usage.totalTokens) ?? inputTokens + outputTokens,
+    inputTokens, outputTokens, totalTokens: count(usage.totalTokens) ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null),
     cacheReadInputTokens: count(usage.cacheReadInputTokens) ?? count(usage.cachedInputTokens),
     cacheWriteInputTokens: count(usage.cacheWriteInputTokens),
     reasoningOutputTokens: legacyReasoning ? null : count(usage.reasoningOutputTokens),
@@ -91,6 +91,6 @@ export function storedTokenUsage(value: unknown): ThreadTokenUsage | undefined {
   const usage = record(value);
   const legacy = Object.hasOwn(usage, "modelContextWindow");
   const last = usageBreakdown(usage.last, legacy), total = usageBreakdown(usage.total, false);
-  if (!last || !total) return undefined;
+  if (!last && !total) return undefined;
   return { last, total, contextWindow: count(legacy ? usage.modelContextWindow : usage.contextWindow) };
 }

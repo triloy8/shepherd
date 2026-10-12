@@ -21,6 +21,7 @@ export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
     }
     if (item.type === "assistant_message") return [{ id: item.id, turnId: turn.id, role: "assistant", text: item.text, attachments: [], phase: phase(item.phase), complete: turn.status !== "in_progress" }];
     if (item.type === "plan" || item.type === "reasoning") {
+      if (item.type === "reasoning" && !item.summary.some(part => part.trim())) return [];
       return [{ id: item.id, turnId: turn.id, role: "assistant", text: "", complete: turn.status !== "in_progress", activity: {
         itemId: item.id, turnId: turn.id, kind: "other", label: item.type === "plan" ? "Plan" : "Reasoning summary",
         detail: item.type === "plan" ? item.text : item.summary.join("\n\n"),

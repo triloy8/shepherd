@@ -87,9 +87,9 @@ test("failed initialization releases sessions and allows later retries", async (
   const h = harness();
   const result = h.manager.listStoredThreads({});
   h.gate.reject(new Error("bootstrap failed"));
-  await expect(result).rejects.toThrow("bootstrap failed");
+  expect(await result).toMatchObject({ threads: [], unavailableProviders: ["default"] });
   expect(h.stops()).toBe(1);
-  await expect(h.manager.listStoredThreads({})).rejects.toThrow("bootstrap failed");
+  expect(await h.manager.listStoredThreads({})).toMatchObject({ threads: [], unavailableProviders: ["default"] });
   expect(h.sessions).toHaveLength(2);
   expect(h.stops()).toBe(2);
   h.manager.stopAll();

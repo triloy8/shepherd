@@ -13,12 +13,12 @@ import type {
 import { resolveSkillPathFromList } from "./skill_resolution_service.js";
 import type { ProviderAccountLimits, AccountResetRequest, AccountResetResponse } from "../../shared/protocol/account_limits.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
-import type { AgentProvider } from "../../shared/protocol/requests.js";
+import type { AgentProvider, EffortSelection } from "../../shared/protocol/requests.js";
 
 type ControlConversation = {
   getThreadProvider: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
   getThreadEffort: (threadId: string, model?: string) => Promise<ThreadEffortState>;
-  setThreadEffort: (threadId: string, effort: string) => Promise<ThreadEffortState>;
+  setThreadEffort: (threadId: string, effort: EffortSelection) => Promise<ThreadEffortState>;
   listSkills: (threadId: string, request: Record<string, never>) => Promise<SkillsListResponse>;
   writeSkillConfig: (
     threadId: string,
@@ -53,7 +53,7 @@ export type ControlActionsContext = {
 
 export type ControlActionRequest =
   | { type: "effort.get"; surfaceId: string }
-  | { type: "effort.set"; surfaceId: string; effort: string }
+  | { type: "effort.set"; surfaceId: string; effort: EffortSelection }
   | { type: "repo.get"; surfaceId: string }
   | { type: "repo.set"; surfaceId: string; repoInput: string }
   | { type: "limits.read"; provider?: string; surfaceId?: string; refresh?: boolean }
@@ -108,9 +108,7 @@ export type ControlActionResult =
   | { type: "turn.interrupt"; ok: false; error: ActionFailure };
 
 function resolveModelArgument(models: ModelSummary[], raw: string): ModelSummary | null {
-  const normalized = raw.trim().toLowerCase();
-  if (!normalized) return null;
-  return models.find((entry) => entry.id.toLowerCase() === normalized) ?? null;
+  return models.find((entry) => entry.id === raw) ?? null;
 }
 
 export async function executeControlAction(

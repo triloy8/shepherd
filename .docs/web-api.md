@@ -97,7 +97,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | GET | `/conversations/:id/settings` | `{ model, effort }`; current/pending settings and supported effort levels |
 | GET | `/conversations/:id/models?cursor=...&limit=20` | Available model page with `data` and `nextCursor` |
 | POST | `/conversations/:id/model` | `{ model }`; resolve model ID/name through shared controls; `{ ok: true }` |
-| POST | `/conversations/:id/effort` | `{ effort }`; supported level or `default`; `{ ok: true }` |
+| POST | `/conversations/:id/effort` | `{ effort }`; opaque effort string, `{ "mode": "default" }`, or `null` to clear; `{ ok: true }` |
 | GET | `/conversations/:id/context` | `{ threadId, tokenUsage }`; telemetry may be null |
 | GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices/status and optional `userInput` question request |
 | POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason?, answers? }`; `{ ok: true }` |
@@ -277,8 +277,11 @@ queue changes for the next new turn and subsequent turns; steering an active
 turn does not apply them. `settings` distinguishes current and pending values.
 Effort choices/default belong to the pending model when present, otherwise the
 current/default model. Changing the model does not silently rewrite an existing
-effort override; select a compatible effort if necessary. `default` resolves to
-the model's advertised default, matching Discord.
+effort override; select a compatible effort or clear it if necessary. An effort
+string selects that exact provider value, including `default`. `{ "mode": "default" }`
+resolves the model's advertised default; `null` queues an explicit clear. Settings
+report `pendingEffortClear` to distinguish clearing from leaving effort unchanged.
+Discord uses `!effort set <level>`, `!effort default`, and `!effort clear`.
 
 Unknown models and unsupported effort return 400 with stable error codes;
 unavailable model metadata returns 409. Writes share the conversation mutation
@@ -455,3 +458,8 @@ still return `unsupported_provider_operation`.
 Stored conversation pages explicitly use `updated_at` descending, matching Discord
 `!threads`, including archived and later pages. Active means not archived, not
 currently running.
+
+Stored-thread summaries include `provider` and `canUnarchive`; Restore is disabled
+when the owning provider cannot unarchive. Stored and loaded listings can return
+`unavailableProviders` with partial results. Stored-list cursors retain that notice
+until the first page is reloaded, which retries the unavailable providers.

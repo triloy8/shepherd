@@ -90,8 +90,8 @@ function parseCommonThreadOverrides(value: Record<string, unknown>) {
     provider: parseOptionalString(value.provider, "provider"),
     instructions: parseOptionalString(value.instructions, "instructions"),
     sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
-    model: parseOptionalString(value.model, "model"),
-    effort: parseOptionalString(value.effort, "effort"),
+    model: parseOpaqueSelection(value.model, "model"),
+    effort: parseOpaqueSelection(value.effort, "effort"),
   };
 }
 
@@ -282,6 +282,12 @@ export function validateRevertThreadRequest(value: unknown): RevertThreadRequest
   return { beforeTurnId: value.beforeTurnId };
 }
 
+function parseOpaqueSelection(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Invalid ${name}.`);
+  return value;
+}
+
 export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
   if (!isRecord(value)) {
     throw new Error("Invalid turn payload.");
@@ -290,8 +296,8 @@ export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
   return {
     input: parseUserInputArray(value.input, "input"),
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
-    model: parseOptionalString(value.model, "model"),
-    effort: parseOptionalString(value.effort, "effort"),
+    model: parseOpaqueSelection(value.model, "model"),
+    effort: value.effort === null ? null : parseOpaqueSelection(value.effort, "effort"),
   };
 }
 

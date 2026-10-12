@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { UnsupportedModelInputError } from "../../../shared/protocol/model_capabilities.js";
 import { UnsupportedProviderOperationError } from "../../ports/provider_session.js";
-import type { AgentProvider } from "../../../shared/protocol/requests.js";
+import type { AgentProvider, EffortSelection } from "../../../shared/protocol/requests.js";
 import { presentHistoryItem } from "./history.js";
 import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import { WebHostControls } from "./host_controls.js";
@@ -35,6 +35,16 @@ function requiredString(object: Record<string, unknown>, key: string, max = 4096
     throw new WebRequestError(400, "invalid_request", `${key} must be a non-empty string of at most ${max} characters.`);
   }
   return value;
+}
+function effortSelection(object: Record<string, unknown>): EffortSelection {
+  const value = object.effort;
+  if (value === null) return null;
+  if (typeof value === "string") return requiredString(object, "effort", 256);
+  if (value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length === 1 && "mode" in value && value.mode === "default") {
+    return { mode: "default" };
+  }
+  throw new WebRequestError(400, "invalid_request", "Choose an effort value, model default, or null to clear effort.");
 }
 function optionalString(object: Record<string, unknown>, key: string, max = 4096): string | undefined {
   return object[key] === undefined ? undefined : requiredString(object, key, max);
@@ -263,10 +273,10 @@ export class WebSurfaceApi {
       }
       if ((action === "model" || action === "effort") && request.method === "POST") {
         const data = await body(request, [action]);
-        const value = requiredString(data, action, 256);
-        await this.mutate(entry, () => webControl(this.application, action === "model"
-          ? { type: "model.set", surfaceId: entry.id, requestedModel: value }
-          : { type: "effort.set", surfaceId: entry.id, effort: value }));
+        const operation = action === "model"
+          ? { type: "model.set" as const, surfaceId: entry.id, requestedModel: requiredString(data, "model", 256) }
+          : { type: "effort.set" as const, surfaceId: entry.id, effort: effortSelection(data) };
+        await this.mutate(entry, () => webControl(this.application, operation));
         return json(200, { ok: true });
       }
       if (action === "images" && match[3] && request.method === "GET") return await entry.images.response(match[3], headers, request.headers);

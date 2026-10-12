@@ -467,7 +467,7 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
   try {
     const { threadId } = await manager.createThread({ provider: "claude", model: "claude-opus-5-5" });
     expect(await manager.getThreadEffort(threadId)).toMatchObject({ model: "claude-opus-5-5", currentEffort: "medium", defaultEffort: "medium" });
-    expect(await manager.setThreadEffort(threadId, "default")).toMatchObject({ pendingEffort: "medium" });
+    expect(await manager.setThreadEffort(threadId, { mode: "default" })).toMatchObject({ pendingEffort: "medium" });
     const legacy = await manager.createThread({ provider: "claude", model: "opus" });
     expect(await manager.getThreadEffort(legacy.threadId)).toMatchObject({ model: "opus", currentEffort: "medium" });
     expect((await manager.listModels({ provider: "claude" })).data.map(row => row.id)).toEqual(["claude-opus-5-5"]);

@@ -10,7 +10,7 @@ test("web settings use shared model resolution across pages and pending effort s
     const first = await (await h.request(`${path}/models?limit=1`)).json();
     expect(first.nextCursor).toBe("next");
     expect((await (await h.request(`${path}/models?cursor=next`)).json()).data[0].id).toBe("large");
-    expect((await h.request(`${path}/model`, "POST", { model: "LARGE" })).status).toBe(200);
+    expect((await h.request(`${path}/model`, "POST", { model: "large" })).status).toBe(200);
     const settings = await (await h.request(`${path}/settings`)).json();
     expect(settings.model.currentModel).toBe("small"); expect(settings.model.pendingModel).toBe("large");
     expect(settings.effort.supportedEfforts.map((e: { value: string }) => e.value)).toEqual(["low", "high"]);
@@ -18,8 +18,10 @@ test("web settings use shared model resolution across pages and pending effort s
     expect(settings.modelCapabilities.next).toMatchObject({ inputModalities: ["text", "image"], supportedEfforts: [{ value: "low" }, { value: "high" }] });
     expect((await h.request(`${path}/effort`, "POST", { effort: "high" })).status).toBe(200);
     expect((await (await h.request(`${path}/settings`)).json()).effort.pendingEffort).toBe("high");
-    expect((await h.request(`${path}/effort`, "POST", { effort: "default" })).status).toBe(200);
+    expect((await h.request(`${path}/effort`, "POST", { effort: { mode: "default" } })).status).toBe(200);
     expect((await (await h.request(`${path}/settings`)).json()).effort.pendingEffort).toBe("low");
+    expect((await h.request(`${path}/effort`, "POST", { effort: null })).status).toBe(200);
+    expect((await (await h.request(`${path}/settings`)).json()).effort).toMatchObject({ pendingEffort: null, pendingEffortClear: true });
     expect((await (await h.request(`${path}/context`)).json()).tokenUsage).toBeNull();
     expect((await (await h.request("/limits")).json()).windows[0].usedPercent).toBe(25);
   } finally { h.api.dispose(); }
@@ -30,6 +32,9 @@ test("settings reject invalid inputs and respect conversation and origin boundar
   try {
     const c = await h.create(); const path = `/conversations/${c.id}`;
     for (const [route, data] of [["model", { model: "unknown" }], ["effort", { effort: "high" }], ["model", { model: "small", extra: true }], ["effort", { effort: "" }]] as const) expect((await h.request(`${path}/${route}`, "POST", data)).status).toBe(400);
+    for (const effort of [undefined, 1, true, " ", [], {}, { mode: "clear" }, { mode: "default", extra: true }, "x".repeat(257)]) {
+      expect((await h.request(`${path}/effort`, "POST", { effort })).status).toBe(400);
+    }
     expect((await h.request(`${path}/model`, "POST", { model: "large" }, { origin: "https://evil.test" })).status).toBe(403);
     expect((await h.request("/conversations/missing/settings")).status).toBe(404);
     expect((await h.request(`${path}/models?limit=999`)).status).toBe(400);

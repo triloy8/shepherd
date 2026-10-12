@@ -12,7 +12,7 @@ export interface ResetCredit {
 }
 export interface ProviderAccountLimits {
   provider: ProviderId;
-  account: { plan: string | null; authentication: "subscription" | "api" | "unknown"; signedIn: boolean };
+  account: { plan: string | null; authentication: "subscription" | "api" | "unknown"; signedIn: boolean | null };
   availability: "available" | "unavailable" | "not_applicable";
   source: "provider" | "events" | "none";
   checkedAt: number | null; stale: boolean; ordinaryUsageAllowed: boolean | null;

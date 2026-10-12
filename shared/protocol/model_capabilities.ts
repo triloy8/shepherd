@@ -9,7 +9,8 @@ export interface EffortOption { value: string; description: string }
 export interface ModelCapabilities {
   /** Null means unreported, not unsupported. An empty list means no supported modalities. */
   inputModalities: readonly ModelInputModality[] | null;
-  supportedEfforts: EffortOption[];
+  /** Null means unreported; an empty array means no supported effort values. */
+  supportedEfforts: EffortOption[] | null;
   defaultEffort: string | null;
 }
 

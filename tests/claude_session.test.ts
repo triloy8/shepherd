@@ -518,7 +518,7 @@ test("per-request cache counts the SDK omits are unreported, not zero", async ()
   await session.startThread({});
   const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
   await session.startTurn([toTextUserInput("hello")]); await done(session);
-  expect(updates).toMatchObject([{ tokenUsage: { last: { inputTokens: 7, cacheReadInputTokens: null, cacheWriteInputTokens: null, outputTokens: 2, totalTokens: 9 } } }]);
+  expect(updates).toMatchObject([{ tokenUsage: { last: { inputTokens: null, cacheReadInputTokens: null, cacheWriteInputTokens: null, outputTokens: 2, totalTokens: null } } }]);
   session.stop();
 });
 

@@ -18,6 +18,7 @@ interface StoredApproval extends ApprovalRecord {
 
 export class ApprovalsStore {
   private approvals = new Map<string, StoredApproval>();
+  private key(threadId: string, approvalId: string): string { return JSON.stringify([threadId, approvalId]); }
 
   create(
     request: ApprovalRequestPayload,
@@ -33,7 +34,7 @@ export class ApprovalsStore {
       updatedAt: now,
       internalId: request.approvalId,
     };
-    this.approvals.set(request.approvalId, approval);
+    this.approvals.set(this.key(context.threadId, request.approvalId), approval);
     return this.toPublicRecord(approval);
   }
 
@@ -100,7 +101,7 @@ export class ApprovalsStore {
   }
 
   private getStoredApproval(threadId: string, approvalId: string): StoredApproval {
-    const approval = this.approvals.get(approvalId);
+    const approval = this.approvals.get(this.key(threadId, approvalId));
     if (!approval || approval.threadId !== threadId) {
       throw new ApprovalDecisionError("approval_not_found", `Approval ${approvalId} not found for thread ${threadId}.`);
     }

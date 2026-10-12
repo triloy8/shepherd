@@ -50,6 +50,7 @@ function makeContext(overrides?: {
 
   const context: ControlActionsContext = {
     conversation: {
+      getThreadState: () => ({ capabilities: { modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true } }) as never,
       async getThreadEffort(threadId) {
         return { threadId, model: "model", currentEffort: "medium", pendingEffort: null, inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [] };
       },
@@ -97,7 +98,7 @@ function makeContext(overrides?: {
         };
       },
       getThreadProvider: () => "fixture",
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, accountReset: false } }],
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, accountReset: false } }],
       async readAccount() { return account("fixture", "pro"); },
       async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
@@ -261,8 +262,8 @@ describe("ControlActionsService", () => {
       requestedModel: "later-model",
     })).resolves.toMatchObject({ ok: true, model: "later-model" });
     expect(requests).toEqual([
-      { cursor: undefined, limit: 100, includeHidden: true, provider: "fixture" },
-      { cursor: "models-page-2", limit: 100, includeHidden: true, provider: "fixture" },
+      { cursor: undefined, limit: 100, includeHidden: true, provider: "fixture", threadId: "thread-1" },
+      { cursor: "models-page-2", limit: 100, includeHidden: true, provider: "fixture", threadId: "thread-1" },
     ]);
     expect(modelWrites).toEqual([{ threadId: "thread-1", model: "later-model" }]);
   });

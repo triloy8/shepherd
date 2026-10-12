@@ -19,6 +19,7 @@ export function installWebSettings(h: ReturnType<typeof webHarness>) {
   };
   Object.assign(h.application, { getSurfaceThreadId: (id: string) => h.bindings.get(id) ?? null });
   const controls = {
+    getThreadState: h.context.ingress.getThreadState,
     getThreadModel,
     setThreadModel(threadId: string, model: string) { const state = { ...getThreadModel(threadId), pendingModel: model }; states.set(threadId, state); return state; },
     getThreadEffort,

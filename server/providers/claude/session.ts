@@ -42,12 +42,13 @@ function textItemId(messageId: string, index: number): string { return index ===
 
 /** Context fill of one model request, not the turn aggregate on the result message. */
 function requestBreakdown(usage: RequestUsage): P.TokenUsageBreakdown {
-  // An absent cache count is unreported, not zero; input still includes every reported count.
+  // Aggregate input includes cache reads/writes; absent components cannot be counted as zero.
   const cacheRead = usage.cache_read_input_tokens ?? null, cacheWrite = usage.cache_creation_input_tokens ?? null;
-  const inputTokens = (usage.input_tokens ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
-  const outputTokens = usage.output_tokens ?? 0;
+  const inputTokens = usage.input_tokens == null || cacheRead === null || cacheWrite === null
+    ? null : usage.input_tokens + cacheRead + cacheWrite;
+  const outputTokens = usage.output_tokens ?? null;
   // Per-request usage does not separate thinking from output.
-  return { inputTokens, cacheReadInputTokens: cacheRead, cacheWriteInputTokens: cacheWrite, outputTokens, reasoningOutputTokens: null, totalTokens: inputTokens + outputTokens };
+  return { inputTokens, cacheReadInputTokens: cacheRead, cacheWriteInputTokens: cacheWrite, outputTokens, reasoningOutputTokens: null, totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null };
 }
 
 /** A turn's display summary: what the user sent and the answer, falling back to the last reply. */
@@ -263,17 +264,18 @@ export class ClaudeSession implements ProviderSession {
         if (message.type === "result") {
           // A result ends the response to the queued input, so its last text is an answer.
           this.flushText("final");
-          const last = requestBreakdown(this.requestUsage ?? message.usage);
+          const last = this.requestUsage ? requestBreakdown(this.requestUsage) : null;
           this.requestUsage = null;
           const rows = Object.values(message.modelUsage);
-          const sum = (pick: (usage: ModelUsage) => number) => rows.reduce((acc, usage) => acc + pick(usage), 0);
+          const sum = (pick: (usage: ModelUsage) => number) => rows.length && rows.every(usage => Number.isFinite(pick(usage)))
+            ? rows.reduce((acc, usage) => acc + pick(usage), 0) : null;
           const inputTokens = sum(usage => usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens), outputTokens = sum(usage => usage.outputTokens);
-          const total: P.TokenUsageBreakdown = {
+          const total: P.TokenUsageBreakdown = rows.length ? {
             inputTokens, cacheReadInputTokens: sum(usage => usage.cacheReadInputTokens), cacheWriteInputTokens: sum(usage => usage.cacheCreationInputTokens), outputTokens,
             // Thinking counts are optional per model; report them only when every row has one.
             reasoningOutputTokens: rows.length && rows.every(usage => typeof usage.thinkingTokens === "number") ? sum(usage => usage.thinkingTokens ?? 0) : null,
-            totalTokens: inputTokens + outputTokens,
-          };
+            totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null,
+          } : requestBreakdown(message.usage);
           const tokenUsage: P.ThreadTokenUsage = { last, total, contextWindow: this.contextWindow(message.modelUsage) };
           this.requireThread().tokenUsage = tokenUsage;
           this.publish("thread.tokenUsage.updated", { turnId: turn?.id ?? null, tokenUsage });

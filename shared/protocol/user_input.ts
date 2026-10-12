@@ -1,4 +1,6 @@
-export type ImageDetail = "auto" | "low" | "high" | "original";
+/** Requested image resolution. Omitted means the provider chooses; `full` asks for no downscaling. */
+export const IMAGE_DETAILS = ["low", "high", "full"] as const;
+export type ImageDetail = (typeof IMAGE_DETAILS)[number];
 
 /** Application input. Adapters encode it into their native message formats. */
 export type UserInput =

@@ -19,8 +19,6 @@ type SurfaceState = {
   defaultThreadId: string | null;
   attachedThreadIds: Set<string>;
   autoCreateIfMissing: boolean;
-  defaultApprovalPolicy: ApprovalPolicy;
-  defaultSandbox?: SandboxMode;
   exclusiveThreadBinding: boolean;
 };
 
@@ -46,10 +44,9 @@ export type ConversationSurface = {
   surfaceId: string;
 };
 
+/** Host approval and sandbox defaults are applied by the session manager, per provider. */
 export type ConversationRoutingServiceOptions = {
   autoCreateIfMissing?: boolean;
-  defaultApprovalPolicy?: ApprovalPolicy;
-  defaultSandbox?: SandboxMode;
   exclusiveThreadBinding?: boolean;
 };
 
@@ -57,8 +54,6 @@ export class ConversationRoutingService {
   private readonly surfaces = new Map<SurfaceKey, SurfaceState>();
   private readonly surfaceByThread = new Map<string, SurfaceKey>();
   private readonly autoCreateIfMissing: boolean;
-  private readonly defaultApprovalPolicy: ApprovalPolicy;
-  private readonly defaultSandbox?: SandboxMode;
   private readonly exclusiveThreadBinding: boolean;
 
   constructor(
@@ -66,8 +61,6 @@ export class ConversationRoutingService {
     options: ConversationRoutingServiceOptions = {},
   ) {
     this.autoCreateIfMissing = options.autoCreateIfMissing ?? true;
-    this.defaultApprovalPolicy = options.defaultApprovalPolicy ?? "review_sensitive";
-    this.defaultSandbox = options.defaultSandbox;
     this.exclusiveThreadBinding = options.exclusiveThreadBinding ?? false;
   }
 
@@ -148,8 +141,8 @@ export class ConversationRoutingService {
       throw new Error("No routing target available for this surface.");
     }
     const created = await this.manager.createThread({
-      approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
-      sandbox: input.sandboxHint ?? surface.defaultSandbox,
+      ...(input.approvalPolicyHint ? { approvalPolicy: input.approvalPolicyHint } : {}),
+      ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
       cwd: input.cwd,
     });
     await this.setDefaultThread(input.adapter, input.surfaceId, created.threadId);
@@ -172,8 +165,6 @@ export class ConversationRoutingService {
       defaultThreadId: null,
       attachedThreadIds: new Set<string>(),
       autoCreateIfMissing: this.autoCreateIfMissing,
-      defaultApprovalPolicy: this.defaultApprovalPolicy,
-      defaultSandbox: this.defaultSandbox,
       exclusiveThreadBinding: this.exclusiveThreadBinding,
     };
     this.surfaces.set(key, created);

@@ -27,7 +27,8 @@ export interface ProviderAccountLimits {
     remainingPercent: number | null; resetsAt: number | null; reached: boolean | null;
     observedAt: number; stale: boolean;
   }>;
-  resets: { supported: boolean; availableCount: number | null; credits: ResetCredit[] | null };
+  /** Availability data only; operation support is ProviderCapabilities.accountReset. */
+  resets: { availableCount: number | null; credits: ResetCredit[] | null };
   message: string | null;
 }
 

@@ -127,9 +127,9 @@ test("live image events receive a scoped asset URL before entering the event fee
   const reader = response.body!.getReader();
   try {
     await reader.read(); // connection comment
-    h.publish(conversation.id, { id: "image-event", type: "turn.image.generated", threadId: conversation.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { itemId: "image", turnId: "turn", path: "/missing.png", revisedPrompt: "Image" } });
+    h.publish(conversation.id, { id: "image-event", type: "turn.image.generated", threadId: conversation.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { itemId: "image", turnId: "turn", path: "/missing.png", prompt: "Image" } });
     const chunk = new TextDecoder().decode((await reader.read()).value);
     expect(chunk).toContain(`/api/conversations/${conversation.id}/images/`);
-    expect(chunk).toContain('"revisedPrompt":"Image"');
+    expect(chunk).toContain('"prompt":"Image"');
   } finally { await reader.cancel(); h.api.dispose(); }
 });

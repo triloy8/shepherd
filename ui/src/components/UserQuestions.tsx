@@ -18,7 +18,7 @@ export function UserQuestions({ request, busy, decide }: { request: ApprovalReco
   return <form className="approval-card" aria-label="Questions from Shepherd" onSubmit={event => {
     event.preventDefault();
     if (busy || !complete) return;
-    const answers = Object.fromEntries(input.questions.map(q => [q.id, { answers: answersFor(q) }]));
+    const answers = Object.fromEntries(input.questions.map(q => [q.id, answersFor(q)]));
     void decide(request.approvalId, request.choices.find(choice => choice.intent === "answer")!.value, answers);
   }}>
     <div className="flex items-center gap-2 text-sm font-medium text-accent"><Icon name="chat" />{input.isBlocking ? "Waiting for your answer" : "Shepherd has a question"}</div>

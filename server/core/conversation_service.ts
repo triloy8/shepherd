@@ -54,7 +54,7 @@ import {
   type DynamicToolRegistration,
 } from "./dynamic_tool_registry.js";
 import { SessionManager } from "./session_manager.js";
-import type { RuntimeActivity } from "./session_manager.js";
+import type { RuntimeActivity, ThreadDefaults } from "./session_manager.js";
 
 type EventCursorOptions = string | { afterId?: string; replay?: boolean } | undefined;
 
@@ -72,6 +72,7 @@ function toSurfaceKey(adapter: string, surfaceId: string): string {
 export type ConversationServiceOptions = {
   routing?: ConversationRoutingServiceOptions;
   providers?: ProviderServices;
+  threadDefaults?: ThreadDefaults;
 };
 
 export class ConversationService {
@@ -83,7 +84,7 @@ export class ConversationService {
 
   constructor(options: ConversationServiceOptions = {}) {
     this.providerServices = options.providers;
-    this.manager = new SessionManager(this.dynamicTools, options.providers?.createSession, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers, options.providers?.defaultProvider);
+    this.manager = new SessionManager(this.dynamicTools, options.providers?.createSession, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers, options.providers?.defaultProvider, options.threadDefaults);
     this.routing = new ConversationRoutingService(this.manager, options.routing);
   }
 
@@ -261,6 +262,7 @@ export class ConversationService {
   }
   async resetAccount(provider: string, input: import("../../shared/protocol/account_limits.js").AccountResetRequest) {
     const account = this.providerServices?.accounts.get(provider);
+    // Registration guarantees that accountReset is declared exactly when reset is implemented.
     if (!account?.reset) throw new Error("Provider resets are unavailable.");
     return account.reset(input);
   }
@@ -273,7 +275,7 @@ export class ConversationService {
     return this.manager.getThreadEffort(threadId, model);
   }
 
-  setThreadEffort(threadId: string, effort: string): Promise<ThreadEffortState> {
+  setThreadEffort(threadId: string, effort: string | null): Promise<ThreadEffortState> {
     return this.manager.setThreadEffort(threadId, effort);
   }
 

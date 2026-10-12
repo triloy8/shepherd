@@ -4,7 +4,7 @@ import type { ProviderSession } from "../../server/ports/provider_session.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import type { HistoryTurn } from "../../shared/protocol/requests.js";
-export const descriptor: ProviderDescriptor = { id: "unrelated-provider", displayName: "An unrelated agent", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: false, questions: true, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, resets: false } };
+export const descriptor: ProviderDescriptor = { id: "unrelated-provider", displayName: "An unrelated agent", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: false, questions: true, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, accountReset: false } };
 
 /** Implements the actual port directly; no SDK session, proxy, or compatibility methods. */
 export class IndependentSession implements ProviderSession {
@@ -36,7 +36,6 @@ export class IndependentSession implements ProviderSession {
   stop() { this.stopped = true; }
   private emit<K extends BridgeEventType>(type: K, payload: BridgeEventPayloads[K]) { this.eventBus.publish(bridgeEvent({ id: crypto.randomUUID(), type, payload, threadId: this.threadId, sessionId: this.sessionId, ts: new Date().toISOString() })); }
   async listStoredThreads() { return { data: [{ id: this.threadId, cwd: this.cwd }], nextCursor: null }; }
-  async listLoadedThreads() { return { data: this.threadId ? [this.threadId] : [], nextCursor: null }; }
   async readThread(threadId: string) { return { thread: { id: threadId, cwd: this.cwd, model: "third-model" } }; }
   async listThreadTurns() { return { data: this.turns, nextCursor: null, backwardsCursor: null }; }
   async listThreadItems() { return { data: this.turns.flatMap(turn => turn.items.map(item => ({ turnId: turn.id, item }))), nextCursor: null, backwardsCursor: null }; }

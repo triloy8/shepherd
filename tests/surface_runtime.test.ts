@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import { homedir } from "node:os";
 
+import { descriptor } from "./helpers/independent_provider.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import { createSurfaceRuntime } from "../server/runtime/surface_runtime.js";
 
@@ -15,6 +16,7 @@ function makeConversation() {
     createdThreads,
     threadCwds,
     conversation: {
+      listProviders() { return [descriptor]; },
       getSurfaceThread(_adapter: string, _surfaceId: string) {
         return "thread-current";
       },
@@ -80,8 +82,6 @@ describe("Discord surface runtime", () => {
     const runtime = createSurfaceRuntime({
       adapter: "discord",
       conversation: conversation as never,
-      approvalPolicy: "review_sensitive",
-      defaultSandbox: "workspace_write",
       onThreadEvent: (surfaceId, event) => events.push({ surfaceId, event }),
       async cloneGithubRepo() {},
       async resolveGithubRepo(slug) {
@@ -114,8 +114,6 @@ describe("Discord surface runtime", () => {
     const runtime = createSurfaceRuntime({
       adapter: "discord",
       conversation: conversation as never,
-      approvalPolicy: "review_sensitive",
-      defaultSandbox: "workspace_write",
       onThreadEvent: (surfaceId, event) => events.push({ surfaceId, event }),
       async cloneGithubRepo() {},
       async resolveGithubRepo(slug) {
@@ -131,10 +129,7 @@ describe("Discord surface runtime", () => {
     await expect(runtime.commandContext.createSurfaceThread("chan-1")).resolves.toBe("thread-created");
     expect(createdThreads).toHaveLength(1);
     expect(createdThreads[0]?.surfaceId).toBe("chan-1");
-    expect(createdThreads[0]?.request).toEqual({
-      approvalPolicy: "review_sensitive",
-      sandbox: "workspace_write",
-    });
+    expect(createdThreads[0]?.request).toEqual({});
     expect(threadCwds).toEqual([
       {
         threadId: "thread-created",

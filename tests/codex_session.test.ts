@@ -228,7 +228,7 @@ describe("CodexSession app-server contract", () => {
     };
 
     await session.readAccountRateLimits();
-    await session.listSkills({ cwds: ["/workspace"], forceReload: true });
+    await session.listSkills({ workspacePath: "/workspace", refresh: true });
 
     expect(requests).toEqual([
       { method: "account/rateLimits/read", params: undefined },
@@ -452,7 +452,7 @@ describe("CodexSession app-server contract", () => {
       itemId: "image-1",
       turnId: "turn-1",
       path: "/tmp/generated-unicorn.png",
-      revisedPrompt: "A pastel unicorn",
+      prompt: "A pastel unicorn",
     });
   });
 

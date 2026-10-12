@@ -35,9 +35,9 @@ export function selectSkillsPage(result: SkillsListResponse, page: number, pageS
 
 export async function loadSkillsPage(
   source: { listSkills(threadId: string, request: SkillsListRequest): Promise<SkillsListResponse> },
-  request: { threadId: string; page: number; pageSize: number; forceReload?: boolean },
+  request: { threadId: string; page: number; pageSize: number; refresh?: boolean },
 ): Promise<SkillsPage> {
   const result = await source.listSkills(request.threadId,
-    request.forceReload === undefined ? {} : { forceReload: request.forceReload });
+    request.refresh === undefined ? {} : { refresh: request.refresh });
   return selectSkillsPage(result, request.page, request.pageSize);
 }

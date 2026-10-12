@@ -5,7 +5,7 @@ async page => {
   const now = Date.now() / 1000;
   const credit = (id, title, overrides = {}) => ({ id, title, supported: true, status: 'available',
     grantedAt: now - 100, expiresAt: null, description: null, ...overrides });
-  let resets = { supported: true, availableCount: 2,
+  let resets = { availableCount: 2,
     credits: [credit('first', 'First reset'), credit('second', 'Second reset')] };
   let failRead = false;
   const snapshot = () => ({ provider: 'codex', account: { plan: 'fixture', authentication: 'subscription', signedIn: true },
@@ -70,13 +70,13 @@ async page => {
     await panel.getByRole('button', { name: 'Refresh usage', exact: true }).click();
     await loaded; await panel.getByText('Loading…', { exact: true }).waitFor({ state: 'hidden' });
   };
-  resets = { supported: true, availableCount: 2, credits: [credit('expired', 'Expired reset', { expiresAt: now - 1 }), credit('redeeming', 'Pending reset', { status: 'redeeming' }), credit('unsupported', 'Unsupported reset', { supported: false })] };
+  resets = { availableCount: 2, credits: [credit('expired', 'Expired reset', { expiresAt: now - 1 }), credit('redeeming', 'Pending reset', { status: 'redeeming' }), credit('unsupported', 'Unsupported reset', { supported: false })] };
   await refresh();
   for (const title of ['Expired reset', 'Pending reset', 'Unsupported reset']) if (!(await specific(title).isDisabled())) throw Error(`${title} was selectable`);
-  resets = { supported: true, availableCount: 0, credits: [] }; await refresh();
+  resets = { availableCount: 0, credits: [] }; await refresh();
   await panel.getByText('Banked resets: 0', { exact: true }).waitFor();
   if (!(await generic.isDisabled())) throw Error('Zero resets offered');
-  resets = { supported: true, availableCount: null, credits: null }; await refresh();
+  resets = { availableCount: null, credits: null }; await refresh();
   await panel.getByText('Banked resets: Unknown', { exact: true }).waitFor();
   failRead = true; await refresh();
   await panel.getByRole('alert').filter({ hasText: 'Limits unavailable' }).waitFor();

@@ -47,9 +47,11 @@ export interface LoadedThreadPage { data: string[]; nextCursor: string | null; }
 
 export interface ProviderHistory {
   listStoredThreads(request: Protocol.ListStoredThreadsRequest): Promise<StoredThreadPage>;
-  listLoadedThreads(request: Protocol.ListLoadedThreadsRequest): Promise<LoadedThreadPage>;
+  /** Optional: threads the provider keeps loaded outside Shepherd's own sessions, which core already lists. */
+  listLoadedThreads?(request: Protocol.ListLoadedThreadsRequest): Promise<LoadedThreadPage>;
   readThread(threadId: string, includeTurns: boolean): Promise<Protocol.ReadThreadResponse>;
   listThreadTurns(threadId: string, request: Protocol.ListThreadTurnsRequest): Promise<Protocol.ListThreadTurnsResponse>;
+  /** Required application history: Discord's turn drill-down pages use individual items. */
   listThreadItems(threadId: string, request: Protocol.ListThreadItemsRequest): Promise<Protocol.ListThreadItemsResponse>;
   setThreadName?(threadId: string, name: string): Promise<void>;
   archiveThread?(threadId: string): Promise<void>;
@@ -58,9 +60,12 @@ export interface ProviderHistory {
   revertThread?(threadId: string, beforeTurnId: string): Promise<Protocol.RevertThreadResponse>;
 }
 
+/** Discovery is scoped to the effective workspace of the requesting conversation. */
+export type ProviderSkillsRequest = Protocol.SkillsListRequest & { workspacePath: string };
+
 export interface ProviderCatalog {
   listModels?(request: Protocol.ListModelsRequest): Promise<Protocol.ListModelsResponse>;
-  listSkills?(request: Protocol.SkillsListRequest): Promise<Protocol.SkillsListResponse>;
+  listSkills?(request: ProviderSkillsRequest): Promise<Protocol.SkillsListResponse>;
   writeSkillConfig?(request: Protocol.SkillsConfigWriteRequest): Promise<Protocol.SkillsConfigWriteResponse>;
 }
 

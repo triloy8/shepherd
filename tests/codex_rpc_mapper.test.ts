@@ -148,7 +148,7 @@ describe("Codex RPC activity mapping", () => {
       itemId: "image-1",
       turnId: "turn-1",
       path: "/tmp/generated-unicorn.png",
-      revisedPrompt: "A pastel unicorn",
+      prompt: "A pastel unicorn",
     });
     expect(
       extractGeneratedImageArtifact(

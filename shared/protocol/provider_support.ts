@@ -1,9 +1,20 @@
 import type { ProviderCapabilities, ProviderOperation } from "./provider_capabilities.js";
-import type { ApprovalPolicy, CreateThreadRequest } from "./requests.js";
+import type { ApprovalPolicy, CreateThreadRequest, SandboxMode } from "./requests.js";
 import type { UserInput } from "./user_input.js";
 
 export class UnsupportedProviderOperationError extends Error {
   constructor(provider: string, operation: string) { super(`${provider} provider does not support ${operation}.`); }
+}
+
+/** Host-wide preferences. Unlike request values, they apply only where the thread's provider supports them. */
+export type ThreadDefaults = { approvalPolicy?: ApprovalPolicy; sandbox?: SandboxMode };
+
+/** Host defaults a provider cannot honor; that provider keeps its own default for the setting instead. */
+export function unsupportedThreadDefaults(defaults: ThreadDefaults, capabilities: ProviderCapabilities): Array<keyof ThreadDefaults> {
+  return [
+    ...(defaults.approvalPolicy && !capabilities.approvalModes.includes(defaults.approvalPolicy) ? ["approvalPolicy" as const] : []),
+    ...(defaults.sandbox && !capabilities.sandboxModes.includes(defaults.sandbox) ? ["sandbox" as const] : []),
+  ];
 }
 
 export function assertApprovalSupport(provider: string, capabilities: ProviderCapabilities, policy: ApprovalPolicy): void {

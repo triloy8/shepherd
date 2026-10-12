@@ -5,7 +5,7 @@ import { SurfaceConversationOrchestrator } from "../server/core/surface_conversa
 import { SurfaceStateService } from "../server/core/surface_state_service.js";
 import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
 
-function makeHarness(options: { provisioningFailures?: number } = {}) {
+function makeHarness(options: { provisioningFailures?: number; workspaceChange?: boolean } = {}) {
   const calls = {
     createSurfaceThread: [] as Array<{ adapter: string; surfaceId: string; request: Record<string, unknown> }>,
     resumeThread: [] as Array<{ threadId: string; request: Record<string, unknown> }>,
@@ -21,6 +21,10 @@ function makeHarness(options: { provisioningFailures?: number } = {}) {
   const surfaceThreads = new Map<string, string | null>();
   let provisioningFailures = options.provisioningFailures ?? 0;
   const conversation = {
+    listProviders() {
+      return [{ id: "agent", displayName: "Agent", isDefault: true, capabilities: { fork: true, workspaceChange: options.workspaceChange ?? true } }];
+    },
+    getThreadProvider(_threadId: string) { return "agent"; },
     getSurfaceThread(adapter: string, surfaceId: string) {
       return surfaceThreads.get(`${adapter}:${surfaceId}`) ?? null;
     },
@@ -68,6 +72,10 @@ function makeHarness(options: { provisioningFailures?: number } = {}) {
   const surfaceState = new SurfaceStateService();
   const workspaceProvisioner = {
     async requireExistingWorkspace(_cwd: string) {},
+    async reserveWorkspace(target: unknown, threadId: string) {
+      const result = await this.provisionWorkspace(target, threadId);
+      return { ...result, rollback: async () => {} };
+    },
     async provisionWorkspace(_target: unknown, threadId: string) {
       calls.provisionWorkspace.push({ threadId });
       if (provisioningFailures > 0) {
@@ -82,7 +90,7 @@ function makeHarness(options: { provisioningFailures?: number } = {}) {
     conversation as never,
     surfaceState,
     workspaceProvisioner,
-    { adapter: "discord", approvalPolicy: "review_sensitive", sandbox: "workspace_write" },
+    { adapter: "discord" },
   );
 
   return { orchestrator, surfaceState, calls, conversation, workspaceProvisioner };
@@ -117,10 +125,8 @@ describe("SurfaceConversationOrchestrator", () => {
 
     expect(threadId).toBe("thread-created");
     expect(calls.createSurfaceThread).toHaveLength(1);
-    expect(calls.createSurfaceThread[0]?.request).toEqual({
-      approvalPolicy: "review_sensitive",
-      sandbox: "workspace_write",
-    });
+    // Host approval and sandbox defaults are applied per provider by the conversation service.
+    expect(calls.createSurfaceThread[0]?.request).toEqual({});
     expect(calls.provisionWorkspace).toEqual([{ threadId: "thread-created" }]);
     expect(calls.setThreadCwd).toEqual([{ threadId: "thread-created", cwd: "/tmp/thread-created" }]);
     expect(calls.subscribeSurfaceEvents).toHaveLength(1);
@@ -182,8 +188,25 @@ describe("SurfaceConversationOrchestrator", () => {
     });
     expect(calls.resumeThread).toContainEqual({
       threadId: "thread-missing",
-      request: { cwd: "/saved/thread-missing", sandbox: "workspace_write" },
+      request: { cwd: "/saved/thread-missing" },
     });
+  });
+
+  test("starts threads in a provisioned workspace when the provider cannot change workspaces", async () => {
+    const { orchestrator, calls } = makeHarness({ workspaceChange: false });
+    await orchestrator.setSurfaceProject("chan-1", "~");
+
+    const created = await orchestrator.createAndBindSurfaceThread("chan-1", () => undefined);
+    const forked = await orchestrator.forkSurfaceThread("chan-1", created, () => undefined);
+
+    expect(forked).toBe("thread-forked");
+    expect(calls.provisionWorkspace).toHaveLength(2);
+    const [createdWorkspace, forkedWorkspace] = calls.provisionWorkspace.map(({ threadId }) => threadId);
+    expect(createdWorkspace).not.toBe("thread-created");
+    expect(forkedWorkspace).not.toBe(createdWorkspace);
+    expect(calls.createSurfaceThread[0]?.request).toEqual({ cwd: `/tmp/${createdWorkspace}` });
+    expect(calls.forkThread[0]?.request).toEqual({ cwd: `/tmp/${forkedWorkspace}` });
+    expect(calls.setThreadCwd).toEqual([]);
   });
 
   test("clears surface thread bindings and subscriptions", () => {

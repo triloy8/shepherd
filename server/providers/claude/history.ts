@@ -48,7 +48,7 @@ export function historyItem(value: unknown, turnId: string): HistoryItem {
   if (type === "image") {
     const image = record(item.image);
     if (typeof image.path === "string" && (image.kind === "generated" || image.kind === "viewed")) {
-      return { id, type, image: { itemId: id, turnId, path: image.path, kind: image.kind, revisedPrompt: typeof image.revisedPrompt === "string" ? image.revisedPrompt : null }, ...(decoded ? { activity: decoded } : {}) };
+      return { id, type, image: { itemId: id, turnId, path: image.path, kind: image.kind, prompt: typeof image.prompt === "string" ? image.prompt : typeof image.revisedPrompt === "string" ? image.revisedPrompt : null }, ...(decoded ? { activity: decoded } : {}) };
     }
   }
   if (type === "activity" && decoded) {

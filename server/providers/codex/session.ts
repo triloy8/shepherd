@@ -7,6 +7,7 @@ import { codexItemsView, codexPhase, historyItem, historyTurn, type NativeItemsV
 import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
 import { decodeResetOutcome } from "./account_usage.js";
 import { codexCapabilities } from "./capabilities.js";
+import type { ProviderSkillsRequest } from "../../ports/provider_session.js";
 import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline, { type Interface as ReadlineInterface } from "node:readline";
@@ -37,7 +38,6 @@ import type {
   ResumeThreadRequest,
   SkillsConfigWriteRequest,
   SkillsConfigWriteResponse,
-  SkillsListRequest,
   SkillsListResponse,
 } from "../../../shared/protocol/requests.js";
 import type { ConsumeRateLimitResetRequest } from "./account_types.js";
@@ -465,11 +465,11 @@ export class CodexSession implements ProviderSession {
     }));
   }
 
-  async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
+  async listSkills(request: ProviderSkillsRequest): Promise<SkillsListResponse> {
     await this.initialize();
     return codexSkills(await this.sendRequest("skills/list", {
-      ...(request.cwds ? { cwds: request.cwds } : {}),
-      ...(request.forceReload !== undefined ? { forceReload: request.forceReload } : {}),
+      cwds: [request.workspacePath],
+      ...(request.refresh !== undefined ? { forceReload: request.refresh } : {}),
     }));
   }
 
@@ -556,7 +556,7 @@ export class CodexSession implements ProviderSession {
       const input = parseUserQuestionRequest(rawRequest.params);
       if (decision.decision === "submit") {
         validateUserQuestionAnswers(input.questions, decision.answers);
-        payload = { answers: decision.answers };
+        payload = { answers: Object.fromEntries(Object.entries(decision.answers).map(([id, answers]) => [id, { answers }])) };
       } else if (decision.decision === "cancel") payload = { answers: {} };
       else throw new Error("Invalid user input decision.");
     } else payload = typeof nativeDecision === "string" ? this.mapDecisionPayload(method, decision) : nativeDecision;

@@ -12,7 +12,9 @@ async page => {
   await open();
   const model = page.getByRole('combobox', { name: 'Model for next turn', exact: true });
   const effort = page.getByRole('combobox', { name: 'Effort for next turn', exact: true });
-  await effort.selectOption('default');
+  // The model-default option carries no provider effort value.
+  const modelDefault = await effort.locator('option', { hasText: 'Model default' }).getAttribute('value');
+  await effort.selectOption(modelDefault);
   await page.getByRole('button', { name: 'More models', exact: true }).click();
   await model.selectOption('large');
   const catalogRequests = modelRequests;
@@ -28,19 +30,19 @@ async page => {
   await completed;
   if (modelRequests !== catalogRequests) throw Error('Turn lifecycle refetched the model catalog');
   if (await model.locator('option[value="large"]').count() !== 1) throw Error('Turn lifecycle discarded paginated models');
-  if (await model.inputValue() !== 'large' || await effort.inputValue() !== 'default') throw Error('Turn activity overwrote unsaved settings');
+  if (await model.inputValue() !== 'large' || await effort.inputValue() !== modelDefault) throw Error('Turn activity overwrote unsaved settings');
   const refreshed = page.waitForResponse(settingsResponse);
   await page.getByRole('button', { name: 'Refresh settings', exact: true }).click();
   await refreshed;
   await page.getByRole('button', { name: 'Use model', exact: true }).waitFor();
-  if (await model.inputValue() !== 'large' || await effort.inputValue() !== 'default') throw Error('Refresh overwrote unsaved settings');
+  if (await model.inputValue() !== 'large' || await effort.inputValue() !== modelDefault) throw Error('Refresh overwrote unsaved settings');
   await page.getByRole('button', { name: 'Use model', exact: true }).click();
   await page.getByText('Saved. Applies to the next new turn and subsequent turns.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Use effort', exact: true }).waitFor();
-  if (await effort.inputValue() !== 'default') throw Error('Saving model overwrote unsaved effort');
+  if (await effort.inputValue() !== modelDefault) throw Error('Saving model overwrote unsaved effort');
   await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   await open();
-  await page.waitForFunction(() => document.querySelector('[aria-label="Effort for next turn"]').value === 'low');
+  await page.waitForFunction(() => document.querySelector('[aria-label="Effort for next turn"]').selectedOptions[0]?.textContent === 'low');
   if (await model.inputValue() !== 'large') throw Error('Reopening did not load saved model');
   await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   return 'Unsaved model and effort survive turn start/completion, refresh and independent saves; reopening loads server values';

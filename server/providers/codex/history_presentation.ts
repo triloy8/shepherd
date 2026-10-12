@@ -8,7 +8,7 @@ export type GeneratedImageArtifact = {
   itemId: string;
   turnId: string | null;
   path: string;
-  revisedPrompt: string | null;
+  prompt: string | null;
 };
 export type ViewedImageArtifact = Pick<GeneratedImageArtifact, "itemId" | "turnId" | "path">;
 
@@ -36,7 +36,7 @@ export function extractGeneratedImageArtifact(params: unknown): GeneratedImageAr
     itemId,
     turnId: extractTurnId(params),
     path: savedPath,
-    revisedPrompt: asString(item.revisedPrompt),
+    prompt: asString(item.revisedPrompt),
   };
 }
 

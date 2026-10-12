@@ -47,7 +47,8 @@ export type WebLimitsResponse = import("./account_limits.js").ProviderAccountLim
 export type WebResetRequest = import("./account_limits.js").AccountResetRequest;
 export type WebResetResponse = import("./account_limits.js").AccountResetResponse;
 export type WebModelRequest = { model: string };
-export type WebEffortRequest = { effort: string };
+/** Null selects the model's default effort; strings are provider-defined effort values. */
+export type WebEffortRequest = { effort: string | null };
 
 export type WebRenameRequest = { name: string };
 

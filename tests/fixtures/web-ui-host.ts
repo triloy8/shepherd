@@ -18,15 +18,15 @@ const createThread = h.application.createSurfaceThread;
 h.application.createSurfaceThread = async (id, provider = "codex") => { const threadId = await createThread(id); threadProviders.set(threadId, provider); return threadId; };
 Object.assign(h.application.conversation, {
   listProviders: () => [
-    { id: "codex", displayName: "Codex", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: ["read_only", "workspace_write", "unrestricted"], approvalModes: ["provider_default", "review_sensitive", "review_untrusted", "bypass"], inputKinds: ["text", "image", "image_file", "audio", "audio_file", "skill"], imageDetail: true, ephemeralThreads: true, resets: true } },
-    { id: "claude", displayName: "Claude", isDefault: false, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: false, questions: true, skills: false, compact: false, revert: false, fork: true, sandboxModes: ["unrestricted"], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image"], imageDetail: false, ephemeralThreads: false, resets: false } },
-    { id: "fixture-text-only", displayName: "Text agent", isDefault: false, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: false, questions: false, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive"], inputKinds: ["text"], imageDetail: false, ephemeralThreads: false, resets: false } },
+    { id: "codex", displayName: "Codex", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: ["read_only", "workspace_write", "unrestricted"], approvalModes: ["provider_default", "review_sensitive", "review_untrusted", "bypass"], inputKinds: ["text", "image", "image_file", "audio", "audio_file", "skill"], imageDetail: true, ephemeralThreads: true, accountReset: true } },
+    { id: "claude", displayName: "Claude", isDefault: false, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: false, questions: true, skills: false, compact: false, revert: false, fork: true, sandboxModes: ["unrestricted"], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image"], imageDetail: false, ephemeralThreads: false, accountReset: false } },
+    { id: "fixture-text-only", displayName: "Text agent", isDefault: false, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelSelection: true, effortSelection: true, skillConfig: false, questions: false, skills: false, compact: false, revert: false, fork: false, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive"], inputKinds: ["text"], imageDetail: false, ephemeralThreads: false, accountReset: false } },
   ],
   getThreadProvider: (threadId: string) => threadProviders.get(threadId) ?? "codex",
   async readAccount(provider: string) {
     return { provider, account: { plan: provider === "claude" ? "Max" : "Pro", authentication: "subscription", signedIn: true }, availability: "available", source: "provider", checkedAt: Date.now() / 1000, stale: false, ordinaryUsageAllowed: true,
       windows: [{ id: "session", groupId: null, label: "Session allowance", subtitle: "Five-hour window", durationMinutes: 300, usedPercent: provider === "claude" ? 37 : 25, resetsAt: 2000000000, status: "available", observedAt: Date.now() / 1000, stale: false }],
-      extraUsage: null, spendControls: [], resets: { supported: provider === "codex", availableCount: provider === "codex" ? 2 : null, credits: null }, message: null };
+      extraUsage: null, spendControls: [], resets: { availableCount: provider === "codex" ? 2 : null, credits: null }, message: null };
   },
   async resetAccount() { return { outcome: "reset" }; },
 });
@@ -129,7 +129,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   later(120, () => {
     if (h.active.get(threadId) !== turnId) return;
     if (text.includes("generate unicorn")) {
-      const image = { itemId: `generated-${sequence}`, turnId, path: generatedImagePath, revisedPrompt: "A white unicorn in an enchanted meadow" };
+      const image = { itemId: `generated-${sequence}`, turnId, path: generatedImagePath, prompt: "A white unicorn in an enchanted meadow" };
       turn.items.push({ id: image.itemId, type: "image", image: { ...image, kind: "generated" } });
       publish(threadId, "turn.image.generated", image);
     } else publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final", textDelta: text.includes("mermaid streaming") ? mermaidResponse.slice(0, mermaidResponse.indexOf("Ship")) : text.includes("markdown streaming") ? markdownResponse.slice(0, markdownResponse.indexOf("42")) : "Let’s make it happen." });
@@ -155,9 +155,9 @@ h.context.ingress.submitTurn = async (threadId, request) => {
       const tool = { id: `tool-${sequence}`, command: "bun test" };
       turn.items.push({ id: tool.id, type: "activity", activity: activity(tool.id, turnId, "command", "Running command", tool.command, "failed") });
       publish(threadId, "turn.activity", { itemId: tool.id, turnId, kind: "command", label: "Running command", detail: tool.command, status: "failed" });
-      const image = { id: `image-${sequence}`, revisedPrompt: "Fixture image" };
-      turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, revisedPrompt: image.revisedPrompt, kind: "generated" }, activity: activity(image.id, turnId, "image", "Generating image", image.revisedPrompt, "completed") });
-      publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: imagePath, revisedPrompt: image.revisedPrompt });
+      const image = { id: `image-${sequence}`, prompt: "Fixture image" };
+      turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, prompt: image.prompt, kind: "generated" }, activity: activity(image.id, turnId, "image", "Generating image", image.prompt, "completed") });
+      publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: imagePath, prompt: image.prompt });
       const final = { id: `final-${sequence}`, type: "assistant_message" as const, phase: "final" as const, text: "Second final answer part." };
       turn.items.push(final);
       publish(threadId, "turn.message.completed", { itemId: final.id, turnId, phase: final.phase, text: final.text });
@@ -205,7 +205,7 @@ h.context.approvals.applyApprovalDecision = async (threadId, id, decision) => {
   h.approvals.markDecided(threadId, id, decision); h.approvals.markApplied(threadId, id);
   if (request?.userInput) {
     const turn = histories.get(threadId)!.at(-1)!;
-    const text = request.choices.find(choice => choice.value === decision.decision)?.intent === "cancel" ? "Questions skipped. No provider choice was submitted." : `Thanks. I’ll use your answer: **${decision.answers?.provider?.answers[0]}**.`;
+    const text = request.choices.find(choice => choice.value === decision.decision)?.intent === "cancel" ? "Questions skipped. No provider choice was submitted." : `Thanks. I’ll use your answer: **${decision.answers?.provider?.[0]}**.`;
     const message = { id: `answer-${++sequence}`, type: "assistant_message" as const, phase: "final" as const, text };
     turn.items.push(message);
     publish(threadId, "turn.message.completed", { itemId: message.id, turnId: turn.id, phase: "final", text });

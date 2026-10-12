@@ -10,37 +10,54 @@ import { claudeCapabilities } from "../providers/claude/capabilities.js";
 import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
 import { ClaudeThreadStore } from "../providers/claude/file_thread_store.js";
 import { ClaudeModelCache } from "../providers/claude/model_cache.js";
-import { assembleProviderServices } from "./provider_registration.js";
+import { assembleProviderServices, describeThreadDefaults, type ProviderRegistration } from "./provider_registration.js";
+import type { ThreadDefaults } from "../../shared/protocol/provider_support.js";
 
-/** Installed adapters. Provider identities and implementations meet only at production composition. */
-export const installedProviders = ["codex", "claude"] as const;
+/** One source for installed identities, configuration checks and runtime registrations.
+ * Reading metadata never starts clients or opens provider storage. */
+const installedDefinitions = [
+  {
+    id: "codex", displayName: "Codex", capabilities: codexCapabilities,
+    register() {
+      const account = new CodexAccount();
+      return {
+        create: (policy, tools) => new CodexSession(policy, tools),
+        account, hasStoredThreads: () => true,
+        ownsStoredThread: id => codexOwnsStoredThread(id),
+        shutdown: () => account.stop(),
+      } satisfies Omit<ProviderRegistration, "id" | "displayName" | "capabilities">;
+    },
+  },
+  {
+    id: "claude", displayName: "Claude", capabilities: claudeCapabilities,
+    register() {
+      const store = new ClaudeThreadStore();
+      const limits = new ClaudeAccountLimits();
+      const models = new ClaudeModelCache();
+      return {
+        create: (policy, tools) => new ClaudeSession(policy, tools, store, undefined, limits, models),
+        account: { read: refresh => limits.readAccount(refresh) },
+        hasStoredThreads: () => store.hasThreads(),
+        ownsStoredThread: id => store.list().some(thread => thread.id === id),
+        shutdown: () => limits.stop(),
+      } satisfies Omit<ProviderRegistration, "id" | "displayName" | "capabilities">;
+    },
+  },
+];
+
+export const installedProviders = installedDefinitions.map(definition => definition.id);
 const fallbackDefaultProvider = "codex";
 
 export function assertInstalledProvider(id: string): void {
-  if (!(installedProviders as readonly string[]).includes(id)) throw new Error(`SHEPHERD_DEFAULT_PROVIDER must be one of ${installedProviders.join(", ")}.`);
+  if (!installedProviders.includes(id)) throw new Error(`SHEPHERD_DEFAULT_PROVIDER must be one of ${installedProviders.join(", ")}.`);
+}
+
+export function threadDefaultNotices(defaults: ThreadDefaults): string[] {
+  return describeThreadDefaults(defaults, installedDefinitions);
 }
 
 export function createProviderServices(defaultProvider: string = fallbackDefaultProvider): ProviderServices {
   assertInstalledProvider(defaultProvider);
-  const store = new ClaudeThreadStore();
-  const claudeLimits = new ClaudeAccountLimits();
-  const claudeModels = new ClaudeModelCache();
-  const codexAccount = new CodexAccount();
-  return assembleProviderServices([
-    {
-      id: "codex", displayName: "Codex", capabilities: codexCapabilities,
-      create: (policy, tools) => new CodexSession(policy, tools),
-      account: codexAccount, hasStoredThreads: () => true,
-      ownsStoredThread: id => codexOwnsStoredThread(id),
-      shutdown: () => codexAccount.stop(),
-    },
-    {
-      id: "claude", displayName: "Claude", capabilities: claudeCapabilities,
-      create: (policy, tools) => new ClaudeSession(policy, tools, store, undefined, claudeLimits, claudeModels),
-      account: { read: refresh => claudeLimits.readAccount(refresh) },
-      hasStoredThreads: () => store.hasThreads(),
-      ownsStoredThread: id => store.list().some(thread => thread.id === id),
-      shutdown: () => claudeLimits.stop(),
-    },
-  ], process.env.SHEPHERD_PROVIDER_STATE_DIR ?? join(homedir(), ".shepherd", "providers"), defaultProvider);
+  return assembleProviderServices(installedDefinitions.map(({ register, ...definition }) => ({ ...definition, ...register() })),
+    process.env.SHEPHERD_PROVIDER_STATE_DIR ?? join(homedir(), ".shepherd", "providers"), defaultProvider);
 }

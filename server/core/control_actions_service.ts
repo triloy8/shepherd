@@ -18,7 +18,7 @@ import type { AgentProvider } from "../../shared/protocol/requests.js";
 type ControlConversation = {
   getThreadProvider: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
   getThreadEffort: (threadId: string, model?: string) => Promise<ThreadEffortState>;
-  setThreadEffort: (threadId: string, effort: string) => Promise<ThreadEffortState>;
+  setThreadEffort: (threadId: string, effort: string | null) => Promise<ThreadEffortState>;
   listSkills: (threadId: string, request: Record<string, never>) => Promise<SkillsListResponse>;
   writeSkillConfig: (
     threadId: string,
@@ -53,7 +53,8 @@ export type ControlActionsContext = {
 
 export type ControlActionRequest =
   | { type: "effort.get"; surfaceId: string }
-  | { type: "effort.set"; surfaceId: string; effort: string }
+  /** Null selects the model's default effort. */
+  | { type: "effort.set"; surfaceId: string; effort: string | null }
   | { type: "repo.get"; surfaceId: string }
   | { type: "repo.set"; surfaceId: string; repoInput: string }
   | { type: "limits.read"; provider?: string; surfaceId?: string; refresh?: boolean }
@@ -86,7 +87,7 @@ export type ControlActionResult =
   | { type: "model.set"; ok: false; error: ActionFailure }
   | { type: "context.read"; ok: true; threadId: string; tokenUsage: ReadThreadTokenUsageResponse["tokenUsage"] }
   | { type: "context.read"; ok: false; error: ActionFailure }
-  | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; effectiveEnabled: boolean }
+  | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; appliedEnabled: boolean }
   | { type: "skill.set-enabled"; ok: false; error: ActionFailure }
   | { type: "thread.get-current"; threadId: string | null }
   | { type: "thread.create"; threadId: string }
@@ -423,6 +424,6 @@ export async function executeControlAction(
     ok: true,
     requestedSkill: request.requestedSkill,
     enabled: request.enabled,
-    effectiveEnabled: result.effectiveEnabled,
+    appliedEnabled: result.enabled,
   };
 }

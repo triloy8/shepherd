@@ -16,6 +16,7 @@ import type {
 } from "../../core/runtime_lifecycle_orchestrator.js";
 import type { RuntimeActivity } from "../../core/session_manager.js";
 import type { SurfaceListeningMode } from "../../core/surface_state_service.js";
+import type { ProviderCapabilities, ProviderOperation } from "../../../shared/protocol/provider_capabilities.js";
 import type { ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
@@ -404,9 +405,16 @@ export async function handleMessage(
   }
 
   if (command === "!help") {
-    const helpText = [
-      "Conversation messages follow the channel's listening mode.",
-      "",
+    // Hide commands the agent that would run them does not support: the channel's
+    // conversation, or the default agent when the channel has none.
+    const threadId = context.getSurfaceThreadId(channelId);
+    let capabilities: ProviderCapabilities | undefined;
+    try {
+      capabilities = threadId ? context.conversation.getThreadState(threadId).capabilities : undefined;
+    } catch { capabilities = undefined; }
+    capabilities ??= context.conversation.listProviders().find((entry) => entry.isDefault)?.capabilities;
+    const supports = (operation: ProviderOperation) => !capabilities || capabilities[operation] === true;
+    const lines: Array<string | [ProviderOperation, string]> = [
       "- !help",
       "- !status",
       "- !listen [open|mentions]",
@@ -418,32 +426,38 @@ export async function handleMessage(
       "- !repo",
       "- !repo <owner>/<repo>",
       "- !limits [provider]",
-      "- !models",
+      ["modelCatalog", "- !models"],
       "- !model",
-      "- !model set <id>",
-      "- !effort [set <level|default>]",
+      ["modelSelection", "- !model set <id>"],
+      supports("effortSelection") ? "- !effort [set <level|default>]" : "- !effort",
       "- !history [thread-id]",
       "- !history items <turn-id> [thread-id]",
       "- !context",
-      "- !skills [reload]",
-      "- !skill enable <name-or-path>",
-      "- !skill disable <name-or-path>",
+      ["skills", "- !skills [reload]"],
+      ["skillConfig", "- !skill enable <name-or-path>"],
+      ["skillConfig", "- !skill disable <name-or-path>"],
       "- !threads",
       "- !threads loaded",
       "- !threads archived",
       "- !thread",
       "- !thread <id>",
-      "- !threadname <name>",
+      ["rename", "- !threadname <name>"],
       "- !threadread [id]",
-      "- !fork [id]",
-      "- !archive [id]",
-      "- !unarchive <id>",
-      "- !compact [id]",
-      "- !interrupt",
+      ["fork", "- !fork [id]"],
+      ["archive", "- !archive [id]"],
+      ["unarchive", "- !unarchive <id>"],
+      ["compact", "- !compact [id]"],
+      ["interrupt", "- !interrupt"],
       "- !restart",
       "- !deploy",
       "- !deploy branch <branch-name>",
       "- !deploy status",
+    ];
+    const helpText = [
+      "Conversation messages follow the channel's listening mode.",
+      ...(capabilities ? [`Commands ${threadId ? "this conversation's" : "the default"} agent does not support are hidden.`] : []),
+      "",
+      ...lines.flatMap((line) => typeof line === "string" ? [line] : supports(line[0]) ? [line[1]] : []),
     ].join("\n");
     await replyCard(message, "Shepherd commands", helpText);
     return { handled: true, threadId: null, input: null };
@@ -720,8 +734,12 @@ export async function handleMessage(
       return { handled: true, threadId, input: null };
     }
     try {
-      const result = await executeControlAction(context, args.length
-        ? { type: "effort.set", surfaceId: channelId, effort: args[1]!.toLowerCase() }
+      const requested = args[1];
+      // "default" names the model default unless the model offers an effort with that value.
+      const literalDefault = requested === "default" && threadId
+        && (await context.conversation.getThreadEffort(threadId)).supportedEfforts.some((option) => option.value === "default");
+      const result = await executeControlAction(context, requested !== undefined
+        ? { type: "effort.set", surfaceId: channelId, effort: requested === "default" && !literalDefault ? null : requested }
         : { type: "effort.get", surfaceId: channelId });
       if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
       if (!result.ok) {
@@ -878,9 +896,9 @@ export async function handleMessage(
     }
 
     const mode = (args[0] ?? "").toLowerCase();
-    const forceReload = mode === "reload";
+    const refresh = mode === "reload";
     const listed = await loadSkillsPage(context.conversation, {
-      threadId: activeThreadId, forceReload, page: 1, pageSize: DISCORD_LIST_PAGE_SIZE,
+      threadId: activeThreadId, refresh, page: 1, pageSize: DISCORD_LIST_PAGE_SIZE,
     });
     await replyPage(message, buildSkillsListPage({
       result: listed,
@@ -924,7 +942,7 @@ export async function handleMessage(
       await replyCard(
         message,
         result.enabled ? "Skill enabled" : "Skill disabled",
-        `${result.enabled ? "Enabled" : "Disabled"} skill ${result.requestedSkill} (effectiveEnabled=${result.effectiveEnabled})`,
+        `${result.enabled ? "Enabled" : "Disabled"} skill ${result.requestedSkill} (now ${result.appliedEnabled ? "enabled" : "disabled"})`,
         result.enabled ? "success" : "neutral",
       );
       return { handled: true, threadId: null, input: null };

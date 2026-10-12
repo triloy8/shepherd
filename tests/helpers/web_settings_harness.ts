@@ -22,9 +22,9 @@ export function installWebSettings(h: ReturnType<typeof webHarness>) {
     getThreadModel,
     setThreadModel(threadId: string, model: string) { const state = { ...getThreadModel(threadId), pendingModel: model }; states.set(threadId, state); return state; },
     getThreadEffort,
-    async setThreadEffort(threadId: string, requested: string) {
+    async setThreadEffort(threadId: string, requested: string | null) {
       const state = await getThreadEffort(threadId);
-      const effort = requested === "default" ? state.defaultEffort! : requested;
+      const effort = requested === null ? state.defaultEffort! : requested;
       if (!state.supportedEfforts.some((option) => option.value === effort)) throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested, available: state.supportedEfforts.map((x) => x.value) });
       efforts.set(threadId, effort); return { ...state, pendingEffort: effort };
     },

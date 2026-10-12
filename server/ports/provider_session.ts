@@ -10,6 +10,7 @@ export interface ProviderEvents {
 }
 
 export type ThreadBootstrapInfo = {
+  /** Provider-local identity by default; composition translates it to a stable application ID. */
   threadId: string;
   /** Effective local workspace resolved by the adapter for create, resume and fork. */
   cwd: string;

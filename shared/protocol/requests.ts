@@ -209,18 +209,18 @@ export interface ApprovalDecisionApiResponse {
  * Null means the provider does not report that count, which is different from zero.
  */
 export interface TokenUsageBreakdown {
-  inputTokens: number;
+  inputTokens: number | null;
   cacheReadInputTokens: number | null;
   cacheWriteInputTokens: number | null;
-  outputTokens: number;
+  outputTokens: number | null;
   reasoningOutputTokens: number | null;
-  totalTokens: number;
+  totalTokens: number | null;
 }
 
 /** `last` is the most recent model request, which fills the context window; `total` is cumulative. */
 export interface ThreadTokenUsage {
-  last: TokenUsageBreakdown;
-  total: TokenUsageBreakdown;
+  last: TokenUsageBreakdown | null;
+  total: TokenUsageBreakdown | null;
   contextWindow: number | null;
 }
 
@@ -230,6 +230,8 @@ export interface ReadThreadTokenUsageResponse {
 }
 
 export interface ListModelsRequest {
+  /** Scope discovery to a loaded conversation; omitted means provider-wide discovery. */
+  threadId?: string;
   provider?: AgentProvider;
   cursor?: string;
   limit?: number;
@@ -301,8 +303,10 @@ export interface SkillsConfigWriteResponse {
 }
 
 export interface ThreadEffortState extends ModelCapabilities {
+  /** False means effort options are unknown, rather than an empty supported set. */
+  effortOptionsKnown?: boolean;
   threadId: string;
-  model: string;
+  model: string | null;
   currentEffort: string | null;
   pendingEffort: string | null;
   /** True means the next turn explicitly clears effort; null alone means unchanged. */

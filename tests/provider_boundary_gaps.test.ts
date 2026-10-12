@@ -23,7 +23,7 @@ afterEach(() => directories.splice(0).forEach(path => rmSync(path, { recursive: 
 function directory() { const path = mkdtempSync(join(tmpdir(), "shepherd-boundary-")); directories.push(path); return path; }
 
 function registration() {
-  return { id: descriptor.id, displayName: descriptor.displayName, capabilities: descriptor.capabilities, create: () => new IndependentSession(), account: { read: async () => account(descriptor.id) }, hasStoredThreads: () => true };
+  return { threadIdentity: "application" as const, id: descriptor.id, displayName: descriptor.displayName, capabilities: descriptor.capabilities, create: () => new IndependentSession(), account: { read: async () => account(descriptor.id) }, hasStoredThreads: () => true };
 }
 
 test("an unrelated provider creates, survives process restart and resumes through production registration and file storage", async () => {
@@ -288,14 +288,14 @@ test("a provider can omit optional methods and still execute media turns without
   const conversation = new ConversationService({ providers: services });
   try {
     const { threadId } = await conversation.createThread({});
-    expect(await conversation.getThreadEffort(threadId)).toMatchObject({ inputModalities: null, supportedEfforts: [] });
+    expect(await conversation.getThreadEffort(threadId)).toMatchObject({ inputModalities: null, supportedEfforts: null });
     await conversation.submitTurn(threadId, { input: [{ type: "image", url: "https://example.com/image.png" }] });
     expect(conversation.getThreadState(threadId).activeTurnId).toBe("opaque-turn");
     expect((await conversation.listThreadTurns(threadId, {})).data).toHaveLength(1);
   } finally { conversation.stopAll(); }
 });
 
-test("registration validates every advertised optional method and effort catalog dependency", () => {
+test("registration validates every advertised optional method and permits selection without discovery", () => {
   for (const [, method] of optionalOperations) {
     const session = new IndependentSession(); Object.assign(session, { [method]: undefined });
     const services = assembleProviderServices([{ ...registration(), create: () => session }], directory(), descriptor.id);
@@ -305,7 +305,7 @@ test("registration validates every advertised optional method and effort catalog
   const capabilities = { ...descriptor.capabilities, modelCatalog: false, effortSelection: true };
   const session = new IndependentSession(); Object.assign(session, { capabilities });
   const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory(), descriptor.id);
-  expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
+  expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).not.toThrow();
 });
 
 test("skill discovery and model catalogs can be read-only", async () => {

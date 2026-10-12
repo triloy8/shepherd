@@ -14,8 +14,10 @@ import { resolveSkillPathFromList } from "./skill_resolution_service.js";
 import type { ProviderAccountLimits, AccountResetRequest, AccountResetResponse } from "../../shared/protocol/account_limits.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
 import type { AgentProvider, EffortSelection } from "../../shared/protocol/requests.js";
+import { assertProviderOperation } from "../../shared/protocol/provider_support.js";
 
 type ControlConversation = {
+  getThreadState: (threadId: string) => import("../../shared/protocol/requests.js").GetThreadStateResponse;
   getThreadProvider: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
   getThreadEffort: (threadId: string, model?: string) => Promise<ThreadEffortState>;
   setThreadEffort: (threadId: string, effort: EffortSelection) => Promise<ThreadEffortState>;
@@ -163,6 +165,7 @@ export async function executeControlAction(
       cursor: request.cursor,
       limit: request.limit ?? 20,
       ...(provider ? { provider } : {}),
+      ...(threadId ? { threadId } : {}),
     });
     return {
       type: "models.list",
@@ -182,17 +185,25 @@ export async function executeControlAction(
     }
 
     const provider = context.conversation.getThreadProvider(threadId);
+    const capabilities = context.conversation.getThreadState(threadId).capabilities;
+    assertProviderOperation(provider, capabilities, "modelSelection");
+    if (!capabilities.modelCatalog) {
+      const updated = context.conversation.setThreadModel(threadId, request.requestedModel);
+      return { type: "model.set", ok: true, threadId: updated.threadId, model: request.requestedModel };
+    }
     let cursor: string | undefined;
     let resolved: ModelSummary | null = null;
     const seenCursors = new Set<string>();
-    do {
-      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, ...(provider ? { provider } : {}) });
-      resolved = resolveModelArgument(models.data, request.requestedModel);
-      if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
-      seenCursors.add(models.nextCursor);
-      cursor = models.nextCursor;
-    } while (true);
-    if (!resolved) {
+    try {
+      do {
+        const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, threadId, ...(provider ? { provider } : {}) });
+        resolved = resolveModelArgument(models.data, request.requestedModel);
+        if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
+        seenCursors.add(models.nextCursor);
+        cursor = models.nextCursor;
+      } while (true);
+    } catch (error) { if (capabilities.modelCatalogAuthoritative) throw error; }
+    if (!resolved && capabilities.modelCatalogAuthoritative) {
       return {
         type: "model.set",
         ok: false,
@@ -200,12 +211,13 @@ export async function executeControlAction(
       };
     }
 
-    const updated = context.conversation.setThreadModel(threadId, resolved.id);
+    const selected = resolved?.id ?? request.requestedModel;
+    const updated = context.conversation.setThreadModel(threadId, selected);
     return {
       type: "model.set",
       ok: true,
       threadId: updated.threadId,
-      model: resolved.id,
+      model: selected,
     };
   }
 

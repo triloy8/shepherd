@@ -11,7 +11,11 @@ export interface ProviderCapabilities {
   unarchive: boolean;
   workspaceChange: boolean;
   modelCatalog: boolean;
-  /** Selection requires modelCatalog; a catalog can also be read-only. */
+  /** Conversation catalogs become available after bootstrap; omitted means conversation-scoped. */
+  modelCatalogScope?: "provider" | "conversation";
+  /** True promises exhaustive selection IDs; otherwise discovery is advisory. */
+  modelCatalogAuthoritative?: boolean;
+  /** Selection and discovery are independent; adapters validate selections without a catalog. */
   modelSelection: boolean;
   effortSelection: boolean;
   skillConfig: boolean;
@@ -30,5 +34,5 @@ export interface ProviderCapabilities {
 }
 
 export type ProviderOperation = {
-  [K in keyof ProviderCapabilities]: ProviderCapabilities[K] extends boolean ? K : never
+  [K in keyof ProviderCapabilities]-?: ProviderCapabilities[K] extends boolean ? K : never
 }[keyof ProviderCapabilities];

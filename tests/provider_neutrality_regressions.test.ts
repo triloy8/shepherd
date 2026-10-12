@@ -84,6 +84,7 @@ test("model selection preserves case-sensitive catalog IDs", async () => {
   let selected = "";
   const context = { getSurfaceThreadId: () => "thread", conversation: {
     getThreadProvider: () => "independent",
+    getThreadState: () => ({ capabilities: { modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true } }),
     listModels: async () => ({ data: [{ ...row, id: "ModelA" }, { ...row, id: "modela" }], nextCursor: null }),
     setThreadModel: (_thread: string, model: string) => { selected = model; return { threadId: "thread", provider: "independent", currentModel: null, pendingModel: model }; },
   } };

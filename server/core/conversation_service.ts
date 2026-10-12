@@ -54,6 +54,7 @@ import {
   type DynamicToolRegistration,
 } from "./dynamic_tool_registry.js";
 import { SessionManager } from "./session_manager.js";
+import { UnsupportedProviderOperationError } from "../ports/provider_session.js";
 import type { RuntimeActivity, ThreadDefaults } from "./session_manager.js";
 
 type EventCursorOptions = string | { afterId?: string; replay?: boolean } | undefined;
@@ -257,7 +258,7 @@ export class ConversationService {
   listProviders() { return structuredClone(this.providerServices?.descriptors ?? []); }
   async readAccount(provider: string, refresh = false) {
     const reader = this.providerServices?.accounts.get(provider);
-    if (!reader) throw new Error("Provider account reporting is unavailable.");
+    if (!reader) throw new UnsupportedProviderOperationError(provider, "account reporting");
     return reader.read(refresh);
   }
   async resetAccount(provider: string, input: import("../../shared/protocol/account_limits.js").AccountResetRequest) {

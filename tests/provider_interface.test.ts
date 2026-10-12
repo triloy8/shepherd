@@ -110,7 +110,7 @@ test("Codex token usage is decoded into the neutral breakdown without inventing 
     total: { inputTokens: 100, cacheReadInputTokens: 40, cacheWriteInputTokens: null, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 },
     contextWindow: 1000,
   });
-  expect(codexTokenUsage({ last: {}, total: native })).toBeNull();
+  expect(codexTokenUsage({ last: {}, total: native })).toMatchObject({ last: null, total: { totalTokens: 120 } });
 });
 
 test("Codex skill listings keep application fields and drop native presentation metadata", () => {

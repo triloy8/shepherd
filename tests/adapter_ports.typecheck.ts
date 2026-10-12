@@ -51,7 +51,7 @@ void assertProviderBoundary;
 import type { CreateThreadRequest, ListStoredThreadsRequest, ApprovalPolicy, SandboxMode } from "../shared/protocol/requests.js";
 import type { ProviderSkillsRequest } from "../server/ports/provider_session.js";
 import type { SkillsListRequest } from "../shared/protocol/requests.js";
-import type { ProviderAccountLimits } from "../shared/protocol/account_limits.js";
+
 function assertDiscoveryAndResetContracts(skills: SkillsListRequest, discovery: ProviderSkillsRequest, account: ProviderAccountLimits) {
   // @ts-expect-error Surfaces cannot redirect discovery into arbitrary directories.
   skills.workspacePath;
@@ -139,3 +139,10 @@ function assertEffortRequestContract() {
   return [selections, invalid];
 }
 void assertEffortRequestContract;
+
+import type { ThreadTokenUsage } from "../shared/protocol/requests.js";
+import type { ProviderAccountLimits } from "../shared/protocol/account_limits.js";
+
+const partialUsage: ThreadTokenUsage = { last: null, total: { inputTokens: null, outputTokens: null, totalTokens: 42, cacheReadInputTokens: null, cacheWriteInputTokens: null, reasoningOutputTokens: null }, contextWindow: null };
+const unknownLogin: ProviderAccountLimits["account"] = { plan: null, authentication: "unknown", signedIn: null };
+void partialUsage; void unknownLogin;

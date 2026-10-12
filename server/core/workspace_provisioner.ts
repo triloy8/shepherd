@@ -1,4 +1,5 @@
 import { ApplicationActionError } from "./action_error.js";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { homedir } from "node:os";
 import { promises as fs } from "node:fs";
@@ -28,6 +29,11 @@ function repoNameFromSlug(slug: string): string {
   return slug.split("/")[1] ?? slug;
 }
 
+/** Preserve deployed UUID names; opaque application IDs need a portable, bounded directory name. */
+function workspaceDirectoryName(id: string): string {
+  return /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : createHash("sha256").update(id).digest("hex");
+}
+
 export class WorkspaceProvisioner {
   private readonly fsImpl: FileSystemLike;
   private readonly cloneGithubRepo: (slug: string, workspacePath: string) => Promise<void>;
@@ -54,8 +60,8 @@ export class WorkspaceProvisioner {
   async reserveWorkspace(target: ProjectTarget, workspaceId: string): Promise<WorkspaceReservation> {
     const dedicated = target.kind === "github" || target.appendWorkspaceId;
     const cwd = target.kind === "github"
-      ? path.join(this.homedirPath, ".agent-workspaces", repoNameFromSlug(target.slug), workspaceId)
-      : target.appendWorkspaceId ? path.join(target.rootPath, workspaceId) : target.rootPath;
+      ? path.join(this.homedirPath, ".agent-workspaces", repoNameFromSlug(target.slug), workspaceDirectoryName(workspaceId))
+      : target.appendWorkspaceId ? path.join(target.rootPath, workspaceDirectoryName(workspaceId)) : target.rootPath;
     let owned = false;
     const rollback = async () => {
       if (owned) {
@@ -88,7 +94,7 @@ export class WorkspaceProvisioner {
   ): Promise<{ workspaceId: string; cwd: string }> {
     if (target.kind === "github") {
       const repoName = repoNameFromSlug(target.slug);
-      const workspacePath = path.join(this.homedirPath, ".agent-workspaces", repoName, workspaceId);
+      const workspacePath = path.join(this.homedirPath, ".agent-workspaces", repoName, workspaceDirectoryName(workspaceId));
       const marker = path.join(workspacePath, ".git");
       try {
         await this.fsImpl.stat(marker);
@@ -99,7 +105,7 @@ export class WorkspaceProvisioner {
       return { workspaceId, cwd: workspacePath };
     }
 
-    const cwd = target.appendWorkspaceId ? path.join(target.rootPath, workspaceId) : target.rootPath;
+    const cwd = target.appendWorkspaceId ? path.join(target.rootPath, workspaceDirectoryName(workspaceId)) : target.rootPath;
     await this.fsImpl.mkdir(cwd, { recursive: true });
     return { workspaceId, cwd };
   }

@@ -122,8 +122,8 @@ export class SessionManager {
     if (existing) {
       assertThreadSupport(this.threadProvider(threadId), existing.session.capabilities, request);
       if (existing.session.capabilities.modelCatalog && (request.model || request.effort)) {
-        const selected = await this.resolveModel(this.threadProvider(threadId), request.model ?? this.modelStateByThread.get(threadId)?.currentModel);
-        this.assertModelEffort(selected, request.effort);
+        const selected = await this.resolveModel(this.threadProvider(threadId), request.model ?? this.modelStateByThread.get(threadId)?.currentModel, existing.session, !!request.model && existing.session.capabilities.modelCatalogAuthoritative === true);
+        if (selected) this.assertModelEffort(selected, request.effort);
       }
       return { threadId, sessionId: existing.session.sessionId };
     }
@@ -151,14 +151,19 @@ export class SessionManager {
       const request = this.withThreadDefaults(requested, session.capabilities, applyApprovalDefault);
       assertThreadSupport(request.provider ?? this.defaultProvider(), session.capabilities, request);
       assertApprovalSupport(request.provider ?? this.defaultProvider(), session.capabilities, request.approvalPolicy ?? session.approvalPolicy);
-      if (session.capabilities.modelCatalog && (request.model || request.effort)) {
+      const preBootstrapCatalog = session.capabilities.modelCatalogScope === "provider";
+      if (session.capabilities.modelCatalog && preBootstrapCatalog && (request.model || request.effort)) {
         const savedModel = !request.model && sourceThreadId
           ? asString((await session.readThread(sourceThreadId, false)).thread.model) : null;
-        const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? savedModel, session);
-        this.assertModelEffort(selected, request.effort);
+        const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? savedModel, session, !!request.model && session.capabilities.modelCatalogAuthoritative === true);
+        if (selected) this.assertModelEffort(selected, request.effort);
       }
       const created = await start(session, request);
       this.assertRunning();
+      if (session.capabilities.modelCatalog && !preBootstrapCatalog && (request.model || request.effort)) {
+        const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? created.model, session, !!request.model && session.capabilities.modelCatalogAuthoritative === true);
+        if (selected) this.assertModelEffort(selected, request.effort);
+      }
       if (typeof created.cwd !== "string" || !created.cwd.trim()) {
         throw new ApplicationActionError({ code: "workspace_unavailable" });
       }
@@ -252,7 +257,7 @@ export class SessionManager {
       threadId,
       sessionId: managed.session.sessionId,
       provider: this.threadProvider(threadId),
-      capabilities: managed.session.capabilities,
+      capabilities: { ...managed.session.capabilities, modelCatalogAuthoritative: managed.session.capabilities.modelCatalogAuthoritative === true },
       backgroundTaskCount: managed.session.backgroundTaskCount ?? 0,
       activeTurnId: managed.session.activeTurnId,
       approvalPolicy: managed.session.approvalPolicy,
@@ -316,8 +321,9 @@ export class SessionManager {
   }
 
   async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
-    const session = await this.getControlSession(request.provider ?? this.defaultProvider());
-    assertProviderOperation(request.provider ?? this.defaultProvider(), session.capabilities, "modelCatalog");
+    const provider = request.threadId ? this.threadProvider(request.threadId, request.provider) : request.provider ?? this.defaultProvider();
+    const session = request.threadId ? this.mustGet(request.threadId).session : await this.getControlSession(provider);
+    assertProviderOperation(provider, session.capabilities, "modelCatalog");
     if (!session.listModels) throw new UnsupportedProviderOperationError(request.provider ?? this.defaultProvider(), "modelCatalog");
     return session.listModels(request);
   }
@@ -356,34 +362,37 @@ export class SessionManager {
     const modelState = this.getThreadModel(threadId);
     const model = requestedModel ?? modelState.pendingModel ?? modelState.currentModel;
     const entry = this.mustGet(threadId).session.capabilities.modelCatalog
-      ? await this.resolveModel(this.threadProvider(threadId), model)
-      : { id: model ?? "", inputModalities: null, defaultEffort: null, supportedEfforts: [] };
+      ? await this.resolveModel(this.threadProvider(threadId), model, this.mustGet(threadId).session)
+      : null;
     const state = this.effortStateByThread.get(threadId);
     return {
-      threadId, model: entry.id,
+      threadId, model: entry?.id ?? model ?? null, effortOptionsKnown: entry?.supportedEfforts != null,
       currentEffort: state?.current ?? null, pendingEffort: state?.pending ?? null, pendingEffortClear: state?.pendingClear ?? false,
-      inputModalities: entry.inputModalities,
-      defaultEffort: entry.defaultEffort, supportedEfforts: entry.supportedEfforts,
+      inputModalities: entry?.inputModalities ?? null,
+      defaultEffort: entry?.defaultEffort ?? null, supportedEfforts: entry?.supportedEfforts ?? null,
     };
   }
 
-  private async resolveModel(provider: AgentProvider, model: string | null | undefined, session?: ProviderSession): Promise<ModelSummary> {
+  private async resolveModel(provider: AgentProvider, model: string | null | undefined, session?: ProviderSession, strict = false): Promise<ModelSummary | null> {
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
       const request = { cursor, limit: 100, includeHidden: true, provider };
-      const result = session?.listModels ? await session.listModels(request) : await this.listModels(request);
+      let result: ListModelsResponse;
+      try { result = session?.listModels ? await session.listModels(request) : await this.listModels(request); }
+      catch (error) { if (!strict) return null; throw error; }
       const entry = result.data.find((entry) => model ? entry.id === model : entry.isDefault);
       if (entry) return entry;
       if (!result.nextCursor || seen.has(result.nextCursor)) break;
       seen.add(result.nextCursor);
       cursor = result.nextCursor;
     } while (true);
+    if (!strict) return null;
     throw new ApplicationActionError({ code: "model_unavailable" });
   }
 
   private assertModelEffort(model: ModelSummary, effort: string | null | undefined): void {
-    if (effort && !model.supportedEfforts.some(option => option.value === effort)) {
+    if (effort && model.supportedEfforts !== null && !model.supportedEfforts.some(option => option.value === effort)) {
       throw new ApplicationActionError({ code: "unsupported_effort", model: model.id, requested: effort, available: model.supportedEfforts.map(option => option.value) });
     }
   }
@@ -397,8 +406,8 @@ export class SessionManager {
     this.requireCapability(threadId, "effortSelection");
     const state = await this.getThreadEffort(threadId);
     const effort = requested === null ? null : typeof requested === "string" ? requested : state.defaultEffort;
-    if (requested !== null && (!effort || !state.supportedEfforts.some((option) => option.value === effort))) {
-      throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested: typeof requested === "string" ? requested : "model default", available: state.supportedEfforts.map((option) => option.value) });
+    if (requested !== null && (!effort || (state.effortOptionsKnown !== false && !state.supportedEfforts?.some((option) => option.value === effort)))) {
+      throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested: typeof requested === "string" ? requested : "model default", available: state.supportedEfforts?.map((option) => option.value) ?? [] });
     }
     this.effortStateByThread.set(threadId, { current: state.currentEffort, pending: effort, pendingClear: effort === null });
     return { ...state, pendingEffort: effort, pendingEffortClear: effort === null };
@@ -463,13 +472,14 @@ export class SessionManager {
     if (model) this.requireCapability(threadId, "modelSelection");
     if (effort || request.effort === null || effortState?.pendingClear) this.requireCapability(threadId, "effortSelection");
     if (managed.session.capabilities.modelCatalog) {
-      const selected = await this.resolveModel(this.threadProvider(threadId), model ?? modelState?.currentModel);
-      this.assertModelInput(selected, request.input);
-      if (effort === undefined && effortState?.current && !selected.supportedEfforts.some(option => option.value === effortState.current)) {
+      const selected = await this.resolveModel(this.threadProvider(threadId), model ?? modelState?.currentModel, managed.session,
+        !!model && managed.session.capabilities.modelCatalogAuthoritative === true);
+      if (selected) this.assertModelInput(selected, request.input);
+      if (selected && selected.supportedEfforts !== null && effort === undefined && effortState?.current && !selected.supportedEfforts.some(option => option.value === effortState.current)) {
         // Preserve inherited effort only while the selected model supports it.
         effort = selected.defaultEffort;
       }
-      this.assertModelEffort(selected, effort);
+      if (selected) this.assertModelEffort(selected, effort);
     }
     if (effort || request.effort === null || effortState?.pendingClear) this.requireCapability(threadId, "effortSelection");
     const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
@@ -503,8 +513,8 @@ export class SessionManager {
     if (!managed.session.steerTurn) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "steer");
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     if (managed.session.capabilities.modelCatalog) {
-      const model = await this.resolveModel(this.threadProvider(threadId), this.modelStateByThread.get(threadId)?.currentModel);
-      this.assertModelInput(model, request.input);
+      const model = await this.resolveModel(this.threadProvider(threadId), this.modelStateByThread.get(threadId)?.currentModel, managed.session);
+      if (model) this.assertModelInput(model, request.input);
     }
     const turnId = await managed.session.steerTurn(request.input, request.turnId);
     return { ok: true, turnId };

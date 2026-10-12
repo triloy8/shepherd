@@ -1,5 +1,6 @@
 import type { ProviderServices, ProviderAccount, ProviderSessionFactory } from "../ports/provider_services.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
+import { scopedProviderSession, scopedProviderTools, parseScopedThreadId } from "./provider_thread_identity.js";
 import { FileThreadProviderDirectory } from "../storage/thread_provider_directory.js";
 import { unsupportedThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
 
@@ -17,7 +18,9 @@ export interface ProviderRegistration {
   displayName: string;
   capabilities: ProviderCapabilities;
   create: ProviderSessionFactory;
-  account: ProviderAccount;
+  account?: ProviderAccount;
+  /** Native IDs are translated by default; application IDs must already be globally unique. */
+  threadIdentity?: "native" | "application";
   hasStoredThreads: ProviderServices["hasStoredThreads"];
   ownsStoredThread?: (id: string) => boolean;
   shutdown?: () => void;
@@ -28,19 +31,20 @@ export function assembleProviderServices(registrations: readonly ProviderRegistr
   const factories = new Map<string, ProviderRegistration>();
   for (const registration of registrations) {
     if (!registration.id.trim() || registration.id.trim() !== registration.id || factories.has(registration.id)) throw new Error("Invalid or duplicate provider registration.");
-    if (registration.capabilities.accountReset !== (typeof registration.account.reset === "function")) throw new Error(`Provider capability contract mismatch: ${registration.id}`);
+    if (registration.capabilities.accountReset !== (typeof registration.account?.reset === "function")) throw new Error(`Provider capability contract mismatch: ${registration.id}`);
     factories.set(registration.id, { ...registration, capabilities: structuredClone(registration.capabilities) });
   }
   if (!factories.has(defaultProvider)) throw new Error(`The default agent provider "${defaultProvider}" is not registered.`);
   return {
-    descriptors: [...factories.values()].map(({ id, displayName, capabilities }) => ({ id, displayName, isDefault: id === defaultProvider, capabilities: structuredClone(capabilities) })),
-    accounts: new Map(registrations.map(registration => [registration.id, registration.account])),
+    descriptors: [...factories.values()].map(({ id, displayName, capabilities }) => ({ id, displayName, isDefault: id === defaultProvider, capabilities: { ...structuredClone(capabilities), modelCatalogAuthoritative: capabilities.modelCatalogAuthoritative === true }, accountReporting: !!factories.get(id)?.account })),
+    accounts: new Map(registrations.flatMap(registration => registration.account ? [[registration.id, registration.account] as const] : [])),
     providers: [...factories.keys()],
     defaultProvider,
     createSession: (policy, tools, provider) => {
       const registration = factories.get(provider);
       if (!registration) throw new Error(`Unknown agent provider: ${provider}`);
-      const session = registration.create(policy, tools, provider);
+      const scoped = registration.threadIdentity !== "application";
+      const session = registration.create(policy, scoped ? scopedProviderTools(provider, tools) : tools, provider);
       const expected = registration.capabilities;
       const actual = session.capabilities;
       const matches = (Object.keys(expected) as Array<keyof ProviderCapabilities>).every(key => {
@@ -58,14 +62,18 @@ export function assembleProviderServices(registrations: readonly ProviderRegistr
       };
       const methodsPresent = (Object.keys(operations) as Array<keyof typeof operations>)
         .every(operation => !expected[operation] || typeof operations[operation] === "function");
-      const consistent = !(expected.modelSelection || expected.effortSelection) || expected.modelCatalog;
-      if (!matches || !methodsPresent || !consistent) { session.stop(); throw new Error(`Provider capability contract mismatch: ${provider}`); }
-      return session;
+      const catalogRulesMatch = (expected.modelCatalogScope ?? "conversation") === (actual.modelCatalogScope ?? "conversation")
+        && (expected.modelCatalogAuthoritative === true) === (actual.modelCatalogAuthoritative === true);
+      if (!matches || !methodsPresent || !catalogRulesMatch) { session.stop(); throw new Error(`Provider capability contract mismatch: ${provider}`); }
+      return scoped ? scopedProviderSession(provider, session) : session;
     },
     hasStoredThreads: (provider, request) => factories.get(provider)?.hasStoredThreads(provider, request) ?? false,
     shutdown: () => { for (const registration of registrations) registration.shutdown?.(); },
     directory: new FileThreadProviderDirectory(stateDirectory, id => {
-      const owners = registrations.filter(registration => registration.ownsStoredThread?.(id));
+      const identity = parseScopedThreadId(id);
+      const owners = registrations.filter(registration => registration.threadIdentity === "application"
+        ? !identity && registration.ownsStoredThread?.(id)
+        : identity?.provider === registration.id && registration.ownsStoredThread?.(identity.nativeId));
       if (owners.length > 1) throw new Error("Ambiguous thread ownership; multiple providers own this identity.");
       return owners[0]?.id;
     }),

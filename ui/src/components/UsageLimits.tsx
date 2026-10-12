@@ -11,6 +11,8 @@ export function UsageLimits({ defaultProvider, onOpen, onClosed }: { defaultProv
   const [open, setOpen] = useState(false), [providers, setProviders] = useState<ProviderDescriptor[]>([]);
   const [provider, setProvider] = useState(defaultProvider ?? ""), [storedLimits, setLimits] = useState<ProviderAccountLimits | null>(null);
   const limits = storedLimits?.provider === provider ? storedLimits : null;
+  const selectedProvider = providers.find(entry => entry.id === provider);
+  const reportsUsage = selectedProvider?.accountReporting !== false;
   const supportsReset = providers.some(entry => entry.id === provider && entry.capabilities.accountReset);
   useEffect(() => { setLimits(null); }, [provider]);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
@@ -27,11 +29,12 @@ export function UsageLimits({ defaultProvider, onOpen, onClosed }: { defaultProv
     return () => abort.abort();
   }, [open]);
   useEffect(() => {
-    if (!open || !provider) return;
+    if (!open || !provider || !selectedProvider) return;
+    if (!reportsUsage) { setLimits(null); setPending(null); setBusy(false); setError(null); setNotice(null); return; }
     const abort = new AbortController(); setPending(pendingMemory.current.get(provider) ?? readAccountReset(provider)); setBusy(true); setError(null); setNotice(null);
     void api.account(provider, abort.signal, revision > 0).then(value => { if (!abort.signal.aborted) setLimits(value); }).catch(failure => { if (!abort.signal.aborted) { setError(explainError(failure)); setLimits(current => current?.provider === provider ? { ...current, stale: true } : current); } }).finally(() => { if (!abort.signal.aborted) setBusy(false); });
     return () => abort.abort();
-  }, [open, provider, revision]);
+  }, [open, provider, revision, !!selectedProvider, reportsUsage]);
   async function reset(creditId?: string) {
     if (lock.current || busy || !supportsReset || (!pending && (!limits || limits.resets.availableCount === 0))) return;
     const version = generation.current;
@@ -57,6 +60,7 @@ export function UsageLimits({ defaultProvider, onOpen, onClosed }: { defaultProv
       <label className="block text-xs text-muted">Agent<select value={provider} disabled={lock.current} onChange={event => setProvider(event.target.value)}>{providers.map(entry => <option key={entry.id} value={entry.id}>{entry.displayName}</option>)}</select></label>
       <p className="mt-4 mb-5 text-xs text-muted">Shared across all conversations using this account.</p>
       {busy && <p role="status" className="mt-4 text-sm text-muted">Loading…</p>}{error && <p role="alert" className="notice mt-4">{error}</p>}{notice && <p role="status" className="mt-4 text-sm text-muted">{notice}</p>}
+      {selectedProvider && !reportsUsage && <p className="mt-4 text-sm text-muted">This agent does not report account usage.</p>}
       {pending && <button className="button-secondary mt-4" disabled={busy} onClick={() => void reset()}>Check unresolved reset request</button>}
       {limits && <div className="mt-5 space-y-4">
         <p className="text-xs text-muted">{limits.account.plan ?? limits.account.authentication}{limits.stale ? " · Last known data" : ""}</p>
@@ -66,6 +70,6 @@ export function UsageLimits({ defaultProvider, onOpen, onClosed }: { defaultProv
         {limits.spendControls.map(control => <p key={control.id} className="text-xs text-muted">{control.label}: {control.usedLabel ?? "Unknown"} / {control.limitLabel ?? "Unknown"}</p>)}
         {supportsReset && <section className="mt-5 space-y-3 border-t border-line pt-4" aria-label="Banked resets"><h3 className="text-sm font-medium">Banked resets: {limits.resets.availableCount ?? "Unknown"}</h3>{limits.resets.credits?.map(credit => <div key={credit.id}><p className="text-xs text-muted">{credit.title ?? "Usage reset"}{credit.description ? ` · ${credit.description}` : ""}</p><p className="text-xs text-muted">Status: {credit.status}</p><p className="text-xs text-muted">Granted: {credit.grantedAt === null ? "Unknown" : new Date(credit.grantedAt * 1000).toLocaleString()}</p><p className="text-xs text-muted">{credit.expiresAt === null ? "Does not expire" : `Expires: ${new Date(credit.expiresAt * 1000).toLocaleString()}`}</p><button className="button-secondary mt-2" disabled={busy || !!pending || !credit.supported || credit.status !== "available" || (credit.expiresAt !== null && credit.expiresAt <= Date.now() / 1000)} onClick={() => void reset(credit.id)}>Use reset</button></div>)}<button className="button-secondary" disabled={busy || !!pending || limits.resets.availableCount === 0} onClick={() => void reset()}>Use available reset</button></section>}
       </div>}
-      <button className="button-secondary mt-5" disabled={busy} onClick={() => setRevision(value => value + 1)}>Refresh usage</button>
+      <button className="button-secondary mt-5" disabled={busy || !reportsUsage} onClick={() => setRevision(value => value + 1)}>Refresh usage</button>
     </dialog>, document.body)}</>;
 }

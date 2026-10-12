@@ -3,7 +3,7 @@ async page => {
   page.setDefaultTimeout(10000);
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
-  const efforts = ['normal', 'default', 'DEFAULT', 'model-default', '\u0000model-default'];
+  const efforts = ['normal', 'default', 'DEFAULT', 'clear', 'model-default', '\u0000model-default'];
   let current = 'normal';
   const requests = [];
   const state = () => ({ threadId: 'fixture', model: 'small', currentEffort: current, pendingEffort: null,
@@ -14,7 +14,7 @@ async page => {
   } }));
   await page.route('**/api/conversations/*/effort', route => {
     const input = route.request().postDataJSON(); requests.push(input.effort);
-    current = input.effort ?? 'normal';
+    current = input.effort === null ? null : typeof input.effort === 'string' ? input.effort : 'normal';
     return route.fulfill({ json: state() });
   });
   await page.getByRole('button', { name: 'Model and effort', exact: true }).click();
@@ -32,6 +32,10 @@ async page => {
   await select.selectOption({ label: 'Model default (normal)' });
   await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
   await dialog.getByText('Saved. Applies to the next new turn and subsequent turns.', { exact: true }).waitFor();
-  if (requests.at(-1) !== null) throw Error('Model default did not send null');
-  return 'Literal default, case-sensitive values and both former UI sentinels survive unchanged; model default sends null';
+  if (requests.at(-1)?.mode !== 'default') throw Error('Model default did not send its distinct action');
+  await select.selectOption({ label: 'Clear effort override' });
+  await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
+  await dialog.getByText('Saved. Applies to the next new turn and subsequent turns.', { exact: true }).waitFor();
+  if (requests.at(-1) !== null) throw Error('Clearing the override did not send null');
+  return 'Opaque values stay distinct from model default and clear, including former UI sentinels';
 }

@@ -113,7 +113,7 @@ export default function App() {
       const [handles, stored] = await Promise.all([api.conversations(), api.threads(undefined, undefined, view)]);
       if (generation !== listGeneration.current || view !== archivedRef.current) return;
       setNames((current) => ({ ...current, ...Object.fromEntries(stored.threads.map((item) => [item.threadId, label(item)])) }));
-      setConversations(handles.conversations); setThreads(stored.threads); setThreadsCursor(stored.nextCursor); setError(null);
+      setConversations(handles.conversations); setThreads(stored.threads); setThreadsCursor(stored.nextCursor); setError(stored.unavailableProviders?.length ? `Some agents are unavailable: ${stored.unavailableProviders.join(", ")}. Reload the list to retry.` : null);
       if (initialSelection.current) {
         initialSelection.current = false;
         const previous = savedSelection();
@@ -230,7 +230,7 @@ export default function App() {
     archivedRef.current = value; setArchived(value); setThreads([]); setThreadsCursor(null); setLoading(true); setLoadingThreads(false); void refreshList();
   }
   async function restore(threadId: string) {
-    if (restoreLock.current) return;
+    if (restoreLock.current || !threads.some(thread => thread.threadId === threadId && thread.canUnarchive)) return;
     restoreLock.current = true; setRestoring(threadId); setError(null);
     try { await api.restore(threadId); changeView(false); }
     catch (error) { setError(explainError(error)); }
@@ -245,6 +245,7 @@ export default function App() {
       if (generation !== listGeneration.current || view !== archivedRef.current) return;
       setNames((current) => ({ ...current, ...Object.fromEntries(page.threads.map((item) => [item.threadId, label(item)])) }));
       setThreads((items) => [...items, ...page.threads.filter((item) => !items.some((existing) => existing.threadId === item.threadId))]); setThreadsCursor(page.nextCursor);
+      if (page.unavailableProviders?.length) setError(`Some agents are unavailable: ${page.unavailableProviders.join(", ")}. Reload the list to retry.`);
     } catch (error) { if (generation === listGeneration.current) setError(explainError(error)); }
     finally { if (generation === listGeneration.current) setLoadingThreads(false); }
   }
@@ -283,7 +284,7 @@ export default function App() {
         {loading && <p className="px-3 py-4 text-sm text-muted">Loading conversations…</p>}
         {!loading && !threads.length && !visibleHandles.length && <p className="px-3 py-4 text-sm leading-6 text-dim">{archived ? "No archived conversations." : "Your conversations will appear here."}</p>}
         {visibleHandles.map((item) => <button className={`thread-button ${selected?.id === item.id ? "thread-selected" : ""}`} key={item.id} onClick={() => select(item)}><Icon name="chat" /><span className="truncate">New conversation</span><span className="status-dot ml-auto" /></button>)}
-        {threads.map((item) => archived ? <div key={item.threadId} className="mb-2 flex items-center gap-2 px-3 py-2"><span className="min-w-0 flex-1 truncate text-sm text-muted" title={label(item)}>{label(item)}</span><button className="button-secondary" aria-label={`Restore ${label(item)}`} disabled={restoring !== null} onClick={() => void restore(item.threadId)}>{restoring === item.threadId ? "Restoring…" : "Restore"}</button></div> : <button title={label(item)} className={`thread-button ${selected?.threadId === item.threadId ? "thread-selected" : ""}`} key={item.threadId} onClick={() => openThread(item.threadId)}><Icon name="chat" /><span className="truncate">{label(item)}</span>{conversations.some((c) => c.threadId === item.threadId) && <span className="status-dot ml-auto" />}</button>)}
+        {threads.map((item) => archived ? <div key={item.threadId} className="mb-2 flex items-center gap-2 px-3 py-2"><span className="min-w-0 flex-1 truncate text-sm text-muted" title={label(item)}>{label(item)}</span><button className="button-secondary" aria-label={`Restore ${label(item)}`} disabled={restoring !== null || !item.canUnarchive} title={!item.canUnarchive ? "Restore is unavailable for this agent" : undefined} onClick={() => void restore(item.threadId)}>{restoring === item.threadId ? "Restoring…" : "Restore"}</button></div> : <button title={label(item)} className={`thread-button ${selected?.threadId === item.threadId ? "thread-selected" : ""}`} key={item.threadId} onClick={() => openThread(item.threadId)}><Icon name="chat" /><span className="truncate">{label(item)}</span>{conversations.some((c) => c.threadId === item.threadId) && <span className="status-dot ml-auto" />}</button>)}
         {threadsCursor && <button className="mt-3 w-full rounded-lg py-2 text-xs text-muted hover:text-ink" onClick={() => void loadThreads()} disabled={loadingThreads || refreshingThreads}>{loadingThreads ? "Loading…" : "Load more conversations"}</button>}
       </nav>
       <div className="sidebar-footer">

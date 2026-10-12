@@ -47,8 +47,8 @@ export type WebLimitsResponse = import("./account_limits.js").ProviderAccountLim
 export type WebResetRequest = import("./account_limits.js").AccountResetRequest;
 export type WebResetResponse = import("./account_limits.js").AccountResetResponse;
 export type WebModelRequest = { model: string };
-/** Null selects the model's default effort; strings are provider-defined effort values. */
-export type WebEffortRequest = { effort: string | null };
+/** Strings select opaque values; null clears the override; mode default selects the model default. */
+export type WebEffortRequest = { effort: import("./requests.js").EffortSelection };
 
 export type WebRenameRequest = { name: string };
 

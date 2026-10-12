@@ -530,8 +530,8 @@ describe("Discord !skill commands", () => {
     expect(embed.description).toContain("Current: o4-mini");
   });
 
-  test("!effort set default selects the model default unless the model offers a literal default effort", async () => {
-    for (const [offered, requested, expected] of [[["low", "high"], "default", null], [["default", "high"], "default", "default"], [["DEFAULT", "high"], "DEFAULT", "DEFAULT"]] as const) {
+  test("!effort set preserves literal values regardless of the advertised model default", async () => {
+    for (const [offered, requested, expected] of [[["low", "high"], "default", "default"], [["default", "high"], "default", "default"], [["DEFAULT", "high"], "DEFAULT", "DEFAULT"]] as const) {
       const { message } = makeMessage(`!effort set ${requested}`);
       const { context } = makeContext();
       const requests: Array<string | null> = [];
@@ -556,6 +556,26 @@ describe("Discord !skill commands", () => {
       title: "Model updated",
       description: "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
     });
+  });
+
+  test("effort commands preserve literal provider values and distinguish default and clear", async () => {
+    const { context } = makeContext();
+    const selections: unknown[] = [];
+    Object.assign(context.conversation, {
+      async setThreadEffort(threadId: string, effort: unknown) {
+        selections.push(effort);
+        return { threadId, model: "opaque-model", currentEffort: null,
+          pendingEffort: typeof effort === "string" ? effort : null, pendingEffortClear: effort === null,
+          inputModalities: ["text"], defaultEffort: "Focused", supportedEfforts: [{ value: "default", description: "" }, { value: "Focused", description: "" }] };
+      },
+    });
+    for (const command of ["!effort set default", "!effort set Focused", "!effort default", "!effort clear"]) {
+      const { message, replies } = makeMessage(command);
+      await handleMessage(message as never, context);
+      expect(replyCardAt(replies).title).toBe("Effort updated");
+      if (command.endsWith("clear")) expect(replyCardAt(replies).description).toContain("clear effort override");
+    }
+    expect(selections).toEqual(["default", "Focused", { mode: "default" }, null]);
   });
 
   test("reports the current repo binding for the channel", async () => {

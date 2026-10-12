@@ -158,7 +158,7 @@ Sources: [Discord event presentation](../server/adapters/discord/thread_event_ha
 | List available models | Yes — `!models` | Yes — settings model picker; account catalog API | Paged discovery; usage titles resolve model names without a selected conversation |
 | Read current/pending model | Yes — `!model` | Yes — settings | Pending choice applies to a new turn |
 | Set model | Yes — `!model set <id>` | Yes — settings | Shared model validation |
-| Read/set reasoning effort | Yes — `!effort [set <level\|default>]` | Yes — settings | Includes default/reset and supported choices |
+| Read/set reasoning effort | Yes — `!effort [set <level>\|default\|clear]` | Yes — settings | Includes default/reset and supported choices |
 | Context/token usage | Yes — `!context` | Yes — settings | Available telemetry; not always present before a turn |
 | Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Host accounts, independent of conversation allowance. Discord `!limits [provider]` lists the chosen account's reported windows, reset times and extra usage; web has a provider selector with the same data. Workspace credit balances and banked resets remain Codex-only |
 | Banked reset count/details/expiration | No | Yes — sidebar Usage & limits | Available count is authoritative; detail rows may be unavailable or capped; non-expiring resets are labeled |

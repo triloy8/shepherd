@@ -9,14 +9,14 @@ function breakdown(value: unknown): TokenUsageBreakdown | null {
   return {
     inputTokens,
     cacheReadInputTokens: count(native.cachedInputTokens),
-    cacheWriteInputTokens: null,
+    cacheWriteInputTokens: count(native.cacheWriteInputTokens),
     outputTokens,
     reasoningOutputTokens: count(native.reasoningOutputTokens),
     totalTokens: count(native.totalTokens) ?? inputTokens + outputTokens,
   };
 }
 
-/** Decode Codex token usage notifications. Codex does not report cache writes. */
+/** Decode Codex token usage notifications. Older Codex versions may omit cache writes. */
 export function codexTokenUsage(value: unknown): ThreadTokenUsage | null {
   const native = record(value);
   const last = breakdown(native.last), total = breakdown(native.total);

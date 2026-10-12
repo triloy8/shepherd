@@ -311,7 +311,7 @@ Use `!help` for the command list:
 | Rename and fork | `!threadname <name>`, `!fork [id]` |
 | Archive and restore | `!archive [id]`, `!unarchive <id>` |
 | Stored history | `!history [thread-id]`, `!history items <turn-id> [thread-id]` |
-| Model and effort | `!models`, `!model`, `!model set <id>`, `!effort [set <level\|default>]` |
+| Model and effort | `!models`, `!model`, `!model set <id>`, `!effort`, `!effort set <level>`, `!effort default`, `!effort clear` |
 | Usage | `!context`, `!limits [provider]` |
 | Skills | `!skills [reload]`, `!skill enable <name-or-path>`, `!skill disable <name-or-path>` |
 | Turn and context controls | `!interrupt`, `!compact [id]` |

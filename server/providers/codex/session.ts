@@ -269,6 +269,7 @@ export class CodexSession implements ProviderSession {
 
     this.child.on("error", (error) => {
       this.publish("session.error", "unbound", { message: `Failed to spawn codex app-server: ${error.message}` });
+      this.cleanup();
     });
 
     this.child.on("exit", (code, signal) => {

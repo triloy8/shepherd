@@ -130,3 +130,12 @@ function assertWorkspaceContract() {
   return [complete, incomplete];
 }
 void assertWorkspaceContract;
+
+import type { WebEffortRequest } from "../shared/protocol/web.js";
+function assertEffortRequestContract() {
+  const selections: WebEffortRequest[] = [{ effort: "default" }, { effort: null }, { effort: { mode: "default" } }];
+  // @ts-expect-error Clearing is null, not another object mode.
+  const invalid: WebEffortRequest = { effort: { mode: "clear" } };
+  return [selections, invalid];
+}
+void assertEffortRequestContract;

@@ -241,7 +241,7 @@ test("superseded and completed turns cannot restart from late events", () => {
   state = reduceBridge(state, event("start2", "turn.started", { turnId: "new" }));
   state = reduceBridge(state, event("late", "turn.started", { turnId: "old" }));
   expect(state.activeTurnId).toBe("new");
-  state = reduceBridge(state, event("null", "turn.completed", { turnId: null }));
+  state = reduceBridge(state, event("late-end", "turn.completed", { turnId: "old" }));
   expect(state.activeTurnId).toBe("new");
   state = reduceBridge(state, event("end", "turn.completed", { turnId: "new" }));
   state = reduceBridge(state, event("late2", "turn.stream.delta", { turnId: "new", itemId: "ghost", kind: "assistant_text", textDelta: "Late" }));
@@ -254,4 +254,11 @@ test("a stale history snapshot cannot regress finished tool activity", () => {
   history.items.push({ id: "tool", type: "commandExecution", webActivity: { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "started" } });
   state = mergeHistory(state, [history]);
   expect(state.messages.find((m) => m.id === "tool")?.activity?.status).toBe("failed");
+});
+
+for (const id of ["native", "local:native"]) test(`canonical user ${id} retains its Revert action`, async () => {
+  const { Message } = await import("../ui/src/components/Message");
+  const message = { id, turnId: "turn", role: "user" as const, text: "Request", complete: true };
+  expect(renderToStaticMarkup(createElement(Message, { message, onRevert: () => {} }))).toContain("Revert from here");
+  expect(renderToStaticMarkup(createElement(Message, { message: { ...message, optimistic: true }, onRevert: () => {} }))).not.toContain("Revert from here");
 });

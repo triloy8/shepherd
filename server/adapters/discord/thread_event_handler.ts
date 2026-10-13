@@ -284,7 +284,7 @@ export function createDiscordThreadEventHandler(
     if (state.previewTimer) timers.clearTimeout(state.previewTimer);
     state.previewTimer = null;
     const text = getFinalResponseText(state.stream);
-    if (!text) return;
+    if (!text && !state.preview.messageId) return;
     enqueue(channelId, state, async (channel) => {
       const result = await updateDiscordPreview(channel, state.preview, text, {
         replyToMessageId: state.replyToMessageId,
@@ -337,6 +337,10 @@ export function createDiscordThreadEventHandler(
 
     const finalText = getFinalResponseText(state.stream);
     enqueue(channelId, state, async (channel) => {
+      if (!finalText && streaming) {
+        const cleared = await updateDiscordPreview(channel, state.preview, "");
+        if (!cleared.success) onError(new Error(cleared.error ?? "Discord preview clearing failed."));
+      }
       if (failed) {
         if (finalText) {
           const partial = await sendDiscordPages(
@@ -488,7 +492,7 @@ export function createDiscordThreadEventHandler(
     if (reduction.type === "updated" || reduction.type === "message-completed") {
       state.stream = reduction.state;
       sendCommentary(channelId, state, reduction.completedCommentary);
-      if (reduction.phase === "final") {
+      if (reduction.phase !== "interim") {
         schedulePreview(channelId, state);
       }
     } else if (reduction.type === "finish") {

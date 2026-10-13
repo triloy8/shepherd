@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities, ProviderOperation } from "../../shared/protocol/provider_capabilities.js";
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation, unsupportedThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
@@ -122,7 +124,7 @@ export class SessionManager {
     if (existing) {
       assertThreadSupport(this.threadProvider(threadId), existing.session.capabilities, request);
       if (existing.session.capabilities.modelCatalog && (request.model || request.effort)) {
-        const selected = await this.resolveModel(this.threadProvider(threadId), request.model ?? this.modelStateByThread.get(threadId)?.currentModel, existing.session, !!request.model && existing.session.capabilities.modelCatalogAuthoritative === true);
+        const selected = await this.resolveModel(this.threadProvider(threadId), request.model ?? this.modelStateByThread.get(threadId)?.currentModel, existing.session, !!request.model && existing.session.capabilities.modelCatalogAuthoritative === true, threadId);
         if (selected) this.assertModelEffort(selected, request.effort);
       }
       return { threadId, sessionId: existing.session.sessionId };
@@ -151,6 +153,8 @@ export class SessionManager {
       const request = this.withThreadDefaults(requested, session.capabilities, applyApprovalDefault);
       assertThreadSupport(request.provider ?? this.defaultProvider(), session.capabilities, request);
       assertApprovalSupport(request.provider ?? this.defaultProvider(), session.capabilities, request.approvalPolicy ?? session.approvalPolicy);
+      await session.initialize();
+      this.assertRunning();
       const preBootstrapCatalog = session.capabilities.modelCatalogScope === "provider";
       if (session.capabilities.modelCatalog && preBootstrapCatalog && (request.model || request.effort)) {
         const savedModel = !request.model && sourceThreadId
@@ -161,7 +165,7 @@ export class SessionManager {
       const created = await start(session, request);
       this.assertRunning();
       if (session.capabilities.modelCatalog && !preBootstrapCatalog && (request.model || request.effort)) {
-        const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? created.model, session, !!request.model && session.capabilities.modelCatalogAuthoritative === true);
+        const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? created.model, session, !!request.model && session.capabilities.modelCatalogAuthoritative === true, created.threadId);
         if (selected) this.assertModelEffort(selected, request.effort);
       }
       if (typeof created.cwd !== "string" || !created.cwd.trim()) {
@@ -362,7 +366,7 @@ export class SessionManager {
     const modelState = this.getThreadModel(threadId);
     const model = requestedModel ?? modelState.pendingModel ?? modelState.currentModel;
     const entry = this.mustGet(threadId).session.capabilities.modelCatalog
-      ? await this.resolveModel(this.threadProvider(threadId), model, this.mustGet(threadId).session)
+      ? await this.resolveModel(this.threadProvider(threadId), model, this.mustGet(threadId).session, false, threadId)
       : null;
     const state = this.effortStateByThread.get(threadId);
     return {
@@ -373,11 +377,11 @@ export class SessionManager {
     };
   }
 
-  private async resolveModel(provider: AgentProvider, model: string | null | undefined, session?: ProviderSession, strict = false): Promise<ModelSummary | null> {
+  private async resolveModel(provider: AgentProvider, model: string | null | undefined, session?: ProviderSession, strict = false, threadId?: string): Promise<ModelSummary | null> {
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
-      const request = { cursor, limit: 100, includeHidden: true, provider };
+      const request = { cursor, limit: 100, includeHidden: true, provider, ...(threadId ? { threadId } : {}) };
       let result: ListModelsResponse;
       try { result = session?.listModels ? await session.listModels(request) : await this.listModels(request); }
       catch (error) { if (!strict) return null; throw error; }
@@ -473,9 +477,9 @@ export class SessionManager {
     if (effort || request.effort === null || effortState?.pendingClear) this.requireCapability(threadId, "effortSelection");
     if (managed.session.capabilities.modelCatalog) {
       const selected = await this.resolveModel(this.threadProvider(threadId), model ?? modelState?.currentModel, managed.session,
-        !!model && managed.session.capabilities.modelCatalogAuthoritative === true);
+        !!model && managed.session.capabilities.modelCatalogAuthoritative === true, threadId);
       if (selected) this.assertModelInput(selected, request.input);
-      if (selected && selected.supportedEfforts !== null && effort === undefined && effortState?.current && !selected.supportedEfforts.some(option => option.value === effortState.current)) {
+      if (managed.session.capabilities.effortSelection && selected && selected.supportedEfforts !== null && effort === undefined && effortState?.current && !selected.supportedEfforts.some(option => option.value === effortState.current)) {
         // Preserve inherited effort only while the selected model supports it.
         effort = selected.defaultEffort;
       }
@@ -483,6 +487,10 @@ export class SessionManager {
     }
     if (effort || request.effort === null || effortState?.pendingClear) this.requireCapability(threadId, "effortSelection");
     const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
+    if (model && model !== modelState?.currentModel && !managed.session.capabilities.effortSelection) {
+      // The adapter chooses effort with its new model; the previous measurement is no longer known.
+      this.effortStateByThread.set(threadId, { current: null, pending: null });
+    }
     if (effort !== undefined) {
       const latest = this.effortStateByThread.get(threadId);
       this.effortStateByThread.set(threadId, {
@@ -513,7 +521,7 @@ export class SessionManager {
     if (!managed.session.steerTurn) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "steer");
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     if (managed.session.capabilities.modelCatalog) {
-      const model = await this.resolveModel(this.threadProvider(threadId), this.modelStateByThread.get(threadId)?.currentModel, managed.session);
+      const model = await this.resolveModel(this.threadProvider(threadId), this.modelStateByThread.get(threadId)?.currentModel, managed.session, false, threadId);
       if (model) this.assertModelInput(model, request.input);
     }
     const turnId = await managed.session.steerTurn(request.input, request.turnId);
@@ -530,10 +538,11 @@ export class SessionManager {
     decision: ApprovalDecisionRequest,
   ): Promise<void> {
     const managed = this.mustGet(threadId);
-    const { approval } = this.approvals.markDecided(threadId, approvalId, decision);
+    const { approval, nativeApprovalId } = this.approvals.markDecided(threadId, approvalId, decision, managed.session.sessionId);
 
     const threadSession = managed.session;
-    threadSession.eventBus.publish({
+    const events = this.applicationEvents.get(threadSession)!;
+    events.publish({
       id: `${threadSession.sessionId}:approval-decided:${approvalId}`,
       type: "approval.decided",
       threadId,
@@ -543,9 +552,9 @@ export class SessionManager {
     });
 
     try {
-      await managed.session.applyApprovalDecision(approvalId, decision);
+      await managed.session.applyApprovalDecision(nativeApprovalId, decision);
       this.approvals.markApplied(threadId, approvalId);
-      threadSession.eventBus.publish({
+      events.publish({
         id: `${threadSession.sessionId}:approval-applied:${approvalId}`,
         type: "approval.applied",
         threadId,
@@ -555,7 +564,7 @@ export class SessionManager {
       });
     } catch (error) {
       this.approvals.markFailed(threadId, approvalId);
-      threadSession.eventBus.publish({
+      events.publish({
         id: `${threadSession.sessionId}:approval-failed:${approvalId}`,
         type: "approval.failed",
         threadId,
@@ -613,12 +622,21 @@ export class SessionManager {
   private attachSessionSubscriptions(session: ProviderSession): void {
     const events = new EventBus();
     const rejectedQuestions = new Set<string>();
+    const seenRequests = new Set<string>();
+    const nativeRequests = new Map<string, Array<string | null>>();
     this.applicationEvents.set(session, events);
     this.sessionSubscriptions.set(session, session.eventBus.subscribe((event) => {
-      if (event.type.startsWith("approval.") && "approvalId" in event.payload && rejectedQuestions.has(event.payload.approvalId)) return;
+      if (event.type !== "approval.requested" && event.type.startsWith("approval.") && "approvalId" in event.payload && rejectedQuestions.has(event.payload.approvalId)) return;
       if (event.type === "approval.requested") {
+        const requestKey = JSON.stringify([event.threadId, event.id]);
+        if (seenRequests.has(requestKey)) return;
+        seenRequests.add(requestKey);
+        const nativeKey = JSON.stringify([event.threadId, event.payload.approvalId]);
+        nativeRequests.set(nativeKey, [...nativeRequests.get(nativeKey) ?? [], event.payload.userInput?.turnId ?? session.activeTurnId]);
+        rejectedQuestions.delete(event.payload.approvalId);
         if (event.payload.kind === "question" && !session.capabilities.questions) {
           const { approvalId, choices } = event.payload;
+          const failureId = randomUUID();
           rejectedQuestions.add(approvalId);
           // Never expose this request, including through replay. Resolve the provider's pending request.
           void Promise.resolve().then(async () => {
@@ -636,24 +654,38 @@ export class SessionManager {
               for (const [threadId, managed] of this.sessionsByThread) if (managed.session === session) this.discardThreadSession(threadId);
               this.releaseSession(session);
             }
-            events.publish({ ...event, id: `${event.id}:rejected`, type: "approval.failed", payload: { approvalId, message } });
+            events.publish({ ...event, id: `${event.id}:rejected`, type: "approval.failed", payload: { approvalId: failureId, message } });
           });
           return;
         }
-        this.approvals.create(event.payload as ApprovalRequestPayload, {
+        const pendingBefore = this.approvals.listByThread(event.threadId).filter(approval => approval.status === "pending");
+        const approval = this.approvals.create(event.payload as ApprovalRequestPayload, {
           threadId: event.threadId,
           sessionId: session.sessionId,
+          requestEventId: event.id,
+          turnId: event.payload.userInput?.turnId ?? session.activeTurnId,
         });
-        events.publish(event);
+        const retired = this.approvals.listByThread(event.threadId).filter(approval => approval.status === "expired" && pendingBefore.some(previous => previous.approvalId === approval.approvalId));
+        for (const previous of retired) events.publish({ ...event, id: `${event.id}:expired:${previous.approvalId}`, type: "approval.expired", payload: { approvalId: previous.approvalId } });
+        events.publish({ ...event, payload: { ...event.payload, approvalId: approval.approvalId } });
         return;
       }
 
-      if (event.type === "approval.expired") {
-        this.approvals.markExpired(event.threadId, (event.payload as { approvalId: string }).approvalId);
+      if (event.type.startsWith("approval.") && "approvalId" in event.payload) {
+        const turnId = "turnId" in event.payload ? event.payload.turnId : undefined;
+        const requestEventId = "requestEventId" in event.payload ? event.payload.requestEventId : undefined;
+        const occurrences = nativeRequests.get(JSON.stringify([event.threadId, event.payload.approvalId])) ?? [];
+        if (requestEventId === undefined && occurrences.filter(owner => turnId == null || owner === turnId).length !== 1) return;
+        const approval = this.approvals.resolveNative(event.threadId, session.sessionId, event.payload.approvalId, turnId, requestEventId);
+        if (!approval) return;
+        event = { ...event, payload: { ...event.payload, approvalId: approval.approvalId } } as BridgeEvent;
+        if (event.type === "approval.expired" && approval.status === "pending") this.approvals.markExpired(event.threadId, approval.approvalId);
       }
 
       if (event.type === "turn.completed" || event.type === "turn.failed") {
-        this.approvals.expireUserInput(event.threadId, (event.payload as { turnId?: string }).turnId);
+        for (const approval of this.approvals.expireTurn(event.threadId, session.sessionId, event.payload.turnId)) {
+          events.publish({ ...event, id: `${event.id}:expired:${approval.approvalId}`, type: "approval.expired", payload: { approvalId: approval.approvalId } });
+        }
       }
 
       if (event.type === "approval.applied") {
@@ -667,6 +699,7 @@ export class SessionManager {
       if (event.type === "thread.tokenUsage.updated") {
         const payload = event.payload as ThreadTokenUsageUpdatedEvent["payload"];
         if (payload.tokenUsage) this.tokenUsageByThread.set(event.threadId, payload.tokenUsage);
+        else this.tokenUsageByThread.delete(event.threadId);
       }
       events.publish(event);
     }, { replay: false }));

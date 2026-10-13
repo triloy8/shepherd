@@ -107,3 +107,40 @@ describe("ConversationSignalExecutor", () => {
     expect(resolved).toBe(true);
   });
 });
+
+for (const terminal of ["turn.completed", "turn.failed"] as const) {
+  test(`null ${terminal} releases both active-turn and signal waits`, async () => {
+    const state = makeConversation();
+    const executor = new ConversationSignalExecutor(state.conversation);
+    state.setActiveTurnId("turn-human");
+    const idle = executor.waitUntilIdle({ threadId: "thread-1", cwd: "/workspace" });
+    state.setActiveTurnId(null);
+    state.emit(makeEvent(terminal, null));
+    await idle;
+    const signal = executor.executeTurn({ threadId: "thread-1", cwd: "/workspace" }, [toTextUserInput("inspect")]);
+    await Promise.resolve();
+    state.setActiveTurnId(null);
+    state.emit(makeEvent(terminal, null));
+    await signal;
+  });
+  test(`null ${terminal} received before the submit receipt settles the signal`, async () => {
+    const state = makeConversation();
+    state.conversation.submitTurn = async () => {
+      state.emit(makeEvent(terminal, null));
+      return { ok: true, turnId: "turn-signal" };
+    };
+    await new ConversationSignalExecutor(state.conversation).executeTurn({ threadId: "thread-1", cwd: "/workspace" }, []);
+  });
+}
+
+test("identified terminal events from an earlier turn cannot settle a current signal", async () => {
+  const state = makeConversation();
+  let resolved = false;
+  const pending = new ConversationSignalExecutor(state.conversation).executeTurn({ threadId: "thread-1", cwd: "/workspace" }, []).then(() => { resolved = true; });
+  state.emit(makeEvent("turn.completed", "earlier"));
+  await Promise.resolve();
+  expect(resolved).toBe(false);
+  state.emit(makeEvent("turn.completed", null));
+  await pending;
+  expect(resolved).toBe(true);
+});

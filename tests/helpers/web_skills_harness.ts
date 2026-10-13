@@ -9,6 +9,7 @@ export function installWebSkills(h: ReturnType<typeof webHarness>) {
   const calls: Array<{ threadId: string; request: SkillsListRequest | SkillsConfigWriteRequest }> = [];
   Object.assign(h.application, { getSurfaceThreadId: (id: string) => h.bindings.get(id) ?? null });
   Object.assign(h.application.conversation, {
+    getThreadState: h.context.ingress.getThreadState,
     async listSkills(threadId: string, request: SkillsListRequest) { calls.push({ threadId, request }); return structuredClone(data); },
     async writeSkillConfig(threadId: string, request: SkillsConfigWriteRequest) {
       calls.push({ threadId, request });

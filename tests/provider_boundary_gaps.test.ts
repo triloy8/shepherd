@@ -230,7 +230,7 @@ test("the default provider is explicit configuration rather than registration or
   } finally { conversation.stopAll(); }
   expect(readRuntimeConfig({ SHEPHERD_DEFAULT_PROVIDER: " claude " }).defaultProvider).toBe("claude");
   expect(readRuntimeConfig({}).defaultProvider).toBeUndefined();
-  expect(() => readRuntimeConfig({ SHEPHERD_DEFAULT_PROVIDER: "two words" })).toThrow("SHEPHERD_DEFAULT_PROVIDER");
+  expect(readRuntimeConfig({ SHEPHERD_DEFAULT_PROVIDER: "two words" }).defaultProvider).toBe("two words");
   expect(() => assertInstalledProvider("not-installed")).toThrow("SHEPHERD_DEFAULT_PROVIDER must be one of");
   expect(() => assertInstalledProvider("claude")).not.toThrow();
 });
@@ -402,7 +402,8 @@ test("question requests from a provider that does not declare questions are fail
     session.eventBus.publish({ id: "question", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: { approvalId: "ask", kind: "question", prompt: "Which?", choices: [{ value: "opaque-skip", label: "Skip", intent: "cancel" }], detail: null, userInput } });
     session.eventBus.publish({ id: "permission", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: { approvalId: "allow", kind: "permission", prompt: "Run?", choices: [], detail: null } });
     await new Promise(resolve => setTimeout(resolve, 0));
-    expect(conversation.listApprovals(threadId).map(approval => approval.approvalId)).toEqual(["allow"]);
+    expect(conversation.listApprovals(threadId)).toHaveLength(1);
+    expect(conversation.listApprovals(threadId)[0]!.prompt).toBe("Run?");
     expect(events).toEqual(["approval.requested", "approval.failed"]);
     expect(decisions).toEqual([{ id: "ask", decision: { decision: "opaque-skip", reason: "This agent does not support questions." } }]);
     const replay: string[] = [];

@@ -100,7 +100,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {
         void navigator.clipboard.writeText(message.text).then(() => { setCopied(true); setCopyError(false); }, () => setCopyError(true));
       }}><Icon name={copied ? "check" : "copy"} className="size-3.5" />{copyError ? "Could not copy" : copied ? "Copied" : "Copy"}</button>}
-      {onRevert && message.role === "user" && message.complete && message.turnId && !message.id.startsWith("local:") && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink disabled:opacity-50" disabled={revertDisabled} onClick={onRevert}><Icon name="revert" className="size-3.5" />Revert from here</button>}
+      {onRevert && message.role === "user" && message.complete && message.turnId && !message.optimistic && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink disabled:opacity-50" disabled={revertDisabled} onClick={onRevert}><Icon name="revert" className="size-3.5" />Revert from here</button>}
     </div>}
 
   </article>;

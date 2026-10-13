@@ -121,15 +121,14 @@ test("web writes explicit skill paths without discovery and rejects unavailable 
       const conversation = create(supported); const h = webRuntime(conversation, root);
       try {
         const c = await h.create({ project: "fixture" });
-        for (const path of ["/skills/review/SKILL.md", "C:\\skills\\review\\SKILL.md"]) {
+        for (const path of ["/skills/review/SKILL.md", "C:\\skills\\review\\SKILL.md", "review", "skill:build"]) {
           const response = await h.request(`/conversations/${c.id}/skills`, "POST", { path, enabled: false });
           expect(response.status).toBe(supported ? 200 : 422);
           if (supported) expect(await response.json()).toEqual({ enabled: false });
         }
-        expect((await h.request(`/conversations/${c.id}/skills`, "POST", { path: "review", enabled: false })).status).toBe(422);
       } finally { h.api.dispose(); conversation.stopAll(); }
     }
     expect(listings).toBe(0);
-    expect(writes).toEqual([{ path: "/skills/review/SKILL.md", enabled: false }, { path: "C:\\skills\\review\\SKILL.md", enabled: false }]);
+    expect(writes).toEqual([{ path: "/skills/review/SKILL.md", enabled: false }, { path: "C:\\skills\\review\\SKILL.md", enabled: false }, { path: "review", enabled: false }, { path: "skill:build", enabled: false }]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

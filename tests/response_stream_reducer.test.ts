@@ -207,3 +207,10 @@ test("completed interim phases survive canonical updates and reset only with a n
   state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "item", turnId: "turn-2", phase: null, text: "New answer" })).state!;
   expect(getFinalResponseText(state)).toBe("New answer");
 });
+
+for (const phase of ["final", "interim", null] as const) test(`empty canonical ${phase} completion clears provisional text`, () => {
+  const partial = reduceResponseStream(null, makeEvent("turn.stream.delta", { kind: "assistant_text", textDelta: "Discard this", itemId: null, phase, turnId: "turn" }));
+  const completed = reduceResponseStream(partial.state, makeEvent("turn.message.completed", { itemId: "a", text: "", phase, turnId: "turn" }));
+  expect(getFinalResponseText(completed.state)).toBe("");
+  expect(completed.type === "message-completed" && completed.completedCommentary).toBeNull();
+});

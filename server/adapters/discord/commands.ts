@@ -390,6 +390,11 @@ export async function handleMessage(
   const content = inputContent.trim();
   const channelId = message.channelId;
   const { command, args } = parseThreadArgs(content);
+  // Provider IDs are opaque; preserve the complete argument, including internal spaces.
+  const providerValue = content.slice(command.length).trim();
+  const unquotedProvider = providerValue.match(/^(["'])([\s\S]*)\1$/)?.[2] ?? providerValue;
+  const requestedProvider = ["!newthread", "!limits"].includes(command) && context.conversation.listProviders().some(entry => entry.id === providerValue)
+    ? providerValue : unquotedProvider;
 
   if (command === "!providers") {
     const providers = context.conversation.listProviders();
@@ -398,8 +403,8 @@ export async function handleMessage(
   }
 
   if (command === "!newthread" || command === "!limits") {
-    const provider = args[0];
-    if (args.length > 1 || (provider && !context.conversation.listProviders().some(entry => entry.id === provider))) {
+    const provider = requestedProvider;
+    if (provider && !context.conversation.listProviders().some(entry => entry.id === provider)) {
       await replyCard(message, "Choose an agent", `Usage: \`${command} [provider]\`. Use \`!providers\` to list available agent IDs.`, "danger");
       return { handled: true, threadId: null, input: null };
     }
@@ -681,7 +686,7 @@ export async function handleMessage(
 
   if (command === "!limits") {
     try {
-      const result = await executeControlAction(context, { type: "limits.read", surfaceId: message.channelId, ...(args[0] ? { provider: args[0] } : {}) });
+      const result = await executeControlAction(context, { type: "limits.read", surfaceId: message.channelId, ...(requestedProvider ? { provider: requestedProvider } : {}) });
       if (result.type !== "limits.read") {
         throw new Error("Unexpected control action result for limits.read.");
       }
@@ -735,13 +740,14 @@ export async function handleMessage(
 
   if (command === "!effort") {
     const threadId = context.getSurfaceThreadId(channelId);
-    if (args.length && !((args.length === 2 && args[0]?.toLowerCase() === "set") || (args.length === 1 && ["default", "clear"].includes(args[0]!.toLowerCase())))) {
+    const effortValue = content.match(/^!effort\s+set\s+([\s\S]+)$/i)?.[1].trim();
+    if (args.length && !((effortValue && args[0]?.toLowerCase() === "set") || (args.length === 1 && ["default", "clear"].includes(args[0]!.toLowerCase())))) {
       await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level>\nUsage: !effort default\nUsage: !effort clear");
       return { handled: true, threadId, input: null };
     }
     try {
       const result = await executeControlAction(context, args.length
-        ? { type: "effort.set", surfaceId: channelId, effort: args.length === 2 ? args[1]! : args[0]!.toLowerCase() === "clear" ? null : { mode: "default" } }
+        ? { type: "effort.set", surfaceId: channelId, effort: effortValue ? effortValue : args[0]!.toLowerCase() === "clear" ? null : { mode: "default" } }
         : { type: "effort.get", surfaceId: channelId });
       if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
       if (!result.ok) {
@@ -841,7 +847,7 @@ export async function handleMessage(
   }
 
   if (command === "!newthread") {
-    const result = await executeControlAction(context, { type: "thread.create", surfaceId: channelId, ...(args[0] ? { provider: args[0] } : {}) });
+    const result = await executeControlAction(context, { type: "thread.create", surfaceId: channelId, ...(requestedProvider ? { provider: requestedProvider } : {}) });
     if (result.type !== "thread.create") {
       throw new Error("Unexpected control action result for thread.create.");
     }
@@ -924,15 +930,17 @@ export async function handleMessage(
 
     const sub = (args[0] ?? "").toLowerCase();
     if (sub === "enable" || sub === "disable") {
-      const requestedSkill = args.slice(1).join(" ").trim();
+      const skillArgument = content.match(/^!skill\s+\S+\s+([\s\S]+)$/i)?.[1].trim() ?? "";
+      const explicitPath = /^--path(?:\s|$)/.test(skillArgument);
+      const requestedSkill = explicitPath ? skillArgument.slice(6).trim() : skillArgument;
       if (!requestedSkill) {
-        await replyMarkdown(message, `Usage: !skill ${sub} <name-or-path>`);
+        await replyMarkdown(message, `Usage: !skill ${sub} <name-or-path>\nUsage: !skill ${sub} --path <path>`);
         return { handled: true, threadId: null, input: null };
       }
       const result = await executeControlAction(context, {
         type: "skill.set-enabled",
         surfaceId: channelId,
-        requestedSkill,
+        ...(explicitPath ? { path: requestedSkill } : { requestedSkill }),
         enabled: sub === "enable",
       });
       if (result.type !== "skill.set-enabled") {

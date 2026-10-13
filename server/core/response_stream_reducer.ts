@@ -179,13 +179,9 @@ export function reduceResponseStream(
     if (state.pendingItemId === null || state.pendingItemId === payload.itemId) state = { ...state, pendingItemId: undefined };
     const text = payload.text ?? "";
     const unphased = state.unphasedMessages?.find(message => message.itemId === payload.itemId) ?? (state.unphasedMessages?.at(-1)?.itemId === null ? state.unphasedMessages.at(-1) : undefined);
-    const unphasedText = unphased?.text ?? "";
     if (phase !== null && unphased) state = { ...state, unphasedMessages: state.unphasedMessages?.filter(message => message !== unphased) };
     if (phase === "interim") {
-      const active =
-        state.activeCommentary && (state.activeCommentary.itemId === payload.itemId || state.activeCommentary.itemId === null)
-          ? { itemId: payload.itemId, text: text || state.activeCommentary.text }
-          : { itemId: payload.itemId, text: text || unphasedText };
+      const active = { itemId: payload.itemId, text };
       return {
         type: "message-completed",
         phase,
@@ -200,7 +196,7 @@ export function reduceResponseStream(
         phase,
         state: {
           ...state,
-          finalMessages: upsertMessage(state.finalMessages, payload.itemId, (current) => text || current || unphasedText),
+          finalMessages: upsertMessage(state.finalMessages, payload.itemId, () => text),
         },
         completedCommentary: null,
       };
@@ -211,7 +207,7 @@ export function reduceResponseStream(
       phase,
       state: {
         ...state,
-        unphasedMessages: upsertMessage(state.unphasedMessages ?? [], payload.itemId, current => text || current),
+        unphasedMessages: upsertMessage(state.unphasedMessages ?? [], payload.itemId, () => text),
       },
       completedCommentary: null,
     };

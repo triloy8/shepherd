@@ -38,23 +38,29 @@ images, token usage, and background task counts have shared representations. Tok
 
 Unknown assistant message phases remain valid. Discord uses the last unphased message
 as the answer when no explicit final message exists, matching application history;
-completed text is canonical and previously reported phases remain known when later events
-omit them. An explicit null token-usage event clears cached measurements.
+completed text is canonical, including an explicitly empty string. Previously reported phases
+remain known when later events omit them. Empty canonical output also clears an existing
+Discord streaming preview. An explicit null token-usage event clears cached measurements.
 
 History item identities are scoped to their turn. Browser reconciliation and rendering use
 both the turn and item identity, so repeated native IDs do not overwrite earlier messages.
 Null turn IDs in events refer to the current turn; delayed events from an earlier turn must
-carry its ID. Deltas without item IDs belong to the pending message, which may start
-anonymous. Its first identified delta or completion supplies the canonical identity, and
-an unambiguous history snapshot can identify it before completion. Known message phases
-remain available for subsequent canonical updates throughout the turn.
+carry its ID. Signal automation applies the same current-turn rule when waiting for completion.
+Browser turn lookups require own properties, and optimistic messages carry explicit state rather
+than reserving a native item-ID prefix. Deltas without item IDs belong to the pending message,
+which may start anonymous. Its first identified delta or completion supplies the canonical identity, and
+an unambiguous history snapshot can identify it before completion. A previously established
+item cannot claim a later anonymous message merely because their text matches. Known message
+phases remain available for subsequent canonical updates throughout the turn.
 
 Adapters decode stored history before returning it. History records are a discriminated
 union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
 `activity`, `image`, `other`) with `in_progress`/`completed`/`interrupted`/`failed` turn
 status; web/Discord do not decode native tool records. Codex decodes its thread items in
 its adapter; Claude stores application items and still reads snapshots written with the
-earlier Codex-style names. Native tool arguments, transport envelopes, and arbitrary thread properties do
+earlier Codex-style names. Generic attachment history retains an attachment indicator and
+available name/path in the web UI. Native tool arguments, transport envelopes, and arbitrary
+thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
 `audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex
 text elements and connector mentions are not part of the shared contract. Claude converts
@@ -118,6 +124,9 @@ advertised method presence. Model discovery, model selection, and effort selecti
 Optional catalog metadata is compared after applying its documented defaults: omitted
 scope is conversation-scoped and omitted authority is false. Skill configuration writes
 to explicit paths do not require discovery; resolving a skill name still requires its catalog.
+The web skill mutation accepts an exact path independently of its extension or separators. Discord
+also accepts `!skill enable --path <path>` and `!skill disable --path <path>` for explicit writes.
+Provider selections and effort values in Discord preserve internal spaces and case.
 Core checks flags before execution and pending-state changes. Clients use them to
 disable unavailable actions; server validation remains authoritative. A catalog can be read-only when selection flags are false. Without a catalog,
 model metadata stays unknown

@@ -947,3 +947,46 @@ test("Discord discovers arbitrary agents and routes creation and account reads w
   await handleMessage(makeMessage("!newthread").message as never, context);
   expect(created[1]).toEqual(["chan-1", undefined]);
 });
+
+for (const provider of ["neutral fixture", "team/Agent  α", '"literal provider"']) test(`Discord preserves opaque provider ${provider}`, async () => {
+  const { context } = makeContext();
+  const base = context.conversation.listProviders()[0]!;
+  const selected: string[] = [];
+  Object.assign(context.conversation, {
+    listProviders: () => [{ ...base, id: provider }],
+    readAccount: async (value: string) => { selected.push(value); return account(value); },
+  });
+  context.createSurfaceThread = async (_id, value) => { selected.push(value!); return "created"; };
+  for (const command of [`!newthread ${provider}`, `!limits ${provider}`]) {
+    await handleMessage(makeMessage(command).message as never, context);
+  }
+  expect(selected).toEqual([provider, provider]);
+});
+
+test("Discord accepts quoted provider selection without splitting the identifier", async () => {
+  const { context } = makeContext();
+  const base = context.conversation.listProviders()[0]!;
+  Object.assign(context.conversation, { listProviders: () => [{ ...base, id: "neutral fixture" }] });
+  let selected: string | undefined;
+  context.createSurfaceThread = async (_id, provider) => { selected = provider; return "created"; };
+  await handleMessage(makeMessage('!newthread "neutral fixture"').message as never, context);
+  expect(selected).toBe("neutral fixture");
+});
+
+test("Discord preserves case and repeated spaces in opaque effort values", async () => {
+  const { context } = makeContext();
+  let selected: unknown;
+  Object.assign(context.conversation, { setThreadEffort: async (_id: string, effort: unknown) => {
+    selected = effort; return { threadId: "thread-1", model: null, currentEffort: null, pendingEffort: effort, supportedEfforts: null, effortOptionsKnown: false };
+  } });
+  await handleMessage(makeMessage("!effort set Low  Power α").message as never, context);
+  expect(selected).toBe("Low  Power α");
+});
+
+test("Discord explicit extensionless skill paths work without discovery", async () => {
+  const { context, writes } = makeContext({ listSkills: async () => { throw Error("Discovery is unavailable"); } });
+  const getState = context.conversation.getThreadState;
+  Object.assign(context.conversation, { getThreadState: (id: string) => ({ ...getState(id), capabilities: { ...getState(id).capabilities, skills: false, skillConfig: true } }) });
+  await handleMessage(makeMessage("!skill disable --path instructions").message as never, context);
+  expect(writes).toEqual([{ threadId: "thread-1", path: "instructions", enabled: false }]);
+});

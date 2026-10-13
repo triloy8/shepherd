@@ -426,3 +426,29 @@ for (const id of ["vendor/agent", "agent:variant", "agent with spaces", "代理"
   finally { conversation.stopAll(); }
   expect(() => assembleProviderServices([h.entry], directory(), "not-registered")).toThrow("not registered");
 });
+
+test("independent provider null-ID completion releases consecutive real signal turns", async () => {
+  const { ConversationSignalExecutor } = await import("../server/core/conversation_signal_executor.js");
+  let turns = 0;
+  const h = registration("signal-provider", session => {
+    session.startTurn = async () => {
+      const turnId = `turn-${++turns}`;
+      session.activeTurnId = turnId;
+      queueMicrotask(() => {
+        session.activeTurnId = null;
+        session.eventBus.publish({ id: `done-${turns}`, type: "turn.completed", threadId: "1", sessionId: session.sessionId, ts: "now", payload: { turnId: null } });
+      });
+      return turnId;
+    };
+  });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    const executor = new ConversationSignalExecutor(conversation);
+    for (let index = 0; index < 2; index++) {
+      await executor.executeTurn({ threadId, cwd: "/tmp" }, [{ type: "text", text: "Inspect" }]);
+      await executor.waitUntilIdle({ threadId, cwd: "/tmp" });
+    }
+    expect(turns).toBe(2);
+  } finally { conversation.stopAll(); }
+});

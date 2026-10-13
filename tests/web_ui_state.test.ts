@@ -19,7 +19,7 @@ test("stream replay is deduplicated and canonical completion replaces partial te
 test("history preserves older pages on refresh and reconciles optimistic messages", () => {
   let state = mergeHistory(emptyChat(), [turn("2", "new")]);
   state = mergeHistory(state, [turn("1", "old")], true);
-  state.messages.push({ id: "local:pending", role: "user", text: "latest", turnId: "3", complete: true });
+  state.messages.push({ optimistic: true, id: "local:pending", role: "user", text: "latest", turnId: "3", complete: true });
   state = mergeHistory(state, [turn("3", "latest"), turn("2", "new")]);
   expect(state.messages.map((item) => item.text)).toEqual(["old", "new", "latest"]);
 });
@@ -117,8 +117,8 @@ test("image-only history retains previews and only deduplicates matching optimis
   const second = "data:image/gif;base64,R0lGODlh";
   const state = emptyChat();
   state.messages = [
-    { id: "local:first", turnId: "turn", role: "user", text: "", attachments: [first], complete: true },
-    { id: "local:second", turnId: "turn", role: "user", text: "", attachments: [second], complete: true },
+    { optimistic: true, id: "local:first", turnId: "turn", role: "user", text: "", attachments: [first], complete: true },
+    { optimistic: true, id: "local:second", turnId: "turn", role: "user", text: "", attachments: [second], complete: true },
   ];
   const history = turn("turn", "");
   history.items[0]!.content = [{ type: "image", url: first }];
@@ -234,4 +234,48 @@ test("identified completion resolves an anonymous stream retained by an ambiguou
   expect(state.messages).toHaveLength(2);
   expect(state.messages.some(message => message.anonymous)).toBe(false);
   expect(state.messages.map(message => message.text)).toEqual(["Hello from progress", "Hello from answer"]);
+});
+
+for (const turnId of ["constructor", "toString", "__proto__"]) test(`opaque turn ID ${turnId} streams and settles normally`, () => {
+  let state = reduceBridge(emptyChat(), event("s", "turn.started", { turnId }));
+  expect(state.activeTurnId).toBe(turnId);
+  state = reduceBridge(state, event("d", "turn.stream.delta", { turnId, itemId: "a", kind: "assistant_text", phase: null, textDelta: "Answer" }));
+  state = reduceBridge(state, event("c", "turn.completed", { turnId: null }));
+  expect(state.messages).toHaveLength(1);
+  expect(state.messages[0]).toMatchObject({ turnId, text: "Answer", complete: true });
+  expect(state.activeTurnId).toBeNull();
+  expect(Object.hasOwn(state.turns, turnId)).toBe(true);
+});
+
+test("a repeated anonymous message cannot claim an established answer through snapshots or replay", () => {
+  let state = reduceBridge(emptyChat(), event("s", "turn.started", { turnId: "t" }));
+  state = reduceBridge(state, event("a", "turn.message.completed", { turnId: "t", itemId: "a", phase: null, text: "Hello" }));
+  state = reduceBridge(state, event("d", "turn.stream.delta", { turnId: "t", itemId: null, kind: "assistant_text", phase: null, textDelta: "Hello" }));
+  state = mergeHistory(state, [{ ...turn("t", ""), status: "in_progress", items: [{ id: "a", type: "assistant_message", text: "Hello" }] }]);
+  state = reduceBridge(state, event("a-replay", "turn.message.completed", { turnId: "t", itemId: "a", phase: null, text: "Hello" }));
+  expect(state.messages).toHaveLength(2);
+  expect(state.messages[0]).toMatchObject({ id: "a", text: "Hello", complete: true });
+  expect(state.messages[1]!.anonymous).toBe(true);
+  state = reduceBridge(state, event("more", "turn.stream.delta", { turnId: "t", itemId: null, kind: "assistant_text", phase: null, textDelta: " again" }));
+  state = reduceBridge(state, event("b", "turn.message.completed", { turnId: "t", itemId: "b", phase: null, text: "Hello again" }));
+  expect(state.messages.map(message => [message.id, message.text])).toEqual([["a", "Hello"], ["b", "Hello again"]]);
+});
+
+test("native local-prefixed user and assistant IDs remain canonical and chronologically ordered", () => {
+  const native = mergeHistory(emptyChat(), [repeatedTurn(["local:native"])]);
+  expect(acceptUserMessage(native, sentUser("receipt"), []).messages).toEqual(native.messages);
+  const optimistic = acceptUserMessage(native, sentUser("opaque-optimistic"), native.messages);
+  expect(optimistic.messages.at(-1)!.optimistic).toBe(true);
+  expect(mergeHistory(optimistic, [repeatedTurn(["local:native", "local:second"])]).messages.map(message => message.id)).toEqual(["local:native", "local:second"]);
+  const previous = { ...turn("old", ""), items: [{ id: "local:answer", type: "assistant_message" as const, text: "Old answer" }] };
+  const refreshed = mergeHistory(mergeHistory(emptyChat(), [previous]), [turn("new", "New request")]);
+  expect(refreshed.messages.map(message => message.text)).toEqual(["Old answer", "New request"]);
+});
+
+test("attachment-only and mixed history messages retain names or unavailable placeholders", () => {
+  const history = { ...turn("t", ""), items: [{ id: "u", type: "user_message" as const, content: [
+    { type: "attachment" as const, name: "recording.wav", path: "/tmp/recording.wav" },
+    { type: "attachment" as const, name: null, path: null },
+  ] }] };
+  expect(mergeHistory(emptyChat(), [history]).messages[0]!.text).toBe("[Attachment: recording.wav]\n[Attachment: unavailable]");
 });

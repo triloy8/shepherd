@@ -3,7 +3,7 @@ import type { BridgeEvent, TurnActivityEvent } from "../../shared/protocol/event
 import type { WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryTurn } from "../../shared/protocol/requests";
 
-export type ChatMessage = { anonymous?: boolean; localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "interim" | "final"; streamText?: string; snapshotText?: string };
+export type ChatMessage = { optimistic?: boolean; anonymous?: boolean; anonymousBaseline?: string[]; localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: TurnActivityEvent["payload"]; phase?: "interim" | "final"; streamText?: string; snapshotText?: string };
 export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
 export type ChatState = { endedTurns: string[]; turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
 export const emptyChat = (): ChatState => ({ endedTurns: [], turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
@@ -16,7 +16,7 @@ export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
   return [...turns].reverse().flatMap((turn) => turn.items.flatMap((item): ChatMessage[] => {
     if (item.type === "user_message") {
       const attachments = item.content.flatMap((part) => part.type === "image" && imageDataParts(part.url) ? [part.url as string] : []).slice(0, WEB_IMAGE_MAX_COUNT);
-      const content = item.content.map((part) => part.type === "text" ? part.text : part.type === "image" ? (attachments.includes(text(part.url)) ? "" : "[Image attachment unavailable]") : part.type === "image_file" ? "[Image attachment]" : "").filter(Boolean).join("\n");
+      const content = item.content.map((part) => part.type === "text" ? part.text : part.type === "image" ? (attachments.includes(text(part.url)) ? "" : "[Image attachment unavailable]") : part.type === "image_file" ? "[Image attachment]" : part.type === "attachment" ? `[Attachment: ${part.name || part.path || "unavailable"}]` : "").filter(Boolean).join("\n");
       return [{ id: item.id, turnId: turn.id, role: "user", text: content, attachments, complete: true }];
     }
     if (item.type === "assistant_message") return [{ id: item.id, turnId: turn.id, role: "assistant", text: item.text, attachments: [], phase: phase(item.phase), complete: turn.status !== "in_progress" }];
@@ -42,7 +42,7 @@ const sameAttachments = (left: string[] | undefined, right: string[] | undefined
   const b = right ?? [];
   return a.length === b.length && a.every((value, index) => value === b[index]);
 };
-export const messageKey = (message: Pick<ChatMessage, "turnId" | "id" | "anonymous">) => JSON.stringify([message.turnId, message.id, message.anonymous === true]);
+export const messageKey = (message: Pick<ChatMessage, "turnId" | "id" | "anonymous" | "optimistic">) => JSON.stringify([message.turnId, message.id, message.anonymous === true, message.optimistic === true]);
 const compatiblePhase = (left: ChatMessage["phase"], right: ChatMessage["phase"]) => !left || !right || left === right;
 function lastMessageIndex(messages: ChatMessage[], matches: (message: ChatMessage) => boolean): number {
   for (let index = messages.length - 1; index >= 0; index--) if (matches(messages[index]!)) return index;
@@ -57,16 +57,16 @@ const sameUserMessage = (a: ChatMessage, b: ChatMessage) => a.role === "user" &&
 // can intentionally send the same follow-up more than once within one turn.
 export function acceptUserMessage(state: ChatState, message: ChatMessage, beforeSend: ChatMessage[]): ChatState {
   const baseline = beforeSend.filter((item) => sameUserMessage(item, message)).map((item) => item.id);
-  const canonical = state.messages.filter((item) => !item.id.startsWith("local:") && sameUserMessage(item, message));
+  const canonical = state.messages.filter((item) => !item.optimistic && sameUserMessage(item, message));
   const received = canonical.some((item, index) => index >= baseline.length && !baseline.includes(item.id));
-  return { ...state, messages: received ? state.messages : [...state.messages, { ...message, localBaseline: baseline }] };
+  return { ...state, messages: received ? state.messages : [...state.messages, { ...message, optimistic: true, localBaseline: baseline }] };
 }
 
 export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = false): ChatState {
   const incoming = historyMessages(turns);
   const claimed = new Set<string>();
   const retained = state.messages.filter((message) => {
-    if (!message.id.startsWith("local:")) return true;
+    if (!message.optimistic) return true;
     const baseline = message.localBaseline ?? [];
     const match = incoming.filter((item) => sameUserMessage(item, message)).find((item, index) => index >= baseline.length && !baseline.includes(item.id) && !claimed.has(messageKey(item)));
     if (!match) return true;
@@ -75,13 +75,16 @@ export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = 
   });
   // A history snapshot may identify an anonymous stream before its completion event arrives.
   // Claim only an unambiguous text match, preserving repeated messages as separate occurrences.
+  const established = new Set(retained.filter(message => !message.anonymous && !message.optimistic).map(messageKey));
+  const matchesStream = (message: ChatMessage, streamed: ChatMessage) => message.role === "assistant" && !message.activity && !message.image &&
+    message.turnId === streamed.turnId && compatiblePhase(message.phase, streamed.phase) &&
+    !!message.text && (message.text.startsWith(streamed.text) || streamed.text.startsWith(message.text));
   for (let index = 0; index < retained.length; index++) {
     const streamed = retained[index]!;
     if (!streamed.anonymous || !streamed.text) continue;
-    const matches = incoming.filter(message => message.role === "assistant" && !message.activity && !message.image &&
-      message.turnId === streamed.turnId && compatiblePhase(message.phase, streamed.phase) &&
-      message.text && (message.text.startsWith(streamed.text) || streamed.text.startsWith(message.text)));
-    if (matches.length === 1 && !claimed.has(messageKey(matches[0]!))) {
+    const matches = incoming.filter(message => !established.has(messageKey(message)) && matchesStream(message, streamed));
+    if (matches.length === 1 && !claimed.has(messageKey(matches[0]!)) &&
+      retained.filter(other => other.anonymous && other.text && matchesStream(matches[0]!, other)).length === 1) {
       const canonical = matches[0]!;
       claimed.add(messageKey(canonical));
       retained[index] = { ...streamed, id: canonical.id, anonymous: false };
@@ -109,7 +112,7 @@ export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = 
   const incomingIds = new Set(incoming.map(messageKey));
   const overlap = retained.findIndex((message) => incomingIds.has(messageKey(message)));
   // Keep previously loaded older pages in front of refreshed recent history.
-  const prefix = older ? [] : overlap >= 0 ? retained.slice(0, overlap) : retained.filter((message) => message.complete && !message.id.startsWith("local:"));
+  const prefix = older ? [] : overlap >= 0 ? retained.slice(0, overlap) : retained.filter((message) => message.complete && !message.optimistic);
   const prefixIds = new Set(prefix.map(messageKey));
   const order = [...prefix, ...incoming, ...retained.filter((message) => !incomingIds.has(messageKey(message)) && !prefixIds.has(messageKey(message)))];
   const ids = [...new Set(order.map(messageKey))];
@@ -130,7 +133,7 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   const payload = record(event.payload);
   const next = { ...state, seen: [...state.seen.slice(-1023), event.id] };
   const turnId = text(payload.turnId) || state.activeTurnId || "";
-  const known = state.turns[turnId];
+  const known = Object.hasOwn(state.turns, turnId) ? state.turns[turnId] : undefined;
   const ended = state.endedTurns.includes(turnId) || (known && known.status !== "in_progress");
   // A superseded turn may still deliver queued events. They must not change
   // the current turn, append post-completion deltas or replace its activity.
@@ -167,7 +170,7 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   let previous = canonical;
   // Ambiguous snapshots can create a canonical row while retaining the anonymous stream.
   // An identified event resolves that ambiguity without leaving a second message behind.
-  if (canonical && pending >= 0 && (!canonical.complete || (text(payload.text) && text(payload.text).startsWith(messages[pending]!.text)))) {
+  if (canonical && pending >= 0 && !messages[pending]!.anonymousBaseline?.includes(messageKey(canonical)) && (!canonical.complete || (text(payload.text) && text(payload.text).startsWith(messages[pending]!.text)))) {
     previous = { ...canonical, streamText: canonical.streamText ?? messages[pending]!.streamText };
     messages = messages.filter((_, position) => position !== pending);
     index = messages.findIndex(message => messageKey(message) === messageKey(canonical));
@@ -180,6 +183,7 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
   const id = reportedId || previous?.id || `anonymous:${event.id}`;
   const message: ChatMessage = {
     anonymous: !reportedId && (previous?.anonymous ?? true),
+    anonymousBaseline: previous?.anonymousBaseline ?? (!reportedId ? state.messages.filter(message => message.turnId === turnId && !message.anonymous).map(messageKey) : undefined),
     id, turnId, role: "assistant", phase: phase(payload.phase) ?? previous?.phase,
     text: event.type === "turn.message.completed" ? text(payload.text) : reconcileText(previous?.snapshotText ?? "", (previous?.streamText ?? "") + text(payload.textDelta)),
     streamText: event.type === "turn.stream.delta" ? (previous?.streamText ?? "") + text(payload.textDelta) : undefined,

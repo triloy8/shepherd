@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isClaudeEffort, type ClaudeThread, type ClaudeThreadRepository, type ClaudeThreadSummary } from "./thread_store.js";
-import { historyTurn, storedTokenUsage, storedTurnStatuses } from "./history.js";
+import { storedTokenUsage, storedTurn, storedTurnStatuses } from "./history.js";
+import { isClaudeStoredApprovalMode } from "./permissions.js";
 
 const threadFile = /^(claude-[0-9a-f-]{36})\.json$/;
 
@@ -19,7 +20,7 @@ export class ClaudeThreadStore implements ClaudeThreadRepository {
     validateSnapshot(value, id);
     const { tokenUsage: savedUsage, ...thread } = value;
     const tokenUsage = storedTokenUsage(savedUsage);
-    return { ...thread, turns: value.turns.map(historyTurn), ...(tokenUsage ? { tokenUsage } : {}) };
+    return { ...thread, turns: value.turns.map(storedTurn), ...(tokenUsage ? { tokenUsage } : {}) };
   }
   write(thread: ClaudeThread): void {
     validateSnapshot(thread, thread.id);
@@ -84,7 +85,7 @@ function validateSummary(value: ClaudeThreadSummary, id: string): void {
       (value.name !== null && typeof value.name !== "string") || typeof value.preview !== "string" || typeof value.instructions !== "string" ||
       !Number.isFinite(value.createdAt) || !Number.isFinite(value.updatedAt) ||
       (value.effort !== undefined && !isClaudeEffort(value.effort)) ||
-      (value.approvalMode !== undefined && !["provider_default", "review_sensitive", "bypass"].includes(value.approvalMode))) {
+      (value.approvalMode !== undefined && !isClaudeStoredApprovalMode(value.approvalMode))) {
     throw new InvalidSnapshotError();
   }
 }

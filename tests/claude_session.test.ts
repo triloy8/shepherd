@@ -1,7 +1,7 @@
 import { ClaudeModelCache } from "../server/providers/claude/model_cache.js";
 import { ClaudeThreadStore } from "../server/providers/claude/file_thread_store.js";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { query, Query, SDKMessage, SDKUserMessage, PermissionResult, Options, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
@@ -661,6 +661,12 @@ test("snapshots written with earlier item names decode into the application hist
   expect((await session.listThreadTurns(id, { itemsView: "summary" })).data[0]!.items).toHaveLength(2);
   expect((await session.listThreadTurns(id, { itemsView: "none" })).data[0]!.items).toEqual([]);
   session.stop();
+  // Resuming rewrote the snapshot in Claude's own saved format, without application-only fields.
+  const saved = JSON.parse(readFileSync(join(directory, `${id}.json`), "utf8"));
+  expect(saved.turns[0]).not.toHaveProperty("itemsView");
+  expect(saved.turns[0].items[1]).toEqual({ id: "tool", type: "activity", activity: { kind: "command", label: "Bash", detail: null, status: "completed" }, output: "\"ok\"" });
+  expect(saved.tokenUsage).toHaveProperty("contextWindow", 200_000);
+  expect(saved.tokenUsage).not.toHaveProperty("modelContextWindow");
 });
 
 test("Claude applies opaque permission options through the shared session boundary", async () => {

@@ -12,7 +12,7 @@ import { CodexSession } from "../server/providers/codex/session.js";
 import { codexOwnsStoredThread } from "../server/providers/codex/thread_ownership.js";
 import { readRuntimeConfig } from "../server/config/runtime_environment.js";
 import { assertInputSupport, assertThreadSupport } from "../shared/protocol/provider_support.js";
-import { historyItem as claudeHistoryItem } from "../server/providers/claude/history.js";
+import { historyItem as claudeHistoryItem, storedItem as claudeStoredItem } from "../server/providers/claude/history.js";
 import { codexCapabilities } from "../server/providers/codex/capabilities.js";
 import { claudeCapabilities } from "../server/providers/claude/capabilities.js";
 import { validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest } from "../shared/protocol/validation.js";
@@ -409,7 +409,7 @@ test("keeping a thread's workspace does not require workspace changes", async ()
 });
 
 test("Claude snapshots saved with the earlier image prompt field still decode", () => {
-  const image = (fields: Record<string, unknown>) => claudeHistoryItem({ id: "image", type: "image", image: { path: "/tmp/a.png", kind: "generated", ...fields } }, "turn");
+  const image = (fields: Record<string, unknown>) => claudeHistoryItem(claudeStoredItem({ id: "image", type: "image", image: { path: "/tmp/a.png", kind: "generated", ...fields } }), "turn");
   expect(image({ revisedPrompt: "A meadow" })).toMatchObject({ image: { prompt: "A meadow" } });
   expect(image({ prompt: "A forest" })).toMatchObject({ image: { prompt: "A forest" } });
 });

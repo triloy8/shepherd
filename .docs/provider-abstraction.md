@@ -58,8 +58,10 @@ Adapters decode stored history before returning it. History records are a discri
 union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
 `activity`, `image`, `other`) with `in_progress`/`completed`/`interrupted`/`failed` turn
 status; web/Discord do not decode native tool records. Codex decodes its thread items in
-its adapter; Claude stores application items and still reads snapshots written with the
-earlier Codex-style names. Generic attachment history retains an attachment indicator and
+its adapter. Claude saves snapshots in its own record types (`ClaudeStored*` in
+`server/providers/claude/history.ts`), normalizes snapshots written with earlier names when
+reading them, and converts saved records into application items only when presenting
+history, so shared contract changes do not change the saved format. Generic attachment history retains an attachment indicator and
 available name/path in the web UI. Native tool arguments, transport envelopes, and arbitrary
 thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
@@ -270,8 +272,8 @@ uncorrelated follow-ups are ignored; host decisions complete their captured appl
 For an unbound stored conversation, registered adapters identify ownership from native
 records; exactly one match is required and the binding is then persisted. Unknown or
 ambiguous identities fail rather than guessing a default provider or inspecting an ID
-prefix in shared code. Existing bindings remain immutable. Claude snapshots retain the common approval mode
-across resume/fork/restart. Older snapshots without this optional field use the provider
+prefix in shared code. Existing bindings remain immutable. Claude snapshots retain the approval mode, as
+an adapter-owned value translated to and from the common mode, across resume/fork/restart. Older snapshots without this optional field use the provider
 default unless a mode is explicitly supplied. Provider-native transcripts remain adapter-owned. Web navigation
 handles and SSE replay are volatile; persisted history is the recovery source. Reconnecting
 never automatically resends a prompt.

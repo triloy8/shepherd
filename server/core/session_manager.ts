@@ -333,7 +333,7 @@ export class SessionManager {
     const provider = request.threadId ? this.threadProvider(request.threadId, request.provider) : request.provider ?? this.defaultProvider();
     const session = request.threadId ? this.mustGet(request.threadId).session : await this.getControlSession(provider);
     assertProviderOperation(provider, session.capabilities, "modelCatalog");
-    if (!session.listModels) throw new UnsupportedProviderOperationError(request.provider ?? this.defaultProvider(), "modelCatalog");
+    if (!session.listModels) throw new UnsupportedProviderOperationError(provider, "modelCatalog");
     return session.listModels(request);
   }
 

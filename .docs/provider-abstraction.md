@@ -244,9 +244,12 @@ Core checks these before bootstrap, submit, or steer, and adapters enforce them 
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
 local-file, audio, skill-reference, or image-detail support. Model/effort
 options are discovered where available; otherwise the adapter validates opaque selections. Thread state includes its provider
-and capabilities, so surfaces do not guess support from identity. Registration rejects a
-session whose capabilities differ from its descriptor or whose advertised operations
-have no implementation, and stops it before initialization. Shared events form a
+and capabilities, so surfaces do not guess support from identity. When a registered
+provider creates a session, composition rejects it if its capabilities differ from the
+descriptor or an advertised operation has no implementation, and stops it before
+initialization. Methods exist only on sessions, so this runs at session creation, not when
+the provider is registered; registration itself checks only `accountReset` against the
+account reader. Shared events form a
 discriminated union: each event name requires its application payload at the session port
 and adapter emitter. Raw native envelopes cannot be published through that contract.
 

@@ -743,3 +743,18 @@ describe("Discord thread event handler", () => {
     handler.dispose();
   });
 });
+
+for (const streaming of [false, true]) test(`Discord delivers canonical unphased answers with streaming=${streaming}`, async () => {
+  const h = createHarness(); const timers = createDeterministicTimers();
+  const handler = createDiscordThreadEventHandler(h.client, { streaming, timers: timers.timers, onError: error => h.errors.push(error) });
+  try {
+    handler.handleThreadEvent("channel", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("channel", makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId: "answer", turnId: "turn-1", textDelta: "Partial answer" }));
+    if (streaming) { timers.runTimeouts(); await handler.waitForIdle("channel"); }
+    handler.handleThreadEvent("channel", makeEvent("turn.message.completed", { phase: null, itemId: "answer", turnId: "turn-1", text: "Canonical answer" }));
+    handler.handleThreadEvent("channel", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("channel");
+    expect([...h.sent, ...h.edits.map(edit => edit.content)].map(payloadText).join("\n")).toContain("Canonical answer");
+    expect(h.errors).toEqual([]);
+  } finally { handler.dispose(); }
+});

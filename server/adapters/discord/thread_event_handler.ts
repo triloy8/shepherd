@@ -488,7 +488,7 @@ export function createDiscordThreadEventHandler(
     if (reduction.type === "updated" || reduction.type === "message-completed") {
       state.stream = reduction.state;
       sendCommentary(channelId, state, reduction.completedCommentary);
-      if (reduction.phase === "final") {
+      if (reduction.phase !== "interim") {
         schedulePreview(channelId, state);
       }
     } else if (reduction.type === "finish") {

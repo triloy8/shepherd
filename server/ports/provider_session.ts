@@ -30,6 +30,7 @@ export interface ProviderExecution {
   readonly eventBus: ProviderEvents;
   activeTurnId: string | null;
   approvalPolicy: Protocol.ApprovalPolicy;
+  /** Core awaits initialization before discovery, history or bootstrap. Must be safe to call again. */
   initialize(): Promise<void>;
   startThread(request: Protocol.CreateThreadRequest): Promise<ThreadBootstrapInfo>;
   resumeThread(threadId: string, request: Protocol.ResumeThreadRequest): Promise<ThreadBootstrapInfo>;

@@ -371,8 +371,8 @@ export class WebSurfaceApi {
   private async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider): Promise<WebConversation> {
     this.available();
     if (!threadId && !project) throw new WebRequestError(400, "invalid_request", "A project is required for a new conversation.");
-    if (threadId && !/^[A-Za-z0-9_-]+$/.test(threadId)) {
-      throw new WebRequestError(400, "invalid_request", "threadId must be an opaque thread identifier, not a path.");
+    if (threadId && (threadId.trim() !== threadId || /[\u0000-\u001f\u007f]/.test(threadId))) {
+      throw new WebRequestError(400, "invalid_request", "threadId must be an opaque identifier without control characters or surrounding whitespace.");
     }
     if (this.entries.size >= MAX_CONVERSATIONS) throw new WebRequestError(429, "conversation_limit", "Detach an existing conversation before opening another.");
     if (threadId && this.resuming.has(threadId)) throw new WebRequestError(409, "thread_in_use", "Thread resume is already in progress.");

@@ -182,6 +182,7 @@ test("SessionManager expires pending questions when the turn ends or the session
     let raw!: ReturnType<typeof sessionHarness>["raw"];
     const manager = new SessionManager(undefined, policy => {
       const session = new CodexSession(policy);
+      session.initialize = async () => {};
       session.threadId = input.threadId;
       session.activeTurnId = input.turnId;
       raw = session as unknown as typeof raw;

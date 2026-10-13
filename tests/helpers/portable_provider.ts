@@ -1,7 +1,7 @@
 import { EventBus } from "../../server/ports/event_bus.js";
 import type { ProviderSession } from "../../server/ports/provider_session.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
-import type { CreateThreadRequest, ModelSummary, ResumeThreadRequest } from "../../shared/protocol/requests.js";
+import type { CreateThreadRequest, ListModelsRequest, ModelSummary, ResumeThreadRequest } from "../../shared/protocol/requests.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
 
 export const capabilities: ProviderCapabilities = {
@@ -40,5 +40,5 @@ export class LocalSession implements ProviderSession {
   async readThread(id: string) { this.readIds.push(id); return { thread: { id, cwd: "/tmp", model: this.selectedModel } }; }
   async listThreadTurns(id: string) { this.readIds.push(id); return { data: [], nextCursor: null, backwardsCursor: null }; }
   async listThreadItems(id: string) { this.readIds.push(id); return { data: [], nextCursor: null, backwardsCursor: null }; }
-  async listModels() { return { data: this.rows, nextCursor: null }; }
+  async listModels(_request?: ListModelsRequest) { return { data: this.rows, nextCursor: null }; }
 }

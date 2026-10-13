@@ -8,6 +8,8 @@ export type AccumulatedMessage = {
 export type ResponseStreamState = {
   turnId: string | null;
   finalMessages: AccumulatedMessage[];
+  /** Without explicit final metadata, the last unphased message is the answer, as in application history. */
+  unphasedMessages?: AccumulatedMessage[];
   activeCommentary: AccumulatedMessage | null;
 };
 
@@ -16,7 +18,7 @@ export type ResponseStreamReduction =
   | { type: "reset"; state: ResponseStreamState }
   | {
       type: "updated";
-      phase: MessagePhase;
+      phase: MessagePhase | null;
       state: ResponseStreamState;
       completedCommentary: AccumulatedMessage | null;
     }
@@ -43,7 +45,8 @@ export function createResponseStreamState(turnId: string | null = null): Respons
 
 export function getFinalResponseText(state: ResponseStreamState | null): string {
   if (!state) return "";
-  return state.finalMessages
+  const messages = state.finalMessages.length ? state.finalMessages : state.unphasedMessages?.slice(-1) ?? [];
+  return messages
     .map((message) => message.text)
     .filter((text) => Boolean(text.trim()))
     .join("\n\n");
@@ -82,6 +85,12 @@ function sameTurn(state: ResponseStreamState | null, turnId: string | null | und
   return !state?.turnId || !turnId || state.turnId === turnId;
 }
 
+function knownPhase(state: ResponseStreamState | null, itemId: string | null | undefined): MessagePhase | null {
+  if (!itemId) return null;
+  if (state?.finalMessages.some(message => message.itemId === itemId)) return "final";
+  return state?.activeCommentary?.itemId === itemId ? "interim" : null;
+}
+
 export function reduceResponseStream(
   state: ResponseStreamState | null,
   event: BridgeEvent,
@@ -102,12 +111,11 @@ export function reduceResponseStream(
       itemId?: string | null;
       turnId?: string | null;
     };
-    const phase = payload.phase;
+    const phase = payload.phase ?? knownPhase(state, payload.itemId);
     const delta = payload.textDelta ?? "";
     if (
       payload.kind !== "assistant_text" ||
       !delta ||
-      (phase !== "interim" && phase !== "final") ||
       !sameTurn(state, payload.turnId)
     ) {
       return { type: "none", state };
@@ -115,6 +123,8 @@ export function reduceResponseStream(
 
     let next = state ? { ...state } : createResponseStreamState(payload.turnId ?? null);
     const itemId = payload.itemId ?? null;
+    const unphasedText = itemId ? next.unphasedMessages?.find(message => message.itemId === itemId)?.text ?? "" : "";
+    if (phase !== null && itemId && next.unphasedMessages) next.unphasedMessages = next.unphasedMessages.filter(message => message.itemId !== itemId);
     let completedCommentary: AccumulatedMessage | null = null;
 
     if (phase === "interim") {
@@ -125,13 +135,15 @@ export function reduceResponseStream(
       }
       next.activeCommentary = {
         itemId,
-        text: `${next.activeCommentary?.text ?? ""}${delta}`,
+        text: `${next.activeCommentary?.text ?? unphasedText}${delta}`,
       };
-    } else {
+    } else if (phase === "final") {
       const completed = completeCommentary(next);
       next = completed.state;
       completedCommentary = completed.completedCommentary;
-      next.finalMessages = upsertMessage(next.finalMessages, itemId, (text) => `${text}${delta}`);
+      next.finalMessages = upsertMessage(next.finalMessages, itemId, (text) => `${text || unphasedText}${delta}`);
+    } else {
+      next.unphasedMessages = upsertMessage(next.unphasedMessages ?? [], itemId, (text) => `${text}${delta}`);
     }
 
     return { type: "updated", phase, state: next, completedCommentary };
@@ -144,17 +156,20 @@ export function reduceResponseStream(
       text?: string;
       turnId?: string | null;
     };
-    if (!state || !payload.itemId || !sameTurn(state, payload.turnId)) {
+    if (!payload.itemId || !sameTurn(state, payload.turnId)) {
       return { type: "none", state };
     }
+    state ??= createResponseStreamState(payload.turnId ?? null);
 
-    const phase = payload.phase ?? null;
+    const phase = payload.phase ?? knownPhase(state, payload.itemId);
     const text = payload.text ?? "";
+    const unphasedText = state.unphasedMessages?.find(message => message.itemId === payload.itemId)?.text ?? "";
+    if (phase !== null && state.unphasedMessages) state = { ...state, unphasedMessages: state.unphasedMessages.filter(message => message.itemId !== payload.itemId) };
     if (phase === "interim") {
       const active =
         state.activeCommentary?.itemId === payload.itemId
           ? { itemId: payload.itemId, text: text || state.activeCommentary.text }
-          : { itemId: payload.itemId, text };
+          : { itemId: payload.itemId, text: text || unphasedText };
       return {
         type: "message-completed",
         phase,
@@ -169,7 +184,7 @@ export function reduceResponseStream(
         phase,
         state: {
           ...state,
-          finalMessages: upsertMessage(state.finalMessages, payload.itemId, (current) => text || current),
+          finalMessages: upsertMessage(state.finalMessages, payload.itemId, (current) => text || current || unphasedText),
         },
         completedCommentary: null,
       };
@@ -178,7 +193,10 @@ export function reduceResponseStream(
     return {
       type: "message-completed",
       phase,
-      state,
+      state: {
+        ...state,
+        unphasedMessages: upsertMessage(state.unphasedMessages ?? [], payload.itemId, current => text || current),
+      },
       completedCommentary: null,
     };
   }

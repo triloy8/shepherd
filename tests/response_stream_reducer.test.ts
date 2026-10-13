@@ -141,3 +141,41 @@ describe("ResponseStreamReducer", () => {
     });
   });
 });
+
+test("unphased messages use canonical text and the last answer unless an explicit final is reported", () => {
+  let state = createResponseStreamState("turn-1");
+  const unknown = (itemId: string, textDelta: string) => makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId, textDelta, turnId: "turn-1" });
+  for (const event of [unknown("work", "Thinking"), unknown("answer", "Partial"),
+    makeEvent("turn.message.completed", { itemId: "answer", phase: null, text: "Canonical answer", turnId: "turn-1" })]) state = reduceResponseStream(state, event).state!;
+  expect(getFinalResponseText(state)).toBe("Canonical answer");
+  state = reduceResponseStream(state, delta("Explicit answer", "final", "explicit")).state!;
+  state = reduceResponseStream(state, unknown("trailing", "Unclassified activity")).state!;
+  expect(getFinalResponseText(state)).toBe("Explicit answer");
+  const finish = reduceResponseStream(state, makeEvent("turn.completed", { turnId: "turn-1" }));
+  expect(getFinalResponseText(finish.state)).toBe("Explicit answer");
+  expect(reduceResponseStream(state, unknown("answer", "late")).type).toBe("updated");
+  expect(reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "late", phase: null, text: "Wrong turn", turnId: "other" })).type).toBe("none");
+});
+
+test("completed-only unphased providers do not need a delta or a turn-start event", () => {
+  const reduction = reduceResponseStream(null, makeEvent("turn.message.completed", { itemId: "answer", phase: null, text: "Hello", turnId: "turn-1" }));
+  expect(getFinalResponseText(reduction.state)).toBe("Hello");
+  const cleared = reduceResponseStream(reduction.state, makeEvent("turn.started", { turnId: "turn-2" }));
+  expect(getFinalResponseText(cleared.state)).toBe("");
+});
+
+test("known phases survive missing metadata and late classification preserves earlier deltas", () => {
+  let state = reduceResponseStream(null, makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId: "work", textDelta: "Unclassified ", turnId: "turn-1" })).state!;
+  state = reduceResponseStream(state, delta("progress", "interim", "work")).state!;
+  const progress = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "work", phase: null, text: "Canonical progress", turnId: "turn-1" }));
+  expect(progress.type).toBe("message-completed");
+  if (progress.type !== "message-completed") throw new Error("Expected completion");
+  expect(progress.phase).toBe("interim"); expect(progress.completedCommentary?.text).toBe("Canonical progress");
+  expect(getFinalResponseText(progress.state)).toBe("");
+  state = reduceResponseStream(progress.state, makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId: "answer", textDelta: "First ", turnId: "turn-1" })).state!;
+  state = reduceResponseStream(state, delta("second", "final", "answer")).state!;
+  state = reduceResponseStream(state, makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId: "answer", textDelta: " third", turnId: "turn-1" })).state!;
+  expect(getFinalResponseText(state)).toBe("First second third");
+  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "answer", phase: null, text: "Canonical final", turnId: "turn-1" })).state!;
+  expect(getFinalResponseText(state)).toBe("Canonical final");
+});

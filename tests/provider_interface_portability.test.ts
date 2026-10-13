@@ -244,3 +244,136 @@ test("opaque application IDs use bounded workspace names while deployed UUID pat
   expect(deployed.cwd).toBe(join(root, uuid));
   await first.rollback();
 });
+
+for (const operation of ["create", "resume", "fork"] as const) test(`${operation} initializes before bootstrap and provider-wide catalog reads`, async () => {
+  const flags = { ...capabilities, fork: true, modelCatalog: true, modelCatalogScope: "provider" as const, modelCatalogAuthoritative: true, modelSelection: true };
+  const order: string[] = [];
+  const h = registration("explicit-lifecycle", s => {
+    let initialized = false;
+    s.initialize = async () => { initialized = true; order.push("initialize"); };
+    s.listModels = async () => { expect(initialized).toBe(true); order.push("catalog"); return { data: [model("alpha")], nextCursor: null }; };
+    s.readThread = async id => { expect(initialized).toBe(true); return { thread: { id, cwd: "/tmp", model: "alpha" } }; };
+    const bootstrap = async () => { expect(initialized).toBe(true); order.push(operation); return { threadId: operation === "fork" ? "2" : "1", cwd: "/tmp", model: "alpha", effort: null }; };
+    s.startThread = bootstrap; s.resumeThread = bootstrap;
+    Object.assign(s, { forkThread: bootstrap });
+  }, flags);
+  const services = assembleProviderServices([h.entry], directory(), h.entry.id);
+  const source = scopedThreadId(h.entry.id, "1"); services.directory.bind(source, h.entry.id);
+  const conversation = new ConversationService({ providers: services });
+  try {
+    if (operation === "create") await conversation.createThread({ model: "alpha" });
+    else if (operation === "resume") await conversation.resumeThread(source, { model: "alpha" });
+    else await conversation.forkThread(source, { model: "alpha" });
+    expect(order).toEqual(["initialize", "catalog", operation]);
+  } finally { conversation.stopAll(); }
+});
+
+test("bootstrap initialization failure stops the session and a retry uses a new session", async () => {
+  let fail = true; let bootstraps = 0;
+  const h = registration("retry-initialization", s => {
+    s.initialize = async () => { if (fail) throw new Error("Initialization unavailable"); };
+    const start = s.startThread.bind(s); s.startThread = async request => { bootstraps++; return start(request); };
+  });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    await expect(conversation.createThread({})).rejects.toThrow("Initialization unavailable");
+    expect(h.sessions[0]!.stopped).toBe(true); expect(bootstraps).toBe(0);
+    fail = false; await conversation.createThread({});
+    expect(h.sessions).toHaveLength(2); expect(bootstraps).toBe(1);
+  } finally { conversation.stopAll(); }
+});
+
+test("thread IDs scope catalogs through bootstrap, settings, resume validation, submission and steering", async () => {
+  const ids: Array<string | undefined> = [];
+  const flags = { ...capabilities, modelCatalog: true, modelCatalogScope: "conversation" as const,
+    modelCatalogAuthoritative: true, modelSelection: true, effortSelection: true, steer: true, inputKinds: ["text", "image"] as const };
+  const row = { ...model("alpha"), inputModalities: ["text"] as const, supportedEfforts: [{ value: "focused", description: "" }] };
+  const h = registration("thread-catalog", s => {
+    s.selectedModel = "alpha";
+    s.listModels = async request => { ids.push(request?.threadId); return { data: request?.threadId === "1" ? [row] : [], nextCursor: null }; };
+    Object.assign(s, { steerTurn: async () => "turn" });
+  }, flags);
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({ model: "alpha" });
+    expect((await conversation.listModels({ threadId })).data).toEqual([row]);
+    expect((await conversation.getThreadEffort(threadId)).inputModalities).toEqual(["text"]);
+    await conversation.resumeThread(threadId, { effort: "focused" });
+    await conversation.setThreadEffort(threadId, "focused");
+    await conversation.submitTurn(threadId, { input: [{ type: "text", text: "hello" }], model: "alpha" });
+    for (const call of [() => conversation.submitTurn(threadId, { input: [{ type: "image", url: "data:image/png;base64,eA==" }] }),
+      () => conversation.steerTurn(threadId, { input: [{ type: "image", url: "data:image/png;base64,eA==" }] })]) {
+      await expect(call()).rejects.toThrow("does not support image");
+    }
+    await conversation.steerTurn(threadId, { input: [{ type: "text", text: "follow up" }] });
+    expect(ids.length).toBeGreaterThan(5); expect(ids.every(id => id === "1")).toBe(true);
+  } finally { conversation.stopAll(); }
+});
+
+for (const defaultEffort of ["normal", null]) test(`model selection preserves automatic effort management with default ${defaultEffort}`, async () => {
+  const h = registration("automatic-effort", s => {
+    s.selectedModel = "alpha";
+    s.rows = [{ ...model("alpha"), supportedEfforts: [{ value: "focused", description: "" }] },
+      { ...model("beta"), defaultEffort, supportedEfforts: defaultEffort ? [{ value: defaultEffort, description: "" }] : [] }];
+    s.startThread = async () => ({ threadId: "1", cwd: "/tmp", model: "alpha", effort: "focused" });
+  }, { ...capabilities, modelCatalog: true, modelSelection: true });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    conversation.setThreadModel(threadId, "beta");
+    const native = h.sessions[0]!; const start = native.startTurn.bind(native);
+    native.startTurn = async () => { throw new Error("Native model rejected"); };
+    await expect(conversation.submitTurn(threadId, { input: [] })).rejects.toThrow("Native model rejected");
+    expect((await conversation.getThreadEffort(threadId)).currentEffort).toBe("focused");
+    native.startTurn = start;
+    await conversation.submitTurn(threadId, { input: [] });
+    expect(native.calls).toEqual([{ model: "beta", effort: undefined }]);
+    expect((await conversation.getThreadEffort(threadId)).currentEffort).toBeNull();
+    await expect(conversation.submitTurn(threadId, { input: [], effort: "normal" })).rejects.toThrow("effortSelection");
+    await expect(conversation.submitTurn(threadId, { input: [], effort: null })).rejects.toThrow("effortSelection");
+  } finally { conversation.stopAll(); }
+});
+
+for (const terminal of ["turn.completed", "turn.failed"] as const) test(`${terminal} expires permissions, publishes replayable expiry and preserves newer interactions`, async () => {
+  const h = registration("terminal-approvals");
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
+    const publish = (approvalId: string, turnId: string | null) => {
+      native.activeTurnId = turnId;
+      native.eventBus.publish({ id: approvalId, type: "approval.requested", threadId: "1", sessionId: native.sessionId, ts: "now",
+        payload: { approvalId, kind: "permission", prompt: "Run?", detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+    };
+    publish("old", "old-turn"); publish("new", "new-turn");
+    const events: string[] = [];
+    conversation.subscribeToThreadEvents(threadId, event => { if (event.type === "approval.expired") events.push(event.payload.approvalId); }, { replay: false });
+    native.eventBus.publish({ id: "terminal", type: terminal, threadId: "1", sessionId: native.sessionId, ts: "now", payload: { turnId: "old-turn", message: "failed" } });
+    expect(conversation.listApprovals(threadId).map(a => [a.approvalId, a.status])).toEqual([["old", "expired"], ["new", "pending"]]);
+    expect(events).toEqual(["old"]);
+    await expect(conversation.applyApprovalDecision(threadId, "old", { decision: "allow" })).rejects.toThrow("already expired");
+    expect(native.decisions).toEqual([]);
+    const replay: string[] = [];
+    conversation.subscribeToThreadEvents(threadId, event => { if (event.type === "approval.expired") replay.push(event.payload.approvalId); });
+    expect(replay).toEqual(["old"]);
+    // Repeated completion cannot expire or resurrect other approvals.
+    native.eventBus.publish({ id: "terminal-again", type: terminal, threadId: "1", sessionId: native.sessionId, ts: "now", payload: { turnId: "old-turn", message: "failed" } });
+    expect(events).toEqual(["old"]);
+    await conversation.applyApprovalDecision(threadId, "new", { decision: "allow" });
+    expect(native.decisions).toEqual(["new"]);
+  } finally { conversation.stopAll(); }
+});
+
+test("explicit null telemetry clears measurements while unrelated events preserve them", async () => {
+  const h = registration("telemetry"); const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
+    const usage: ThreadTokenUsage = { last: null, total: { inputTokens: null, outputTokens: null, totalTokens: 42,
+      cacheReadInputTokens: null, cacheWriteInputTokens: null, reasoningOutputTokens: null }, contextWindow: null };
+    for (const tokenUsage of [usage, null, usage]) {
+      native.eventBus.publish({ id: crypto.randomUUID(), type: "thread.tokenUsage.updated", threadId: "1", sessionId: native.sessionId, ts: "now", payload: { turnId: null, tokenUsage } });
+      expect((await conversation.readThreadTokenUsage(threadId)).tokenUsage).toEqual(tokenUsage);
+      native.eventBus.publish({ id: crypto.randomUUID(), type: "turn.completed", threadId: "1", sessionId: native.sessionId, ts: "now", payload: { turnId: null } });
+      expect((await conversation.readThreadTokenUsage(threadId)).tokenUsage).toEqual(tokenUsage);
+    }
+  } finally { conversation.stopAll(); }
+});

@@ -14,6 +14,7 @@ export class ApprovalDecisionError extends Error {
 
 interface StoredApproval extends ApprovalRecord {
   internalId: string;
+  turnId: string | null;
 }
 
 export class ApprovalsStore {
@@ -22,7 +23,7 @@ export class ApprovalsStore {
 
   create(
     request: ApprovalRequestPayload,
-    context: { threadId: string; sessionId: string },
+    context: { threadId: string; sessionId: string; turnId?: string | null },
   ): ApprovalRecord {
     const now = new Date().toISOString();
     const approval: StoredApproval = {
@@ -33,6 +34,7 @@ export class ApprovalsStore {
       createdAt: now,
       updatedAt: now,
       internalId: request.approvalId,
+      turnId: request.userInput?.turnId ?? context.turnId ?? null,
     };
     this.approvals.set(this.key(context.threadId, request.approvalId), approval);
     return this.toPublicRecord(approval);
@@ -81,6 +83,14 @@ export class ApprovalsStore {
       .map(a => this.transition(threadId, a.approvalId, "expired"));
   }
 
+  /** Unknown turn ownership is retired with the thread's terminal event; known newer turns survive late events. */
+  expireTurn(threadId: string, sessionId: string, turnId: string | null): ApprovalRecord[] {
+    return [...this.approvals.values()]
+      .filter(a => a.threadId === threadId && a.sessionId === sessionId && a.status === "pending" &&
+        (turnId === null || a.turnId === null || a.turnId === turnId))
+      .map(a => this.transition(threadId, a.approvalId, "expired"));
+  }
+
   markExpired(threadId: string, approvalId: string): ApprovalRecord {
     return this.transition(threadId, approvalId, "expired");
   }
@@ -109,7 +119,7 @@ export class ApprovalsStore {
   }
 
   private toPublicRecord(approval: StoredApproval): ApprovalRecord {
-    const { internalId: _internalId, ...rest } = approval;
+    const { internalId: _internalId, turnId: _turnId, ...rest } = approval;
     return rest;
   }
 }

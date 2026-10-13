@@ -11,7 +11,7 @@ async page => {
       window('seven_day', 'Weekly allowance', null), window('seven_day_opus', 'Weekly Opus allowance', 0)]
       : [window('session', 'Session allowance', 25)],
     extraUsage: { enabled: false, unlimited: null, balanceLabel: null, usedPercent: null, active: null, status: null, observedAt: now, stale: false },
-    spendControls: [], resets: { availableCount: null, credits: null }, message: null });
+    resets: { availableCount: null, credits: null }, message: null });
   let failed = false, hold = false, release, entered;
   let requests = 0;
   const aborted = [];

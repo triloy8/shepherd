@@ -176,8 +176,11 @@ an effort override. Settings expose separate current and next model capabilities
 and the browser uses the appropriate set to gate image attachments.
 
 Account reporting is optional at registration. Descriptors expose `accountReporting`; the web UI does not query an absent reader, and unsupported API/Discord reads report an unavailable operation rather than fabricated account data. Unknown login state is `signedIn: null`. Every installed account reader returns `ProviderAccountLimits`: account metadata, allowance
-windows, extra usage, optional spend controls, optional reset credits, freshness, and
-availability. Missing provider data stays unknown. Reset requests use a shared outcome
+windows, extra usage (both Codex credits and Claude overage), optional reset credits
+(currently Codex only), freshness, and availability. A section a provider lacks is reported
+empty or null. Missing provider data stays unknown. Shared fields are added only when an
+installed provider reports them; the earlier `spendControls` list was removed because no
+provider filled it. Reset requests use a shared outcome
 format and retain the same idempotency key during recovery, scoped by provider.
 
 Claude subscription allowances come from SDK observations and a bounded account read;

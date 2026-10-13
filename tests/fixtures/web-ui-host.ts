@@ -26,7 +26,7 @@ Object.assign(h.application.conversation, {
   async readAccount(provider: string) {
     return { provider, account: { plan: provider === "claude" ? "Max" : "Pro", authentication: "subscription", signedIn: true }, availability: "available", source: "provider", checkedAt: Date.now() / 1000, stale: false, ordinaryUsageAllowed: true,
       windows: [{ id: "session", groupId: null, label: "Session allowance", subtitle: "Five-hour window", durationMinutes: 300, usedPercent: provider === "claude" ? 37 : 25, resetsAt: 2000000000, status: "available", observedAt: Date.now() / 1000, stale: false }],
-      extraUsage: null, spendControls: [], resets: { availableCount: provider === "codex" ? 2 : null, credits: null }, message: null };
+      extraUsage: null, resets: { availableCount: provider === "codex" ? 2 : null, credits: null }, message: null };
   },
   async resetAccount() { return { outcome: "reset" }; },
 });

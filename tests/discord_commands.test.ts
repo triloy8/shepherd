@@ -990,3 +990,47 @@ test("Discord explicit extensionless skill paths work without discovery", async 
   await handleMessage(makeMessage("!skill disable --path instructions").message as never, context);
   expect(writes).toEqual([{ threadId: "thread-1", path: "instructions", enabled: false }]);
 });
+
+for (const value of ['Case  Sensitive α', 'vendor/model "quoted"', 'C:\\models\\native']) test(`Discord preserves the complete model identity ${value}`, async () => {
+  const { context, modelWrites } = makeContext();
+  const getState = context.conversation.getThreadState;
+  Object.assign(context.conversation, { getThreadState: (id: string) => ({ ...getState(id), capabilities: { ...getState(id).capabilities, modelCatalog: false } }) });
+  await handleMessage(makeMessage(`!model set ${value}`).message as never, context);
+  expect(modelWrites).toEqual([{ threadId: "thread-1", model: value }]);
+});
+
+for (const command of ["!thread", "!threadread", "!fork", "!archive", "!unarchive"]) test(`${command} preserves a quoted thread identity`, async () => {
+  const { context } = makeContext(); const ids: string[] = [];
+  const value = 'app  thread "α"';
+  context.switchSurfaceThread = async (_channel, id) => { ids.push(id); return id; };
+  context.forkSurfaceThread = async (_channel, id) => { ids.push(id); return "forked"; };
+  Object.assign(context.conversation, {
+    readThread: async (id: string) => { ids.push(id); return { thread: { id } }; },
+    archiveThread: async (id: string) => { ids.push(id); return { ok: true }; },
+    unarchiveThread: async (id: string) => { ids.push(id); return { ok: true }; },
+  });
+  await handleMessage(makeMessage(`${command} "app  thread \\"α\\""`).message as never, context);
+  expect(ids).toEqual([value]);
+});
+
+test("history item commands preserve quoted native turn IDs and optional thread IDs", async () => {
+  const { context } = makeContext(); const calls: unknown[] = [];
+  Object.assign(context.conversation, { listThreadItems: async (threadId: string, request: unknown) => { calls.push({ threadId, request }); return { data: [], nextCursor: null }; } });
+  await handleMessage(makeMessage('!history items "native  turn α" "app  thread"').message as never, context);
+  expect(calls).toEqual([{ threadId: "app  thread", request: { turnId: "native  turn α", cursor: undefined, limit: 5, sortDirection: "asc" } }]);
+});
+
+test("quoted history thread named items does not select item mode", async () => {
+  const { context } = makeContext(); const ids: string[] = [];
+  Object.assign(context.conversation, { listThreadTurns: async (id: string) => { ids.push(id); return { data: [], nextCursor: null }; } });
+  await handleMessage(makeMessage('!history "items"').message as never, context);
+  expect(ids).toEqual(["items"]);
+});
+
+for (const command of ['!thread "unclosed', '!history items "turn"garbage', '!model set "one" "two"']) test(`invalid argument boundaries never execute ${command}`, async () => {
+  const { context, modelWrites } = makeContext(); let calls = 0;
+  context.switchSurfaceThread = async () => { calls++; return "wrong"; };
+  Object.assign(context.conversation, { listThreadItems: async () => { calls++; throw Error("Must not execute"); } });
+  await handleMessage(makeMessage(command).message as never, context);
+  expect(calls).toBe(0); expect(modelWrites).toEqual([]);
+});

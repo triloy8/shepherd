@@ -9,6 +9,7 @@ export interface ApprovalChoice {
 }
 
 export interface ApprovalRequestPayload {
+  /** Native at the provider boundary; an immutable occurrence handle in application records/events. */
   approvalId: string;
   kind: "permission" | "question";
   prompt: string;

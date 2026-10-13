@@ -84,11 +84,12 @@ test("web sees terminal approval expiry through SSE and null context telemetry t
     const envelope = { id: "event", threadId: "1", sessionId: native.sessionId, ts: "now" };
     native.activeTurnId = "turn";
     emit({ ...envelope, type: "approval.requested", payload: { approvalId: "permission", kind: "permission", prompt: "Run?", detail: null, choices: [{ value: "allow", intent: "allow", label: "Allow" }] } });
-    expect((await (await h.request(`${path}/approvals`)).json()).approvals[0].status).toBe("pending");
+    const approval = (await (await h.request(`${path}/approvals`)).json()).approvals[0];
+    expect(approval.status).toBe("pending");
     native.activeTurnId = null;
     emit({ ...envelope, id: "end", type: "turn.failed", payload: { turnId: "turn", message: "Interrupted" } });
     expect((await (await h.request(`${path}/approvals`)).json()).approvals[0].status).toBe("expired");
-    expect((await h.request(`${path}/approvals/permission`, "POST", { decision: "allow" })).status).toBe(409);
+    expect((await h.request(`${path}/approvals/${approval.approvalId}`, "POST", { decision: "allow" })).status).toBe(409);
     const stream = await h.request(`${path}/events`); const reader = stream.body!.getReader();
     let replay = "";
     for (let i = 0; i < 3 && !replay.includes('"type":"approval.expired"'); i++) replay += new TextDecoder().decode((await reader.read()).value);
@@ -131,4 +132,24 @@ test("web writes explicit skill paths without discovery and rejects unavailable 
     expect(listings).toBe(0);
     expect(writes).toEqual([{ path: "/skills/review/SKILL.md", enabled: false }, { path: "C:\\skills\\review\\SKILL.md", enabled: false }, { path: "review", enabled: false }, { path: "skill:build", enabled: false }]);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("HTTP stale approval handles and native IDs cannot authorize a reused permission", async () => {
+  const root = mkdtempSync("/tmp/shepherd-http-approval-"); let native!: LocalSession;
+  const conversation = new ConversationService({ providers: assembleProviderServices([{ id: "neutral", displayName: "Neutral", capabilities, hasStoredThreads: () => false, create: () => native = new LocalSession(capabilities) }], join(root, "state"), "neutral") });
+  const h = webRuntime(conversation, root);
+  try {
+    const c = await h.create({ project: "fixture" }); const path = `/conversations/${c.id}/approvals`;
+    const emit = (id: string) => {
+      native.activeTurnId = id;
+      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt: id, detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+    };
+    emit("old"); const old = (await (await h.request(path)).json()).approvals[0];
+    emit("new"); const newer = (await (await h.request(path)).json()).approvals[1];
+    expect((await h.request(`${path}/${old.approvalId}`, "POST", { decision: "allow" })).status).toBe(409);
+    expect((await h.request(`${path}/1`, "POST", { decision: "allow" })).status).toBe(404);
+    expect(native.decisions).toEqual([]);
+    expect((await h.request(`${path}/${newer.approvalId}`, "POST", { decision: "allow" })).status).toBe(200);
+    expect(native.decisions).toEqual(["1"]);
+  } finally { h.api.dispose(); conversation.stopAll(); rmSync(root, { recursive: true, force: true }); }
 });

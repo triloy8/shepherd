@@ -141,7 +141,7 @@ export function reduceResponseStream(
     let completedCommentary: AccumulatedMessage | null = null;
 
     if (phase === "interim") {
-      if (next.activeCommentary && next.activeCommentary.itemId !== itemId) {
+      if (next.activeCommentary && next.activeCommentary.itemId !== null && next.activeCommentary.itemId !== itemId) {
         const completed = completeCommentary(next);
         next = completed.state;
         completedCommentary = completed.completedCommentary;

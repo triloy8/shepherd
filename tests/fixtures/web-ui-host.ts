@@ -135,8 +135,8 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     }] };
     const approval = { approvalId: `question-${sequence}`, kind: "question", prompt: userInput.questions[0]!.question,
       choices: [{ value: crypto.randomUUID(), label: "Submit answers", intent: "answer" }, { value: crypto.randomUUID(), label: "Skip questions", intent: "cancel" }], detail: null, userInput };
-    h.approvals.create(approval, { threadId, sessionId: "fixture" });
-    publish(threadId, "approval.requested", approval);
+    const record = h.approvals.create(approval, { threadId, sessionId: "fixture" });
+    publish(threadId, "approval.requested", record);
     return { ok: true, turnId };
   }
   const markdownResponse = "## Streaming Markdown\n\n**Formatted while writing.**\n\n```ts\nconst answer = 42;\n```";
@@ -183,8 +183,8 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     }
     if (text.includes("approval")) {
       const approval = { approvalId: `approval-${sequence}`, kind: "permission", prompt: "Allow Shepherd to run the project’s test suite?", choices: [{ value: crypto.randomUUID(), label: "Allow once", intent: "allow" }, { value: crypto.randomUUID(), label: "Decline", intent: "deny" }], detail: "bun test\n~/project" };
-      h.approvals.create(approval, { threadId, sessionId: "fixture" });
-      publish(threadId, "approval.requested", approval);
+      const record = h.approvals.create(approval, { threadId, sessionId: "fixture" });
+      publish(threadId, "approval.requested", record);
     } else finish(threadId, "completed", portable ? null : turnId);
   });
   return { ok: true, turnId };

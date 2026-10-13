@@ -85,7 +85,8 @@ test("native ownership lookup finds indexed, unindexed and archived Codex record
 
 test("application request validators reject SDK fields across create, resume and fork", () => {
   for (const validate of [validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest]) {
-    for (const field of ["config", "personality", "modelProvider", "serviceName", "baseInstructions", "developerInstructions"]) expect(() => validate({ [field]: {} })).toThrow(`Unsupported request field: ${field}`);
+    // instructions and ephemeral were removed: no surface sent them, and their cross-provider semantics were unverified.
+    for (const field of ["config", "personality", "modelProvider", "serviceName", "baseInstructions", "developerInstructions", "instructions", "ephemeral"]) expect(() => validate({ [field]: {} })).toThrow(`Unsupported request field: ${field}`);
     expect(validate({ effort: "high", sandbox: "workspace_write", approvalPolicy: "review_sensitive" })).toMatchObject({ effort: "high", sandbox: "workspace_write", approvalPolicy: "review_sensitive" });
   }
 });
@@ -93,11 +94,10 @@ test("application request validators reject SDK fields across create, resume and
 test("capabilities reject unsupported settings and media inputs without claiming identical native policies", () => {
   expect(() => assertThreadSupport("agent", claudeCapabilities, { approvalPolicy: "review_untrusted" })).toThrow("approval mode review_untrusted");
   expect(() => assertThreadSupport("agent", claudeCapabilities, { sandbox: "workspace_write" })).toThrow("sandbox mode workspace_write");
-  expect(() => assertThreadSupport("agent", claudeCapabilities, { ephemeral: true })).toThrow("ephemeral");
   for (const input of [{ type: "audio", url: "data:audio/wav;base64,AA" }, { type: "image_file", path: "/tmp/image" }, { type: "skill", name: "tool", path: "/tmp/tool" }] as const) expect(() => assertInputSupport("agent", claudeCapabilities, [input])).toThrow("inputs");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "image", url: "https://example.com", detail: "high" }])).toThrow("image detail");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "text", text: "abc" }, { type: "image", url: "data:image/png;base64,AA" }])).not.toThrow();
-  expect(() => assertThreadSupport("agent", codexCapabilities, { approvalPolicy: "review_untrusted", sandbox: "read_only", ephemeral: true })).not.toThrow();
+  expect(() => assertThreadSupport("agent", codexCapabilities, { approvalPolicy: "review_untrusted", sandbox: "read_only" })).not.toThrow();
   expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "provider_default" });
   expect(readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "bypass", SHEPHERD_SANDBOX_MODE: "unrestricted" })).toMatchObject({ approvalPolicy: "bypass", defaultSandbox: "unrestricted" });
   expect(() => readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "review_all" })).toThrow("misleading");
@@ -108,7 +108,7 @@ test("core rejects unsupported create, submit and steer before provider executio
   const services = assembleProviderServices([{ ...registration(), create: () => { const session = new IndependentSession(); sessions.push(session); return session; } }], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
-    await expect(conversation.createThread({ ephemeral: true })).rejects.toThrow("ephemeral");
+    await expect(conversation.createThread({ sandbox: "read_only" })).rejects.toThrow("sandbox mode");
     expect(sessions[0]!.stopped).toBe(true);
     const { threadId } = await conversation.createThread({});
     await expect(conversation.submitTurn(threadId, { input: [{ type: "text", text: "hello" }], approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode");

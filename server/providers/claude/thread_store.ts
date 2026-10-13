@@ -9,7 +9,9 @@ export const isClaudeEffort = (value: unknown): value is ClaudeEffort => claudeE
 export type ClaudeThread = {
   id: string; nativeId: string; materialized: boolean; cwd: string; model: string;
   effort: ClaudeEffort | undefined; name: string | null; preview: string; archived: boolean;
-  createdAt: number; updatedAt: number; instructions: string;
+  createdAt: number; updatedAt: number;
+  /** Written by earlier versions; still appended to the preset prompt when present. */
+  instructions?: string;
   turns: ClaudeStoredTurn[];
   tokenUsage?: ClaudeStoredTokenUsage;
   approvalMode?: ClaudeStoredApprovalMode;

@@ -209,7 +209,7 @@ new handle using the desired thread ID after restart.
 questions, skills, fork, compact, revert and `accountReset`, descriptors advertise `steer`,
 `interrupt`, `rename`, `archive`, `unarchive`, `workspaceChange`, `modelCatalog`,
 `modelSelection`, `effortSelection`, `skillConfig`, and `approvalModes`,
-`sandboxModes`, `inputKinds`, `imageDetail`, and `ephemeralThreads`. Input kinds are
+`sandboxModes`, `inputKinds`, and `imageDetail`. Input kinds are
 `text`, `image` (URL or data URL), `image_file`, `audio`, `audio_file`, and `skill`.
 Image inputs may set `detail` to `low`, `high`, or `full` (no downscaling) when
 `imageDetail` is true; omit it to let the provider choose.

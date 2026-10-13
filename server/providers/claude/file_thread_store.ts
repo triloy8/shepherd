@@ -82,7 +82,7 @@ function validateSummary(value: ClaudeThreadSummary, id: string): void {
   if (!value || value.id !== id || !id.startsWith("claude-") || !uuid.test(id.slice(7)) || !uuid.test(value.nativeId) ||
       typeof value.materialized !== "boolean" || typeof value.archived !== "boolean" ||
       typeof value.cwd !== "string" || !value.cwd || typeof value.model !== "string" || !value.model ||
-      (value.name !== null && typeof value.name !== "string") || typeof value.preview !== "string" || typeof value.instructions !== "string" ||
+      (value.name !== null && typeof value.name !== "string") || typeof value.preview !== "string" || (value.instructions !== undefined && typeof value.instructions !== "string") ||
       !Number.isFinite(value.createdAt) || !Number.isFinite(value.updatedAt) ||
       (value.effort !== undefined && !isClaudeEffort(value.effort)) ||
       (value.approvalMode !== undefined && !isClaudeStoredApprovalMode(value.approvalMode))) {

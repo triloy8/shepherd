@@ -7,5 +7,5 @@ export const codexCapabilities: ProviderCapabilities = Object.freeze({
   sandboxModes: Object.freeze(["read_only", "workspace_write", "unrestricted"] as const),
   approvalModes: Object.freeze(["provider_default", "review_sensitive", "review_untrusted", "bypass"] as const),
   inputKinds: Object.freeze(["text", "image", "image_file", "audio", "audio_file", "skill"] as const),
-  imageDetail: true, ephemeralThreads: true,
+  imageDetail: true,
 });

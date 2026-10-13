@@ -121,13 +121,15 @@ describe("CodexSession app-server contract", () => {
       return { thread: { id: "thread-1", cwd: "/repo", modelProvider: "openai" } };
     };
 
-    await session.startThread({ cwd: "/workspace", instructions: "Prefer small diffs." });
+    await session.startThread({ cwd: "/workspace" });
 
     expect(requests[0]?.method).toBe("thread/start");
+    // Codex's configured instructions stay in effect: Shepherd sends neither instruction field.
     expect(requests[0]?.params).not.toHaveProperty("baseInstructions");
+    expect(requests[0]?.params).not.toHaveProperty("developerInstructions");
+    expect(requests[0]?.params).not.toHaveProperty("ephemeral");
     expect(requests[0]?.params).toMatchObject({
       cwd: "/workspace",
-      developerInstructions: "Prefer small diffs.",
       dynamicTools: [{
         type: "namespace",
         name: "shepherd",

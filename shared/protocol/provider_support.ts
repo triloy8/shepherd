@@ -46,12 +46,11 @@ export function assertApprovalSupport(provider: string, capabilities: ProviderCa
   if (!capabilities.approvalModes.includes(policy)) throw new UnsupportedProviderOperationError(provider, `approval mode ${policy}`);
 }
 
-export function assertThreadSupport(provider: string, capabilities: ProviderCapabilities, request: Pick<CreateThreadRequest, "approvalPolicy" | "sandbox" | "ephemeral" | "model" | "effort">): void {
+export function assertThreadSupport(provider: string, capabilities: ProviderCapabilities, request: Pick<CreateThreadRequest, "approvalPolicy" | "sandbox" | "model" | "effort">): void {
   if (request.model) assertProviderOperation(provider, capabilities, "modelSelection");
   if (request.effort) assertProviderOperation(provider, capabilities, "effortSelection");
   if (request.approvalPolicy) assertApprovalSupport(provider, capabilities, request.approvalPolicy);
   if (request.sandbox && !capabilities.sandboxModes.includes(request.sandbox)) throw new UnsupportedProviderOperationError(provider, `sandbox mode ${request.sandbox}`);
-  if (request.ephemeral && !capabilities.ephemeralThreads) throw new UnsupportedProviderOperationError(provider, "ephemeral threads");
 }
 
 export function assertInputSupport(provider: string, capabilities: ProviderCapabilities, input: readonly UserInput[]): void {

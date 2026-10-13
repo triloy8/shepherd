@@ -39,7 +39,6 @@ export function validateCreateThreadRequest(value: unknown): CreateThreadRequest
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
     ...(cwd ? { cwd } : {}),
-    ephemeral: parseOptionalBoolean(value.ephemeral, "ephemeral"),
   };
 }
 
@@ -85,10 +84,9 @@ function assertFields(value: Record<string, unknown>, allowed: readonly string[]
 }
 
 function parseCommonThreadOverrides(value: Record<string, unknown>) {
-  assertFields(value, ["provider", "approvalPolicy", "instructions", "cwd", "sandbox", "model", "effort", "ephemeral"]);
+  assertFields(value, ["provider", "approvalPolicy", "cwd", "sandbox", "model", "effort"]);
   return {
     provider: parseOptionalString(value.provider, "provider"),
-    instructions: parseOptionalString(value.instructions, "instructions"),
     sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
     model: parseOpaqueSelection(value.model, "model"),
     effort: parseOpaqueSelection(value.effort, "effort"),
@@ -246,7 +244,6 @@ function parseApprovalPolicy(value: unknown): ApprovalPolicy | undefined {
 
 export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid resume payload.");
-  if ("ephemeral" in value) throw new Error("Unsupported request field: ephemeral.");
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
@@ -258,7 +255,6 @@ export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest
 
 export function validateForkThreadRequest(value: unknown): ForkThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid fork payload.");
-  if ("ephemeral" in value) throw new Error("Unsupported request field: ephemeral.");
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {

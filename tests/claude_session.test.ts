@@ -234,13 +234,27 @@ test("never approval policy maps to explicit Claude permission bypass", async ()
 test("fork overrides never mutate source metadata or history", async () => {
   const storage = store(); const fake = sdk(async function* () { yield result; });
   const source = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const created = await source.startThread({ cwd: "/source", model: "sonnet", instructions: "source instructions" });
+  const created = await source.startThread({ cwd: "/source", model: "sonnet" });
   const before = storage.read(created.threadId);
   const fork = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus", instructions: "fork instructions" });
+  const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus" });
   expect(storage.read(created.threadId)).toEqual(before);
-  expect(storage.read(forked.threadId)).toMatchObject({ cwd: "/fork", model: "opus", instructions: "fork instructions" });
+  expect(storage.read(forked.threadId)).toMatchObject({ cwd: "/fork", model: "opus" });
   source.stop(); fork.stop();
+});
+
+test("instructions saved by earlier versions still extend the preset prompt; new threads add none", async () => {
+  const storage = store(); const fake = sdk(async function* (input) { for await (const _ of input) { yield result; break; } });
+  const original = new ClaudeSession("review_sensitive", undefined, storage, fake);
+  const { threadId } = await original.startThread({ cwd: "/project" }); original.stop();
+  expect(storage.read(threadId)).not.toHaveProperty("instructions");
+  storage.write({ ...storage.read(threadId), instructions: "Prefer small diffs." });
+  const resumed = new ClaudeSession("review_sensitive", undefined, storage, fake);
+  try {
+    await resumed.resumeThread(threadId, {});
+    await resumed.startTurn([toTextUserInput("hello")]); await done(resumed);
+    expect(fake.calls[0]!.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Prefer small diffs." });
+  } finally { resumed.stop(); }
 });
 
 test("renaming and archiving preserve in-memory tool results during an active turn", async () => {

@@ -30,7 +30,6 @@ export interface ProviderCapabilities {
   approvalModes: readonly ApprovalPolicy[];
   inputKinds: readonly UserInput["type"][];
   imageDetail: boolean;
-  ephemeralThreads: boolean;
 }
 
 export type ProviderOperation = {

@@ -121,7 +121,7 @@ Optional operations are negotiated independently:
 | Models | `modelCatalog`, `modelSelection`, `effortSelection` |
 | Skills | `skills` (discovery), `skillConfig` (configuration writes) |
 | Interaction and transport | `questions` (core fails question requests from providers that do not declare it), `inputKinds`, `imageDetail` |
-| Execution policy | `approvalModes`, `sandboxModes`, `ephemeralThreads` |
+| Execution policy | `approvalModes`, `sandboxModes` |
 | Account service | `accountReset`; registration rejects a mismatch with the account reader's `reset` method |
 
 False means unsupported, including when a method exists. Optional methods may be
@@ -224,17 +224,19 @@ action. The misleading `review_all` environment value is rejected; use `review_u
 for the previous trust-based behavior. Existing `bypass`/`unrestricted` installations need
 no further environment edits.
 
-Shared thread requests offer model, effort, instructions, workspace, sandbox, approval
-mode, and optional ephemeral lifetime. `instructions` are added to the provider's default
-instructions and never replace them; Codex receives them as developer instructions and
-Claude appends them to its preset system prompt. Raw SDK `config`, backend overrides, deprecated
+Shared thread requests offer model, effort, workspace, sandbox, and approval mode. They
+carry no instructions and no ephemeral lifetime: no surface sent either, Codex's
+`developerInstructions` may replace configured developer instructions rather than add to
+them, and ephemeral threads are Codex-only. Each agent keeps its own configured
+instructions. Claude snapshots written with instructions by earlier versions still append
+them to the preset system prompt. Raw SDK `config`, backend overrides, deprecated
 personality selectors, analytics service names, and native database/source filters are
 not public fields. Their native configuration remains provider-owned. Unknown request
 fields are rejected, not ignored. Model backend configuration belongs in the provider's
 native settings. List sorting uses creation or update time across every provider.
 
 Descriptors advertise approval modes, sandbox modes, input kinds,
-image-detail controls, and ephemeral-thread support, alongside operation capabilities.
+and image-detail controls, alongside operation capabilities.
 Core checks these before bootstrap, submit, or steer, and adapters enforce them for direct
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
 local-file, audio, skill-reference, or image-detail support. Model/effort

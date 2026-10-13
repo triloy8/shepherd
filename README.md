@@ -77,11 +77,17 @@ SHEPHERD_APPROVAL_MODE=review_sensitive
 SHEPHERD_SANDBOX_MODE=workspace_write
 ```
 
-These are host defaults. Each agent applies the ones it supports and keeps its own
-default for the rest; Shepherd prints a notice at startup and with `--check-config`
-when an installed agent cannot apply one. For example, Claude has no workspace sandbox
-and does not offer `review_untrusted`. Values passed explicitly in an API request are
-never adjusted: a request for an unsupported mode is rejected.
+These are host defaults, and they never make an agent less restricted than configured.
+An agent that lacks the configured mode uses the least restrictive mode it has that is
+still stricter. When it has none, it keeps its own default only for the least restrictive
+values (`bypass`, `unrestricted`); for any other value Shepherd refuses to create that
+agent's conversations, and to resume or fork them for the sandbox setting. For example,
+Claude has no sandbox modes other than `unrestricted` and does not offer
+`review_untrusted`, so `SHEPHERD_SANDBOX_MODE=workspace_write` refuses Claude
+conversations. Shepherd prints a notice at startup and with `--check-config` for each
+installed agent that cannot apply a default, and fails to start when the default agent
+would refuse every new conversation. Values passed explicitly in an API request are never
+adjusted: a request for an unsupported mode is rejected.
 
 Choose **Codex** or **Claude** in the web UI's new-conversation dialog. The choice
 belongs to the conversation; resume and fork preserve it. Codex is the default
@@ -149,8 +155,10 @@ User message attachments and provider-managed external MCP tools use separate pa
 Claude supports text and image messages, streaming, follow-up input, interruption,
 approvals, structured questions (including multiple selections), model/effort selection, stored history, rename, archive, resume, fork,
 and Shepherd dynamic tools through MCP. The common approval policy applies to
-both providers: `bypass` runs Claude with permission bypass; `review_sensitive` uses Claude's normal permission checks and Shepherd approval prompts.
-`provider_default` uses native permission defaults for new conversations and preserves
+both providers: `bypass` runs Claude with permission bypass; `review_sensitive` sets Claude's
+`default` permission mode, which asks through Shepherd before tools its rules do not allow.
+`provider_default` sets no mode, so Claude applies the `defaultMode` from its user, project, or
+local settings, for new conversations, and preserves
 the saved permission mode when resuming, forking, or continuing a conversation.
 Host defaults apply when creating a conversation; ordinary messages keep its saved mode. `review_untrusted` is supported
 only by Codex; unsupported modes are rejected rather than silently downgraded.
@@ -160,7 +168,8 @@ still applies its configured sandbox. Run Claude conversations on an isolated
 host or container, or keep `review_sensitive` when Claude should ask first.
 See the [SDK permission modes](https://code.claude.com/docs/en/agent-sdk/permissions).
 Claude currently accepts only an unset sandbox or `unrestricted`; it
-rejects Codex's restricted sandbox modes rather than treating them as enforced.
+rejects Codex's restricted sandbox modes rather than treating them as enforced, whether
+they are requested explicitly or configured as the host default.
 Manual compaction, turn revert, audio/file input, and skill management controls
 are unavailable for Claude. Claude loads its own configured project skills.
 The sidebar **Usage & limits** panel has a discovered agent selector. It opens on the

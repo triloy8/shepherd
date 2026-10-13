@@ -699,7 +699,9 @@ test("Claude permission modes, typed effort and native defaults survive resume a
       await resumed.resumeThread(created.threadId, { approvalPolicy: "provider_default" });
       expect(resumed.approvalPolicy).toBe(approvalPolicy);
       await resumed.startTurn([toTextUserInput("Resume")], "provider_default"); await done(resumed);
-      expect(fake.calls[0]!.options).toMatchObject({ effort: "high", permissionMode: approvalPolicy === "bypass" ? "bypassPermissions" : "default" });
+      expect(fake.calls[0]!.options).toMatchObject({ effort: "high" });
+      // The provider default leaves the mode to Claude's settings; review asks explicitly.
+      expect(fake.calls[0]!.options.permissionMode).toBe(({ provider_default: undefined, review_sensitive: "default", bypass: "bypassPermissions" } as const)[approvalPolicy]);
       expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBe(approvalPolicy === "bypass" ? true : undefined);
       const forked = new ClaudeSession("provider_default", undefined, storage, fake);
       try {

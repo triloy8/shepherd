@@ -6,6 +6,7 @@ import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
 import { claudeActivityKind } from "./activity.js";
+import { claudePermissionOptions } from "./permissions.js";
 import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
 import type { UserQuestionRequest } from "../../../shared/protocol/user_questions.js";
 import { claudeCapabilities } from "./capabilities.js";
@@ -174,8 +175,7 @@ export class ClaudeSession implements ProviderSession {
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
       includePartialMessages: true, settingSources: ["user", "project", "local"],
       systemPrompt: { type: "preset", preset: "claude_code", append: thread.instructions || undefined },
-      permissionMode: this.approvalPolicy === "bypass" ? "bypassPermissions" : "default",
-      ...(this.approvalPolicy === "bypass" ? { allowDangerouslySkipPermissions: true } : {}),
+      ...claudePermissionOptions(this.approvalPolicy),
       canUseTool: (name, args, context) => this.requestApproval(name, args, context),
       mcpServers: shepherdMcpServers(this.dynamicTools, () => this.activeTurnId ? { threadId: thread.id, turnId: this.activeTurnId } : null),
     };

@@ -188,10 +188,17 @@ Neither account reporting nor opening the usage panel sends a user conversation 
 Common policy is configured with `SHEPHERD_APPROVAL_MODE` (`provider_default`,
 `review_sensitive`, `review_untrusted`, `bypass`) and `SHEPHERD_SANDBOX_MODE`
 (`read_only`, `workspace_write`, `unrestricted`). Model/authentication settings remain
-provider-specific inside their adapters. These are host defaults, not requests: core
-applies each one only when the conversation's provider supports it, and otherwise the
-provider keeps its own default for that setting. Startup and `--check-config` print a
-notice for each installed agent that cannot apply a configured default. An explicitly
+provider-specific inside their adapters. These are host defaults, not requests, and they
+never loosen execution. Core (`resolveThreadDefaults` in `shared/protocol/provider_support.ts`)
+applies a default the provider supports. Otherwise it uses the least restrictive supported
+mode that is still stricter (approval order: `review_untrusted`, `review_sensitive`,
+`bypass`; sandbox order: `read_only`, `workspace_write`, `unrestricted`). Without one, the
+provider keeps its own default only for the least restrictive value (`bypass`,
+`unrestricted`), which its default cannot be looser than; any other value refuses the
+operation with `UnsupportedProviderOperationError`. A configured `provider_default`
+approval mode is never substituted. Startup and `--check-config` print a notice for each
+installed agent that cannot apply a configured default, and fail when the default agent
+would refuse every new conversation. An explicitly
 requested sandbox or approval mode that a provider lacks is rejected rather than
 silently changing execution privileges. Creation applies both defaults; resume and fork
 apply only the sandbox default and keep the saved approval mode.
@@ -205,9 +212,10 @@ For existing installations, rename those common settings before redeployment:
 Approval and sandbox modes use these same application values throughout core, ports,
 and HTTP. Native policy names are encoded and decoded inside adapters. `provider_default`
 uses native defaults for a new conversation and inherits the saved mode on resume, fork,
-and continuation. Host defaults apply at creation; ordinary surface messages do not
+and continuation. Adapters pass no native mode for it: Codex sends no approval policy, and
+Claude sends no permission mode so its settings' `defaultMode` applies. Host defaults apply at creation; ordinary surface messages do not
 override the saved mode. `review_sensitive` uses
-the provider's normal permission review; `review_untrusted` reviews actions according to
+the provider's normal permission review (Codex `on-request`, Claude `default`); `review_untrusted` reviews actions according to
 its trust model and is currently supported only by Codex. `bypass` suppresses permission
 review but retains explicit user questions. None of these modes promises review of every
 action. The misleading `review_all` environment value is rejected; use `review_untrusted`

@@ -63,7 +63,8 @@ function harness(options: { fork?: boolean; github?: boolean; sharedDirectory?: 
     providers: assembleProviderServices([{ threadIdentity: "application", id: descriptor.id, displayName: descriptor.displayName, capabilities,
       create: () => new MinimalSession(), account: { read: async () => account(descriptor.id) }, hasStoredThreads: () => saved.size > 0,
     }], join(root, "state"), descriptor.id),
-    threadDefaults: { sandbox: "workspace_write", approvalPolicy: "review_untrusted" },
+    // The least restrictive defaults fall back to the provider's own; restrictive ones would be refused.
+    threadDefaults: { sandbox: "unrestricted", approvalPolicy: "bypass" },
   });
   const surface = (conversation: ConversationService, adapter: string) => {
     const state = new SurfaceStateService();

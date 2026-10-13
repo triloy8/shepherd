@@ -38,7 +38,7 @@ They must not be read as a promise that every row is available with Claude.
 | Manual compaction | Yes | No | Hidden for Claude in web and Discord `!help`; unsupported calls rejected |
 | Turn-based conversation revert | Yes | No | Hidden for Claude in web; unsupported calls rejected |
 | Skill discovery and toggles | Yes | No | Hidden for Claude in web and Discord `!help`; native Claude skill loading is separate |
-| Restricted sandbox selection | Host configuration | No | Host sandbox and approval defaults apply only to agents that support them; others keep their own defaults, with a startup notice |
+| Restricted sandbox selection | Host configuration | No | Host sandbox and approval defaults never loosen an agent: it uses the configured or a stricter supported mode, keeps its own default only for `bypass`/`unrestricted`, and is otherwise refused, with a startup notice |
 | Sidebar account usage and resets | Codex account and resets | Claude account allowances | Main dialog styling with a neutral provider selector and account allowances; resets appear only when supported |
 | Context-window percentage | When reported | Yes, from the SDK model context window | Shown in web conversation settings for both providers |
 

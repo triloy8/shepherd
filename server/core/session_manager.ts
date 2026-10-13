@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities, ProviderOperation } from "../../shared/protocol/provider_capabilities.js";
-import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation, unsupportedThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
+import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation, resolveThreadDefaults, type ThreadDefaultResolution, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
 import { ApplicationActionError } from "./action_error.js";
@@ -183,14 +183,19 @@ export class SessionManager {
     }
   }
 
+  /** Host defaults never loosen execution; a provider without an equal or stricter mode is refused. */
   private withThreadDefaults(request: CreateThreadRequest, capabilities: ProviderCapabilities, applyApproval: boolean): CreateThreadRequest {
-    const unsupported = unsupportedThreadDefaults(this.threadDefaults, capabilities);
-    const { approvalPolicy, sandbox } = this.threadDefaults;
-    return {
-      ...request,
-      ...(applyApproval && request.approvalPolicy === undefined && approvalPolicy && !unsupported.includes("approvalPolicy") ? { approvalPolicy } : {}),
-      ...(request.sandbox === undefined && sandbox && !unsupported.includes("sandbox") ? { sandbox } : {}),
+    const provider = request.provider ?? this.defaultProvider();
+    const resolved = resolveThreadDefaults(this.threadDefaults, capabilities);
+    const value = <T>(setting: string, configured: T | undefined, resolution: ThreadDefaultResolution<T> | undefined): T | undefined => {
+      if (!resolution) return undefined;
+      if (resolution.outcome === "refuse") throw new UnsupportedProviderOperationError(provider, `the host default ${setting} ${String(configured)} or a stricter one`);
+      return resolution.outcome === "provider_default" ? undefined : resolution.value;
     };
+    const approvalPolicy = applyApproval && request.approvalPolicy === undefined
+      ? value("approval mode", this.threadDefaults.approvalPolicy, resolved.approvalPolicy) : undefined;
+    const sandbox = request.sandbox === undefined ? value("sandbox mode", this.threadDefaults.sandbox, resolved.sandbox) : undefined;
+    return { ...request, ...(approvalPolicy ? { approvalPolicy } : {}), ...(sandbox ? { sandbox } : {}) };
   }
 
   listThreads(): ListThreadsResponse {

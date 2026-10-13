@@ -1,3 +1,4 @@
+import { opaqueArgument, quotedArguments } from "./command_arguments.js";
 import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery } from "../../core/surface_snapshot_service.js";
 import type { SurfaceApplicationContext } from "../../core/surface_application_context.js";
 import { executeSurfaceAction } from "../../core/surface_actions_service.js";
@@ -396,6 +397,12 @@ export async function handleMessage(
   const requestedProvider = ["!newthread", "!limits"].includes(command) && context.conversation.listProviders().some(entry => entry.id === providerValue)
     ? providerValue : unquotedProvider;
 
+  let identityArgument = "";
+  if (["!thread", "!threadread", "!fork", "!archive", "!unarchive"].includes(command)) {
+    try { identityArgument = opaqueArgument(content.slice(command.length)); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId: null, input: null }; }
+  }
+
   if (command === "!providers") {
     const providers = context.conversation.listProviders();
     await replyCard(message, "Available agents", providers.map(provider => `- ${provider.displayName}: \`${provider.id}\`${provider.isDefault ? " (default)" : ""}`).join("\n") || "No agent providers are registered.");
@@ -718,19 +725,23 @@ export async function handleMessage(
   }
 
   if (command === "!history") {
-    const items = args[0]?.toLowerCase() === "items";
-    if ((items && (args.length < 2 || args.length > 3)) || (!items && args.length > 1)) {
-      await replyMarkdown(message, "Usage: !history [thread-id]\nUsage: !history items <turn-id> [thread-id]");
+    let historyArgs: string[];
+    const remainder = content.slice(command.length).trim();
+    try { historyArgs = quotedArguments(remainder); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId: null, input: null }; }
+    const items = /^items(?:\s|$)/i.test(remainder);
+    if ((items && (historyArgs.length < 2 || historyArgs.length > 3)) || (!items && historyArgs.length > 1)) {
+      await replyMarkdown(message, "Usage: !history [thread-id]\nUsage: !history items <turn-id> [thread-id]\nQuote IDs containing spaces.");
       return { handled: true, threadId: null, input: null };
     }
-    const threadId = (items ? args[2] : args[0]) ?? context.getSurfaceThreadId(channelId);
+    const threadId = (items ? historyArgs[2] : historyArgs[0]) ?? context.getSurfaceThreadId(channelId);
     if (!threadId) {
       await replyCard(message, "Thread required", "Use `!history <thread-id>` or select a thread first.", "warning");
       return { handled: true, threadId: null, input: null };
     }
     try {
       const page = await loadHistoryPage(context.conversation,
-        initialHistoryRequest(threadId, message.author.id, items ? args[1] : undefined));
+        initialHistoryRequest(threadId, message.author.id, items ? historyArgs[1] : undefined));
       await replyPage(message, page);
     } catch (error) {
       await replyCard(message, "History unavailable", error instanceof Error ? error.message : "Failed to load history.", "danger");
@@ -795,7 +806,9 @@ export async function handleMessage(
       return { handled: true, threadId, input: null };
     }
 
-    const requestedModel = args.slice(1).join(" ").trim();
+    let requestedModel: string;
+    try { requestedModel = opaqueArgument(content.match(/^!model\s+set(?:\s+([\s\S]+))?$/i)?.[1] ?? ""); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId, input: null }; }
     if (!requestedModel) {
       await replyMarkdown(message, "Usage: !model set <id>");
       return { handled: true, threadId, input: null };
@@ -979,7 +992,7 @@ export async function handleMessage(
   }
 
   if (command === "!thread" && args.length > 0) {
-    const requestedThreadId = args[0]?.trim();
+    const requestedThreadId = identityArgument;
     if (!requestedThreadId) {
       await replyMarkdown(message, "Usage: !thread <id>");
       return { handled: true, threadId: null, input: null };
@@ -1023,7 +1036,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.read",
       surfaceId: channelId,
-      threadId: args[0],
+      threadId: identityArgument || undefined,
     });
     if (result.type !== "thread.read") {
       throw new Error("Unexpected control action result for thread.read.");
@@ -1048,7 +1061,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.fork",
       surfaceId: channelId,
-      sourceThreadId: args[0],
+      sourceThreadId: identityArgument || undefined,
     });
     if (result.type !== "thread.fork") {
       throw new Error("Unexpected control action result for thread.fork.");
@@ -1070,7 +1083,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.archive",
       surfaceId: channelId,
-      threadId: args[0],
+      threadId: identityArgument || undefined,
     });
     if (result.type !== "thread.archive") {
       throw new Error("Unexpected control action result for thread.archive.");
@@ -1084,7 +1097,7 @@ export async function handleMessage(
   }
 
   if (command === "!unarchive") {
-    const target = args[0];
+    const target = identityArgument;
     if (!target) {
       await replyMarkdown(message, "Usage: !unarchive <id>");
       return { handled: true, threadId: null, input: null };
@@ -1109,7 +1122,6 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.compact",
       surfaceId: channelId,
-      threadId: args[0],
     });
     if (result.type !== "thread.compact") {
       throw new Error("Unexpected control action result for thread.compact.");

@@ -153,7 +153,7 @@ test("overlapping native thread and approval IDs stay independent through histor
     const replay: string[] = [];
     conversation.subscribeToThreadEvents(first, event => replay.push(event.threadId));
     expect(replay).toEqual([first]);
-    await conversation.applyApprovalDecision(first, "1", { decision: "allow" });
+    await conversation.applyApprovalDecision(first, conversation.listApprovals(first)[0]!.approvalId, { decision: "allow" });
     expect(a.sessions[0]!.decisions).toEqual(["1"]);
     expect(b.sessions[0]!.decisions).toEqual([]);
     expect(conversation.listApprovals(second)[0]!.status).toBe("pending");
@@ -346,20 +346,21 @@ for (const terminal of ["turn.completed", "turn.failed"] as const) test(`${termi
         payload: { approvalId, kind: "permission", prompt: "Run?", detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
     };
     publish("old", "old-turn"); publish("new", "new-turn");
+    const [old, newer] = conversation.listApprovals(threadId).map(approval => approval.approvalId);
     const events: string[] = [];
     conversation.subscribeToThreadEvents(threadId, event => { if (event.type === "approval.expired") events.push(event.payload.approvalId); }, { replay: false });
     native.eventBus.publish({ id: "terminal", type: terminal, threadId: "1", sessionId: native.sessionId, ts: "now", payload: { turnId: "old-turn", message: "failed" } });
-    expect(conversation.listApprovals(threadId).map(a => [a.approvalId, a.status])).toEqual([["old", "expired"], ["new", "pending"]]);
-    expect(events).toEqual(["old"]);
-    await expect(conversation.applyApprovalDecision(threadId, "old", { decision: "allow" })).rejects.toThrow("already expired");
+    expect(conversation.listApprovals(threadId).map(a => [a.approvalId, a.status])).toEqual([[old, "expired"], [newer, "pending"]]);
+    expect(events).toEqual([old!]);
+    await expect(conversation.applyApprovalDecision(threadId, old!, { decision: "allow" })).rejects.toThrow("already expired");
     expect(native.decisions).toEqual([]);
     const replay: string[] = [];
     conversation.subscribeToThreadEvents(threadId, event => { if (event.type === "approval.expired") replay.push(event.payload.approvalId); });
-    expect(replay).toEqual(["old"]);
+    expect(replay).toEqual([old!]);
     // Repeated completion cannot expire or resurrect other approvals.
     native.eventBus.publish({ id: "terminal-again", type: terminal, threadId: "1", sessionId: native.sessionId, ts: "now", payload: { turnId: "old-turn", message: "failed" } });
-    expect(events).toEqual(["old"]);
-    await conversation.applyApprovalDecision(threadId, "new", { decision: "allow" });
+    expect(events).toEqual([old!]);
+    await conversation.applyApprovalDecision(threadId, newer!, { decision: "allow" });
     expect(native.decisions).toEqual(["new"]);
   } finally { conversation.stopAll(); }
 });
@@ -450,5 +451,95 @@ test("independent provider null-ID completion releases consecutive real signal t
       await executor.waitUntilIdle({ threadId, cwd: "/tmp" });
     }
     expect(turns).toBe(2);
+  } finally { conversation.stopAll(); }
+});
+
+test("stale Discord controls cannot authorize a newer occurrence of a reused native approval ID", async () => {
+  const { encodeApprovalButtonId } = await import("../server/adapters/discord/message_renderer.js");
+  const { handleInteraction } = await import("../server/adapters/discord/interactions.js");
+  const h = registration("reused-approvals");
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
+    const publish = (id: string, turnId: string, prompt: string) => {
+      native.activeTurnId = turnId;
+      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt, detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+    };
+    publish("old", "old-turn", "Old permission");
+    const old = conversation.listApprovals(threadId)[0]!;
+    const button = encodeApprovalButtonId(threadId, old.approvalId, "allow");
+    publish("new", "new-turn", "New permission");
+    const newer = conversation.listApprovals(threadId)[1]!;
+    const replies: unknown[] = [];
+    await handleInteraction({ customId: button, reply: async payload => { replies.push(payload); } } as never, conversation as never);
+    expect(replies).toHaveLength(1);
+    expect(native.decisions).toEqual([]);
+    expect(conversation.listApprovals(threadId)[1]!.status).toBe("pending");
+    await expect(conversation.applyApprovalDecision(threadId, "1", { decision: "allow" })).rejects.toThrow("not found");
+    // Replayed requests preserve the original application identity.
+    publish("new", "new-turn", "New permission");
+    expect(conversation.listApprovals(threadId)).toHaveLength(2);
+    const replay: Array<{ type: string; approvalId: string }> = [];
+    conversation.subscribeToThreadEvents(threadId, event => { if ("approvalId" in event.payload) replay.push({ type: event.type, approvalId: event.payload.approvalId }); });
+    expect(replay).toEqual([{ type: "approval.requested", approvalId: old.approvalId }, { type: "approval.expired", approvalId: old.approvalId }, { type: "approval.requested", approvalId: newer.approvalId }]);
+    await conversation.applyApprovalDecision(threadId, newer.approvalId, { decision: "allow" });
+    expect(native.decisions).toEqual(["1"]);
+  } finally { conversation.stopAll(); }
+});
+
+test("late native lifecycle events and in-flight decisions cannot mutate reused approvals", async () => {
+  const h = registration("approval-races");
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
+    const request = (id: string) => {
+      native.activeTurnId = "same-turn";
+      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt: id, detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+    };
+    request("old"); const old = conversation.listApprovals(threadId)[0]!;
+    let finish!: () => void;
+    native.applyApprovalDecision = async id => { await new Promise<void>(resolve => { finish = resolve; }); return { approvalId: id }; };
+    const pending = conversation.applyApprovalDecision(threadId, old.approvalId, { decision: "allow" });
+    request("new"); const newer = conversation.listApprovals(threadId)[1]!;
+    native.eventBus.publish({ id: "late", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.expired", payload: { approvalId: "1" } });
+    expect(conversation.listApprovals(threadId)[1]!.status).toBe("pending");
+    finish(); await pending;
+    expect(conversation.listApprovals(threadId).map(a => a.status)).toEqual(["applied", "pending"]);
+    native.eventBus.publish({ id: "new-expiry", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.expired", payload: { approvalId: "1", requestEventId: "new" } });
+    expect(conversation.listApprovals(threadId)[1]).toMatchObject({ approvalId: newer.approvalId, status: "expired" });
+  } finally { conversation.stopAll(); }
+});
+
+test("rejected question IDs can be reused by permissions without accepting delayed question events", async () => {
+  const h = registration("rejected-reuse");
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
+    native.activeTurnId = "question-turn";
+    native.eventBus.publish({ id: "question", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "question", prompt: "Unsupported", detail: null, choices: [{ value: "cancel", label: "Cancel", intent: "cancel" }] } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    native.activeTurnId = "permission-turn";
+    native.eventBus.publish({ id: "permission", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt: "Run?", detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+    for (const payload of [{ approvalId: "1" }, { approvalId: "1", turnId: "question-turn" }, { approvalId: "1", requestEventId: "question" }]) {
+      native.eventBus.publish({ id: crypto.randomUUID(), threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.expired", payload });
+    }
+    expect(conversation.listApprovals(threadId)).toHaveLength(1);
+    expect(conversation.listApprovals(threadId)[0]!.status).toBe("pending");
+    await conversation.applyApprovalDecision(threadId, conversation.listApprovals(threadId)[0]!.approvalId, { decision: "allow" });
+    expect(native.decisions).toEqual(["1", "1"]);
+  } finally { conversation.stopAll(); }
+});
+
+test("native turn correlation resolves approval lifecycle events after cross-turn reuse", async () => {
+  const h = registration("correlated-reuse");
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
+    for (const turnId of ["old", "new"]) {
+      native.activeTurnId = turnId;
+      native.eventBus.publish({ id: turnId, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt: turnId, detail: null, choices: [] } });
+    }
+    native.eventBus.publish({ id: "failed", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.failed", payload: { approvalId: "1", turnId: "new", message: "Cancelled upstream" } });
+    expect(conversation.listApprovals(threadId).map(a => a.status)).toEqual(["expired", "failed"]);
   } finally { conversation.stopAll(); }
 });

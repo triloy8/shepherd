@@ -214,3 +214,13 @@ for (const phase of ["final", "interim", null] as const) test(`empty canonical $
   expect(getFinalResponseText(completed.state)).toBe("");
   expect(completed.type === "message-completed" && completed.completedCommentary).toBeNull();
 });
+
+for (const phase of ["interim", null] as const) test(`identifying anonymous interim text with phase ${phase} does not finish its prefix`, () => {
+  const first = reduceResponseStream(null, makeEvent("turn.stream.delta", { turnId: "t", itemId: null, phase: "interim", kind: "assistant_text", textDelta: "I am " }));
+  const identified = reduceResponseStream(first.state, makeEvent("turn.stream.delta", { turnId: "t", itemId: "a", phase, kind: "assistant_text", textDelta: "working" }));
+  expect(identified.type).toBe("updated");
+  expect(identified.type === "updated" && identified.completedCommentary).toBeNull();
+  expect(identified.state?.activeCommentary).toEqual({ itemId: "a", text: "I am working" });
+  const completed = reduceResponseStream(identified.state, makeEvent("turn.message.completed", { turnId: "t", itemId: "a", phase: null, text: "I am working" }));
+  expect(completed.type === "message-completed" && completed.completedCommentary?.text).toBe("I am working");
+});

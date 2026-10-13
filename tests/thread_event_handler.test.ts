@@ -807,3 +807,19 @@ for (const terminal of ["turn.completed", "turn.failed"] as const) test(`empty c
     expect(h.errors).toEqual([]);
   } finally { handler.dispose(); }
 });
+
+test("anonymous interim text adopts a canonical ID and is delivered once", async () => {
+  const h = createHarness(); const handler = createDiscordThreadEventHandler(h.client, { onError: error => h.errors.push(error) });
+  try {
+    handler.handleThreadEvent("channel", makeEvent("turn.started", { turnId: "t" }));
+    handler.handleThreadEvent("channel", makeEvent("turn.stream.delta", { turnId: "t", itemId: null, phase: "interim", kind: "assistant_text", textDelta: "I am " }));
+    handler.handleThreadEvent("channel", makeEvent("turn.stream.delta", { turnId: "t", itemId: "a", phase: null, kind: "assistant_text", textDelta: "working" }));
+    await handler.waitForIdle("channel"); expect(h.sent).toHaveLength(0);
+    handler.handleThreadEvent("channel", makeEvent("turn.message.completed", { turnId: "t", itemId: "a", phase: null, text: "I am working" }));
+    handler.handleThreadEvent("channel", makeEvent("turn.message.completed", { turnId: "t", itemId: "b", phase: "final", text: "Done" }));
+    handler.handleThreadEvent("channel", makeEvent("turn.completed", { turnId: "t" }));
+    await handler.waitForIdle("channel");
+    expect(h.sent.map(payloadText)).toEqual(["I am working", "Done"]);
+    expect(h.errors).toEqual([]);
+  } finally { handler.dispose(); }
+});

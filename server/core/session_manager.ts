@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities, ProviderOperation } from "../../shared/protocol/provider_capabilities.js";
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation, unsupportedThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
@@ -536,10 +538,11 @@ export class SessionManager {
     decision: ApprovalDecisionRequest,
   ): Promise<void> {
     const managed = this.mustGet(threadId);
-    const { approval } = this.approvals.markDecided(threadId, approvalId, decision);
+    const { approval, nativeApprovalId } = this.approvals.markDecided(threadId, approvalId, decision, managed.session.sessionId);
 
     const threadSession = managed.session;
-    threadSession.eventBus.publish({
+    const events = this.applicationEvents.get(threadSession)!;
+    events.publish({
       id: `${threadSession.sessionId}:approval-decided:${approvalId}`,
       type: "approval.decided",
       threadId,
@@ -549,9 +552,9 @@ export class SessionManager {
     });
 
     try {
-      await managed.session.applyApprovalDecision(approvalId, decision);
+      await managed.session.applyApprovalDecision(nativeApprovalId, decision);
       this.approvals.markApplied(threadId, approvalId);
-      threadSession.eventBus.publish({
+      events.publish({
         id: `${threadSession.sessionId}:approval-applied:${approvalId}`,
         type: "approval.applied",
         threadId,
@@ -561,7 +564,7 @@ export class SessionManager {
       });
     } catch (error) {
       this.approvals.markFailed(threadId, approvalId);
-      threadSession.eventBus.publish({
+      events.publish({
         id: `${threadSession.sessionId}:approval-failed:${approvalId}`,
         type: "approval.failed",
         threadId,
@@ -619,12 +622,21 @@ export class SessionManager {
   private attachSessionSubscriptions(session: ProviderSession): void {
     const events = new EventBus();
     const rejectedQuestions = new Set<string>();
+    const seenRequests = new Set<string>();
+    const nativeRequests = new Map<string, Array<string | null>>();
     this.applicationEvents.set(session, events);
     this.sessionSubscriptions.set(session, session.eventBus.subscribe((event) => {
-      if (event.type.startsWith("approval.") && "approvalId" in event.payload && rejectedQuestions.has(event.payload.approvalId)) return;
+      if (event.type !== "approval.requested" && event.type.startsWith("approval.") && "approvalId" in event.payload && rejectedQuestions.has(event.payload.approvalId)) return;
       if (event.type === "approval.requested") {
+        const requestKey = JSON.stringify([event.threadId, event.id]);
+        if (seenRequests.has(requestKey)) return;
+        seenRequests.add(requestKey);
+        const nativeKey = JSON.stringify([event.threadId, event.payload.approvalId]);
+        nativeRequests.set(nativeKey, [...nativeRequests.get(nativeKey) ?? [], event.payload.userInput?.turnId ?? session.activeTurnId]);
+        rejectedQuestions.delete(event.payload.approvalId);
         if (event.payload.kind === "question" && !session.capabilities.questions) {
           const { approvalId, choices } = event.payload;
+          const failureId = randomUUID();
           rejectedQuestions.add(approvalId);
           // Never expose this request, including through replay. Resolve the provider's pending request.
           void Promise.resolve().then(async () => {
@@ -642,21 +654,32 @@ export class SessionManager {
               for (const [threadId, managed] of this.sessionsByThread) if (managed.session === session) this.discardThreadSession(threadId);
               this.releaseSession(session);
             }
-            events.publish({ ...event, id: `${event.id}:rejected`, type: "approval.failed", payload: { approvalId, message } });
+            events.publish({ ...event, id: `${event.id}:rejected`, type: "approval.failed", payload: { approvalId: failureId, message } });
           });
           return;
         }
-        this.approvals.create(event.payload as ApprovalRequestPayload, {
+        const pendingBefore = this.approvals.listByThread(event.threadId).filter(approval => approval.status === "pending");
+        const approval = this.approvals.create(event.payload as ApprovalRequestPayload, {
           threadId: event.threadId,
           sessionId: session.sessionId,
+          requestEventId: event.id,
           turnId: event.payload.userInput?.turnId ?? session.activeTurnId,
         });
-        events.publish(event);
+        const retired = this.approvals.listByThread(event.threadId).filter(approval => approval.status === "expired" && pendingBefore.some(previous => previous.approvalId === approval.approvalId));
+        for (const previous of retired) events.publish({ ...event, id: `${event.id}:expired:${previous.approvalId}`, type: "approval.expired", payload: { approvalId: previous.approvalId } });
+        events.publish({ ...event, payload: { ...event.payload, approvalId: approval.approvalId } });
         return;
       }
 
-      if (event.type === "approval.expired") {
-        this.approvals.markExpired(event.threadId, (event.payload as { approvalId: string }).approvalId);
+      if (event.type.startsWith("approval.") && "approvalId" in event.payload) {
+        const turnId = "turnId" in event.payload ? event.payload.turnId : undefined;
+        const requestEventId = "requestEventId" in event.payload ? event.payload.requestEventId : undefined;
+        const occurrences = nativeRequests.get(JSON.stringify([event.threadId, event.payload.approvalId])) ?? [];
+        if (requestEventId === undefined && occurrences.filter(owner => turnId == null || owner === turnId).length !== 1) return;
+        const approval = this.approvals.resolveNative(event.threadId, session.sessionId, event.payload.approvalId, turnId, requestEventId);
+        if (!approval) return;
+        event = { ...event, payload: { ...event.payload, approvalId: approval.approvalId } } as BridgeEvent;
+        if (event.type === "approval.expired" && approval.status === "pending") this.approvals.markExpired(event.threadId, approval.approvalId);
       }
 
       if (event.type === "turn.completed" || event.type === "turn.failed") {

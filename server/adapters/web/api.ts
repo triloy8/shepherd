@@ -247,7 +247,7 @@ export class WebSurfaceApi {
         if (typeof data.enabled !== "boolean") throw new WebRequestError(400, "invalid_request", "enabled must be a boolean.");
         const enabled = data.enabled;
         return await this.mutate(entry, async () => {
-          const result = await webControl(this.application, { type: "skill.set-enabled", surfaceId: entry.id, requestedSkill: path, enabled });
+          const result = await webControl(this.application, { type: "skill.set-enabled", surfaceId: entry.id, path, enabled });
           if (result.type !== "skill.set-enabled" || !result.ok) throw new Error("Unexpected skill response.");
           return json(200, { enabled: result.appliedEnabled });
         });

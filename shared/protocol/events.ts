@@ -17,6 +17,9 @@ export type TurnActivityKind =
 
 export type TurnActivityStatus = "started" | "completed" | "failed";
 
+/** Null turn IDs refer to the current turn. Providers must supply IDs for delayed events
+ * belonging to an earlier turn. Null delta item IDs refer to the pending message, which
+ * is anonymous until an identified delta/completion supplies its canonical identity. */
 export interface BridgeEventPayloads {
   "session.started": { model: string };
   "session.error": { message: string };
@@ -64,10 +67,11 @@ export interface BridgeEventPayloads {
     status: TurnActivityStatus;
   };
   "approval.requested": ApprovalRequestPayload;
-  "approval.decided": { approvalId: string; decision: string; state: ApprovalRecord["status"] };
-  "approval.applied": { approvalId: string };
-  "approval.failed": { approvalId: string; message: string };
-  "approval.expired": { approvalId: string };
+  /** Reused native IDs need requestEventId (the request event ID), or a uniquely identifying turnId. */
+  "approval.decided": { approvalId: string; decision: string; state: ApprovalRecord["status"]; turnId?: string | null; requestEventId?: string };
+  "approval.applied": { approvalId: string; turnId?: string | null; requestEventId?: string };
+  "approval.failed": { approvalId: string; message: string; turnId?: string | null; requestEventId?: string };
+  "approval.expired": { approvalId: string; turnId?: string | null; requestEventId?: string };
 }
 
 export type BridgeEventType = keyof BridgeEventPayloads;

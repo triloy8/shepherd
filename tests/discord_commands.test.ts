@@ -947,3 +947,90 @@ test("Discord discovers arbitrary agents and routes creation and account reads w
   await handleMessage(makeMessage("!newthread").message as never, context);
   expect(created[1]).toEqual(["chan-1", undefined]);
 });
+
+for (const provider of ["neutral fixture", "team/Agent  α", '"literal provider"']) test(`Discord preserves opaque provider ${provider}`, async () => {
+  const { context } = makeContext();
+  const base = context.conversation.listProviders()[0]!;
+  const selected: string[] = [];
+  Object.assign(context.conversation, {
+    listProviders: () => [{ ...base, id: provider }],
+    readAccount: async (value: string) => { selected.push(value); return account(value); },
+  });
+  context.createSurfaceThread = async (_id, value) => { selected.push(value!); return "created"; };
+  for (const command of [`!newthread ${provider}`, `!limits ${provider}`]) {
+    await handleMessage(makeMessage(command).message as never, context);
+  }
+  expect(selected).toEqual([provider, provider]);
+});
+
+test("Discord accepts quoted provider selection without splitting the identifier", async () => {
+  const { context } = makeContext();
+  const base = context.conversation.listProviders()[0]!;
+  Object.assign(context.conversation, { listProviders: () => [{ ...base, id: "neutral fixture" }] });
+  let selected: string | undefined;
+  context.createSurfaceThread = async (_id, provider) => { selected = provider; return "created"; };
+  await handleMessage(makeMessage('!newthread "neutral fixture"').message as never, context);
+  expect(selected).toBe("neutral fixture");
+});
+
+test("Discord preserves case and repeated spaces in opaque effort values", async () => {
+  const { context } = makeContext();
+  let selected: unknown;
+  Object.assign(context.conversation, { setThreadEffort: async (_id: string, effort: unknown) => {
+    selected = effort; return { threadId: "thread-1", model: null, currentEffort: null, pendingEffort: effort, supportedEfforts: null, effortOptionsKnown: false };
+  } });
+  await handleMessage(makeMessage("!effort set Low  Power α").message as never, context);
+  expect(selected).toBe("Low  Power α");
+});
+
+test("Discord explicit extensionless skill paths work without discovery", async () => {
+  const { context, writes } = makeContext({ listSkills: async () => { throw Error("Discovery is unavailable"); } });
+  const getState = context.conversation.getThreadState;
+  Object.assign(context.conversation, { getThreadState: (id: string) => ({ ...getState(id), capabilities: { ...getState(id).capabilities, skills: false, skillConfig: true } }) });
+  await handleMessage(makeMessage("!skill disable --path instructions").message as never, context);
+  expect(writes).toEqual([{ threadId: "thread-1", path: "instructions", enabled: false }]);
+});
+
+for (const value of ['Case  Sensitive α', 'vendor/model "quoted"', 'C:\\models\\native']) test(`Discord preserves the complete model identity ${value}`, async () => {
+  const { context, modelWrites } = makeContext();
+  const getState = context.conversation.getThreadState;
+  Object.assign(context.conversation, { getThreadState: (id: string) => ({ ...getState(id), capabilities: { ...getState(id).capabilities, modelCatalog: false } }) });
+  await handleMessage(makeMessage(`!model set ${value}`).message as never, context);
+  expect(modelWrites).toEqual([{ threadId: "thread-1", model: value }]);
+});
+
+for (const command of ["!thread", "!threadread", "!fork", "!archive", "!unarchive"]) test(`${command} preserves a quoted thread identity`, async () => {
+  const { context } = makeContext(); const ids: string[] = [];
+  const value = 'app  thread "α"';
+  context.switchSurfaceThread = async (_channel, id) => { ids.push(id); return id; };
+  context.forkSurfaceThread = async (_channel, id) => { ids.push(id); return "forked"; };
+  Object.assign(context.conversation, {
+    readThread: async (id: string) => { ids.push(id); return { thread: { id } }; },
+    archiveThread: async (id: string) => { ids.push(id); return { ok: true }; },
+    unarchiveThread: async (id: string) => { ids.push(id); return { ok: true }; },
+  });
+  await handleMessage(makeMessage(`${command} "app  thread \\"α\\""`).message as never, context);
+  expect(ids).toEqual([value]);
+});
+
+test("history item commands preserve quoted native turn IDs and optional thread IDs", async () => {
+  const { context } = makeContext(); const calls: unknown[] = [];
+  Object.assign(context.conversation, { listThreadItems: async (threadId: string, request: unknown) => { calls.push({ threadId, request }); return { data: [], nextCursor: null }; } });
+  await handleMessage(makeMessage('!history items "native  turn α" "app  thread"').message as never, context);
+  expect(calls).toEqual([{ threadId: "app  thread", request: { turnId: "native  turn α", cursor: undefined, limit: 5, sortDirection: "asc" } }]);
+});
+
+test("quoted history thread named items does not select item mode", async () => {
+  const { context } = makeContext(); const ids: string[] = [];
+  Object.assign(context.conversation, { listThreadTurns: async (id: string) => { ids.push(id); return { data: [], nextCursor: null }; } });
+  await handleMessage(makeMessage('!history "items"').message as never, context);
+  expect(ids).toEqual(["items"]);
+});
+
+for (const command of ['!thread "unclosed', '!history items "turn"garbage', '!model set "one" "two"']) test(`invalid argument boundaries never execute ${command}`, async () => {
+  const { context, modelWrites } = makeContext(); let calls = 0;
+  context.switchSurfaceThread = async () => { calls++; return "wrong"; };
+  Object.assign(context.conversation, { listThreadItems: async () => { calls++; throw Error("Must not execute"); } });
+  await handleMessage(makeMessage(command).message as never, context);
+  expect(calls).toBe(0); expect(modelWrites).toEqual([]);
+});

@@ -50,7 +50,7 @@ function makeContext(overrides?: {
 
   const context: ControlActionsContext = {
     conversation: {
-      getThreadState: () => ({ capabilities: { modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true } }) as never,
+      getThreadState: () => ({ capabilities: { modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, skills: true, skillConfig: true } }) as never,
       async getThreadEffort(threadId) {
         return { threadId, model: "model", currentEffort: "medium", pendingEffort: null, inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [] };
       },
@@ -579,4 +579,13 @@ test("effort action preserves structured failures and propagates infrastructure 
     .toMatchObject({ ok: false, error: { code: "unsupported_effort", available: ["low"] } });
   context.conversation.getThreadEffort = async () => { throw new Error("connection closed"); };
   await expect(executeControlAction(context, { type: "effort.get", surfaceId: "terminal" })).rejects.toThrow("connection closed");
+});
+
+test("an extensionless catalog path takes precedence over a different skill with that name", async () => {
+  const { context, skillWrites } = makeContext({ listSkills: async () => ({ data: [{ cwd: "/workspace", errors: [], skills: [
+    { name: "build", path: "instructions", scope: "repo", description: "", enabled: true },
+    { name: "instructions", path: "/other/SKILL.md", scope: "user", description: "", enabled: true },
+  ] }] }) });
+  expect(await executeControlAction(context, { type: "skill.set-enabled", surfaceId: "chan-1", requestedSkill: "instructions", enabled: false })).toMatchObject({ ok: true });
+  expect(skillWrites).toEqual([{ threadId: "thread-1", path: "instructions", enabled: false }]);
 });

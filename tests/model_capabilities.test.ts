@@ -102,3 +102,15 @@ test("web callers get a model-specific unsupported-input error", async () => {
     expect(await response.json()).toEqual({ error: { code: "unsupported_model_input", message: 'Model "text-only" does not support image inputs.' } });
   } finally { h.api.dispose(); }
 });
+
+test("Claude effort discovery distinguishes unknown, empty, disabled and reported metadata", () => {
+  const rows = claudeModelCatalog([
+    { value: "unknown", displayName: "Unknown", description: "" },
+    { value: "supported-unreported", displayName: "Supported", description: "", supportsEffort: true },
+    { value: "empty", displayName: "Empty", description: "", supportedEffortLevels: [] },
+    { value: "disabled", displayName: "Disabled", description: "", supportsEffort: false, supportedEffortLevels: ["high"] },
+    { value: "reported", displayName: "Reported", description: "", supportedEffortLevels: ["high"] },
+  ], { model: "unknown", effort: "high" });
+  expect(rows.map(row => row.supportedEfforts)).toEqual([null, null, [], [], [{ value: "high", description: "" }]]);
+  expect(rows.map(row => row.defaultEffort)).toEqual([null, null, null, null, "high"]);
+});

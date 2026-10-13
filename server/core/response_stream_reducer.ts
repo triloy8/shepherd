@@ -11,6 +11,9 @@ export type ResponseStreamState = {
   /** Without explicit final metadata, the last unphased message is the answer, as in application history. */
   unphasedMessages?: AccumulatedMessage[];
   activeCommentary: AccumulatedMessage | null;
+  /** Phase knowledge outlives completion and is scoped to this turn. */
+  messagePhases?: ReadonlyMap<string, MessagePhase>;
+  pendingItemId?: string | null;
 };
 
 export type ResponseStreamReduction =
@@ -57,10 +60,11 @@ function upsertMessage(
   itemId: string | null,
   update: (text: string) => string,
 ): AccumulatedMessage[] {
-  const index = itemId ? messages.findIndex((message) => message.itemId === itemId) : messages.length - 1;
+  let index = messages.findIndex(message => message.itemId === itemId);
+  if (index < 0 && itemId && messages.at(-1)?.itemId === null) index = messages.length - 1;
   if (index >= 0) {
     return messages.map((message, messageIndex) =>
-      messageIndex === index ? { ...message, text: update(message.text) } : message,
+      messageIndex === index ? { ...message, itemId: itemId ?? message.itemId, text: update(message.text) } : message,
     );
   }
   return [...messages, { itemId, text: update("") }];
@@ -86,9 +90,15 @@ function sameTurn(state: ResponseStreamState | null, turnId: string | null | und
 }
 
 function knownPhase(state: ResponseStreamState | null, itemId: string | null | undefined): MessagePhase | null {
-  if (!itemId) return null;
+  if (itemId && state?.messagePhases?.has(itemId)) return state.messagePhases.get(itemId)!;
   if (state?.finalMessages.some(message => message.itemId === itemId)) return "final";
-  return state?.activeCommentary?.itemId === itemId ? "interim" : null;
+  if (state?.activeCommentary && (state.activeCommentary.itemId === itemId || state.activeCommentary.itemId === null)) return "interim";
+  return state?.finalMessages.at(-1)?.itemId === null ? "final" : null;
+}
+
+function rememberPhase(state: ResponseStreamState, itemId: string | null, phase: MessagePhase | null): ResponseStreamState {
+  if (!itemId || !phase || state.messagePhases?.get(itemId) === phase) return state;
+  return { ...state, messagePhases: new Map([...state.messagePhases ?? [], [itemId, phase]]) };
 }
 
 export function reduceResponseStream(
@@ -111,7 +121,8 @@ export function reduceResponseStream(
       itemId?: string | null;
       turnId?: string | null;
     };
-    const phase = payload.phase ?? knownPhase(state, payload.itemId);
+    const itemId = payload.itemId ?? state?.pendingItemId ?? null;
+    const phase = payload.phase ?? knownPhase(state, itemId);
     const delta = payload.textDelta ?? "";
     if (
       payload.kind !== "assistant_text" ||
@@ -122,13 +133,15 @@ export function reduceResponseStream(
     }
 
     let next = state ? { ...state } : createResponseStreamState(payload.turnId ?? null);
-    const itemId = payload.itemId ?? null;
-    const unphasedText = itemId ? next.unphasedMessages?.find(message => message.itemId === itemId)?.text ?? "" : "";
-    if (phase !== null && itemId && next.unphasedMessages) next.unphasedMessages = next.unphasedMessages.filter(message => message.itemId !== itemId);
+    next.pendingItemId = itemId;
+    next = rememberPhase(next, itemId, phase);
+    const unphased = next.unphasedMessages?.find(message => message.itemId === itemId) ?? (next.unphasedMessages?.at(-1)?.itemId === null ? next.unphasedMessages.at(-1) : undefined);
+    const unphasedText = unphased?.text ?? "";
+    if (phase !== null && unphased) next.unphasedMessages = next.unphasedMessages?.filter(message => message !== unphased);
     let completedCommentary: AccumulatedMessage | null = null;
 
     if (phase === "interim") {
-      if (next.activeCommentary && next.activeCommentary.itemId !== itemId) {
+      if (next.activeCommentary && next.activeCommentary.itemId !== null && next.activeCommentary.itemId !== itemId) {
         const completed = completeCommentary(next);
         next = completed.state;
         completedCommentary = completed.completedCommentary;
@@ -162,14 +175,13 @@ export function reduceResponseStream(
     state ??= createResponseStreamState(payload.turnId ?? null);
 
     const phase = payload.phase ?? knownPhase(state, payload.itemId);
+    state = rememberPhase(state, payload.itemId, phase);
+    if (state.pendingItemId === null || state.pendingItemId === payload.itemId) state = { ...state, pendingItemId: undefined };
     const text = payload.text ?? "";
-    const unphasedText = state.unphasedMessages?.find(message => message.itemId === payload.itemId)?.text ?? "";
-    if (phase !== null && state.unphasedMessages) state = { ...state, unphasedMessages: state.unphasedMessages.filter(message => message.itemId !== payload.itemId) };
+    const unphased = state.unphasedMessages?.find(message => message.itemId === payload.itemId) ?? (state.unphasedMessages?.at(-1)?.itemId === null ? state.unphasedMessages.at(-1) : undefined);
+    if (phase !== null && unphased) state = { ...state, unphasedMessages: state.unphasedMessages?.filter(message => message !== unphased) };
     if (phase === "interim") {
-      const active =
-        state.activeCommentary?.itemId === payload.itemId
-          ? { itemId: payload.itemId, text: text || state.activeCommentary.text }
-          : { itemId: payload.itemId, text: text || unphasedText };
+      const active = { itemId: payload.itemId, text };
       return {
         type: "message-completed",
         phase,
@@ -184,7 +196,7 @@ export function reduceResponseStream(
         phase,
         state: {
           ...state,
-          finalMessages: upsertMessage(state.finalMessages, payload.itemId, (current) => text || current || unphasedText),
+          finalMessages: upsertMessage(state.finalMessages, payload.itemId, () => text),
         },
         completedCommentary: null,
       };
@@ -195,7 +207,7 @@ export function reduceResponseStream(
       phase,
       state: {
         ...state,
-        unphasedMessages: upsertMessage(state.unphasedMessages ?? [], payload.itemId, current => text || current),
+        unphasedMessages: upsertMessage(state.unphasedMessages ?? [], payload.itemId, () => text),
       },
       completedCommentary: null,
     };

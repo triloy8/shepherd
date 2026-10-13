@@ -1,7 +1,7 @@
 import { memo, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type { WebImage } from "../../../shared/protocol/web";
 import { RevertDialog } from "./RevertDialog";
-import type { ChatMessage, ChatState } from "../chat-state";
+import { messageKey, type ChatMessage, type ChatState } from "../chat-state";
 import { timelineGroups, type TimelineGroup } from "../timeline";
 import { ImageArtifact } from "./ImageArtifact";
 import { Message } from "./Message";
@@ -10,7 +10,7 @@ export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true
   const [target, setTarget] = useState<ChatMessage | null>(null);
   const images = useMemo(() => chat.messages.flatMap((message) => message.image ? [message.image] : []), [chat.messages]);
   const groups = useMemo(() => timelineGroups(chat), [chat.messages, chat.turns, chat.activeTurnId]);
-  return <><div className="space-y-8">{groups.map((group) => <TimelineGroupView key={group.id} group={group} images={images}
+  return <><div className="space-y-8">{groups.map((group) => <TimelineGroupView key={messageKey(group.messages[0]!)} group={group} images={images}
     waiting={waitingForAnswer && group.messages[0]!.turnId === chat.activeTurnId} turnStatus={chat.turns[group.messages[0]!.turnId]?.status} revertDisabled={revertDisabled} canRevert={!!onRevert} setTarget={setTarget} />)}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
     available={!!target && chat.messages.some((message) => message.id === target.id && message.turnId === target.turnId)}
     onClose={() => setTarget(null)} revert={onRevert} reload={onReload} />}</>;

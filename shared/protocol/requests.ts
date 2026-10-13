@@ -343,7 +343,8 @@ export interface HistoryImage {
 
 type HistoryActivity = import("./events.js").TurnActivityEvent["payload"];
 
-/** Application history records. Adapters decode native transcripts into these before they leave the provider. */
+/** Application history records. Item IDs are unique within a turn, not across the thread.
+ * Adapters decode native transcripts into these before they leave the provider. */
 export type HistoryItem =
   | { id: string; type: "user_message"; content: HistoryContentPart[] }
   | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }

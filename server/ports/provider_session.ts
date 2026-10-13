@@ -67,7 +67,7 @@ export type ProviderSkillsRequest = Protocol.SkillsListRequest & { workspacePath
 
 export interface ProviderCatalog {
   listModels?(request: Protocol.ListModelsRequest): Promise<Protocol.ListModelsResponse>;
-  listSkills?(request: ProviderSkillsRequest): Promise<Protocol.SkillsListResponse>;
+  listSkills?(request: ProviderSkillsRequest): Promise<Protocol.SkillsListing>;
   writeSkillConfig?(request: Protocol.SkillsConfigWriteRequest): Promise<Protocol.SkillsConfigWriteResponse>;
 }
 

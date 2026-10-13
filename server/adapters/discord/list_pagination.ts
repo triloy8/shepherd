@@ -248,11 +248,11 @@ export function buildSkillsListPage(options: {
       ? `[${entry.skill.scope}] ${entry.skill.enabled ? "enabled" : "disabled"}`
       : brief(entry.error.path, 100);
     const description = brief(entry.kind === "skill" ? entry.skill.description : entry.error.message, 300);
-    return `**${offset + index + 1}. ${label}**\n${detail} · cwd: ${brief(entry.cwd, 100)}${description ? `\n${description}` : ""}`;
+    return `**${offset + index + 1}. ${label}**\n${detail}${description ? `\n${description}` : ""}`;
   }).join("\n\n") || "No skills found.";
   return buildCardPages({
     title: "Skills",
-    text,
+    text: `Workspace: ${brief(options.result.workspacePath, 100)}\n\n${text}`,
     tone: "info",
     actionRows: [navigationRow({
       target: "skills",

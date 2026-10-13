@@ -427,7 +427,8 @@ export class SessionManager {
     const managed = this.mustGet(threadId);
     const workspacePath = await this.resolveThreadCwd(threadId);
     if (!managed.session.listSkills) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "skills");
-    return managed.session.listSkills({ refresh: request.refresh, workspacePath });
+    const { skills, errors } = await managed.session.listSkills({ refresh: request.refresh, workspacePath });
+    return { workspacePath, skills, errors };
   }
 
   async getThreadCwd(threadId: string): Promise<string> {

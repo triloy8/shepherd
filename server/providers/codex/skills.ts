@@ -1,4 +1,4 @@
-import type { SkillMetadata, SkillScope, SkillsConfigWriteResponse, SkillsListResponse } from "../../../shared/protocol/requests.js";
+import type { SkillErrorInfo, SkillMetadata, SkillScope, SkillsConfigWriteResponse, SkillsListing } from "../../../shared/protocol/requests.js";
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const string = (value: unknown): string | null => typeof value === "string" ? value : null;
 
@@ -10,17 +10,24 @@ function skill(value: unknown): SkillMetadata | null {
   return { name, path, description: string(native.description) ?? "", scope, enabled: native.enabled };
 }
 
-export function codexSkills(value: unknown): SkillsListResponse {
+/** Codex groups discovery by requested directory. Shepherd requests one workspace, so entries are merged. */
+export function codexSkills(value: unknown): SkillsListing {
   const data = record(value).data;
   if (!Array.isArray(data)) throw new Error("Invalid skills list.");
-  return { data: data.map(raw => {
+  const skills = new Map<string, SkillMetadata>();
+  const errors: SkillErrorInfo[] = [];
+  for (const raw of data) {
     const entry = record(raw);
-    return {
-      cwd: string(entry.cwd) ?? "",
-      skills: (Array.isArray(entry.skills) ? entry.skills : []).flatMap(value => skill(value) ?? []),
-      errors: (Array.isArray(entry.errors) ? entry.errors : []).map(raw => { const error = record(raw); return { path: string(error.path) ?? "", message: string(error.message) ?? "Skill could not be loaded." }; }),
-    };
-  }) };
+    for (const value of Array.isArray(entry.skills) ? entry.skills : []) {
+      const decoded = skill(value);
+      if (decoded && !skills.has(decoded.path)) skills.set(decoded.path, decoded);
+    }
+    for (const raw of Array.isArray(entry.errors) ? entry.errors : []) {
+      const error = record(raw);
+      errors.push({ path: string(error.path) ?? "", message: string(error.message) ?? "Skill could not be loaded." });
+    }
+  }
+  return { skills: [...skills.values()], errors };
 }
 
 export function codexSkillConfig(value: unknown): SkillsConfigWriteResponse {

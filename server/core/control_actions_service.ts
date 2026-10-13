@@ -420,7 +420,7 @@ export async function executeControlAction(
   const requestedSkill = "path" in request ? request.path : request.requestedSkill;
   const value = requestedSkill.trim();
   const explicitPath = "path" in request || value.includes("/") || value.includes("\\") || value.endsWith(".md");
-  const listed = explicitPath ? { data: [] } : await context.conversation.listSkills(threadId, {});
+  const listed = explicitPath ? { skills: [], errors: [] } : await context.conversation.listSkills(threadId, {});
   const resolved = "path" in request
     ? value ? { path: request.path } : { error: { code: "invalid_skill" as const } }
     : resolveSkillPathFromList(listed, requestedSkill);

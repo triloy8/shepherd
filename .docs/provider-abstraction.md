@@ -249,7 +249,10 @@ Loaded-thread discovery lists Shepherd's live sessions and adds threads from pro
 that report threads loaded outside Shepherd (the optional `listLoadedThreads` port
 method; Codex implements it, Claude does not), persisting their owners. Stored-thread listing always merges through
 application pagination, even for one provider; shared cursors retain forward and backward
-positions and validate the listing filters. Native cursor compatibility paths are removed.
+positions and validate the listing filters. Native cursor compatibility paths are removed. Turn and
+item pages use opaque provider cursors: `nextCursor` is required, while `backwardsCursor` is
+optional (Codex returns one; Claude returns null). Surfaces page back by revisiting forward
+cursors they already received, so they never depend on it.
 Discord list controls keep these opaque cursors in a bounded, expiring server-side map so
 button IDs stay within Discord limits.
 

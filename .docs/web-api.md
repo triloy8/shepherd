@@ -348,11 +348,12 @@ refresh the conversation list before retrying to avoid duplicate forks.
 ### Skills
 
 The attached conversation exposes `GET /api/conversations/:id/skills` returning
-`SkillsListResponse` (workspace directories, skill names/descriptions/paths/scopes,
-effective enabled state, and discovery errors). Workspace selection comes from the
+`SkillsListResponse`: `{ workspacePath, skills, errors }`, where `workspacePath` is the
+conversation's effective workspace, `skills` lists names, descriptions, paths, scopes and
+effective enabled state, and `errors` lists skill files that could not be loaded. Workspace selection comes from the
 shared conversation service, not a client-supplied directory.
 
-Discovery is scoped to the conversation’s effective workspace; clients cannot override it with arbitrary directories. The provider port receives one `workspacePath` and an optional refresh preference.
+Discovery is scoped to the conversation’s effective workspace; clients cannot override it with arbitrary directories. The provider port receives one `workspacePath` and an optional refresh preference, and returns `{ skills, errors }`; core adds the workspace. Codex's per-directory grouping is merged inside its adapter.
 
 `POST /api/conversations/:id/skills-reload` with `{}` repeats discovery with
 `refresh: true` and returns the same shape. `POST /api/conversations/:id/skills`

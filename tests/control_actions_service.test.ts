@@ -60,19 +60,15 @@ function makeContext(overrides?: {
       async listSkills() {
         if (overrides?.listSkills) return overrides.listSkills();
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "repo",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "repo",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
             },
           ],
         };
@@ -312,26 +308,22 @@ describe("ControlActionsService", () => {
     const { context } = makeContext({
       async listSkills() {
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "repo",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-                {
-                  name: "github",
-                  scope: "user",
-                  path: "/home/tadhiel/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "repo",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
+            },
+            {
+              name: "github",
+              scope: "user",
+              path: "/home/tadhiel/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
             },
           ],
         };
@@ -582,10 +574,10 @@ test("effort action preserves structured failures and propagates infrastructure 
 });
 
 test("an extensionless catalog path takes precedence over a different skill with that name", async () => {
-  const { context, skillWrites } = makeContext({ listSkills: async () => ({ data: [{ cwd: "/workspace", errors: [], skills: [
+  const { context, skillWrites } = makeContext({ listSkills: async () => ({ workspacePath: "/workspace", errors: [], skills: [
     { name: "build", path: "instructions", scope: "repo", description: "", enabled: true },
     { name: "instructions", path: "/other/SKILL.md", scope: "user", description: "", enabled: true },
-  ] }] }) });
+  ] }) });
   expect(await executeControlAction(context, { type: "skill.set-enabled", surfaceId: "chan-1", requestedSkill: "instructions", enabled: false })).toMatchObject({ ok: true });
   expect(skillWrites).toEqual([{ threadId: "thread-1", path: "instructions", enabled: false }]);
 });

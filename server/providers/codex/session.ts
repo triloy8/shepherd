@@ -38,7 +38,7 @@ import type {
   ResumeThreadRequest,
   SkillsConfigWriteRequest,
   SkillsConfigWriteResponse,
-  SkillsListResponse,
+  SkillsListing,
 } from "../../../shared/protocol/requests.js";
 import type { ConsumeRateLimitResetRequest } from "./account_types.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
@@ -466,7 +466,7 @@ export class CodexSession implements ProviderSession {
     }));
   }
 
-  async listSkills(request: ProviderSkillsRequest): Promise<SkillsListResponse> {
+  async listSkills(request: ProviderSkillsRequest): Promise<SkillsListing> {
     await this.initialize();
     return codexSkills(await this.sendRequest("skills/list", {
       cwds: [request.workspacePath],

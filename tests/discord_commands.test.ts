@@ -100,19 +100,15 @@ function makeContext(overrides?: {
       async listSkills() {
         if (overrides?.listSkills) return overrides.listSkills();
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "workspace",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "GitHub task execution with a gh-first workflow.",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "workspace",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "GitHub task execution with a gh-first workflow.",
+              enabled: true,
             },
           ],
         };
@@ -473,26 +469,22 @@ describe("Discord !skill commands", () => {
     const { context, writes } = makeContext({
       async listSkills() {
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "workspace",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-                {
-                  name: "github",
-                  scope: "personal",
-                  path: "/home/tadhiel/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "workspace",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
+            },
+            {
+              name: "github",
+              scope: "personal",
+              path: "/home/tadhiel/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
             },
           ],
         };

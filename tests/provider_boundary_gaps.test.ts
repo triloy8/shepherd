@@ -313,13 +313,14 @@ test("skill discovery and model catalogs can be read-only", async () => {
     modelSelection: false, effortSelection: false };
   const services = assembleProviderServices([{ ...registration(), capabilities, create: () => {
     const session = new IndependentSession();
-    Object.assign(session, { capabilities, listSkills: async () => ({ data: [] }) });
+    Object.assign(session, { capabilities, listSkills: async () => ({ skills: [], errors: [] }) });
     return session;
   } }], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
     const { threadId } = await conversation.createThread({});
-    expect(await conversation.listSkills(threadId, {})).toEqual({ data: [] });
+    // Core reports the effective workspace it asked the provider to search.
+    expect(await conversation.listSkills(threadId, {})).toEqual({ workspacePath: await conversation.resolveThreadCwd(threadId), skills: [], errors: [] });
     expect((await conversation.listModels({})).data).toHaveLength(1);
     await expect(conversation.writeSkillConfig(threadId, { path: "/tmp/skill", enabled: true })).rejects.toThrow("skillConfig");
     expect(() => conversation.setThreadModel(threadId, "third-model")).toThrow("modelSelection");

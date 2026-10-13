@@ -255,3 +255,10 @@ test("a stale history snapshot cannot regress finished tool activity", () => {
   state = mergeHistory(state, [history]);
   expect(state.messages.find((m) => m.id === "tool")?.activity?.status).toBe("failed");
 });
+
+for (const id of ["native", "local:native"]) test(`canonical user ${id} retains its Revert action`, async () => {
+  const { Message } = await import("../ui/src/components/Message");
+  const message = { id, turnId: "turn", role: "user" as const, text: "Request", complete: true };
+  expect(renderToStaticMarkup(createElement(Message, { message, onRevert: () => {} }))).toContain("Revert from here");
+  expect(renderToStaticMarkup(createElement(Message, { message: { ...message, optimistic: true }, onRevert: () => {} }))).not.toContain("Revert from here");
+});

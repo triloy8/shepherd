@@ -228,3 +228,13 @@ describe("Discord optional Components V2 preview", () => {
       .toContain("END");
   });
 });
+
+test("empty canonical preview replaces provisional content when a delivery port only supports edits", async () => {
+  const h = createChannelHarness(); const state = createDiscordPreviewState();
+  await updateDiscordPreview(h.channel, state, "Discard this");
+  const result = await updateDiscordPreview(h.channel, state, "", { finalize: true });
+  expect(result.success).toBe(true);
+  expect(h.edits).toHaveLength(1);
+  expect(textDisplayContent(h.edits[0]?.payload)).not.toContain("Discard this");
+  expect(state.messageId).toBeNull();
+});

@@ -148,7 +148,7 @@ test("persisted user messages put revert beside copy; optimistic and assistant m
   expect(html.indexOf("Revert this turn")).toBeLessThan(html.indexOf("Copy message"));
   expect(html.indexOf("Copy message")).toBeLessThan(html.indexOf("Revert from here"));
   expect(render({}, true)).toContain('disabled=""');
-  for (const changes of [{ id: "local:optimistic" }, { turnId: "" }, { complete: false }, { role: "assistant" }]) expect(render(changes)).not.toContain("Revert from here");
+  for (const changes of [{ id: "local:optimistic", optimistic: true }, { turnId: "" }, { complete: false }, { role: "assistant" }]) expect(render(changes)).not.toContain("Revert from here");
   const image = render({ text: "", attachments: ["data:image/png;base64,aGVsbG8="] });
   expect(image).toContain("Revert from here");
   expect(image).not.toContain("Copy message");

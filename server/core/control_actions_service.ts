@@ -63,7 +63,7 @@ export type ControlActionRequest =
   | { type: "models.list"; surfaceId: string; cursor?: string; limit?: number }
   | { type: "model.set"; surfaceId: string; requestedModel: string }
   | { type: "context.read"; surfaceId: string }
-  | { type: "skill.set-enabled"; surfaceId: string; requestedSkill: string; enabled: boolean }
+  | ({ type: "skill.set-enabled"; surfaceId: string; enabled: boolean } & ({ path: string } | { requestedSkill: string }))
   | { type: "thread.get-current"; surfaceId: string }
   | { type: "thread.create"; surfaceId: string; provider?: AgentProvider }
   | { type: "thread.switch"; surfaceId: string; threadId: string }
@@ -417,10 +417,13 @@ export async function executeControlAction(
   const provider = context.conversation.getThreadProvider(threadId);
   assertProviderOperation(provider, context.conversation.getThreadState(threadId).capabilities, "skillConfig");
   // Explicit paths do not need discovery; only human-readable names need a catalog.
-  const value = request.requestedSkill.trim();
-  const explicitPath = value.includes("/") || value.includes("\\") || value.endsWith(".md");
+  const requestedSkill = "path" in request ? request.path : request.requestedSkill;
+  const value = requestedSkill.trim();
+  const explicitPath = "path" in request || value.includes("/") || value.includes("\\") || value.endsWith(".md");
   const listed = explicitPath ? { data: [] } : await context.conversation.listSkills(threadId, {});
-  const resolved = resolveSkillPathFromList(listed, request.requestedSkill);
+  const resolved = "path" in request
+    ? value ? { path: request.path } : { error: { code: "invalid_skill" as const } }
+    : resolveSkillPathFromList(listed, requestedSkill);
   if ("error" in resolved) {
     return {
       type: "skill.set-enabled",
@@ -436,7 +439,7 @@ export async function executeControlAction(
   return {
     type: "skill.set-enabled",
     ok: true,
-    requestedSkill: request.requestedSkill,
+    requestedSkill,
     enabled: request.enabled,
     appliedEnabled: result.enabled,
   };

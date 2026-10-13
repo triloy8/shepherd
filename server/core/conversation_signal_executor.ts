@@ -79,7 +79,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
           earlyTerminalTurnIds.add(turnId);
           return;
         }
-        if (expectedTurnId === null || turnId === expectedTurnId) finish();
+        if (turnId === null || expectedTurnId === null || turnId === expectedTurnId) finish();
       };
 
       const unsubscribe = this.conversation.subscribeToThreadEvents(
@@ -92,7 +92,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
         (result) => {
           expectedTurnId = result.turnId;
           if (
-            earlyTerminalTurnIds.has(result.turnId) ||
+            earlyTerminalTurnIds.has(null) || earlyTerminalTurnIds.has(result.turnId) ||
             (result.turnId === null && earlyTerminalTurnIds.size > 0)
           ) {
             finish();
@@ -119,7 +119,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
           finish(new Error(payload.message ?? "Agent session failed while waiting for the active turn."));
           return;
         }
-        if (!isTerminalTurnEvent(event) || eventTurnId(event) !== activeTurnId) return;
+        if (!isTerminalTurnEvent(event) || (eventTurnId(event) !== null && eventTurnId(event) !== activeTurnId)) return;
         if (event.type === "turn.failed" && this.conversation.getThreadState(threadId).activeTurnId) return;
         finish();
       };

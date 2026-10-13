@@ -33,6 +33,9 @@ export function resolveSkillPathFromList(
   }
 
   const skills = parseSkillLookups(listed);
+  // A catalog path is an identity even when it has no separator or extension.
+  const exactPath = skills.find(skill => skill.path === value);
+  if (exactPath) return { path: exactPath.path };
   const normalized = normalizeValue(value);
 
   const exactNameMatches = skills.filter((skill) => normalizeValue(skill.name) === normalized);

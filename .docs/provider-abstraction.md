@@ -38,23 +38,30 @@ images, token usage, and background task counts have shared representations. Tok
 
 Unknown assistant message phases remain valid. Discord uses the last unphased message
 as the answer when no explicit final message exists, matching application history;
-completed text is canonical and previously reported phases remain known when later events
-omit them. An explicit null token-usage event clears cached measurements.
+completed text is canonical, including an explicitly empty string. Previously reported phases
+remain known when later events omit them. Empty canonical output also clears an existing
+Discord streaming preview. An explicit null token-usage event clears cached measurements.
 
 History item identities are scoped to their turn. Browser reconciliation and rendering use
 both the turn and item identity, so repeated native IDs do not overwrite earlier messages.
 Null turn IDs in events refer to the current turn; delayed events from an earlier turn must
-carry its ID. Deltas without item IDs belong to the pending message, which may start
-anonymous. Its first identified delta or completion supplies the canonical identity, and
-an unambiguous history snapshot can identify it before completion. Known message phases
-remain available for subsequent canonical updates throughout the turn.
+carry its ID. Signal automation applies the same current-turn rule when waiting for completion.
+Browser turn lookups require own properties, and optimistic messages carry explicit state rather
+than reserving a native item-ID prefix. Deltas without item IDs belong to the pending message,
+which may start anonymous. Its first identified delta or completion supplies the canonical identity, and
+an unambiguous history snapshot can identify it before completion. A previously established
+item cannot claim a later anonymous message merely because their text matches. Known message
+phases remain available for subsequent canonical updates throughout the turn. Identifying an anonymous
+interim stream binds its existing text without prematurely delivering its prefix.
 
 Adapters decode stored history before returning it. History records are a discriminated
 union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
 `activity`, `image`, `other`) with `in_progress`/`completed`/`interrupted`/`failed` turn
 status; web/Discord do not decode native tool records. Codex decodes its thread items in
 its adapter; Claude stores application items and still reads snapshots written with the
-earlier Codex-style names. Native tool arguments, transport envelopes, and arbitrary thread properties do
+earlier Codex-style names. Generic attachment history retains an attachment indicator and
+available name/path in the web UI. Native tool arguments, transport envelopes, and arbitrary
+thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
 `audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex
 text elements and connector mentions are not part of the shared contract. Claude converts
@@ -69,8 +76,12 @@ without changing layout, and flags reset when switching conversations.
 
 ## Approvals and questions
 
+Question answer state uses own-property lookups for opaque IDs, including multiselect values.
+The web UI offers Skip only when a cancellation choice is supplied and disables answer submission
+when no answer intent is offered.
+
 An approval exposes a prompt, descriptive detail, a kind, and labeled choices. Choice
-values are random, request-scoped tokens. Their shared intent is allow, deny, answer,
+values are opaque tokens and may recur in different requests. Their shared intent is allow, deny, answer,
 or cancel. Native reply strings, permission amendments, RPC IDs, and SDK callbacks stay
 inside the adapter. Surfaces send the selected token unchanged.
 
@@ -118,6 +129,12 @@ advertised method presence. Model discovery, model selection, and effort selecti
 Optional catalog metadata is compared after applying its documented defaults: omitted
 scope is conversation-scoped and omitted authority is false. Skill configuration writes
 to explicit paths do not require discovery; resolving a skill name still requires its catalog.
+The web skill mutation accepts an exact path independently of its extension or separators. Discord
+also accepts `!skill enable --path <path>` and `!skill disable --path <path>` for explicit writes.
+Provider, model, effort and single-thread values in Discord preserve internal spaces and case.
+Positional history IDs containing spaces are quoted, for example `!history items "native turn" "app thread"`.
+Quoted arguments support escaped matching quotes and backslashes; malformed boundaries do not
+execute an action.
 Core checks flags before execution and pending-state changes. Clients use them to
 disable unavailable actions; server validation remains authoritative. A catalog can be read-only when selection flags are false. Without a catalog,
 model metadata stays unknown
@@ -235,7 +252,13 @@ Web resume accepts bounded opaque application identities, including scoped ident
 without interpreting them as filesystem paths. Registered ownership and the saved
 workspace determine recovery; identity spelling never supplies a workspace path.
 
-Registrations expose provider-local thread IDs by default. Composition translates them to stable, provider-scoped application IDs across execution, stored/loaded history, native ownership discovery, event delivery/replay, nested question targets, and application tool calls. Existing installed adapters explicitly use `threadIdentity: "application"` to preserve deployed globally unique IDs. Adapters opting into application identities must guarantee global uniqueness and avoid the reserved `shepherd-thread:` namespace. Approval IDs need only be unique within their thread; core stores and decides them using both thread and approval ID.
+Registrations expose provider-local thread IDs by default. Composition translates them to stable, provider-scoped application IDs across execution, stored/loaded history, native ownership discovery, event delivery/replay, nested question targets, and application tool calls. Existing installed adapters explicitly use `threadIdentity: "application"` to preserve deployed globally unique IDs. Adapters opting into application identities must guarantee global uniqueness and avoid the reserved `shepherd-thread:` namespace. Provider-local approval IDs may be reused after resolution. Core assigns an immutable application
+handle to each request occurrence, keeps prior occurrences retired, and translates decisions back to
+the native ID only for the owning session. Discord buttons, HTTP decisions and replay use these
+application handles. Duplicate request events do not create another occurrence. Provider approval
+follow-ups carrying reused IDs must identify their request with `requestEventId` (the originating
+`approval.requested` event ID), or a `turnId` that uniquely identifies the occurrence. Ambiguous
+uncorrelated follow-ups are ignored; host decisions complete their captured application occurrence.
 For an unbound stored conversation, registered adapters identify ownership from native
 records; exactly one match is required and the binding is then persisted. Unknown or
 ambiguous identities fail rather than guessing a default provider or inspecting an ID

@@ -60,6 +60,8 @@ histories.set("paged", Array.from({ length: 35 }, (_, index): HistoryTurn => ({ 
   { id: `paged-agent-${index}`, type: "assistant_message", phase: "final", text: `History response ${index}` },
 ] })));
 names.set("paged", "Paginated history");
+histories.set("attachments", [{ id: "toString", status: "completed", itemsView: "full", error: null, startedAt: 1, completedAt: 2, durationMs: null, items: [{ id: "local:attachment", type: "user_message", content: [{ type: "attachment", name: "recording.wav", path: "/tmp/recording.wav" }] }] }]);
+names.set("attachments", "Attachment history");
 h.application.conversation.listThreadTurns = async (threadId, request) => {
   const turns = [...(histories.get(threadId) ?? [])].reverse();
   const offset = Number(request.cursor?.replace("fixture:", "") ?? 0);
@@ -99,12 +101,27 @@ function finish(threadId: string, status: "completed" | "interrupted" = "complet
 h.context.ingress.submitTurn = async (threadId, request) => {
   const text = request.input.filter((item) => item.type === "text").map((item) => (item as { text: string }).text).join("\n");
   const portable = text.startsWith("portable stream ");
-  const turnId = `turn-${++sequence}`;
+  const repeated = text.startsWith("opaque repeated stream ");
+  const turnId = repeated ? text.endsWith("one") ? "constructor" : "__proto__" : `turn-${++sequence}`;
   const itemId = portable ? "answer" : `agent-${sequence}`;
   const content = request.input.map((part) => part.type === "text" ? { type: "text" as const, text: part.text } : part.type === "image" ? { type: "image" as const, url: part.url } : { type: "attachment" as const, name: null, path: null });
-  const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: portable ? "user" : `user-${sequence}`, type: "user_message", content }] };
+  const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: repeated ? "local:native" : portable ? "user" : `user-${sequence}`, type: "user_message", content }] };
   histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
   h.active.set(threadId, turnId); publish(threadId, "turn.started", { turnId });
+  if (repeated) {
+    const first = { id: "first", type: "assistant_message" as const, phase: "final" as const, text: "Repeated prefix" };
+    turn.items.push(first);
+    publish(threadId, "turn.message.completed", { itemId: first.id, turnId, phase: first.phase, text: first.text });
+    later(100, () => publish(threadId, "turn.stream.delta", { itemId: null, turnId: null, phase: "final", kind: "assistant_text", textDelta: first.text }));
+    later(500, () => publish(threadId, "turn.message.completed", { itemId: first.id, turnId, phase: first.phase, text: first.text }));
+    later(1500, () => {
+      const second = { id: "second", type: "assistant_message" as const, phase: "final" as const, text: "Repeated prefix again" };
+      turn.items.push(second);
+      publish(threadId, "turn.message.completed", { itemId: second.id, turnId: null, phase: second.phase, text: second.text });
+      finish(threadId, "completed", null);
+    });
+    return { ok: true, turnId };
+  }
   const progress = { id: portable ? "progress" : `progress-${sequence}`, type: "assistant_message" as const, phase: "interim" as const, text: "I’ll check the project first." };
   turn.items.push(progress);
   publish(threadId, "turn.message.completed", { itemId: progress.id, turnId, phase: progress.phase, text: progress.text });
@@ -118,8 +135,8 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     }] };
     const approval = { approvalId: `question-${sequence}`, kind: "question", prompt: userInput.questions[0]!.question,
       choices: [{ value: crypto.randomUUID(), label: "Submit answers", intent: "answer" }, { value: crypto.randomUUID(), label: "Skip questions", intent: "cancel" }], detail: null, userInput };
-    h.approvals.create(approval, { threadId, sessionId: "fixture" });
-    publish(threadId, "approval.requested", approval);
+    const record = h.approvals.create(approval, { threadId, sessionId: "fixture" });
+    publish(threadId, "approval.requested", record);
     return { ok: true, turnId };
   }
   const markdownResponse = "## Streaming Markdown\n\n**Formatted while writing.**\n\n```ts\nconst answer = 42;\n```";
@@ -166,8 +183,8 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     }
     if (text.includes("approval")) {
       const approval = { approvalId: `approval-${sequence}`, kind: "permission", prompt: "Allow Shepherd to run the project’s test suite?", choices: [{ value: crypto.randomUUID(), label: "Allow once", intent: "allow" }, { value: crypto.randomUUID(), label: "Decline", intent: "deny" }], detail: "bun test\n~/project" };
-      h.approvals.create(approval, { threadId, sessionId: "fixture" });
-      publish(threadId, "approval.requested", approval);
+      const record = h.approvals.create(approval, { threadId, sessionId: "fixture" });
+      publish(threadId, "approval.requested", record);
     } else finish(threadId, "completed", portable ? null : turnId);
   });
   return { ok: true, turnId };

@@ -67,10 +67,11 @@ export interface BridgeEventPayloads {
     status: TurnActivityStatus;
   };
   "approval.requested": ApprovalRequestPayload;
-  "approval.decided": { approvalId: string; decision: string; state: ApprovalRecord["status"] };
-  "approval.applied": { approvalId: string };
-  "approval.failed": { approvalId: string; message: string };
-  "approval.expired": { approvalId: string };
+  /** Reused native IDs need requestEventId (the request event ID), or a uniquely identifying turnId. */
+  "approval.decided": { approvalId: string; decision: string; state: ApprovalRecord["status"]; turnId?: string | null; requestEventId?: string };
+  "approval.applied": { approvalId: string; turnId?: string | null; requestEventId?: string };
+  "approval.failed": { approvalId: string; message: string; turnId?: string | null; requestEventId?: string };
+  "approval.expired": { approvalId: string; turnId?: string | null; requestEventId?: string };
 }
 
 export type BridgeEventType = keyof BridgeEventPayloads;

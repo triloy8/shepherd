@@ -1,3 +1,4 @@
+import { opaqueArgument, quotedArguments } from "./command_arguments.js";
 import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery } from "../../core/surface_snapshot_service.js";
 import type { SurfaceApplicationContext } from "../../core/surface_application_context.js";
 import { executeSurfaceAction } from "../../core/surface_actions_service.js";
@@ -390,6 +391,17 @@ export async function handleMessage(
   const content = inputContent.trim();
   const channelId = message.channelId;
   const { command, args } = parseThreadArgs(content);
+  // Provider IDs are opaque; preserve the complete argument, including internal spaces.
+  const providerValue = content.slice(command.length).trim();
+  const unquotedProvider = providerValue.match(/^(["'])([\s\S]*)\1$/)?.[2] ?? providerValue;
+  const requestedProvider = ["!newthread", "!limits"].includes(command) && context.conversation.listProviders().some(entry => entry.id === providerValue)
+    ? providerValue : unquotedProvider;
+
+  let identityArgument = "";
+  if (["!thread", "!threadread", "!fork", "!archive", "!unarchive"].includes(command)) {
+    try { identityArgument = opaqueArgument(content.slice(command.length)); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId: null, input: null }; }
+  }
 
   if (command === "!providers") {
     const providers = context.conversation.listProviders();
@@ -398,8 +410,8 @@ export async function handleMessage(
   }
 
   if (command === "!newthread" || command === "!limits") {
-    const provider = args[0];
-    if (args.length > 1 || (provider && !context.conversation.listProviders().some(entry => entry.id === provider))) {
+    const provider = requestedProvider;
+    if (provider && !context.conversation.listProviders().some(entry => entry.id === provider)) {
       await replyCard(message, "Choose an agent", `Usage: \`${command} [provider]\`. Use \`!providers\` to list available agent IDs.`, "danger");
       return { handled: true, threadId: null, input: null };
     }
@@ -681,7 +693,7 @@ export async function handleMessage(
 
   if (command === "!limits") {
     try {
-      const result = await executeControlAction(context, { type: "limits.read", surfaceId: message.channelId, ...(args[0] ? { provider: args[0] } : {}) });
+      const result = await executeControlAction(context, { type: "limits.read", surfaceId: message.channelId, ...(requestedProvider ? { provider: requestedProvider } : {}) });
       if (result.type !== "limits.read") {
         throw new Error("Unexpected control action result for limits.read.");
       }
@@ -713,19 +725,23 @@ export async function handleMessage(
   }
 
   if (command === "!history") {
-    const items = args[0]?.toLowerCase() === "items";
-    if ((items && (args.length < 2 || args.length > 3)) || (!items && args.length > 1)) {
-      await replyMarkdown(message, "Usage: !history [thread-id]\nUsage: !history items <turn-id> [thread-id]");
+    let historyArgs: string[];
+    const remainder = content.slice(command.length).trim();
+    try { historyArgs = quotedArguments(remainder); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId: null, input: null }; }
+    const items = /^items(?:\s|$)/i.test(remainder);
+    if ((items && (historyArgs.length < 2 || historyArgs.length > 3)) || (!items && historyArgs.length > 1)) {
+      await replyMarkdown(message, "Usage: !history [thread-id]\nUsage: !history items <turn-id> [thread-id]\nQuote IDs containing spaces.");
       return { handled: true, threadId: null, input: null };
     }
-    const threadId = (items ? args[2] : args[0]) ?? context.getSurfaceThreadId(channelId);
+    const threadId = (items ? historyArgs[2] : historyArgs[0]) ?? context.getSurfaceThreadId(channelId);
     if (!threadId) {
       await replyCard(message, "Thread required", "Use `!history <thread-id>` or select a thread first.", "warning");
       return { handled: true, threadId: null, input: null };
     }
     try {
       const page = await loadHistoryPage(context.conversation,
-        initialHistoryRequest(threadId, message.author.id, items ? args[1] : undefined));
+        initialHistoryRequest(threadId, message.author.id, items ? historyArgs[1] : undefined));
       await replyPage(message, page);
     } catch (error) {
       await replyCard(message, "History unavailable", error instanceof Error ? error.message : "Failed to load history.", "danger");
@@ -735,13 +751,14 @@ export async function handleMessage(
 
   if (command === "!effort") {
     const threadId = context.getSurfaceThreadId(channelId);
-    if (args.length && !((args.length === 2 && args[0]?.toLowerCase() === "set") || (args.length === 1 && ["default", "clear"].includes(args[0]!.toLowerCase())))) {
+    const effortValue = content.match(/^!effort\s+set\s+([\s\S]+)$/i)?.[1].trim();
+    if (args.length && !((effortValue && args[0]?.toLowerCase() === "set") || (args.length === 1 && ["default", "clear"].includes(args[0]!.toLowerCase())))) {
       await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level>\nUsage: !effort default\nUsage: !effort clear");
       return { handled: true, threadId, input: null };
     }
     try {
       const result = await executeControlAction(context, args.length
-        ? { type: "effort.set", surfaceId: channelId, effort: args.length === 2 ? args[1]! : args[0]!.toLowerCase() === "clear" ? null : { mode: "default" } }
+        ? { type: "effort.set", surfaceId: channelId, effort: effortValue ? effortValue : args[0]!.toLowerCase() === "clear" ? null : { mode: "default" } }
         : { type: "effort.get", surfaceId: channelId });
       if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
       if (!result.ok) {
@@ -789,7 +806,9 @@ export async function handleMessage(
       return { handled: true, threadId, input: null };
     }
 
-    const requestedModel = args.slice(1).join(" ").trim();
+    let requestedModel: string;
+    try { requestedModel = opaqueArgument(content.match(/^!model\s+set(?:\s+([\s\S]+))?$/i)?.[1] ?? ""); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId, input: null }; }
     if (!requestedModel) {
       await replyMarkdown(message, "Usage: !model set <id>");
       return { handled: true, threadId, input: null };
@@ -841,7 +860,7 @@ export async function handleMessage(
   }
 
   if (command === "!newthread") {
-    const result = await executeControlAction(context, { type: "thread.create", surfaceId: channelId, ...(args[0] ? { provider: args[0] } : {}) });
+    const result = await executeControlAction(context, { type: "thread.create", surfaceId: channelId, ...(requestedProvider ? { provider: requestedProvider } : {}) });
     if (result.type !== "thread.create") {
       throw new Error("Unexpected control action result for thread.create.");
     }
@@ -924,15 +943,17 @@ export async function handleMessage(
 
     const sub = (args[0] ?? "").toLowerCase();
     if (sub === "enable" || sub === "disable") {
-      const requestedSkill = args.slice(1).join(" ").trim();
+      const skillArgument = content.match(/^!skill\s+\S+\s+([\s\S]+)$/i)?.[1].trim() ?? "";
+      const explicitPath = /^--path(?:\s|$)/.test(skillArgument);
+      const requestedSkill = explicitPath ? skillArgument.slice(6).trim() : skillArgument;
       if (!requestedSkill) {
-        await replyMarkdown(message, `Usage: !skill ${sub} <name-or-path>`);
+        await replyMarkdown(message, `Usage: !skill ${sub} <name-or-path>\nUsage: !skill ${sub} --path <path>`);
         return { handled: true, threadId: null, input: null };
       }
       const result = await executeControlAction(context, {
         type: "skill.set-enabled",
         surfaceId: channelId,
-        requestedSkill,
+        ...(explicitPath ? { path: requestedSkill } : { requestedSkill }),
         enabled: sub === "enable",
       });
       if (result.type !== "skill.set-enabled") {
@@ -971,7 +992,7 @@ export async function handleMessage(
   }
 
   if (command === "!thread" && args.length > 0) {
-    const requestedThreadId = args[0]?.trim();
+    const requestedThreadId = identityArgument;
     if (!requestedThreadId) {
       await replyMarkdown(message, "Usage: !thread <id>");
       return { handled: true, threadId: null, input: null };
@@ -1015,7 +1036,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.read",
       surfaceId: channelId,
-      threadId: args[0],
+      threadId: identityArgument || undefined,
     });
     if (result.type !== "thread.read") {
       throw new Error("Unexpected control action result for thread.read.");
@@ -1040,7 +1061,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.fork",
       surfaceId: channelId,
-      sourceThreadId: args[0],
+      sourceThreadId: identityArgument || undefined,
     });
     if (result.type !== "thread.fork") {
       throw new Error("Unexpected control action result for thread.fork.");
@@ -1062,7 +1083,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.archive",
       surfaceId: channelId,
-      threadId: args[0],
+      threadId: identityArgument || undefined,
     });
     if (result.type !== "thread.archive") {
       throw new Error("Unexpected control action result for thread.archive.");
@@ -1076,7 +1097,7 @@ export async function handleMessage(
   }
 
   if (command === "!unarchive") {
-    const target = args[0];
+    const target = identityArgument;
     if (!target) {
       await replyMarkdown(message, "Usage: !unarchive <id>");
       return { handled: true, threadId: null, input: null };
@@ -1101,7 +1122,6 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.compact",
       surfaceId: channelId,
-      threadId: args[0],
     });
     if (result.type !== "thread.compact") {
       throw new Error("Unexpected control action result for thread.compact.");

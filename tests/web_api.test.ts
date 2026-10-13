@@ -76,12 +76,12 @@ test("approval choices are validated without consuming invalid requests; duplica
   const h = webHarness();
   try {
     const c = await h.create(); const path = `/conversations/${c.id}/approvals`;
-    h.approvals.create({ approvalId: "approval:1", kind: "permission", prompt: "Allow?", choices: [{ value: "accept", label: "Accept", intent: "allow" }], detail: null }, { threadId: c.threadId, sessionId: "session" });
+    const approval = h.approvals.create({ approvalId: "approval:1", kind: "permission", prompt: "Allow?", choices: [{ value: "accept", label: "Accept", intent: "allow" }], detail: null }, { threadId: c.threadId, sessionId: "session" });
     expect((await (await h.request(path)).json()).approvals[0].status).toBe("pending");
-    expect((await h.request(`${path}/approval%3A1`, "POST", { decision: "bogus" })).status).toBe(400);
+    expect((await h.request(`${path}/${approval.approvalId}`, "POST", { decision: "bogus" })).status).toBe(400);
     expect(h.approvals.listByThread(c.threadId)[0]!.status).toBe("pending");
-    expect((await h.request(`${path}/approval%3A1`, "POST", { decision: "accept" })).status).toBe(200);
-    expect((await h.request(`${path}/approval%3A1`, "POST", { decision: "accept" })).status).toBe(409);
+    expect((await h.request(`${path}/${approval.approvalId}`, "POST", { decision: "accept" })).status).toBe(200);
+    expect((await h.request(`${path}/${approval.approvalId}`, "POST", { decision: "accept" })).status).toBe(409);
     expect((await h.request(`${path}/unknown`, "POST", { decision: "accept" })).status).toBe(404);
   } finally { h.api.dispose(); }
 });

@@ -758,3 +758,20 @@ for (const streaming of [false, true]) test(`Discord delivers canonical unphased
     expect(h.errors).toEqual([]);
   } finally { handler.dispose(); }
 });
+
+for (const streaming of [false, true]) test(`Discord anonymous item completion sends one answer with streaming=${streaming}`, async () => {
+  const h = createHarness(); const timers = createDeterministicTimers();
+  const handler = createDiscordThreadEventHandler(h.client, { streaming, timers: timers.timers, onError: error => h.errors.push(error) });
+  try {
+    handler.handleThreadEvent("channel", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("channel", makeEvent("turn.stream.delta", { kind: "assistant_text", phase: "final", itemId: null, turnId: null, textDelta: "Hello" }));
+    if (streaming) { timers.runTimeouts(); await handler.waitForIdle("channel"); }
+    handler.handleThreadEvent("channel", makeEvent("turn.message.completed", { phase: null, itemId: "canonical", turnId: null, text: "Canonical answer" }));
+    handler.handleThreadEvent("channel", makeEvent("turn.completed", { turnId: null }));
+    await handler.waitForIdle("channel");
+    const deliveries = [...h.sent, ...h.edits.map(edit => edit.content)].map(payloadText);
+    expect(deliveries.filter(text => text.includes("Canonical answer"))).toHaveLength(1);
+    expect(deliveries.some(text => text.includes("Hello\n\nCanonical answer"))).toBe(false);
+    expect(h.errors).toEqual([]);
+  } finally { handler.dispose(); }
+});

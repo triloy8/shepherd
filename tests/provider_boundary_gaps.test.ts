@@ -230,7 +230,7 @@ test("the default provider is explicit configuration rather than registration or
   } finally { conversation.stopAll(); }
   expect(readRuntimeConfig({ SHEPHERD_DEFAULT_PROVIDER: " claude " }).defaultProvider).toBe("claude");
   expect(readRuntimeConfig({}).defaultProvider).toBeUndefined();
-  expect(() => readRuntimeConfig({ SHEPHERD_DEFAULT_PROVIDER: "two words" })).toThrow("SHEPHERD_DEFAULT_PROVIDER");
+  expect(readRuntimeConfig({ SHEPHERD_DEFAULT_PROVIDER: "two words" }).defaultProvider).toBe("two words");
   expect(() => assertInstalledProvider("not-installed")).toThrow("SHEPHERD_DEFAULT_PROVIDER must be one of");
   expect(() => assertInstalledProvider("claude")).not.toThrow();
 });

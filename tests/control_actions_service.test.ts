@@ -50,7 +50,7 @@ function makeContext(overrides?: {
 
   const context: ControlActionsContext = {
     conversation: {
-      getThreadState: () => ({ capabilities: { modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true } }) as never,
+      getThreadState: () => ({ capabilities: { modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, skills: true, skillConfig: true } }) as never,
       async getThreadEffort(threadId) {
         return { threadId, model: "model", currentEffort: "medium", pendingEffort: null, inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [] };
       },

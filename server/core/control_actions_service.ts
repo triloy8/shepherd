@@ -414,7 +414,12 @@ export async function executeControlAction(
     };
   }
 
-  const listed = await context.conversation.listSkills(threadId, {});
+  const provider = context.conversation.getThreadProvider(threadId);
+  assertProviderOperation(provider, context.conversation.getThreadState(threadId).capabilities, "skillConfig");
+  // Explicit paths do not need discovery; only human-readable names need a catalog.
+  const value = request.requestedSkill.trim();
+  const explicitPath = value.includes("/") || value.includes("\\") || value.endsWith(".md");
+  const listed = explicitPath ? { data: [] } : await context.conversation.listSkills(threadId, {});
   const resolved = resolveSkillPathFromList(listed, request.requestedSkill);
   if ("error" in resolved) {
     return {

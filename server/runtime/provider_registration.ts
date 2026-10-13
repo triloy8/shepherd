@@ -48,6 +48,7 @@ export function assembleProviderServices(registrations: readonly ProviderRegistr
       const expected = registration.capabilities;
       const actual = session.capabilities;
       const matches = (Object.keys(expected) as Array<keyof ProviderCapabilities>).every(key => {
+        if (key === "modelCatalogScope" || key === "modelCatalogAuthoritative") return true;
         const left = expected[key], right = actual[key];
         return Array.isArray(left) && Array.isArray(right)
           ? JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())

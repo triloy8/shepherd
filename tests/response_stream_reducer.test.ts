@@ -179,3 +179,31 @@ test("known phases survive missing metadata and late classification preserves ea
   state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "answer", phase: null, text: "Canonical final", turnId: "turn-1" })).state!;
   expect(getFinalResponseText(state)).toBe("Canonical final");
 });
+
+for (const reportedPhase of ["final", "interim", null] as const) test(`anonymous deltas reconcile canonical completion with phase ${reportedPhase}`, () => {
+  let state = createResponseStreamState("turn-1");
+  for (const textDelta of ["Hello", " world"]) state = reduceResponseStream(state, makeEvent("turn.stream.delta", { kind: "assistant_text", itemId: null, turnId: null, phase: reportedPhase, textDelta })).state!;
+  const completed = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "canonical", turnId: null, phase: null, text: "Canonical answer" }));
+  expect(getFinalResponseText(completed.state)).toBe(reportedPhase === "interim" ? "" : "Canonical answer");
+  if (completed.type !== "message-completed") throw new Error("Expected completion");
+  expect(completed.completedCommentary?.text).toBe(reportedPhase === "interim" ? "Canonical answer" : undefined);
+});
+
+test("anonymous and identified stream chunks form one final message and separate subsequent messages", () => {
+  let state = createResponseStreamState("turn-1");
+  for (const [index, itemId] of [null, "canonical", null, "canonical"].entries()) state = reduceResponseStream(state, makeEvent("turn.stream.delta", { kind: "assistant_text", itemId, turnId: "turn-1", phase: "final", textDelta: String(index) })).state!;
+  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "canonical", turnId: "turn-1", phase: null, text: "First answer" })).state!;
+  state = reduceResponseStream(state, makeEvent("turn.stream.delta", { kind: "assistant_text", itemId: null, turnId: "turn-1", phase: "final", textDelta: "Second partial" })).state!;
+  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "second", turnId: "turn-1", phase: null, text: "Second answer" })).state!;
+  expect(getFinalResponseText(state)).toBe("First answer\n\nSecond answer");
+});
+
+test("completed interim phases survive canonical updates and reset only with a new turn", () => {
+  let state = reduceResponseStream(null, delta("Working", "interim", "item")).state!;
+  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "item", turnId: "turn-1", phase: "interim", text: "Working" })).state!;
+  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "item", turnId: "turn-1", phase: null, text: "Updated progress" })).state!;
+  expect(getFinalResponseText(state)).toBe("");
+  state = reduceResponseStream(state, makeEvent("turn.started", { turnId: "turn-2" })).state!;
+  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "item", turnId: "turn-2", phase: null, text: "New answer" })).state!;
+  expect(getFinalResponseText(state)).toBe("New answer");
+});

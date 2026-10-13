@@ -241,7 +241,7 @@ test("superseded and completed turns cannot restart from late events", () => {
   state = reduceBridge(state, event("start2", "turn.started", { turnId: "new" }));
   state = reduceBridge(state, event("late", "turn.started", { turnId: "old" }));
   expect(state.activeTurnId).toBe("new");
-  state = reduceBridge(state, event("null", "turn.completed", { turnId: null }));
+  state = reduceBridge(state, event("late-end", "turn.completed", { turnId: "old" }));
   expect(state.activeTurnId).toBe("new");
   state = reduceBridge(state, event("end", "turn.completed", { turnId: "new" }));
   state = reduceBridge(state, event("late2", "turn.stream.delta", { turnId: "new", itemId: "ghost", kind: "assistant_text", textDelta: "Late" }));

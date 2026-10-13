@@ -41,6 +41,14 @@ as the answer when no explicit final message exists, matching application histor
 completed text is canonical and previously reported phases remain known when later events
 omit them. An explicit null token-usage event clears cached measurements.
 
+History item identities are scoped to their turn. Browser reconciliation and rendering use
+both the turn and item identity, so repeated native IDs do not overwrite earlier messages.
+Null turn IDs in events refer to the current turn; delayed events from an earlier turn must
+carry its ID. Deltas without item IDs belong to the pending message, which may start
+anonymous. Its first identified delta or completion supplies the canonical identity, and
+an unambiguous history snapshot can identify it before completion. Known message phases
+remain available for subsequent canonical updates throughout the turn.
+
 Adapters decode stored history before returning it. History records are a discriminated
 union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
 `activity`, `image`, `other`) with `in_progress`/`completed`/`interrupted`/`failed` turn
@@ -106,6 +114,10 @@ Optional operations are negotiated independently:
 False means unsupported, including when a method exists. Optional methods may be
 omitted when their flag is false. Registration checks descriptor/session agreement,
 advertised method presence. Model discovery, model selection, and effort selection are independent capabilities.
+
+Optional catalog metadata is compared after applying its documented defaults: omitted
+scope is conversation-scoped and omitted authority is false. Skill configuration writes
+to explicit paths do not require discovery; resolving a skill name still requires its catalog.
 Core checks flags before execution and pending-state changes. Clients use them to
 disable unavailable actions; server validation remains authoritative. A catalog can be read-only when selection flags are false. Without a catalog,
 model metadata stays unknown
@@ -122,6 +134,10 @@ documented text/image compatibility default only for older catalogs with the fie
 absent. Claude's SDK does not report modalities, so they remain unknown. Unknown
 model metadata leaves input validation to the adapter and never grants additional
 adapter support. Effort values come from the model catalog rather than model names.
+
+Claude's optional SDK effort fields follow the same distinction: unreported levels stay
+unknown, while explicit disabled support or an explicitly empty list means unsupported.
+Unknown metadata does not clear an inherited effort override.
 
 Core initializes every session before using history, discovery or bootstrap. Conversation
 catalog requests carry the application thread ID; composition translates it to the native
@@ -211,6 +227,9 @@ Discord list controls keep these opaque cursors in a bounded, expiring server-si
 button IDs stay within Discord limits.
 
 Thread ownership is persisted independently of UI handles using arbitrary provider IDs.
+
+Default-provider configuration accepts the same opaque IDs as registration, including
+namespaced and Unicode identities. Composition rejects a default that is not registered.
 
 Web resume accepts bounded opaque application identities, including scoped identities,
 without interpreting them as filesystem paths. Registered ownership and the saved

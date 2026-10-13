@@ -28,7 +28,7 @@ export function resolveSkillPathFromList(
     return { error: { code: "invalid_skill" } };
   }
 
-  if (value.includes("/") || value.endsWith(".md")) {
+  if (value.includes("/") || value.includes("\\") || value.endsWith(".md")) {
     return { path: value };
   }
 

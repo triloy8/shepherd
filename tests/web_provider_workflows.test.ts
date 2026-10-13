@@ -100,3 +100,36 @@ test("web sees terminal approval expiry through SSE and null context telemetry t
     }
   } finally { h.api.dispose(); conversation.stopAll(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("web writes explicit skill paths without discovery and rejects unavailable configuration before reading skills", async () => {
+  const root = mkdtempSync("/tmp/shepherd-web-skills-"); const writes: Array<{ path: string; enabled: boolean }> = [];
+  let listings = 0;
+  const create = (configSupported: boolean) => {
+    const flags = { ...capabilities, skillConfig: configSupported };
+    return new ConversationService({ providers: assembleProviderServices([{
+      id: "skills", displayName: "Skills", capabilities: flags, hasStoredThreads: () => false,
+      create: () => {
+        const s = new LocalSession(flags);
+        Object.assign(s, { writeSkillConfig: async (request: { path: string; enabled: boolean }) => { writes.push(request); return { enabled: request.enabled }; },
+          listSkills: async () => { listings++; throw new Error("Discovery unavailable"); } });
+        return s;
+      },
+    }], join(root, String(configSupported)), "skills") });
+  };
+  try {
+    for (const supported of [true, false]) {
+      const conversation = create(supported); const h = webRuntime(conversation, root);
+      try {
+        const c = await h.create({ project: "fixture" });
+        for (const path of ["/skills/review/SKILL.md", "C:\\skills\\review\\SKILL.md"]) {
+          const response = await h.request(`/conversations/${c.id}/skills`, "POST", { path, enabled: false });
+          expect(response.status).toBe(supported ? 200 : 422);
+          if (supported) expect(await response.json()).toEqual({ enabled: false });
+        }
+        expect((await h.request(`/conversations/${c.id}/skills`, "POST", { path: "review", enabled: false })).status).toBe(422);
+      } finally { h.api.dispose(); conversation.stopAll(); }
+    }
+    expect(listings).toBe(0);
+    expect(writes).toEqual([{ path: "/skills/review/SKILL.md", enabled: false }, { path: "C:\\skills\\review\\SKILL.md", enabled: false }]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

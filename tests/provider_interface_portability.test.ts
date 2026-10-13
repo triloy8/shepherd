@@ -10,6 +10,7 @@ import { LocalSession, capabilities, model } from "./helpers/portable_provider.j
 import { noProviderTools } from "../server/ports/provider_tools.js";
 import { codexTokenUsage } from "../server/providers/codex/token_usage.js";
 import { storedTokenUsage } from "../server/providers/claude/history.js";
+import { claudeModelCatalog } from "../server/providers/claude/model_catalog.js";
 import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
 import type { ProviderCapabilities } from "../shared/protocol/provider_capabilities.js";
 import type { ThreadTokenUsage } from "../shared/protocol/requests.js";
@@ -376,4 +377,52 @@ test("explicit null telemetry clears measurements while unrelated events preserv
       expect((await conversation.readThreadTokenUsage(threadId)).tokenUsage).toEqual(tokenUsage);
     }
   } finally { conversation.stopAll(); }
+});
+
+for (const explicitDefaults of [true, false]) test(`registration normalizes optional catalog defaults with explicit registration=${explicitDefaults}`, async () => {
+  const base = { ...capabilities, modelCatalog: true };
+  const defaults = { ...base, modelCatalogScope: "conversation" as const, modelCatalogAuthoritative: false };
+  const entry = registration("catalog-defaults", () => {}, explicitDefaults ? defaults : base);
+  const create = entry.entry.create;
+  entry.entry.create = (policy, tools, provider) => { const session = create(policy, tools, provider); return Object.assign(session, { capabilities: explicitDefaults ? base : defaults }); };
+  const conversation = new ConversationService({ providers: assembleProviderServices([entry.entry], directory(), entry.entry.id) });
+  try { const { threadId } = await conversation.createThread({}); expect(conversation.getThreadProvider(threadId)).toBe(entry.entry.id); }
+  finally { conversation.stopAll(); }
+});
+
+test("capability normalization still rejects different catalog scope and authority", async () => {
+  for (const changed of [{ modelCatalogScope: "provider" as const }, { modelCatalogAuthoritative: true }]) {
+    const entry = registration("mismatch", () => {}, { ...capabilities, modelCatalog: true }); const create = entry.entry.create;
+    entry.entry.create = (policy, tools, provider) => Object.assign(create(policy, tools, provider), { capabilities: { ...entry.entry.capabilities, ...changed } });
+    const conversation = new ConversationService({ providers: assembleProviderServices([entry.entry], directory(), entry.entry.id) });
+    try { await expect(conversation.createThread({})).rejects.toThrow("capability contract mismatch"); expect(entry.sessions[0]!.stopped).toBe(true); }
+    finally { conversation.stopAll(); }
+  }
+});
+
+test("a provider with unknown effort metadata preserves inherited effort and accepts native effort values", async () => {
+  const h = registration("unknown-effort", session => {
+    session.selectedModel = "native";
+    session.rows = claudeModelCatalog([{ value: "native", displayName: "Native", description: "" }], { model: "native", effort: "high" });
+    session.startThread = async () => ({ threadId: "1", cwd: "/tmp", model: "native", effort: "high" });
+  }, { ...capabilities, modelCatalog: true, effortSelection: true });
+  const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), h.entry.id) });
+  try {
+    const { threadId } = await conversation.createThread({});
+    await conversation.submitTurn(threadId, { input: [] });
+    expect(h.sessions[0]!.calls[0]!.effort).toBeUndefined();
+    expect((await conversation.getThreadEffort(threadId)).currentEffort).toBe("high");
+    await conversation.setThreadEffort(threadId, "OpaqueEffort"); await conversation.submitTurn(threadId, { input: [] });
+    expect(h.sessions[0]!.calls[1]!.effort).toBe("OpaqueEffort");
+  } finally { conversation.stopAll(); }
+});
+
+for (const id of ["vendor/agent", "agent:variant", "agent with spaces", "代理"]) test(`opaque provider ${id} can be the configured default`, async () => {
+  const { readProviderDefaults } = await import("../server/runtime/provider_defaults.js");
+  const requested = readProviderDefaults({ SHEPHERD_DEFAULT_PROVIDER: id });
+  expect(requested.defaultProvider).toBe(id);
+  const h = registration(id); const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), requested.defaultProvider!) });
+  try { const { threadId } = await conversation.createThread({}); expect(conversation.getThreadProvider(threadId)).toBe(id); }
+  finally { conversation.stopAll(); }
+  expect(() => assembleProviderServices([h.entry], directory(), "not-registered")).toThrow("not registered");
 });

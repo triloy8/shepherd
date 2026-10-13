@@ -17,6 +17,9 @@ export type TurnActivityKind =
 
 export type TurnActivityStatus = "started" | "completed" | "failed";
 
+/** Null turn IDs refer to the current turn. Providers must supply IDs for delayed events
+ * belonging to an earlier turn. Null delta item IDs refer to the pending message, which
+ * is anonymous until an identified delta/completion supplies its canonical identity. */
 export interface BridgeEventPayloads {
   "session.started": { model: string };
   "session.error": { message: string };

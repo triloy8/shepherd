@@ -88,23 +88,24 @@ const publish = (threadId: string, type: BridgeEvent["type"], payload: unknown) 
   if (id) h.publish(id, { id: `fixture-${++sequence}`, type, threadId, sessionId: "fixture", ts: new Date().toISOString(), payload });
 };
 function later(ms: number, run: () => void) { const timer = setTimeout(() => { timers.delete(timer); run(); }, ms); timers.add(timer); }
-function finish(threadId: string, status: "completed" | "interrupted" = "completed") {
+function finish(threadId: string, status: "completed" | "interrupted" = "completed", reportedTurnId?: string | null) {
   const history = histories.get(threadId)!;
   const turn = history.at(-1)!;
   turn.status = status;
   turn.durationMs = 1000;
   h.active.set(threadId, null);
-  publish(threadId, "turn.completed", { turnId: turn.id });
+  publish(threadId, "turn.completed", { turnId: reportedTurnId === undefined ? turn.id : reportedTurnId });
 }
 h.context.ingress.submitTurn = async (threadId, request) => {
   const text = request.input.filter((item) => item.type === "text").map((item) => (item as { text: string }).text).join("\n");
+  const portable = text.startsWith("portable stream ");
   const turnId = `turn-${++sequence}`;
-  const itemId = `agent-${sequence}`;
+  const itemId = portable ? "answer" : `agent-${sequence}`;
   const content = request.input.map((part) => part.type === "text" ? { type: "text" as const, text: part.text } : part.type === "image" ? { type: "image" as const, url: part.url } : { type: "attachment" as const, name: null, path: null });
-  const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: `user-${sequence}`, type: "user_message", content }] };
+  const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: portable ? "user" : `user-${sequence}`, type: "user_message", content }] };
   histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
   h.active.set(threadId, turnId); publish(threadId, "turn.started", { turnId });
-  const progress = { id: `progress-${sequence}`, type: "assistant_message" as const, phase: "interim" as const, text: "I’ll check the project first." };
+  const progress = { id: portable ? "progress" : `progress-${sequence}`, type: "assistant_message" as const, phase: "interim" as const, text: "I’ll check the project first." };
   turn.items.push(progress);
   publish(threadId, "turn.message.completed", { itemId: progress.id, turnId, phase: progress.phase, text: progress.text });
   if (text.includes("provider question")) {
@@ -123,7 +124,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   }
   const markdownResponse = "## Streaming Markdown\n\n**Formatted while writing.**\n\n```ts\nconst answer = 42;\n```";
   const mermaidResponse = "```mermaid\nflowchart LR\n A[Start] --> B[Ship]\n```";
-  const response = text.includes("mermaid streaming") ? mermaidResponse : text.includes("markdown streaming") ? markdownResponse : text.includes("generate unicorn") ? "Your unicorn is ready." : text.includes("answer screenshot")
+  const response = portable ? `Portable answer: ${text}` : text.includes("mermaid streaming") ? mermaidResponse : text.includes("markdown streaming") ? markdownResponse : text.includes("generate unicorn") ? "Your unicorn is ready." : text.includes("answer screenshot")
     ? `Here is the desktop view:\n\n![Desktop view](${viewedImagePath})\n\n[Open the original screenshot](${viewedImagePath})`
     : "Let’s make it happen.\n\nI’ll keep the UI connected to the same shared core, with a clear path back to your conversation if the connection drops.\n\n```ts\nconst surface = \"web\";\n```";
   later(120, () => {
@@ -132,7 +133,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
       const image = { itemId: `generated-${sequence}`, turnId, path: generatedImagePath, prompt: "A white unicorn in an enchanted meadow" };
       turn.items.push({ id: image.itemId, type: "image", image: { ...image, kind: "generated" } });
       publish(threadId, "turn.image.generated", image);
-    } else publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final", textDelta: text.includes("mermaid streaming") ? mermaidResponse.slice(0, mermaidResponse.indexOf("Ship")) : text.includes("markdown streaming") ? markdownResponse.slice(0, markdownResponse.indexOf("42")) : "Let’s make it happen." });
+    } else publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId: portable ? null : itemId, turnId: portable ? null : turnId, phase: "final", textDelta: portable ? response : text.includes("mermaid streaming") ? mermaidResponse.slice(0, mermaidResponse.indexOf("Ship")) : text.includes("markdown streaming") ? markdownResponse.slice(0, markdownResponse.indexOf("42")) : "Let’s make it happen." });
   });
   if (text.includes("markdown streaming")) later(350, () => {
     if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final", textDelta: "42;\n" });
@@ -140,10 +141,11 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   if (text.includes("mermaid streaming")) later(350, () => {
     if (h.active.get(threadId) === turnId) publish(threadId, "turn.stream.delta", { kind: "assistant_text", itemId, turnId, phase: "final", textDelta: "Ship]\n" });
   });
-  later(650, () => {
+  later(portable ? 1500 : 650, () => {
     if (!h.active.get(threadId)) return;
     turn.items.push({ id: itemId, type: "assistant_message", phase: "final", text: response });
-    publish(threadId, "turn.message.completed", { itemId, turnId, phase: "final", text: response });
+    if (portable) publish(threadId, "turn.message.completed", { itemId: progress.id, turnId: null, phase: null, text: progress.text });
+    publish(threadId, "turn.message.completed", { itemId, turnId: portable ? null : turnId, phase: portable ? null : "final", text: response });
     if (text.includes("view screenshot") || text.includes("answer screenshot")) {
       const image = { id: `view-${sequence}`, path: viewedImagePath };
       turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: image.path, kind: "viewed" }, activity: activity(image.id, turnId, "image", "Viewing image", image.path, "completed") });
@@ -166,7 +168,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
       const approval = { approvalId: `approval-${sequence}`, kind: "permission", prompt: "Allow Shepherd to run the project’s test suite?", choices: [{ value: crypto.randomUUID(), label: "Allow once", intent: "allow" }, { value: crypto.randomUUID(), label: "Decline", intent: "deny" }], detail: "bun test\n~/project" };
       h.approvals.create(approval, { threadId, sessionId: "fixture" });
       publish(threadId, "approval.requested", approval);
-    } else finish(threadId);
+    } else finish(threadId, "completed", portable ? null : turnId);
   });
   return { ok: true, turnId };
 };

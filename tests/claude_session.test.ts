@@ -488,7 +488,34 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
   } finally { manager.stopAll(); }
 });
 
-test("per-block assistant messages mark text before tools as commentary and the last text as the answer", async () => {
+test("Claude history records thinking as reasoning and proposed plans as plans, in order", async () => {
+  const assistant = (id: string, block: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { id, content: [block] } }) as SDKMessage;
+  const fake = sdk(async function* () {
+    yield assistant("m1", { type: "text", text: "Looking first." });
+    yield assistant("m1", { type: "thinking", thinking: "The parser drops empty lines.", signature: "s" });
+    yield assistant("m1", { type: "redacted_thinking", data: "opaque" });
+    yield assistant("m1", { type: "thinking", thinking: "x".repeat(9_000), signature: "s" });
+    yield assistant("m1", { type: "tool_use", id: "tool-plan", name: "ExitPlanMode", input: { plan: "1. Fix the parser.\n2. Add a test." } });
+    yield { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "tool-plan", content: "approved", is_error: false }] } } as SDKMessage;
+    yield assistant("m2", { type: "text", text: "Done." });
+    yield result;
+  });
+  const session = new ClaudeSession("review_sensitive", undefined, store(), fake);
+  try {
+    const { threadId } = await session.startThread({});
+    await session.startTurn([toTextUserInput("fix it")]); await done(session);
+    const items = (await session.listThreadTurns(threadId, {})).data[0]!.items;
+    expect(items.map(item => item.type)).toEqual(["user_message", "assistant_message", "reasoning", "reasoning", "plan", "activity", "assistant_message"]);
+    expect(items[1]).toMatchObject({ text: "Looking first.", phase: "interim" });
+    expect(items[2]).toMatchObject({ summary: ["The parser drops empty lines."] });
+    expect((items[3] as { summary: string[] }).summary[0]).toEndWith("[1000 characters omitted]");
+    expect(items[4]).toMatchObject({ type: "plan", text: "1. Fix the parser.\n2. Add a test." });
+    expect(new Set(items.map(item => item.id)).size).toBe(items.length);
+    expect((await session.listThreadTurns(threadId, { itemsView: "summary" })).data[0]!.items.map(item => item.type)).toEqual(["user_message", "assistant_message"]);
+  } finally { session.stop(); }
+});
+
+test("per-block assistant messages mark text before tools as interim and the last text as the answer", async () => {
   const stream = (event: unknown) => ({ type: "stream_event", parent_tool_use_id: null, event }) as SDKMessage;
   const assistant = (id: string, block: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { id, content: [block] } }) as SDKMessage;
   const fake = sdk(async function* () {

@@ -4,6 +4,8 @@ import type { ApprovalPolicy, ThreadTokenUsage } from "./requests.js";
 /** Interim text reports progress during a turn; final text answers it. */
 export type MessagePhase = "interim" | "final";
 
+/** Application categories for presentation, not provider item types. Adapters classify their own
+ * tools into these and use `other` rather than adding provider-specific kinds. */
 export type TurnActivityKind =
   | "command"
   | "file_change"

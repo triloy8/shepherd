@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isClaudeEffort, type ClaudeThread, type ClaudeThreadRepository, type ClaudeThreadSummary } from "./thread_store.js";
@@ -39,6 +39,7 @@ export class ClaudeThreadStore implements ClaudeThreadRepository {
     return rows;
   }
   hasThreads(): boolean { return this.ids().length > 0; }
+  has(id: string): boolean { return threadFile.test(`${id}.json`) && existsSync(join(this.directory, `${id}.json`)); }
   private ids(): string[] {
     let files: string[];
     try { files = readdirSync(this.directory); }

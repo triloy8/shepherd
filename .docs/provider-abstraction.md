@@ -61,8 +61,17 @@ status; web/Discord do not decode native tool records. Codex decodes its thread 
 its adapter. Claude saves snapshots in its own record types (`ClaudeStored*` in
 `server/providers/claude/history.ts`), normalizes snapshots written with earlier names when
 reading them, and converts saved records into application items only when presenting
-history, so shared contract changes do not change the saved format. Generic attachment history retains an attachment indicator and
-available name/path in the web UI. Native tool arguments, transport envelopes, and arbitrary
+history, so shared contract changes do not change the saved format. User message history has a
+content part for every application input kind (`text`, `image`, `image_file`, `audio`, `audio_file`,
+`skill`); `attachment` is only for provider content with no application counterpart, such as
+Codex connector mentions, and keeps an indicator and available name/path in the web UI. The web
+labels audio but never sends its URL or bytes to the browser. Activity kinds (`command`,
+`file_change`, `mcp_tool`, `dynamic_tool`, `web_search`, `collaboration`, `image`, `wait`,
+`other`) are application categories that surfaces use for icons and folding, not a mirror of
+any provider's item types. Each adapter classifies its own tools into them (Claude's `Bash` is
+`command`, `Agent`/`Task` are `collaboration`, `WebFetch` is `web_search`) and uses `other`
+rather than adding a provider-specific kind; a new category belongs in the shared contract only
+when surfaces present it differently. Native tool arguments, transport envelopes, and arbitrary
 thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
 `audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex
@@ -221,7 +230,8 @@ and continuation. Adapters pass no native mode for it: Codex sends no approval p
 Claude sends no permission mode so its settings' `defaultMode` applies. Host defaults apply at creation; ordinary surface messages do not
 override the saved mode. `review_sensitive` uses
 the provider's normal permission review (Codex `on-request`, Claude `default`); `review_untrusted` reviews actions according to
-its trust model and is currently supported only by Codex. `bypass` suppresses permission
+its trust model (Codex `untrusted`; Claude `default`, which already asks before any action its
+permission rules have not allowed, so both review modes select it). `bypass` suppresses permission
 review but retains explicit user questions. None of these modes promises review of every
 action. The misleading `review_all` environment value is rejected; use `review_untrusted`
 for the previous trust-based behavior. Existing `bypass`/`unrestricted` installations need

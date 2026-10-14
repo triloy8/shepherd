@@ -23,6 +23,14 @@ test("Codex models preserve native modalities, including audio, without granting
   ]);
 });
 
+test("Codex models without an effort list report efforts as unknown, not unsupported", () => {
+  const result = modelsResponse({ data: [
+    { model: "unreported" }, { model: "none", supportedReasoningEfforts: [] },
+    { model: "listed", supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Fast" }], defaultReasoningEffort: "low" },
+  ] });
+  expect(result.data.map(row => row.supportedEfforts)).toEqual([null, [], [{ value: "low", description: "Fast" }]]);
+});
+
 test("unknown modalities remain unknown and Claude does not claim disabled effort", () => {
   const row = claudeModelCatalog([{ value: "model", displayName: "Model", description: "", supportsEffort: false, supportedEffortLevels: ["medium"] }], { model: "model", effort: "medium" })[0]!;
   expect(row).toMatchObject({ inputModalities: null, supportedEfforts: [], defaultEffort: null });

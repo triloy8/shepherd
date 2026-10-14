@@ -320,11 +320,15 @@ export interface ListThreadTurnsRequest {
   itemsView?: HistoryItemsView;
 }
 
-/** User message content as recorded in history. Image URLs are absent when withheld or unavailable. */
+/** User message content as recorded in history. Media URLs are absent when withheld or unavailable.
+ * Every UserInput kind has a counterpart; `attachment` covers provider content with none. */
 export type HistoryContentPart =
   | { type: "text"; text: string }
   | { type: "image"; url?: string }
   | { type: "image_file"; path: string }
+  | { type: "audio"; url?: string }
+  | { type: "audio_file"; path: string }
+  | { type: "skill"; name: string; path: string }
   | { type: "attachment"; name: string | null; path: string | null };
 
 export interface HistoryImage {

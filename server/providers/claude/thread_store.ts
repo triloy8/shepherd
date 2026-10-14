@@ -1,8 +1,13 @@
+import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeStoredTokenUsage, ClaudeStoredTurn } from "./history.js";
 import type { ClaudeStoredApprovalMode } from "./permissions.js";
 
-export const claudeEffortLevels = ["low", "medium", "high", "xhigh", "max"] as const;
+export const claudeEffortLevels = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
 export type ClaudeEffort = typeof claudeEffortLevels[number];
+// The catalog reports the SDK's levels; an SDK upgrade that adds one must update this list, or
+// core would accept a catalog effort that this adapter then rejects.
+const sdkEffortsListed: Exclude<EffortLevel, ClaudeEffort> extends never ? true : never = true;
+void sdkEffortsListed;
 export const isClaudeEffort = (value: unknown): value is ClaudeEffort => claudeEffortLevels.includes(value as ClaudeEffort);
 
 /** Saved snapshot. Every field is an adapter-owned value; history.ts presents it to the application. */
@@ -25,4 +30,6 @@ export interface ClaudeThreadRepository {
   write(thread: ClaudeThread): void;
   list(): ClaudeThreadSummary[];
   hasThreads(): boolean;
+  /** Whether a snapshot exists for this ID, without reading any snapshot. */
+  has(id: string): boolean;
 }

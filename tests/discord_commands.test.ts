@@ -1,3 +1,4 @@
+import { ApplicationActionError } from "../server/core/action_error.js";
 import { account } from "./helpers/account";
 import { describe, expect, test } from "bun:test";
 import { ComponentType, type MessageCreateOptions, type MessageEditOptions } from "discord.js";
@@ -549,6 +550,22 @@ describe("Discord !skill commands", () => {
       title: "Model updated",
       description: "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
     });
+  });
+
+  test("a rejected literal default points to the model-default command", async () => {
+    const { context } = makeContext();
+    Object.assign(context.conversation, {
+      async setThreadEffort() { throw new ApplicationActionError({ code: "unsupported_effort", model: "opaque-model", requested: "default", available: ["low", "high"] }); },
+    });
+    const { message, replies } = makeMessage("!effort set default");
+    await handleMessage(message as never, context);
+    expect(replyCardAt(replies).description).toContain("Use `!effort default` to select the model default.");
+    const other = makeMessage("!effort set turbo");
+    Object.assign(context.conversation, {
+      async setThreadEffort() { throw new ApplicationActionError({ code: "unsupported_effort", model: "opaque-model", requested: "turbo", available: ["low"] }); },
+    });
+    await handleMessage(other.message as never, context);
+    expect(replyCardAt(other.replies).description).not.toContain("!effort default");
   });
 
   test("effort commands preserve literal provider values and distinguish default and clear", async () => {

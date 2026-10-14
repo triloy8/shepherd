@@ -8,7 +8,7 @@ the UI uses only that API. Differences from Discord are in the
 
 ## Transcript, work, and images
 
-Assistant answers appear in the transcript. Tool calls, commentary, and other work
+Assistant answers appear in the transcript. Tool calls, interim progress messages, and other work
 appear in a work timeline between the request and the answer, and fold when the
 turn completes.
 

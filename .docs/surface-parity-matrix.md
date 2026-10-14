@@ -118,7 +118,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Feature | Discord | Web | Scope / distinction |
 | --- | --- | --- | --- |
 | Live response delivery | Yes — edited/chunked messages | Yes — streamed transcript | Transport-specific delivery |
-| Commentary versus final answer | Yes — progress/final presentation | Yes — grouped assistant turns | Commentary is user-facing progress, not raw internal reasoning |
+| Interim versus final answer | Yes — progress/final presentation | Yes — grouped assistant turns | Interim text is user-facing progress, not raw internal reasoning |
 | Collapse completed progress | Partial — Discord progress presentation | Yes — completed progress disclosure | Failed activity remains visible in web |
 | Command execution activity | Yes — progress lines | Yes — expandable activity | Summary, not a terminal emulator |
 | File-change activity | Yes — progress lines | Yes — expandable activity | No dedicated interactive diff viewer |

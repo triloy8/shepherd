@@ -54,11 +54,13 @@ export function modelsResponse(value: unknown): ListModelsResponse {
           inputModalities: record.inputModalities === undefined ? ["text", "image"] as const
             : Array.isArray(record.inputModalities) ? record.inputModalities.filter((value): value is "text" | "image" | "audio" => value === "text" || value === "image" || value === "audio") : null,
           defaultEffort: asString(record.defaultReasoningEffort),
-          supportedEfforts: (Array.isArray(record.supportedReasoningEfforts) ? record.supportedReasoningEfforts : [])
-            .map((value) => {
+          // A missing list is unreported, not an empty supported set.
+          supportedEfforts: Array.isArray(record.supportedReasoningEfforts)
+            ? record.supportedReasoningEfforts.map((value) => {
               const option = asRecord(value);
               return { value: asString(option.reasoningEffort) ?? "", description: asString(option.description) ?? "" };
-            }).filter((option) => option.value),
+            }).filter((option) => option.value)
+            : null,
         };
       }),
       nextCursor: asString(raw.nextCursor),

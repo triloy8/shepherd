@@ -39,7 +39,7 @@ describe("ResponseStreamReducer", () => {
       {
         turnId: "turn-old",
         finalMessages: [{ itemId: "final-old", text: "existing" }],
-        activeCommentary: { itemId: "comment-old", text: "thinking" },
+        activeInterim: { itemId: "comment-old", text: "thinking" },
       },
       makeEvent("turn.started", { turnId: "turn-1" }),
     );
@@ -54,14 +54,14 @@ describe("ResponseStreamReducer", () => {
     let reduction = reduceResponseStream(null, delta("thinking\nmore", "interim", "comment-1"));
     expect(reduction.type).toBe("updated");
     if (reduction.type !== "updated") throw new Error("expected update");
-    expect(reduction.state.activeCommentary?.text).toBe("thinking\nmore");
+    expect(reduction.state.activeInterim?.text).toBe("thinking\nmore");
     expect(getFinalResponseText(reduction.state)).toBe("");
 
     reduction = reduceResponseStream(reduction.state, delta("answer", "final", "final-1"));
     expect(reduction.type).toBe("updated");
     if (reduction.type !== "updated") throw new Error("expected update");
-    expect(reduction.completedCommentary?.text).toBe("thinking\nmore");
-    expect(reduction.state.activeCommentary).toBeNull();
+    expect(reduction.completedInterim?.text).toBe("thinking\nmore");
+    expect(reduction.state.activeInterim).toBeNull();
     expect(getFinalResponseText(reduction.state)).toBe("answer");
   });
 
@@ -72,8 +72,8 @@ describe("ResponseStreamReducer", () => {
     const second = reduceResponseStream(first.state, delta("second", "interim", "comment-2"));
     expect(second.type).toBe("updated");
     if (second.type !== "updated") throw new Error("expected update");
-    expect(second.completedCommentary).toEqual({ itemId: "comment-1", text: "first" });
-    expect(second.state.activeCommentary).toEqual({ itemId: "comment-2", text: "second" });
+    expect(second.completedInterim).toEqual({ itemId: "comment-1", text: "first" });
+    expect(second.state.activeInterim).toEqual({ itemId: "comment-2", text: "second" });
   });
 
   test("uses completed message text as the canonical fallback", () => {
@@ -126,7 +126,7 @@ describe("ResponseStreamReducer", () => {
     const state = {
       turnId: "turn-1",
       finalMessages: [],
-      activeCommentary: { itemId: "comment-1", text: "still useful" },
+      activeInterim: { itemId: "comment-1", text: "still useful" },
     };
     const reduction = reduceResponseStream(
       state,
@@ -136,8 +136,8 @@ describe("ResponseStreamReducer", () => {
     expect(reduction).toEqual({
       type: "finish",
       failed: true,
-      state: { ...state, activeCommentary: null },
-      completedCommentary: { itemId: "comment-1", text: "still useful" },
+      state: { ...state, activeInterim: null },
+      completedInterim: { itemId: "comment-1", text: "still useful" },
     });
   });
 });
@@ -170,7 +170,7 @@ test("known phases survive missing metadata and late classification preserves ea
   const progress = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "work", phase: null, text: "Canonical progress", turnId: "turn-1" }));
   expect(progress.type).toBe("message-completed");
   if (progress.type !== "message-completed") throw new Error("Expected completion");
-  expect(progress.phase).toBe("interim"); expect(progress.completedCommentary?.text).toBe("Canonical progress");
+  expect(progress.phase).toBe("interim"); expect(progress.completedInterim?.text).toBe("Canonical progress");
   expect(getFinalResponseText(progress.state)).toBe("");
   state = reduceResponseStream(progress.state, makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId: "answer", textDelta: "First ", turnId: "turn-1" })).state!;
   state = reduceResponseStream(state, delta("second", "final", "answer")).state!;
@@ -186,7 +186,7 @@ for (const reportedPhase of ["final", "interim", null] as const) test(`anonymous
   const completed = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "canonical", turnId: null, phase: null, text: "Canonical answer" }));
   expect(getFinalResponseText(completed.state)).toBe(reportedPhase === "interim" ? "" : "Canonical answer");
   if (completed.type !== "message-completed") throw new Error("Expected completion");
-  expect(completed.completedCommentary?.text).toBe(reportedPhase === "interim" ? "Canonical answer" : undefined);
+  expect(completed.completedInterim?.text).toBe(reportedPhase === "interim" ? "Canonical answer" : undefined);
 });
 
 test("anonymous and identified stream chunks form one final message and separate subsequent messages", () => {
@@ -212,15 +212,15 @@ for (const phase of ["final", "interim", null] as const) test(`empty canonical $
   const partial = reduceResponseStream(null, makeEvent("turn.stream.delta", { kind: "assistant_text", textDelta: "Discard this", itemId: null, phase, turnId: "turn" }));
   const completed = reduceResponseStream(partial.state, makeEvent("turn.message.completed", { itemId: "a", text: "", phase, turnId: "turn" }));
   expect(getFinalResponseText(completed.state)).toBe("");
-  expect(completed.type === "message-completed" && completed.completedCommentary).toBeNull();
+  expect(completed.type === "message-completed" && completed.completedInterim).toBeNull();
 });
 
 for (const phase of ["interim", null] as const) test(`identifying anonymous interim text with phase ${phase} does not finish its prefix`, () => {
   const first = reduceResponseStream(null, makeEvent("turn.stream.delta", { turnId: "t", itemId: null, phase: "interim", kind: "assistant_text", textDelta: "I am " }));
   const identified = reduceResponseStream(first.state, makeEvent("turn.stream.delta", { turnId: "t", itemId: "a", phase, kind: "assistant_text", textDelta: "working" }));
   expect(identified.type).toBe("updated");
-  expect(identified.type === "updated" && identified.completedCommentary).toBeNull();
-  expect(identified.state?.activeCommentary).toEqual({ itemId: "a", text: "I am working" });
+  expect(identified.type === "updated" && identified.completedInterim).toBeNull();
+  expect(identified.state?.activeInterim).toEqual({ itemId: "a", text: "I am working" });
   const completed = reduceResponseStream(identified.state, makeEvent("turn.message.completed", { turnId: "t", itemId: "a", phase: null, text: "I am working" }));
-  expect(completed.type === "message-completed" && completed.completedCommentary?.text).toBe("I am working");
+  expect(completed.type === "message-completed" && completed.completedInterim?.text).toBe("I am working");
 });

@@ -9,6 +9,9 @@ export type ClaudeStoredContentPart =
   | { type: "text"; text: string }
   | { type: "image"; url?: string }
   | { type: "image_file"; path: string }
+  | { type: "audio"; url?: string }
+  | { type: "audio_file"; path: string }
+  | { type: "skill"; name: string; path: string }
   | { type: "attachment"; name: string | null; path: string | null };
 export type ClaudeStoredActivity = { kind: string; label: string; detail: string | null; status: "started" | "completed" | "failed" };
 export type ClaudeStoredItem =
@@ -46,6 +49,9 @@ function storedContentPart(raw: unknown): ClaudeStoredContentPart {
   if (part.type === "text") return { type: "text", text: String(part.text ?? "") };
   if (part.type === "image") return typeof part.url === "string" ? { type: "image", url: part.url } : { type: "image" };
   if ((part.type === "image_file" || part.type === "localImage") && typeof part.path === "string") return { type: "image_file", path: part.path };
+  if (part.type === "audio") return typeof part.url === "string" ? { type: "audio", url: part.url } : { type: "audio" };
+  if (part.type === "audio_file" && typeof part.path === "string") return { type: "audio_file", path: part.path };
+  if (part.type === "skill" && typeof part.name === "string" && typeof part.path === "string") return { type: "skill", name: part.name, path: part.path };
   return { type: "attachment", name: optionalString(part.name), path: optionalString(part.path) };
 }
 
@@ -140,6 +146,9 @@ function contentPart(part: ClaudeStoredContentPart): HistoryContentPart {
     case "text": return { type: "text", text: part.text };
     case "image": return part.url === undefined ? { type: "image" } : { type: "image", url: part.url };
     case "image_file": return { type: "image_file", path: part.path };
+    case "audio": return part.url === undefined ? { type: "audio" } : { type: "audio", url: part.url };
+    case "audio_file": return { type: "audio_file", path: part.path };
+    case "skill": return { type: "skill", name: part.name, path: part.path };
     case "attachment": return { type: "attachment", name: part.name, path: part.path };
   }
 }

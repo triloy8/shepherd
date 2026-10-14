@@ -59,9 +59,13 @@ function summaryItems(items: P.HistoryItem[]): P.HistoryItem[] {
   return items.filter((item) => item.type === "user_message" || (item.type === "assistant_message" && answers.includes(item)));
 }
 
-/** The SDK transcript keeps full tool output. Shepherd history keeps a bounded preview. */
+/** The SDK transcript keeps full text. Shepherd history keeps a bounded preview. */
+function boundedText(value: string): string {
+  return value.length > storedResultChars ? `${value.slice(0, storedResultChars)}\n[${value.length - storedResultChars} characters omitted]` : value;
+}
+
 function storedToolResult(content: unknown): unknown {
-  const text = (value: string) => value.length > storedResultChars ? `${value.slice(0, storedResultChars)}\n[${value.length - storedResultChars} characters omitted]` : value;
+  const text = boundedText;
   if (typeof content === "string") return text(content);
   if (!Array.isArray(content)) return content;
   return content.map((block: { type?: unknown; text?: unknown }) => block?.type === "text" && typeof block.text === "string" ? { type: "text", text: text(block.text) } : { type: typeof block?.type === "string" ? block.type : "unknown", omitted: true });
@@ -316,7 +320,7 @@ export class ClaudeSession implements ProviderSession {
       else this.publish("turn.completed", { turnId: turn.id });
     }
   }
-  /** Text is commentary when a tool call follows it and an answer when the response ends. */
+  /** Text is interim when a tool call follows it and an answer when the response ends. */
   private assistantMessage(message: Extract<SDKMessage, { type: "assistant" }>, turn: ClaudeStoredTurn) {
     if (!this.requestUsage && message.message.usage) this.requestUsage = { ...message.message.usage };
     for (const block of message.message.content) {
@@ -325,8 +329,16 @@ export class ClaudeSession implements ProviderSession {
         this.textBlocks.set(message.message.id, index + 1);
         if (block.text) this.pendingText.push({ itemId: textItemId(message.message.id, index), text: block.text, turn });
       }
+      // Thinking precedes more work in the response, so text before it is interim. Redacted thinking has no text.
+      if (block.type === "thinking" && block.thinking.trim()) {
+        this.flushText("interim");
+        turn.items.push({ id: `${message.message.id}:thinking:${turn.items.length}`, type: "reasoning", summary: [boundedText(block.thinking)] });
+      }
       if (block.type === "tool_use") {
         this.flushText("interim");
+        // A plan proposed for approval is the turn's plan, as well as a tool call.
+        const plan = block.name === "ExitPlanMode" && typeof (block.input as { plan?: unknown })?.plan === "string" ? (block.input as { plan: string }).plan : null;
+        if (plan?.trim()) turn.items.push({ id: `${block.id}:plan`, type: "plan", text: plan });
         const kind = claudeActivityKind(block.name);
         const activity = { kind, label: block.name, detail: JSON.stringify(block.input), status: "started" as const };
         turn.items.push({ id: block.id, type: "activity", activity });

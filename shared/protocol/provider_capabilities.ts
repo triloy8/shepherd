@@ -32,6 +32,10 @@ export interface ProviderCapabilities {
   imageDetail: boolean;
 }
 
-export type ProviderOperation = {
+/** Boolean capabilities that describe data rather than an operation core can be asked to run. */
+type CapabilityQualifier = "modelCatalogAuthoritative" | "imageDetail";
+
+/** Operations that can be checked with assertProviderOperation. */
+export type ProviderOperation = Exclude<{
   [K in keyof ProviderCapabilities]-?: ProviderCapabilities[K] extends boolean ? K : never
-}[keyof ProviderCapabilities];
+}[keyof ProviderCapabilities], CapabilityQualifier>;

@@ -262,3 +262,12 @@ for (const id of ["native", "local:native"]) test(`canonical user ${id} retains 
   expect(renderToStaticMarkup(createElement(Message, { message, onRevert: () => {} }))).toContain("Revert from here");
   expect(renderToStaticMarkup(createElement(Message, { message: { ...message, optimistic: true }, onRevert: () => {} }))).not.toContain("Revert from here");
 });
+
+test("web history labels audio without sending its bytes or URL to the browser", () => {
+  const presented = presentHistoryItem({ id: "user", type: "user_message", content: [
+    { type: "audio", url: "https://example.com/a.wav" }, { type: "audio_file", path: "/tmp/a.wav" }, { type: "skill", name: "review", path: "/skills/review/SKILL.md" },
+  ] }, "turn", new WebImages("conversation"));
+  expect(presented).toEqual({ id: "user", type: "user_message", content: [
+    { type: "audio" }, { type: "audio_file", path: "/tmp/a.wav" }, { type: "skill", name: "review", path: "/skills/review/SKILL.md" },
+  ] });
+});

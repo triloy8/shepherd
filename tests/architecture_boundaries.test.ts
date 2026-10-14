@@ -154,6 +154,8 @@ function vocabularyViolations(source: ts.SourceFile): string[] {
     const identifier = ts.isIdentifier(node) || ts.isPrivateIdentifier(node) ? node.text : undefined;
     if (literal !== undefined && (nativeValues.has(literal) || nativeFields.has(literal) || nativeMethod.test(literal))) violations.push(`"${literal}"`);
     if (identifier !== undefined && nativeFields.has(identifier)) violations.push(identifier);
+    // OpenAI's phase name also leaks through naming; application code says "interim".
+    if (identifier !== undefined && /commentary/i.test(identifier)) violations.push(`names a native phase: ${identifier}`);
     if ((literal ?? identifier) !== undefined && providerName.test(literal ?? identifier!)) violations.push(`names a provider: ${literal ?? identifier}`);
     ts.forEachChild(node, visit);
   };
@@ -162,9 +164,9 @@ function vocabularyViolations(source: ts.SourceFile): string[] {
 }
 
 test("vocabulary guard checks quoted keys, provider identifiers, template fragments and native method families", () => {
-  const source = ts.createSourceFile("probe.ts", 'const ClaudeOptions = { "forceReload": true, "permissionMode": "bypassPermissions", method: "thread/newNativeMethod", prompt: `OpenAI ${value} request`, usage: { cache_creation_input_tokens: 0 } };', ts.ScriptTarget.Latest, true);
+  const source = ts.createSourceFile("probe.ts", 'const ClaudeOptions = { activeCommentary: null, "forceReload": true, "permissionMode": "bypassPermissions", method: "thread/newNativeMethod", prompt: `OpenAI ${value} request`, usage: { cache_creation_input_tokens: 0 } };', ts.ScriptTarget.Latest, true);
   expect(vocabularyViolations(source)).toEqual(expect.arrayContaining([
-    "names a provider: ClaudeOptions", '"forceReload"', '"permissionMode"', '"bypassPermissions"', '"thread/newNativeMethod"', "names a provider: OpenAI ", "cache_creation_input_tokens",
+    "names a provider: ClaudeOptions", "names a native phase: activeCommentary", '"forceReload"', '"permissionMode"', '"bypassPermissions"', '"thread/newNativeMethod"', "names a provider: OpenAI ", "cache_creation_input_tokens",
   ]));
   const application = ts.createSourceFile("application.ts", 'type Input = { includeHidden?: boolean; isSecret?: boolean }; const event = "turn.image.generated";', ts.ScriptTarget.Latest, true);
   expect(vocabularyViolations(application)).toEqual([]);

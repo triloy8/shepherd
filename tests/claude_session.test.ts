@@ -488,7 +488,34 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
   } finally { manager.stopAll(); }
 });
 
-test("per-block assistant messages mark text before tools as commentary and the last text as the answer", async () => {
+test("Claude history records thinking as reasoning and proposed plans as plans, in order", async () => {
+  const assistant = (id: string, block: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { id, content: [block] } }) as SDKMessage;
+  const fake = sdk(async function* () {
+    yield assistant("m1", { type: "text", text: "Looking first." });
+    yield assistant("m1", { type: "thinking", thinking: "The parser drops empty lines.", signature: "s" });
+    yield assistant("m1", { type: "redacted_thinking", data: "opaque" });
+    yield assistant("m1", { type: "thinking", thinking: "x".repeat(9_000), signature: "s" });
+    yield assistant("m1", { type: "tool_use", id: "tool-plan", name: "ExitPlanMode", input: { plan: "1. Fix the parser.\n2. Add a test." } });
+    yield { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "tool-plan", content: "approved", is_error: false }] } } as SDKMessage;
+    yield assistant("m2", { type: "text", text: "Done." });
+    yield result;
+  });
+  const session = new ClaudeSession("review_sensitive", undefined, store(), fake);
+  try {
+    const { threadId } = await session.startThread({});
+    await session.startTurn([toTextUserInput("fix it")]); await done(session);
+    const items = (await session.listThreadTurns(threadId, {})).data[0]!.items;
+    expect(items.map(item => item.type)).toEqual(["user_message", "assistant_message", "reasoning", "reasoning", "plan", "activity", "assistant_message"]);
+    expect(items[1]).toMatchObject({ text: "Looking first.", phase: "interim" });
+    expect(items[2]).toMatchObject({ summary: ["The parser drops empty lines."] });
+    expect((items[3] as { summary: string[] }).summary[0]).toEndWith("[1000 characters omitted]");
+    expect(items[4]).toMatchObject({ type: "plan", text: "1. Fix the parser.\n2. Add a test." });
+    expect(new Set(items.map(item => item.id)).size).toBe(items.length);
+    expect((await session.listThreadTurns(threadId, { itemsView: "summary" })).data[0]!.items.map(item => item.type)).toEqual(["user_message", "assistant_message"]);
+  } finally { session.stop(); }
+});
+
+test("per-block assistant messages mark text before tools as interim and the last text as the answer", async () => {
   const stream = (event: unknown) => ({ type: "stream_event", parent_tool_use_id: null, event }) as SDKMessage;
   const assistant = (id: string, block: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { id, content: [block] } }) as SDKMessage;
   const fake = sdk(async function* () {
@@ -638,6 +665,10 @@ test("thread listing reads summaries, rebuilds legacy summaries, and skips unrea
   expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ id: threadId, cwd: "/project" }); expect("turns" in rows[0]!).toBe(false);
   expect(existsSync(join(directory, `${threadId}.meta.json`))).toBe(true);
   expect(warnings).toHaveLength(1); expect(storage.hasThreads()).toBe(true);
+  // Ownership checks look up one snapshot by ID rather than listing every thread.
+  expect(storage.has(threadId)).toBe(true);
+  expect(storage.has("claude-11111111-1111-1111-1111-111111111111")).toBe(false);
+  expect(storage.has("../outside")).toBe(false);
 });
 
 test("snapshots written with earlier item names decode into the application history contract", async () => {
@@ -733,22 +764,20 @@ test("Claude permission modes, typed effort and native defaults survive resume a
   }
 });
 
-test("Claude rejects trust-review mode before creation, execution, or steering and leaves work unchanged", async () => {
-  const storage = store(); const fake = sdk(async function* () { yield result; });
+test("Claude reviews untrusted actions with its default permission mode and keeps that mode on resume", async () => {
+  const storage = store(); const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });
   const session = new ClaudeSession("provider_default", undefined, storage, fake);
+  const resumed = new ClaudeSession("provider_default", undefined, storage, fake);
   try {
-    await expect(session.startThread({ approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    expect(storage.hasThreads()).toBe(false);
-    const created = await session.startThread({});
-    await expect(session.resumeThread(created.threadId, { approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    await expect(session.forkThread(created.threadId, { approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    await expect(session.startTurn([toTextUserInput("Hello")], "review_untrusted")).rejects.toThrow("approval mode review_untrusted");
+    const created = await session.startThread({ approvalPolicy: "review_untrusted" });
+    expect(created.approvalPolicy).toBe("review_untrusted");
     await expect(session.steerTurn([{ type: "audio", url: "audio" }])).rejects.toThrow("audio inputs");
-    expect(fake.calls).toHaveLength(0); expect(fake.forks).toHaveLength(0);
-    expect(session.activeTurnId).toBeNull(); expect(storage.read(created.threadId).turns).toEqual([]);
-  } finally { session.stop(); }
+    await session.startTurn([toTextUserInput("Hello")]); await done(session);
+    expect(fake.calls[0]!.options).toMatchObject({ permissionMode: "default" });
+    expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBeUndefined();
+    expect((await resumed.resumeThread(created.threadId, {})).approvalPolicy).toBe("review_untrusted");
+  } finally { session.stop(); resumed.stop(); }
 });
-
 
 test("Claude clears effort by restarting with no SDK effort and persisting the cleared setting", async () => {
   const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });

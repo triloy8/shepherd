@@ -762,7 +762,9 @@ export async function handleMessage(
         : { type: "effort.get", surfaceId: channelId });
       if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
       if (!result.ok) {
-        await replyCard(message, result.error.code === "thread_required" ? "Thread required" : "Effort unavailable", formatActionFailure(result.error), "warning");
+        // Effort values are opaque, so "set default" stays literal; point users of the older syntax to the model default.
+        const hint = result.error.code === "unsupported_effort" && effortValue?.toLowerCase() === "default" ? "\nUse `!effort default` to select the model default." : "";
+        await replyCard(message, result.error.code === "thread_required" ? "Thread required" : "Effort unavailable", `${formatActionFailure(result.error)}${hint}`, "warning");
         return { handled: true, threadId: null, input: null };
       }
       const { state } = result;

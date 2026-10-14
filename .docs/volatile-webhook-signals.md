@@ -676,7 +676,7 @@ signal definition.
   URLs using CLI arguments.
 - A detached service can wake Shepherd after its originating turn ends.
 - The new turn resumes the originating Codex conversation.
-- Commentary, activity, and the final answer reach the originating Discord
+- Interim progress, activity, and the final answer reach the originating Discord
   conversation through the existing renderer.
 - Simultaneous operations from one or many conversations remain isolated.
 - Routes are narrowly scoped, bounded, revocable, and process-local.

@@ -258,18 +258,18 @@ export function createDiscordThreadEventHandler(
     state.progressDelivery = createDiscordEditableSurfaceState();
   };
 
-  const sendCommentary = (
+  const sendInterim = (
     channelId: string,
     state: DiscordTurnDeliveryState,
-    commentary: AccumulatedMessage | null,
+    interim: AccumulatedMessage | null,
   ): void => {
-    const text = commentary?.text.trim();
+    const text = interim?.text.trim();
     if (!text) return;
     sealProgressSegment(channelId, state);
     enqueue(channelId, state, async (channel) => {
       const result = await sendDiscordMarkdown(channel, text);
       if (!result.success) {
-        onError(new Error(`Commentary delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
+        onError(new Error(`Progress message delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
       }
     });
   };
@@ -491,13 +491,13 @@ export function createDiscordThreadEventHandler(
 
     if (reduction.type === "updated" || reduction.type === "message-completed") {
       state.stream = reduction.state;
-      sendCommentary(channelId, state, reduction.completedCommentary);
+      sendInterim(channelId, state, reduction.completedInterim);
       if (reduction.phase !== "interim") {
         schedulePreview(channelId, state);
       }
     } else if (reduction.type === "finish") {
       if (reduction.state) state.stream = reduction.state;
-      sendCommentary(channelId, state, reduction.completedCommentary);
+      sendInterim(channelId, state, reduction.completedInterim);
       finalizeTurn(channelId, state, reduction.failed);
     }
 

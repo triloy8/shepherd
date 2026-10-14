@@ -316,7 +316,7 @@ export class ClaudeSession implements ProviderSession {
       else this.publish("turn.completed", { turnId: turn.id });
     }
   }
-  /** Text is commentary when a tool call follows it and an answer when the response ends. */
+  /** Text is interim when a tool call follows it and an answer when the response ends. */
   private assistantMessage(message: Extract<SDKMessage, { type: "assistant" }>, turn: ClaudeStoredTurn) {
     if (!this.requestUsage && message.message.usage) this.requestUsage = { ...message.message.usage };
     for (const block of message.message.content) {

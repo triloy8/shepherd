@@ -34,7 +34,7 @@ function finalDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
   });
 }
 
-function commentaryDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
+function interimDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
   return makeEvent("turn.stream.delta", {
     kind: "assistant_text",
     textDelta,
@@ -280,7 +280,7 @@ describe("Discord thread event handler", () => {
 
     handler.recordReplyTarget("chan-1", "user-message-1");
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
-    handler.handleThreadEvent("chan-1", commentaryDelta("I found the issue."));
+    handler.handleThreadEvent("chan-1", interimDelta("I found the issue."));
     handler.handleThreadEvent(
       "chan-1",
       makeEvent("turn.message.completed", {
@@ -338,7 +338,7 @@ describe("Discord thread event handler", () => {
         status: "started",
       }),
     );
-    handler.handleThreadEvent("chan-1", commentaryDelta("The first check passed."));
+    handler.handleThreadEvent("chan-1", interimDelta("The first check passed."));
     handler.handleThreadEvent(
       "chan-1",
       makeEvent("turn.message.completed", {

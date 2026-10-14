@@ -279,3 +279,10 @@ test("attachment-only and mixed history messages retain names or unavailable pla
   ] }] };
   expect(mergeHistory(emptyChat(), [history]).messages[0]!.text).toBe("[Attachment: recording.wav]\n[Attachment: unavailable]");
 });
+
+test("audio and skill inputs in history keep labels rather than becoming generic attachments", () => {
+  const history = { ...turn("t", ""), items: [{ id: "u", type: "user_message" as const, content: [
+    { type: "audio" as const }, { type: "audio_file" as const, path: "/tmp/a.wav" }, { type: "skill" as const, name: "review", path: "/skills/review/SKILL.md" },
+  ] }] };
+  expect(mergeHistory(emptyChat(), [history]).messages[0]!.text).toBe("[Audio attachment]\n[Audio attachment]\n[Skill: review]");
+});

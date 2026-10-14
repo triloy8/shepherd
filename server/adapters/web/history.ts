@@ -8,6 +8,8 @@ export function presentHistoryItem(item: HistoryItem, turnId: string, images: We
       // Never turn provider history into arbitrary remote browser fetches.
       let bytes = 0; let count = 0;
       return { id: item.id, type: item.type, content: item.content.map((part) => {
+        // The browser only labels audio, so its bytes and remote URLs stay on the server.
+        if (part.type === "audio") return { type: "audio" };
         if (part.type !== "image") return part;
         const allowed = count++ < 4 && validImageData(part.url) && (bytes += part.url.length) <= WEB_MESSAGE_MAX_BODY_BYTES;
         return allowed ? { type: "image", url: part.url } : { type: "image" };

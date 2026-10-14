@@ -21,6 +21,9 @@ function contentPart(raw: unknown): HistoryContentPart {
   if (part.type === "text") return { type: "text", text: String(part.text ?? "") };
   if (part.type === "image") return typeof part.url === "string" ? { type: "image", url: part.url } : { type: "image" };
   if (part.type === "localImage" && typeof part.path === "string") return { type: "image_file", path: part.path };
+  if (part.type === "audio") return typeof part.url === "string" ? { type: "audio", url: part.url } : { type: "audio" };
+  if (part.type === "localAudio" && typeof part.path === "string") return { type: "audio_file", path: part.path };
+  if (part.type === "skill" && typeof part.name === "string" && typeof part.path === "string") return { type: "skill", name: part.name, path: part.path };
   return { type: "attachment", name: optionalString(part.name), path: optionalString(part.path) };
 }
 

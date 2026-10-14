@@ -165,7 +165,8 @@ test("Codex history pages are decoded and the items view is encoded inside the a
   (session as any).sendRequest = async (method: string, params: unknown) => {
     requests.push({ method, params });
     return { data: [{ id: "turn", status: "inProgress", itemsView: "notLoaded", error: null, items: [
-      { id: "user", type: "userMessage", content: [{ type: "text", text: "hi" }, { type: "localImage", path: "/tmp/a.png" }, { type: "mention", name: "app", path: "app://x" }] },
+      { id: "user", type: "userMessage", content: [{ type: "text", text: "hi" }, { type: "localImage", path: "/tmp/a.png" }, { type: "mention", name: "app", path: "app://x" },
+        { type: "audio", url: "data:audio/wav;base64,AA" }, { type: "localAudio", path: "/tmp/a.wav" }, { type: "skill", name: "review", path: "/skills/review/SKILL.md" }] },
       { id: "answer", type: "agentMessage", text: "hello", phase: "final_answer" },
       { id: "new", type: "somethingUnrecognized" },
     ] }], nextCursor: null, backwardsCursor: null };
@@ -173,7 +174,8 @@ test("Codex history pages are decoded and the items view is encoded inside the a
   const page = await session.listThreadTurns("thread", { itemsView: "none" });
   expect(requests[0].params).toMatchObject({ threadId: "thread", itemsView: "notLoaded" });
   expect(page.data[0]).toMatchObject({ status: "in_progress", itemsView: "none", items: [
-    { type: "user_message", content: [{ type: "text", text: "hi" }, { type: "image_file", path: "/tmp/a.png" }, { type: "attachment", name: "app", path: "app://x" }] },
+    { type: "user_message", content: [{ type: "text", text: "hi" }, { type: "image_file", path: "/tmp/a.png" }, { type: "attachment", name: "app", path: "app://x" },
+      { type: "audio", url: "data:audio/wav;base64,AA" }, { type: "audio_file", path: "/tmp/a.wav" }, { type: "skill", name: "review", path: "/skills/review/SKILL.md" }] },
     { type: "assistant_message", text: "hello" },
     { type: "other" },
   ] });

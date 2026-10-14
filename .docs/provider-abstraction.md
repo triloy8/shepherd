@@ -61,8 +61,11 @@ status; web/Discord do not decode native tool records. Codex decodes its thread 
 its adapter. Claude saves snapshots in its own record types (`ClaudeStored*` in
 `server/providers/claude/history.ts`), normalizes snapshots written with earlier names when
 reading them, and converts saved records into application items only when presenting
-history, so shared contract changes do not change the saved format. Generic attachment history retains an attachment indicator and
-available name/path in the web UI. Native tool arguments, transport envelopes, and arbitrary
+history, so shared contract changes do not change the saved format. User message history has a
+content part for every application input kind (`text`, `image`, `image_file`, `audio`, `audio_file`,
+`skill`); `attachment` is only for provider content with no application counterpart, such as
+Codex connector mentions, and keeps an indicator and available name/path in the web UI. The web
+labels audio but never sends its URL or bytes to the browser. Native tool arguments, transport envelopes, and arbitrary
 thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
 `audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex

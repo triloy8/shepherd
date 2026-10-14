@@ -16,7 +16,7 @@ export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
   return [...turns].reverse().flatMap((turn) => turn.items.flatMap((item): ChatMessage[] => {
     if (item.type === "user_message") {
       const attachments = item.content.flatMap((part) => part.type === "image" && imageDataParts(part.url) ? [part.url as string] : []).slice(0, WEB_IMAGE_MAX_COUNT);
-      const content = item.content.map((part) => part.type === "text" ? part.text : part.type === "image" ? (attachments.includes(text(part.url)) ? "" : "[Image attachment unavailable]") : part.type === "image_file" ? "[Image attachment]" : part.type === "attachment" ? `[Attachment: ${part.name || part.path || "unavailable"}]` : "").filter(Boolean).join("\n");
+      const content = item.content.map((part) => part.type === "text" ? part.text : part.type === "image" ? (attachments.includes(text(part.url)) ? "" : "[Image attachment unavailable]") : part.type === "image_file" ? "[Image attachment]" : part.type === "audio" || part.type === "audio_file" ? "[Audio attachment]" : part.type === "skill" ? `[Skill: ${part.name}]` : part.type === "attachment" ? `[Attachment: ${part.name || part.path || "unavailable"}]` : "").filter(Boolean).join("\n");
       return [{ id: item.id, turnId: turn.id, role: "user", text: content, attachments, complete: true }];
     }
     if (item.type === "assistant_message") return [{ id: item.id, turnId: turn.id, role: "assistant", text: item.text, attachments: [], phase: phase(item.phase), complete: turn.status !== "in_progress" }];

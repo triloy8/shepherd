@@ -137,3 +137,13 @@ test("production Claude listings settle when Codex cannot be spawned", async () 
     expect(JSON.parse(stdout)).toMatchObject({ stored: { threads: [], unavailableProviders: ["codex"] }, loaded: { threadIds: [], unavailableProviders: ["codex"] } });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("Claude snapshots keep audio and skill content instead of generic attachments", async () => {
+  const { storedItem, historyItem } = await import("../server/providers/claude/history.js");
+  const stored = storedItem({ id: "user", type: "user_message", content: [
+    { type: "audio", url: "data:audio/wav;base64,AA" }, { type: "audio_file", path: "/tmp/a.wav" }, { type: "skill", name: "review", path: "/skills/review/SKILL.md" },
+  ] });
+  expect(historyItem(stored, "turn")).toEqual({ id: "user", type: "user_message", content: [
+    { type: "audio", url: "data:audio/wav;base64,AA" }, { type: "audio_file", path: "/tmp/a.wav" }, { type: "skill", name: "review", path: "/skills/review/SKILL.md" },
+  ] });
+});

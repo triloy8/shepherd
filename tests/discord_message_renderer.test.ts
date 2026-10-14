@@ -39,14 +39,17 @@ describe("Discord message renderer", () => {
     );
   });
 
-  test("normalizes common approval decisions into user-facing labels", () => {
-    expect(formatApprovalDecisionLabel("approve")).toBe("Approved");
-    expect(formatApprovalDecisionLabel("reject")).toBe("Declined");
-    expect(formatApprovalDecisionLabel("allow-once")).toBe("allow-once");
+  test("labels approval outcomes by declared intent, never by the provider's wording", () => {
+    expect(formatApprovalDecisionLabel({ intent: "allow", label: "Approved" })).toBe("Approved");
+    expect(formatApprovalDecisionLabel({ intent: "allow", label: "Allow for session" })).toBe("Approved (Allow for session)");
+    // Wording that reads like another outcome does not change the declared intent.
+    expect(formatApprovalDecisionLabel({ intent: "deny", label: "Accept the risk later" })).toBe("Declined (Accept the risk later)");
+    expect(formatApprovalDecisionLabel({ intent: "cancel", label: "Skip" })).toBe("Cancelled (Skip)");
+    expect(formatApprovalDecisionLabel(undefined)).toBe("Submitted");
   });
 
   test("formats approval acknowledgement replies", () => {
-    expect(formatApprovalDecisionReply("approve")).toBe("Approval decision recorded: Approved");
+    expect(formatApprovalDecisionReply({ intent: "allow", label: "Approve" })).toBe("Approval decision recorded: Approved (Approve)");
   });
 
   test("formats high-signal event messages as status blocks", () => {

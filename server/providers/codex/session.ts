@@ -38,7 +38,7 @@ import type {
   ResumeThreadRequest,
   SkillsConfigWriteRequest,
   SkillsConfigWriteResponse,
-  SkillsListResponse,
+  SkillsListing,
 } from "../../../shared/protocol/requests.js";
 import type { ConsumeRateLimitResetRequest } from "./account_types.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
@@ -317,11 +317,9 @@ export class CodexSession implements ProviderSession {
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
       ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
-      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
-      ...(request.ephemeral !== undefined ? { ephemeral: request.ephemeral } : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
     });
 
@@ -337,7 +335,6 @@ export class CodexSession implements ProviderSession {
     const result = await this.sendRequest("thread/resume", {
       threadId,
       ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
-      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
@@ -355,7 +352,6 @@ export class CodexSession implements ProviderSession {
     const result = await this.sendRequest("thread/fork", {
       threadId,
       ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
-      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
@@ -466,7 +462,7 @@ export class CodexSession implements ProviderSession {
     }));
   }
 
-  async listSkills(request: ProviderSkillsRequest): Promise<SkillsListResponse> {
+  async listSkills(request: ProviderSkillsRequest): Promise<SkillsListing> {
     await this.initialize();
     return codexSkills(await this.sendRequest("skills/list", {
       cwds: [request.workspacePath],

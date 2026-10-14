@@ -60,19 +60,15 @@ function makeContext(overrides?: {
       async listSkills() {
         if (overrides?.listSkills) return overrides.listSkills();
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "repo",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "repo",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
             },
           ],
         };
@@ -98,7 +94,7 @@ function makeContext(overrides?: {
         };
       },
       getThreadProvider: () => "fixture",
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, ephemeralThreads: false, accountReset: false } }],
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, accountReset: false } }],
       async readAccount() { return account("fixture", "pro"); },
       async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
@@ -312,26 +308,22 @@ describe("ControlActionsService", () => {
     const { context } = makeContext({
       async listSkills() {
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "repo",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-                {
-                  name: "github",
-                  scope: "user",
-                  path: "/home/tadhiel/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "repo",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
+            },
+            {
+              name: "github",
+              scope: "user",
+              path: "/home/tadhiel/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
             },
           ],
         };
@@ -582,10 +574,10 @@ test("effort action preserves structured failures and propagates infrastructure 
 });
 
 test("an extensionless catalog path takes precedence over a different skill with that name", async () => {
-  const { context, skillWrites } = makeContext({ listSkills: async () => ({ data: [{ cwd: "/workspace", errors: [], skills: [
+  const { context, skillWrites } = makeContext({ listSkills: async () => ({ workspacePath: "/workspace", errors: [], skills: [
     { name: "build", path: "instructions", scope: "repo", description: "", enabled: true },
     { name: "instructions", path: "/other/SKILL.md", scope: "user", description: "", enabled: true },
-  ] }] }) });
+  ] }) });
   expect(await executeControlAction(context, { type: "skill.set-enabled", surfaceId: "chan-1", requestedSkill: "instructions", enabled: false })).toMatchObject({ ok: true });
   expect(skillWrites).toEqual([{ threadId: "thread-1", path: "instructions", enabled: false }]);
 });

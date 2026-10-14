@@ -1,7 +1,7 @@
 import { ClaudeModelCache } from "../server/providers/claude/model_cache.js";
 import { ClaudeThreadStore } from "../server/providers/claude/file_thread_store.js";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { query, Query, SDKMessage, SDKUserMessage, PermissionResult, Options, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
@@ -234,13 +234,27 @@ test("never approval policy maps to explicit Claude permission bypass", async ()
 test("fork overrides never mutate source metadata or history", async () => {
   const storage = store(); const fake = sdk(async function* () { yield result; });
   const source = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const created = await source.startThread({ cwd: "/source", model: "sonnet", instructions: "source instructions" });
+  const created = await source.startThread({ cwd: "/source", model: "sonnet" });
   const before = storage.read(created.threadId);
   const fork = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus", instructions: "fork instructions" });
+  const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus" });
   expect(storage.read(created.threadId)).toEqual(before);
-  expect(storage.read(forked.threadId)).toMatchObject({ cwd: "/fork", model: "opus", instructions: "fork instructions" });
+  expect(storage.read(forked.threadId)).toMatchObject({ cwd: "/fork", model: "opus" });
   source.stop(); fork.stop();
+});
+
+test("instructions saved by earlier versions still extend the preset prompt; new threads add none", async () => {
+  const storage = store(); const fake = sdk(async function* (input) { for await (const _ of input) { yield result; break; } });
+  const original = new ClaudeSession("review_sensitive", undefined, storage, fake);
+  const { threadId } = await original.startThread({ cwd: "/project" }); original.stop();
+  expect(storage.read(threadId)).not.toHaveProperty("instructions");
+  storage.write({ ...storage.read(threadId), instructions: "Prefer small diffs." });
+  const resumed = new ClaudeSession("review_sensitive", undefined, storage, fake);
+  try {
+    await resumed.resumeThread(threadId, {});
+    await resumed.startTurn([toTextUserInput("hello")]); await done(resumed);
+    expect(fake.calls[0]!.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Prefer small diffs." });
+  } finally { resumed.stop(); }
 });
 
 test("renaming and archiving preserve in-memory tool results during an active turn", async () => {
@@ -661,6 +675,12 @@ test("snapshots written with earlier item names decode into the application hist
   expect((await session.listThreadTurns(id, { itemsView: "summary" })).data[0]!.items).toHaveLength(2);
   expect((await session.listThreadTurns(id, { itemsView: "none" })).data[0]!.items).toEqual([]);
   session.stop();
+  // Resuming rewrote the snapshot in Claude's own saved format, without application-only fields.
+  const saved = JSON.parse(readFileSync(join(directory, `${id}.json`), "utf8"));
+  expect(saved.turns[0]).not.toHaveProperty("itemsView");
+  expect(saved.turns[0].items[1]).toEqual({ id: "tool", type: "activity", activity: { kind: "command", label: "Bash", detail: null, status: "completed" }, output: "\"ok\"" });
+  expect(saved.tokenUsage).toHaveProperty("contextWindow", 200_000);
+  expect(saved.tokenUsage).not.toHaveProperty("modelContextWindow");
 });
 
 test("Claude applies opaque permission options through the shared session boundary", async () => {
@@ -699,7 +719,9 @@ test("Claude permission modes, typed effort and native defaults survive resume a
       await resumed.resumeThread(created.threadId, { approvalPolicy: "provider_default" });
       expect(resumed.approvalPolicy).toBe(approvalPolicy);
       await resumed.startTurn([toTextUserInput("Resume")], "provider_default"); await done(resumed);
-      expect(fake.calls[0]!.options).toMatchObject({ effort: "high", permissionMode: approvalPolicy === "bypass" ? "bypassPermissions" : "default" });
+      expect(fake.calls[0]!.options).toMatchObject({ effort: "high" });
+      // The provider default leaves the mode to Claude's settings; review asks explicitly.
+      expect(fake.calls[0]!.options.permissionMode).toBe(({ provider_default: undefined, review_sensitive: "default", bypass: "bypassPermissions" } as const)[approvalPolicy]);
       expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBe(approvalPolicy === "bypass" ? true : undefined);
       const forked = new ClaudeSession("provider_default", undefined, storage, fake);
       try {

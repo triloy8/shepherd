@@ -13,6 +13,8 @@ export type DynamicToolFunctionSpec = {
   inputSchema: JsonValue;
 };
 
+/** A named group of Shepherd tools. Adapters without native namespaces expose each tool under a
+ * name derived from both, and report the namespace and tool name separately when it is called. */
 export type DynamicToolNamespaceSpec = {
   type: "namespace";
   name: string;
@@ -22,6 +24,8 @@ export type DynamicToolNamespaceSpec = {
 
 export type DynamicToolSpec = DynamicToolFunctionSpec | DynamicToolNamespaceSpec;
 
+/** One tool call, attributed to the application thread and turn that made it. `callId` is unique
+ * per call; `namespace` is null for ungrouped tools. */
 export type DynamicToolCallParams = {
   threadId: string;
   turnId: string;

@@ -9,7 +9,7 @@ export const capabilities: ProviderCapabilities = {
   workspaceChange: false, modelCatalog: false, modelSelection: false, effortSelection: false,
   skillConfig: false, questions: false, skills: false, compact: false, revert: false, fork: false,
   accountReset: false, sandboxModes: [], approvalModes: ["provider_default"], inputKinds: ["text"],
-  imageDetail: false, ephemeralThreads: false,
+  imageDetail: false,
 };
 export const model = (id: string, isDefault = false): ModelSummary => ({ id, isDefault, displayName: id,
   description: "", hidden: false, inputModalities: null, defaultEffort: null, supportedEfforts: [] });

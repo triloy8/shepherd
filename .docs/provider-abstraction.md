@@ -58,8 +58,10 @@ Adapters decode stored history before returning it. History records are a discri
 union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
 `activity`, `image`, `other`) with `in_progress`/`completed`/`interrupted`/`failed` turn
 status; web/Discord do not decode native tool records. Codex decodes its thread items in
-its adapter; Claude stores application items and still reads snapshots written with the
-earlier Codex-style names. Generic attachment history retains an attachment indicator and
+its adapter. Claude saves snapshots in its own record types (`ClaudeStored*` in
+`server/providers/claude/history.ts`), normalizes snapshots written with earlier names when
+reading them, and converts saved records into application items only when presenting
+history, so shared contract changes do not change the saved format. Generic attachment history retains an attachment indicator and
 available name/path in the web UI. Native tool arguments, transport envelopes, and arbitrary
 thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
@@ -119,7 +121,7 @@ Optional operations are negotiated independently:
 | Models | `modelCatalog`, `modelSelection`, `effortSelection` |
 | Skills | `skills` (discovery), `skillConfig` (configuration writes) |
 | Interaction and transport | `questions` (core fails question requests from providers that do not declare it), `inputKinds`, `imageDetail` |
-| Execution policy | `approvalModes`, `sandboxModes`, `ephemeralThreads` |
+| Execution policy | `approvalModes`, `sandboxModes` |
 | Account service | `accountReset`; registration rejects a mismatch with the account reader's `reset` method |
 
 False means unsupported, including when a method exists. Optional methods may be
@@ -174,8 +176,11 @@ an effort override. Settings expose separate current and next model capabilities
 and the browser uses the appropriate set to gate image attachments.
 
 Account reporting is optional at registration. Descriptors expose `accountReporting`; the web UI does not query an absent reader, and unsupported API/Discord reads report an unavailable operation rather than fabricated account data. Unknown login state is `signedIn: null`. Every installed account reader returns `ProviderAccountLimits`: account metadata, allowance
-windows, extra usage, optional spend controls, optional reset credits, freshness, and
-availability. Missing provider data stays unknown. Reset requests use a shared outcome
+windows, extra usage (both Codex credits and Claude overage), optional reset credits
+(currently Codex only), freshness, and availability. A section a provider lacks is reported
+empty or null. Missing provider data stays unknown. Shared fields are added only when an
+installed provider reports them; the earlier `spendControls` list was removed because no
+provider filled it. Reset requests use a shared outcome
 format and retain the same idempotency key during recovery, scoped by provider.
 
 Claude subscription allowances come from SDK observations and a bounded account read;
@@ -188,10 +193,17 @@ Neither account reporting nor opening the usage panel sends a user conversation 
 Common policy is configured with `SHEPHERD_APPROVAL_MODE` (`provider_default`,
 `review_sensitive`, `review_untrusted`, `bypass`) and `SHEPHERD_SANDBOX_MODE`
 (`read_only`, `workspace_write`, `unrestricted`). Model/authentication settings remain
-provider-specific inside their adapters. These are host defaults, not requests: core
-applies each one only when the conversation's provider supports it, and otherwise the
-provider keeps its own default for that setting. Startup and `--check-config` print a
-notice for each installed agent that cannot apply a configured default. An explicitly
+provider-specific inside their adapters. These are host defaults, not requests, and they
+never loosen execution. Core (`resolveThreadDefaults` in `shared/protocol/provider_support.ts`)
+applies a default the provider supports. Otherwise it uses the least restrictive supported
+mode that is still stricter (approval order: `review_untrusted`, `review_sensitive`,
+`bypass`; sandbox order: `read_only`, `workspace_write`, `unrestricted`). Without one, the
+provider keeps its own default only for the least restrictive value (`bypass`,
+`unrestricted`), which its default cannot be looser than; any other value refuses the
+operation with `UnsupportedProviderOperationError`. A configured `provider_default`
+approval mode is never substituted. Startup and `--check-config` print a notice for each
+installed agent that cannot apply a configured default, and fail when the default agent
+would refuse every new conversation. An explicitly
 requested sandbox or approval mode that a provider lacks is rejected rather than
 silently changing execution privileges. Creation applies both defaults; resume and fork
 apply only the sandbox default and keep the saved approval mode.
@@ -205,33 +217,39 @@ For existing installations, rename those common settings before redeployment:
 Approval and sandbox modes use these same application values throughout core, ports,
 and HTTP. Native policy names are encoded and decoded inside adapters. `provider_default`
 uses native defaults for a new conversation and inherits the saved mode on resume, fork,
-and continuation. Host defaults apply at creation; ordinary surface messages do not
+and continuation. Adapters pass no native mode for it: Codex sends no approval policy, and
+Claude sends no permission mode so its settings' `defaultMode` applies. Host defaults apply at creation; ordinary surface messages do not
 override the saved mode. `review_sensitive` uses
-the provider's normal permission review; `review_untrusted` reviews actions according to
+the provider's normal permission review (Codex `on-request`, Claude `default`); `review_untrusted` reviews actions according to
 its trust model and is currently supported only by Codex. `bypass` suppresses permission
 review but retains explicit user questions. None of these modes promises review of every
 action. The misleading `review_all` environment value is rejected; use `review_untrusted`
 for the previous trust-based behavior. Existing `bypass`/`unrestricted` installations need
 no further environment edits.
 
-Shared thread requests offer model, effort, instructions, workspace, sandbox, approval
-mode, and optional ephemeral lifetime. `instructions` are added to the provider's default
-instructions and never replace them; Codex receives them as developer instructions and
-Claude appends them to its preset system prompt. Raw SDK `config`, backend overrides, deprecated
+Shared thread requests offer model, effort, workspace, sandbox, and approval mode. They
+carry no instructions and no ephemeral lifetime: no surface sent either, Codex's
+`developerInstructions` may replace configured developer instructions rather than add to
+them, and ephemeral threads are Codex-only. Each agent keeps its own configured
+instructions. Claude snapshots written with instructions by earlier versions still append
+them to the preset system prompt. Raw SDK `config`, backend overrides, deprecated
 personality selectors, analytics service names, and native database/source filters are
 not public fields. Their native configuration remains provider-owned. Unknown request
 fields are rejected, not ignored. Model backend configuration belongs in the provider's
 native settings. List sorting uses creation or update time across every provider.
 
 Descriptors advertise approval modes, sandbox modes, input kinds,
-image-detail controls, and ephemeral-thread support, alongside operation capabilities.
+and image-detail controls, alongside operation capabilities.
 Core checks these before bootstrap, submit, or steer, and adapters enforce them for direct
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
 local-file, audio, skill-reference, or image-detail support. Model/effort
 options are discovered where available; otherwise the adapter validates opaque selections. Thread state includes its provider
-and capabilities, so surfaces do not guess support from identity. Registration rejects a
-session whose capabilities differ from its descriptor or whose advertised operations
-have no implementation, and stops it before initialization. Shared events form a
+and capabilities, so surfaces do not guess support from identity. When a registered
+provider creates a session, composition rejects it if its capabilities differ from the
+descriptor or an advertised operation has no implementation, and stops it before
+initialization. Methods exist only on sessions, so this runs at session creation, not when
+the provider is registered; registration itself checks only `accountReset` against the
+account reader. Shared events form a
 discriminated union: each event name requires its application payload at the session port
 and adapter emitter. Raw native envelopes cannot be published through that contract.
 
@@ -239,7 +257,10 @@ Loaded-thread discovery lists Shepherd's live sessions and adds threads from pro
 that report threads loaded outside Shepherd (the optional `listLoadedThreads` port
 method; Codex implements it, Claude does not), persisting their owners. Stored-thread listing always merges through
 application pagination, even for one provider; shared cursors retain forward and backward
-positions and validate the listing filters. Native cursor compatibility paths are removed.
+positions and validate the listing filters. Native cursor compatibility paths are removed. Turn and
+item pages use opaque provider cursors: `nextCursor` is required, while `backwardsCursor` is
+optional (Codex returns one; Claude returns null). Surfaces page back by revisiting forward
+cursors they already received, so they never depend on it.
 Discord list controls keep these opaque cursors in a bounded, expiring server-side map so
 button IDs stay within Discord limits.
 
@@ -262,8 +283,8 @@ uncorrelated follow-ups are ignored; host decisions complete their captured appl
 For an unbound stored conversation, registered adapters identify ownership from native
 records; exactly one match is required and the binding is then persisted. Unknown or
 ambiguous identities fail rather than guessing a default provider or inspecting an ID
-prefix in shared code. Existing bindings remain immutable. Claude snapshots retain the common approval mode
-across resume/fork/restart. Older snapshots without this optional field use the provider
+prefix in shared code. Existing bindings remain immutable. Claude snapshots retain the approval mode, as
+an adapter-owned value translated to and from the common mode, across resume/fork/restart. Older snapshots without this optional field use the provider
 default unless a mode is explicitly supplied. Provider-native transcripts remain adapter-owned. Web navigation
 handles and SSE replay are volatile; persisted history is the recovery source. Reconnecting
 never automatically resends a prompt.

@@ -4,6 +4,7 @@ export interface UserQuestion {
   header: string;
   question: string;
   multiSelect?: boolean;
+  /** Free-text answers are accepted in addition to the listed options. */
   isOther: boolean;
   /** Mask typed answers in the UI. This does not encrypt answers or change provider storage. */
   isSecret?: boolean;
@@ -14,6 +15,7 @@ export interface UserQuestionRequest {
   turnId: string;
   itemId: string;
   questions: UserQuestion[];
+  /** The agent waits for the answers before continuing the turn. */
   isBlocking: boolean;
 }
 /** Answers keyed by question ID. A single-answer question has exactly one entry. */

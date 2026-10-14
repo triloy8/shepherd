@@ -11,7 +11,7 @@ import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
 import { ClaudeThreadStore } from "../providers/claude/file_thread_store.js";
 import { ClaudeModelCache } from "../providers/claude/model_cache.js";
 import { assembleProviderServices, describeThreadDefaults, type ProviderRegistration } from "./provider_registration.js";
-import type { ThreadDefaults } from "../../shared/protocol/provider_support.js";
+import { resolveThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
 
 /** One source for installed identities, configuration checks and runtime registrations.
  * Reading metadata never starts clients or opens provider storage. */
@@ -54,6 +54,14 @@ export function assertInstalledProvider(id: string): void {
 
 export function threadDefaultNotices(defaults: ThreadDefaults): string[] {
   return describeThreadDefaults(defaults, installedDefinitions);
+}
+
+/** Every new conversation without a named agent would be refused, so this is a configuration error. */
+export function assertDefaultProviderAcceptsThreadDefaults(defaults: ThreadDefaults, defaultProvider: string = fallbackDefaultProvider): void {
+  assertInstalledProvider(defaultProvider);
+  const definition = installedDefinitions.find(entry => entry.id === defaultProvider)!;
+  const refused = Object.entries(resolveThreadDefaults(defaults, definition.capabilities)).filter(([, resolution]) => resolution.outcome === "refuse");
+  if (refused.length) throw new Error(describeThreadDefaults(defaults, [definition]).filter(notice => notice.includes("refuses")).join("\n"));
 }
 
 export function createProviderServices(defaultProvider: string = fallbackDefaultProvider): ProviderServices {

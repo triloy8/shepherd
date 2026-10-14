@@ -209,7 +209,7 @@ new handle using the desired thread ID after restart.
 questions, skills, fork, compact, revert and `accountReset`, descriptors advertise `steer`,
 `interrupt`, `rename`, `archive`, `unarchive`, `workspaceChange`, `modelCatalog`,
 `modelSelection`, `effortSelection`, `skillConfig`, and `approvalModes`,
-`sandboxModes`, `inputKinds`, `imageDetail`, and `ephemeralThreads`. Input kinds are
+`sandboxModes`, `inputKinds`, and `imageDetail`. Input kinds are
 `text`, `image` (URL or data URL), `image_file`, `audio`, `audio_file`, and `skill`.
 Image inputs may set `detail` to `low`, `high`, or `full` (no downscaling) when
 `imageDetail` is true; omit it to let the provider choose.
@@ -348,11 +348,12 @@ refresh the conversation list before retrying to avoid duplicate forks.
 ### Skills
 
 The attached conversation exposes `GET /api/conversations/:id/skills` returning
-`SkillsListResponse` (workspace directories, skill names/descriptions/paths/scopes,
-effective enabled state, and discovery errors). Workspace selection comes from the
+`SkillsListResponse`: `{ workspacePath, skills, errors }`, where `workspacePath` is the
+conversation's effective workspace, `skills` lists names, descriptions, paths, scopes and
+effective enabled state, and `errors` lists skill files that could not be loaded. Workspace selection comes from the
 shared conversation service, not a client-supplied directory.
 
-Discovery is scoped to the conversation’s effective workspace; clients cannot override it with arbitrary directories. The provider port receives one `workspacePath` and an optional refresh preference.
+Discovery is scoped to the conversation’s effective workspace; clients cannot override it with arbitrary directories. The provider port receives one `workspacePath` and an optional refresh preference, and returns `{ skills, errors }`; core adds the workspace. Codex's per-directory grouping is merged inside its adapter.
 
 `POST /api/conversations/:id/skills-reload` with `{}` repeats discovery with
 `refresh: true` and returns the same shape. `POST /api/conversations/:id/skills`

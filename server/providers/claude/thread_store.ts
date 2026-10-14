@@ -1,16 +1,20 @@
-import type * as P from "../../../shared/protocol/requests.js";
+import type { ClaudeStoredTokenUsage, ClaudeStoredTurn } from "./history.js";
+import type { ClaudeStoredApprovalMode } from "./permissions.js";
 
 export const claudeEffortLevels = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ClaudeEffort = typeof claudeEffortLevels[number];
 export const isClaudeEffort = (value: unknown): value is ClaudeEffort => claudeEffortLevels.includes(value as ClaudeEffort);
 
+/** Saved snapshot. Every field is an adapter-owned value; history.ts presents it to the application. */
 export type ClaudeThread = {
   id: string; nativeId: string; materialized: boolean; cwd: string; model: string;
   effort: ClaudeEffort | undefined; name: string | null; preview: string; archived: boolean;
-  createdAt: number; updatedAt: number; instructions: string;
-  turns: P.HistoryTurn[];
-  tokenUsage?: P.ThreadTokenUsage;
-  approvalMode?: P.ApprovalPolicy;
+  createdAt: number; updatedAt: number;
+  /** Written by earlier versions; still appended to the preset prompt when present. */
+  instructions?: string;
+  turns: ClaudeStoredTurn[];
+  tokenUsage?: ClaudeStoredTokenUsage;
+  approvalMode?: ClaudeStoredApprovalMode;
 };
 
 /** Listing metadata. Reading it must not load conversation history. */

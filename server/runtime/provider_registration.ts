@@ -2,14 +2,21 @@ import type { ProviderServices, ProviderAccount, ProviderSessionFactory } from "
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
 import { scopedProviderSession, scopedProviderTools, parseScopedThreadId } from "./provider_thread_identity.js";
 import { FileThreadProviderDirectory } from "../storage/thread_provider_directory.js";
-import { unsupportedThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
+import { resolveThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
 
 /** Check the same capability metadata used to register providers, without constructing sessions. */
 export function describeThreadDefaults(defaults: ThreadDefaults, providers: readonly Pick<ProviderRegistration, "displayName" | "capabilities">[]): string[] {
   const settings = { approvalPolicy: ["SHEPHERD_APPROVAL_MODE", defaults.approvalPolicy], sandbox: ["SHEPHERD_SANDBOX_MODE", defaults.sandbox] } as const;
-  return providers.flatMap(({ displayName, capabilities }) => unsupportedThreadDefaults(defaults, capabilities).map(key => {
-    const [name, value] = settings[key];
-    return `${displayName} does not support ${name}=${value}; its conversations use the agent's own default for that setting.`;
+  return providers.flatMap(({ displayName, capabilities }) => Object.entries(resolveThreadDefaults(defaults, capabilities)).flatMap(([key, resolution]) => {
+    const [name, value] = settings[key as keyof ThreadDefaults];
+    const unsupported = `${displayName} does not support ${name}=${value}`;
+    switch (resolution.outcome) {
+      case "apply": return [];
+      case "stricter": return [`${unsupported}; its conversations use the stricter ${resolution.value} instead.`];
+      case "provider_default": return [`${unsupported}; its conversations use the agent's own default for that setting.`];
+      // Creation applies both defaults; resume and fork apply only the sandbox default.
+      case "refuse": return [`${unsupported} or anything stricter; Shepherd refuses to ${key === "sandbox" ? "create, resume or fork" : "create"} its conversations until the setting changes.`];
+    }
   }));
 }
 

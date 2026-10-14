@@ -12,7 +12,7 @@ async page => {
     availability: 'available', source: 'provider', checkedAt: now, stale: false, ordinaryUsageAllowed: true,
     windows: [{ id: 'session', groupId: null, label: 'Session allowance', subtitle: null, durationMinutes: 300,
       usedPercent: 25, resetsAt: now + 300, status: 'available', observedAt: now, stale: false }],
-    extraUsage: null, spendControls: [], resets, message: null });
+    extraUsage: null, resets, message: null });
   await page.route('**/api/limits?provider=codex*', route => route.fulfill(failRead
     ? { status: 502, json: { error: { code: 'operation_failed', message: 'Limits unavailable' } } }
     : { json: snapshot() }));

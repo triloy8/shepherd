@@ -184,7 +184,7 @@ export async function handleInteraction(
     await conversation.applyApprovalDecision(parsed.threadId, parsed.approvalId, {
       decision: parsed.decision,
     });
-    responseText = request?.userInput ? "Questions skipped." : formatApprovalDecisionReply(choice?.label ?? "Submitted");
+    responseText = request?.userInput ? "Questions skipped." : formatApprovalDecisionReply(choice);
   } catch (error) {
     responseText = error instanceof Error ? error.message : "Failed to submit decision";
   }

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { FileThreadProviderDirectory } from "../server/storage/thread_provider_directory.js";
 import { assembleProviderServices, describeThreadDefaults } from "../server/runtime/provider_registration.js";
-import { assertInstalledProvider, threadDefaultNotices } from "../server/runtime/provider_services.js";
+import { assertDefaultProviderAcceptsThreadDefaults, assertInstalledProvider, threadDefaultNotices } from "../server/runtime/provider_services.js";
 import { ConversationService } from "../server/core/conversation_service.js";
 import { IndependentSession, descriptor } from "./helpers/independent_provider.js";
 import { account } from "./helpers/account.js";
@@ -12,11 +12,11 @@ import { CodexSession } from "../server/providers/codex/session.js";
 import { codexOwnsStoredThread } from "../server/providers/codex/thread_ownership.js";
 import { readRuntimeConfig } from "../server/config/runtime_environment.js";
 import { assertInputSupport, assertThreadSupport } from "../shared/protocol/provider_support.js";
-import { historyItem as claudeHistoryItem } from "../server/providers/claude/history.js";
+import { historyItem as claudeHistoryItem, storedItem as claudeStoredItem } from "../server/providers/claude/history.js";
 import { codexCapabilities } from "../server/providers/codex/capabilities.js";
 import { claudeCapabilities } from "../server/providers/claude/capabilities.js";
 import { validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest } from "../shared/protocol/validation.js";
-import type { ApprovalPolicy } from "../shared/protocol/requests.js";
+import type { ApprovalPolicy, SandboxMode } from "../shared/protocol/requests.js";
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach(path => rmSync(path, { recursive: true, force: true })));
@@ -85,7 +85,8 @@ test("native ownership lookup finds indexed, unindexed and archived Codex record
 
 test("application request validators reject SDK fields across create, resume and fork", () => {
   for (const validate of [validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest]) {
-    for (const field of ["config", "personality", "modelProvider", "serviceName", "baseInstructions", "developerInstructions"]) expect(() => validate({ [field]: {} })).toThrow(`Unsupported request field: ${field}`);
+    // instructions and ephemeral were removed: no surface sent them, and their cross-provider semantics were unverified.
+    for (const field of ["config", "personality", "modelProvider", "serviceName", "baseInstructions", "developerInstructions", "instructions", "ephemeral"]) expect(() => validate({ [field]: {} })).toThrow(`Unsupported request field: ${field}`);
     expect(validate({ effort: "high", sandbox: "workspace_write", approvalPolicy: "review_sensitive" })).toMatchObject({ effort: "high", sandbox: "workspace_write", approvalPolicy: "review_sensitive" });
   }
 });
@@ -93,11 +94,10 @@ test("application request validators reject SDK fields across create, resume and
 test("capabilities reject unsupported settings and media inputs without claiming identical native policies", () => {
   expect(() => assertThreadSupport("agent", claudeCapabilities, { approvalPolicy: "review_untrusted" })).toThrow("approval mode review_untrusted");
   expect(() => assertThreadSupport("agent", claudeCapabilities, { sandbox: "workspace_write" })).toThrow("sandbox mode workspace_write");
-  expect(() => assertThreadSupport("agent", claudeCapabilities, { ephemeral: true })).toThrow("ephemeral");
   for (const input of [{ type: "audio", url: "data:audio/wav;base64,AA" }, { type: "image_file", path: "/tmp/image" }, { type: "skill", name: "tool", path: "/tmp/tool" }] as const) expect(() => assertInputSupport("agent", claudeCapabilities, [input])).toThrow("inputs");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "image", url: "https://example.com", detail: "high" }])).toThrow("image detail");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "text", text: "abc" }, { type: "image", url: "data:image/png;base64,AA" }])).not.toThrow();
-  expect(() => assertThreadSupport("agent", codexCapabilities, { approvalPolicy: "review_untrusted", sandbox: "read_only", ephemeral: true })).not.toThrow();
+  expect(() => assertThreadSupport("agent", codexCapabilities, { approvalPolicy: "review_untrusted", sandbox: "read_only" })).not.toThrow();
   expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "provider_default" });
   expect(readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "bypass", SHEPHERD_SANDBOX_MODE: "unrestricted" })).toMatchObject({ approvalPolicy: "bypass", defaultSandbox: "unrestricted" });
   expect(() => readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "review_all" })).toThrow("misleading");
@@ -108,7 +108,7 @@ test("core rejects unsupported create, submit and steer before provider executio
   const services = assembleProviderServices([{ ...registration(), create: () => { const session = new IndependentSession(); sessions.push(session); return session; } }], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
-    await expect(conversation.createThread({ ephemeral: true })).rejects.toThrow("ephemeral");
+    await expect(conversation.createThread({ sandbox: "read_only" })).rejects.toThrow("sandbox mode");
     expect(sessions[0]!.stopped).toBe(true);
     const { threadId } = await conversation.createThread({});
     await expect(conversation.submitTurn(threadId, { input: [{ type: "text", text: "hello" }], approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode");
@@ -313,13 +313,14 @@ test("skill discovery and model catalogs can be read-only", async () => {
     modelSelection: false, effortSelection: false };
   const services = assembleProviderServices([{ ...registration(), capabilities, create: () => {
     const session = new IndependentSession();
-    Object.assign(session, { capabilities, listSkills: async () => ({ data: [] }) });
+    Object.assign(session, { capabilities, listSkills: async () => ({ skills: [], errors: [] }) });
     return session;
   } }], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
     const { threadId } = await conversation.createThread({});
-    expect(await conversation.listSkills(threadId, {})).toEqual({ data: [] });
+    // Core reports the effective workspace it asked the provider to search.
+    expect(await conversation.listSkills(threadId, {})).toEqual({ workspacePath: await conversation.resolveThreadCwd(threadId), skills: [], errors: [] });
     expect((await conversation.listModels({})).data).toHaveLength(1);
     await expect(conversation.writeSkillConfig(threadId, { path: "/tmp/skill", enabled: true })).rejects.toThrow("skillConfig");
     expect(() => conversation.setThreadModel(threadId, "third-model")).toThrow("modelSelection");
@@ -327,41 +328,75 @@ test("skill discovery and model catalogs can be read-only", async () => {
   } finally { conversation.stopAll(); }
 });
 
-test("host approval and sandbox defaults apply only where the provider supports them", async () => {
+test("host approval and sandbox defaults never loosen a provider's execution", async () => {
   const requests: unknown[] = [];
   class RecordingSession extends IndependentSession {
     override async startThread(request?: unknown) { requests.push(request); return super.startThread(); }
     override async resumeThread(threadId: string, request?: unknown) { requests.push(request); return super.resumeThread(threadId); }
   }
-  const supported = { ...descriptor.capabilities, sandboxModes: ["workspace_write"] as const };
-  const create = (capabilities: typeof descriptor.capabilities, threadDefaults: { approvalPolicy?: ApprovalPolicy; sandbox?: "workspace_write" }) => new ConversationService({
+  type Capabilities = typeof descriptor.capabilities;
+  const create = (capabilities: Capabilities, threadDefaults: { approvalPolicy?: ApprovalPolicy; sandbox?: SandboxMode }) => new ConversationService({
     threadDefaults,
     providers: assembleProviderServices([{ ...registration(), capabilities, create: () => { const session = new RecordingSession(); Object.assign(session, { capabilities }); return session; } }], directory(), descriptor.id),
   });
-  const unsupported = create(descriptor.capabilities, { approvalPolicy: "review_untrusted", sandbox: "workspace_write" });
-  const honored = create(supported, { approvalPolicy: "bypass", sandbox: "workspace_write" });
+  // descriptor: no sandbox modes; provider_default, review_sensitive and bypass approvals.
+  const loosest = create(descriptor.capabilities, { approvalPolicy: "bypass", sandbox: "unrestricted" });
+  const restricted = create(descriptor.capabilities, { sandbox: "workspace_write" });
+  const untrusted = create(descriptor.capabilities, { approvalPolicy: "review_untrusted" });
+  const stricter = create({ ...descriptor.capabilities, sandboxModes: ["read_only", "unrestricted"], approvalModes: ["review_untrusted"] }, { approvalPolicy: "review_sensitive", sandbox: "workspace_write" });
+  const honored = create({ ...descriptor.capabilities, sandboxModes: ["workspace_write"] }, { approvalPolicy: "bypass", sandbox: "workspace_write" });
+  const services = [loosest, restricted, untrusted, stricter, honored];
   try {
-    const { threadId } = await unsupported.createThread({});
+    // The least restrictive modes fall back to the provider's own default, which cannot be looser.
+    const { threadId } = await loosest.createThread({});
+    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "bypass" });
     expect(requests.at(-1)).not.toHaveProperty("sandbox");
-    expect(requests.at(-1)).not.toHaveProperty("approvalPolicy");
+    // Restrictive defaults without an equal or stricter mode are refused, not dropped.
+    const created = requests.length;
+    await expect(restricted.createThread({})).rejects.toThrow("host default sandbox mode workspace_write");
+    await expect(untrusted.createThread({})).rejects.toThrow("host default approval mode review_untrusted");
+    expect(requests.length).toBe(created);
+    // An explicit request replaces the default rather than being refused because of it.
+    await untrusted.createThread({ approvalPolicy: "review_sensitive" });
+    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "review_sensitive" });
+    // An unsupported default becomes the least restrictive supported mode that is still stricter.
+    await stricter.createThread({});
+    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "review_untrusted", sandbox: "read_only" });
     // Explicit request values are never adjusted.
-    await expect(unsupported.createThread({ sandbox: "workspace_write" })).rejects.toThrow("sandbox mode");
-    await expect(unsupported.createThread({ approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode");
+    await expect(loosest.createThread({ sandbox: "workspace_write" })).rejects.toThrow("sandbox mode");
+    await expect(loosest.createThread({ approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode");
     await honored.createThread({});
     expect(requests.at(-1)).toMatchObject({ approvalPolicy: "bypass", sandbox: "workspace_write" });
     await honored.createThread({ approvalPolicy: "review_sensitive" });
     expect(requests.at(-1)).toMatchObject({ approvalPolicy: "review_sensitive", sandbox: "workspace_write" });
-    expect(unsupported.getThreadState(threadId).threadId).toBe(threadId);
-  } finally { unsupported.stopAll(); honored.stopAll(); }
+    expect(loosest.getThreadState(threadId).threadId).toBe(threadId);
+  } finally { for (const service of services) service.stopAll(); }
+});
+
+test("a restrictive host sandbox default also refuses resuming and forking", async () => {
+  const path = directory();
+  const open = (threadDefaults: { sandbox?: SandboxMode }) => new ConversationService({ threadDefaults, providers: assembleProviderServices([registration()], path, descriptor.id) });
+  const first = open({});
+  let threadId: string;
+  try { threadId = (await first.createThread({ cwd: "/tmp" })).threadId; } finally { first.stopAll(); }
+  const second = open({ sandbox: "read_only" });
+  try { await expect(second.resumeThread(threadId!, {})).rejects.toThrow("host default sandbox mode read_only"); }
+  finally { second.stopAll(); }
 });
 
 test("startup notices name the host defaults an installed agent cannot apply", () => {
   expect(threadDefaultNotices({ approvalPolicy: "bypass", sandbox: "unrestricted" })).toEqual([]);
   const notices = threadDefaultNotices({ approvalPolicy: "review_untrusted", sandbox: "workspace_write" });
   expect(notices).toEqual([
-    expect.stringContaining("Claude does not support SHEPHERD_APPROVAL_MODE=review_untrusted"),
-    expect.stringContaining("Claude does not support SHEPHERD_SANDBOX_MODE=workspace_write"),
+    expect.stringContaining("Claude does not support SHEPHERD_APPROVAL_MODE=review_untrusted or anything stricter; Shepherd refuses to create"),
+    expect.stringContaining("Claude does not support SHEPHERD_SANDBOX_MODE=workspace_write or anything stricter; Shepherd refuses to create, resume or fork"),
   ]);
+});
+
+test("startup rejects host defaults that the default agent would refuse for every conversation", () => {
+  expect(() => assertDefaultProviderAcceptsThreadDefaults({ approvalPolicy: "review_untrusted", sandbox: "read_only" }, "codex")).not.toThrow();
+  expect(() => assertDefaultProviderAcceptsThreadDefaults({ approvalPolicy: "bypass", sandbox: "unrestricted" }, "claude")).not.toThrow();
+  expect(() => assertDefaultProviderAcceptsThreadDefaults({ sandbox: "read_only" }, "claude")).toThrow("SHEPHERD_SANDBOX_MODE=read_only");
 });
 
 test("keeping a thread's workspace does not require workspace changes", async () => {
@@ -375,7 +410,7 @@ test("keeping a thread's workspace does not require workspace changes", async ()
 });
 
 test("Claude snapshots saved with the earlier image prompt field still decode", () => {
-  const image = (fields: Record<string, unknown>) => claudeHistoryItem({ id: "image", type: "image", image: { path: "/tmp/a.png", kind: "generated", ...fields } }, "turn");
+  const image = (fields: Record<string, unknown>) => claudeHistoryItem(claudeStoredItem({ id: "image", type: "image", image: { path: "/tmp/a.png", kind: "generated", ...fields } }), "turn");
   expect(image({ revisedPrompt: "A meadow" })).toMatchObject({ image: { prompt: "A meadow" } });
   expect(image({ prompt: "A forest" })).toMatchObject({ image: { prompt: "A forest" } });
 });
@@ -442,7 +477,7 @@ test("invalid question cancellation stops the session instead of leaving a provi
 
 test("config notices validate arbitrary provider registrations, including providers without sandbox settings", () => {
   expect(describeThreadDefaults({ sandbox: "unrestricted", approvalPolicy: "review_untrusted" }, [registration()])).toEqual([
-    expect.stringContaining("SHEPHERD_APPROVAL_MODE=review_untrusted"),
-    expect.stringContaining("SHEPHERD_SANDBOX_MODE=unrestricted"),
+    expect.stringContaining("SHEPHERD_APPROVAL_MODE=review_untrusted or anything stricter"),
+    expect.stringContaining("SHEPHERD_SANDBOX_MODE=unrestricted; its conversations use the agent's own default"),
   ]);
 });

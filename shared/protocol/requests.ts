@@ -14,12 +14,9 @@ export type AgentProvider = string;
 export interface CreateThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  /** Added to the provider's default instructions; never replaces them. */
-  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
-  ephemeral?: boolean;
   effort?: string;
 }
 
@@ -92,6 +89,7 @@ export interface ListStoredThreadsResponse {
   unavailableProviders?: AgentProvider[];
   threads: StoredThreadSummary[];
   nextCursor: string | null;
+  /** Shepherd's own cursor for the previous page; core computes it across every provider. */
   backwardsCursor: string | null;
 }
 
@@ -127,8 +125,6 @@ export interface ReadThreadResponse {
 export interface ResumeThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  /** Added to the provider's default instructions; never replaces them. */
-  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -143,8 +139,6 @@ export interface ResumeThreadResponse {
 export interface ForkThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  /** Added to the provider's default instructions; never replaces them. */
-  instructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -282,14 +276,15 @@ export interface SkillErrorInfo {
   path: string;
 }
 
-export interface SkillsListEntry {
-  cwd: string;
-  errors: SkillErrorInfo[];
+/** Skills a provider discovered for one workspace, and the skill files it could not load. */
+export interface SkillsListing {
   skills: SkillMetadata[];
+  errors: SkillErrorInfo[];
 }
 
-export interface SkillsListResponse {
-  data: SkillsListEntry[];
+/** Skills available to a conversation, discovered in its effective workspace. */
+export interface SkillsListResponse extends SkillsListing {
+  workspacePath: string;
 }
 
 export interface SkillsConfigWriteRequest {
@@ -367,6 +362,10 @@ export interface HistoryTurn {
   durationMs: number | null;
 }
 
+/** Opaque provider cursors. `nextCursor` continues in the requested direction and is required
+ * for every page but the last. `backwardsCursor` is optional support: when a provider offers it,
+ * passing it as `cursor` with the opposite `sortDirection` pages back; null means the provider
+ * cannot reverse a page, so clients page back by revisiting earlier forward cursors. */
 export interface ListThreadTurnsResponse {
   data: HistoryTurn[];
   nextCursor: string | null;
@@ -380,6 +379,7 @@ export interface ListThreadItemsRequest {
   sortDirection?: SortDirection;
 }
 
+/** Cursor semantics match ListThreadTurnsResponse. */
 export interface ListThreadItemsResponse {
   data: Array<{ turnId: string; item: HistoryItem }>;
   nextCursor: string | null;

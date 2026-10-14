@@ -34,7 +34,7 @@ describe("Discord interactions", () => {
     };
 
     const conversation = {
-      listApprovals: () => [{ approvalId: "approval-1", status: "pending", choices: [{ value: "approve", label: "Approved" }] }],
+      listApprovals: () => [{ approvalId: "approval-1", status: "pending", choices: [{ value: "approve", label: "Approved", intent: "allow" }] }],
       async applyApprovalDecision(
         threadId: string,
         approvalId: string,

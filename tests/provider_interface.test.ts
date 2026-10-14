@@ -119,10 +119,15 @@ test("Codex skill listings keep application fields and drop native presentation 
     { name: "future", description: "Future", path: "/skills/future", scope: "workspace-cloud", enabled: false },
     { name: "broken", path: "/skills/broken" },
   ] }] });
-  expect(listed).toEqual({ data: [{ cwd: "/repo", errors: [{ path: "/repo/bad", message: "Broken" }], skills: [
+  expect(listed).toEqual({ errors: [{ path: "/repo/bad", message: "Broken" }], skills: [
     { name: "github", description: "GitHub", path: "/skills/github", scope: "repo", enabled: true },
     { name: "future", description: "Future", path: "/skills/future", scope: "workspace-cloud", enabled: false },
-  ] }] });
+  ] });
+  // Codex groups discovery by directory; one workspace's entries merge without duplicate paths.
+  expect(codexSkills({ data: [
+    { cwd: "/repo", errors: [], skills: [{ name: "a", description: "", path: "/a", scope: "repo", enabled: true }] },
+    { cwd: "/repo", errors: [{ path: "/b", message: "Bad" }], skills: [{ name: "a", description: "", path: "/a", scope: "repo", enabled: true }] },
+  ] })).toEqual({ errors: [{ path: "/b", message: "Bad" }], skills: [{ name: "a", description: "", path: "/a", scope: "repo", enabled: true }] });
 });
 
 test("opaque permission options retain native policy amendments and reject stale ownership", async () => {

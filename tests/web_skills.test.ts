@@ -10,10 +10,10 @@ test("web skills discover in the attached workspace, reload, and toggle exact pa
     expect(fixture.calls[0]).toEqual({ threadId: c.threadId, request: {} });
     expect((await h.request(`${path}-reload`, "POST", {})).status).toBe(200);
     expect(fixture.calls.at(-1)).toEqual({ threadId: c.threadId, request: { refresh: true } });
-    const skill = fixture.data.data[0]!.skills[1]!;
+    const skill = fixture.data.skills[1]!;
     expect(await (await h.request(path, "POST", { path: skill.path, enabled: true })).json()).toEqual({ enabled: true });
     expect(fixture.calls.at(-1)).toEqual({ threadId: c.threadId, request: { path: skill.path, enabled: true } });
-    expect(fixture.data.data[0]!.skills.every((skill) => skill.enabled)).toBe(true);
+    expect(fixture.data.skills.every((skill) => skill.enabled)).toBe(true);
     Object.assign(h.application.conversation, { writeSkillConfig: async () => ({ enabled: false }) });
     expect(await (await h.request(path, "POST", { path: skill.path, enabled: true })).json()).toEqual({ enabled: false });
   } finally { h.api.dispose(); }

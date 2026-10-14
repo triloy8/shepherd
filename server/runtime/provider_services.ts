@@ -38,7 +38,7 @@ const installedDefinitions = [
         create: (policy, tools) => new ClaudeSession(policy, tools, store, undefined, limits, models),
         account: { read: refresh => limits.readAccount(refresh) },
         hasStoredThreads: () => store.hasThreads(),
-        ownsStoredThread: id => store.list().some(thread => thread.id === id),
+        ownsStoredThread: id => store.has(id),
         shutdown: () => limits.stop(),
       } satisfies Omit<ProviderRegistration, "id" | "displayName" | "capabilities">;
     },

@@ -638,6 +638,10 @@ test("thread listing reads summaries, rebuilds legacy summaries, and skips unrea
   expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ id: threadId, cwd: "/project" }); expect("turns" in rows[0]!).toBe(false);
   expect(existsSync(join(directory, `${threadId}.meta.json`))).toBe(true);
   expect(warnings).toHaveLength(1); expect(storage.hasThreads()).toBe(true);
+  // Ownership checks look up one snapshot by ID rather than listing every thread.
+  expect(storage.has(threadId)).toBe(true);
+  expect(storage.has("claude-11111111-1111-1111-1111-111111111111")).toBe(false);
+  expect(storage.has("../outside")).toBe(false);
 });
 
 test("snapshots written with earlier item names decode into the application history contract", async () => {

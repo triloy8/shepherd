@@ -30,4 +30,6 @@ export interface ClaudeThreadRepository {
   write(thread: ClaudeThread): void;
   list(): ClaudeThreadSummary[];
   hasThreads(): boolean;
+  /** Whether a snapshot exists for this ID, without reading any snapshot. */
+  has(id: string): boolean;
 }

@@ -92,7 +92,7 @@ test("application request validators reject SDK fields across create, resume and
 });
 
 test("capabilities reject unsupported settings and media inputs without claiming identical native policies", () => {
-  expect(() => assertThreadSupport("agent", claudeCapabilities, { approvalPolicy: "review_untrusted" })).toThrow("approval mode review_untrusted");
+  expect(() => assertThreadSupport("agent", claudeCapabilities, { approvalPolicy: "review_untrusted" })).not.toThrow();
   expect(() => assertThreadSupport("agent", claudeCapabilities, { sandbox: "workspace_write" })).toThrow("sandbox mode workspace_write");
   for (const input of [{ type: "audio", url: "data:audio/wav;base64,AA" }, { type: "image_file", path: "/tmp/image" }, { type: "skill", name: "tool", path: "/tmp/tool" }] as const) expect(() => assertInputSupport("agent", claudeCapabilities, [input])).toThrow("inputs");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "image", url: "https://example.com", detail: "high" }])).toThrow("image detail");
@@ -388,7 +388,6 @@ test("startup notices name the host defaults an installed agent cannot apply", (
   expect(threadDefaultNotices({ approvalPolicy: "bypass", sandbox: "unrestricted" })).toEqual([]);
   const notices = threadDefaultNotices({ approvalPolicy: "review_untrusted", sandbox: "workspace_write" });
   expect(notices).toEqual([
-    expect.stringContaining("Claude does not support SHEPHERD_APPROVAL_MODE=review_untrusted or anything stricter; Shepherd refuses to create"),
     expect.stringContaining("Claude does not support SHEPHERD_SANDBOX_MODE=workspace_write or anything stricter; Shepherd refuses to create, resume or fork"),
   ]);
 });

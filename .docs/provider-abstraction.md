@@ -221,7 +221,8 @@ and continuation. Adapters pass no native mode for it: Codex sends no approval p
 Claude sends no permission mode so its settings' `defaultMode` applies. Host defaults apply at creation; ordinary surface messages do not
 override the saved mode. `review_sensitive` uses
 the provider's normal permission review (Codex `on-request`, Claude `default`); `review_untrusted` reviews actions according to
-its trust model and is currently supported only by Codex. `bypass` suppresses permission
+its trust model (Codex `untrusted`; Claude `default`, which already asks before any action its
+permission rules have not allowed, so both review modes select it). `bypass` suppresses permission
 review but retains explicit user questions. None of these modes promises review of every
 action. The misleading `review_all` environment value is rejected; use `review_untrusted`
 for the previous trust-based behavior. Existing `bypass`/`unrestricted` installations need

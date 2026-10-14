@@ -733,22 +733,20 @@ test("Claude permission modes, typed effort and native defaults survive resume a
   }
 });
 
-test("Claude rejects trust-review mode before creation, execution, or steering and leaves work unchanged", async () => {
-  const storage = store(); const fake = sdk(async function* () { yield result; });
+test("Claude reviews untrusted actions with its default permission mode and keeps that mode on resume", async () => {
+  const storage = store(); const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });
   const session = new ClaudeSession("provider_default", undefined, storage, fake);
+  const resumed = new ClaudeSession("provider_default", undefined, storage, fake);
   try {
-    await expect(session.startThread({ approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    expect(storage.hasThreads()).toBe(false);
-    const created = await session.startThread({});
-    await expect(session.resumeThread(created.threadId, { approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    await expect(session.forkThread(created.threadId, { approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    await expect(session.startTurn([toTextUserInput("Hello")], "review_untrusted")).rejects.toThrow("approval mode review_untrusted");
+    const created = await session.startThread({ approvalPolicy: "review_untrusted" });
+    expect(created.approvalPolicy).toBe("review_untrusted");
     await expect(session.steerTurn([{ type: "audio", url: "audio" }])).rejects.toThrow("audio inputs");
-    expect(fake.calls).toHaveLength(0); expect(fake.forks).toHaveLength(0);
-    expect(session.activeTurnId).toBeNull(); expect(storage.read(created.threadId).turns).toEqual([]);
-  } finally { session.stop(); }
+    await session.startTurn([toTextUserInput("Hello")]); await done(session);
+    expect(fake.calls[0]!.options).toMatchObject({ permissionMode: "default" });
+    expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBeUndefined();
+    expect((await resumed.resumeThread(created.threadId, {})).approvalPolicy).toBe("review_untrusted");
+  } finally { session.stop(); resumed.stop(); }
 });
-
 
 test("Claude clears effort by restarting with no SDK effort and persisting the cleared setting", async () => {
   const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });

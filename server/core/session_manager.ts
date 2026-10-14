@@ -491,7 +491,6 @@ export class SessionManager {
       }
       if (selected) this.assertModelEffort(selected, effort);
     }
-    if (effort || request.effort === null || effortState?.pendingClear) this.requireCapability(threadId, "effortSelection");
     const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
     if (model && model !== modelState?.currentModel && !managed.session.capabilities.effortSelection) {
       // The adapter chooses effort with its new model; the previous measurement is no longer known.

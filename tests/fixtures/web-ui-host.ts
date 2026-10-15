@@ -50,7 +50,7 @@ function previewText(item: HistoryItem | undefined): string {
   const part = item?.type === "user_message" ? item.content[0] : undefined;
   return part?.type === "text" ? part.text : "New conversation";
 }
-const activity = (itemId: string, turnId: string, kind: TurnActivityEvent["payload"]["kind"], label: string, detail: string | null, status: TurnActivityEvent["payload"]["status"]) => ({ itemId, turnId, kind, label, detail, status });
+const activity = (itemId: string, turnId: string, value: TurnActivityEvent["payload"]["activity"], status: TurnActivityEvent["payload"]["status"]): TurnActivityEvent["payload"] => ({ itemId, turnId, activity: value, status });
 const names = new Map<string, string>();
 const archivedIds = new Set<string>();
 const stored = (): StoredThreadSummary[] => [...histories.entries()].map(([threadId, turns]) => ({ threadId, provider: threadProviders.get(threadId) ?? "codex", canUnarchive: true, name: names.get(threadId) ?? (threadId === "stored" ? "A new home for Shepherd" : null), preview: previewText(turns[0]?.items[0]), archived: archivedIds.has(threadId), cwd: "~", createdAt: 1, updatedAt: 2 }));
@@ -165,17 +165,17 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     publish(threadId, "turn.message.completed", { itemId, turnId: portable ? null : turnId, phase: portable ? null : "final", text: response });
     if (text.includes("view screenshot") || text.includes("answer screenshot")) {
       const image = { id: `view-${sequence}`, path: viewedImagePath };
-      turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: image.path, kind: "viewed" }, activity: activity(image.id, turnId, "image", "Viewing image", image.path, "completed") });
+      turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: image.path, kind: "viewed" }, activity: activity(image.id, turnId, { kind: "image", action: "view", path: image.path, prompt: null }, "completed") });
       publish(threadId, "turn.activity", { itemId: image.id, turnId, activity: { kind: "image", action: "view", path: image.path, prompt: null }, status: "started" });
       publish(threadId, "turn.image.viewed", { itemId: image.id, turnId, path: image.path });
       publish(threadId, "turn.activity", { itemId: image.id, turnId, activity: { kind: "image", action: "view", path: image.path, prompt: null }, status: "completed" });
     }
     if (text.includes("parity")) {
       const tool = { id: `tool-${sequence}`, command: "bun test" };
-      turn.items.push({ id: tool.id, type: "activity", activity: activity(tool.id, turnId, "command", "Running command", tool.command, "failed") });
+      turn.items.push({ id: tool.id, type: "activity", activity: activity(tool.id, turnId, { kind: "command", command: tool.command, cwd: null }, "failed") });
       publish(threadId, "turn.activity", { itemId: tool.id, turnId, activity: { kind: "command", command: tool.command, cwd: null }, status: "failed" });
       const image = { id: `image-${sequence}`, prompt: "Fixture image" };
-      turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, prompt: image.prompt, kind: "generated" }, activity: activity(image.id, turnId, "image", "Generating image", image.prompt, "completed") });
+      turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, prompt: image.prompt, kind: "generated" }, activity: activity(image.id, turnId, { kind: "image", action: "generate", path: imagePath, prompt: image.prompt }, "completed") });
       publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: imagePath, prompt: image.prompt });
       const final = { id: `final-${sequence}`, type: "assistant_message" as const, phase: "final" as const, text: "Second final answer part." };
       turn.items.push(final);
@@ -201,7 +201,7 @@ Object.assign(h.application.conversation, {
   async compactThread(threadId: string) {
     const turnId = `compact-${++sequence}`;
     const itemId = `compaction-${sequence}`;
-    const compaction = activity(itemId, turnId, "other", "Compacting context", null, "started");
+    const compaction = activity(itemId, turnId, { kind: "other", title: "Compacting context", detail: null }, "started");
     const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: itemId, type: "activity", activity: compaction }] };
     histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
     h.active.set(threadId, turnId);

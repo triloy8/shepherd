@@ -7,8 +7,6 @@ import {
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
   BridgeEvent,
-  TurnActivityEvent,
-  TurnImageGeneratedEvent,
 } from "../../../shared/protocol/events.js";
 import {
   createResponseStreamState,
@@ -436,10 +434,9 @@ export function createDiscordThreadEventHandler(
       state.status !== "working" &&
       (
         [
-          "turn.stream.delta",
-          "turn.message.completed",
-          "turn.image.generated",
-          "turn.activity",
+          "item.started",
+          "item.delta",
+          "item.completed",
           "turn.completed",
           "turn.failed",
         ] as BridgeEvent["type"][]
@@ -448,10 +445,10 @@ export function createDiscordThreadEventHandler(
       return;
     }
 
-    if (event.type === "turn.activity") {
-      const activity = event.payload as TurnActivityEvent["payload"];
-      if (activity.status === "started" || activity.status === "failed") {
-        const line = formatActivityLine(activity);
+    const item = event.type === "item.started" || event.type === "item.completed" ? event.payload.item : null;
+    if (item?.type === "activity") {
+      if (item.status === "started" || item.status === "failed") {
+        const line = formatActivityLine(item);
         if (!state.progressLineSet.has(line)) {
           state.progressLineSet.add(line);
           state.progressLines.push(line);
@@ -461,14 +458,14 @@ export function createDiscordThreadEventHandler(
       return;
     }
 
-    if (event.type === "turn.image.generated") {
-      const image = event.payload as TurnImageGeneratedEvent["payload"];
+    if (event.type === "item.completed" && item?.type === "image" && item.image.kind === "generated") {
+      const image = item.image;
       if (state.generatedImageItemIds.has(image.itemId)) return;
       state.generatedImageItemIds.add(image.itemId);
       flushProgress(channelId, state);
       enqueue(channelId, state, async (channel) => {
         const result = await sendDiscordGeneratedImage(channel, image.path, {
-          description: image.prompt,
+          description: image.prompt ?? null,
           ...(generatedImageLoader ? { loadAttachment: generatedImageLoader } : {}),
         });
         if (result.success) return;

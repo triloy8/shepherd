@@ -1,5 +1,4 @@
 import type { HistoryContentPart, HistoryItem, HistoryTurn, ThreadTokenUsage, TokenUsageBreakdown } from "../../../shared/protocol/requests.js";
-import type { TurnActivityEvent } from "../../../shared/protocol/events.js";
 import { claudeActivity, claudeActivityFields, type ClaudeActivityFields } from "./activity.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 
@@ -22,7 +21,7 @@ export type ClaudeStoredItem =
   | { id: string; type: "plan"; text: string }
   | { id: string; type: "reasoning"; summary: string[] }
   | { id: string; type: "activity"; activity: ClaudeStoredActivity }
-  | { id: string; type: "image"; image: { path: string; kind: "generated" | "viewed"; prompt: string | null }; activity?: ClaudeStoredActivity }
+  | { id: string; type: "image"; image: { path: string; kind: "generated" | "viewed"; prompt: string | null } }
   | { id: string; type: "other" };
 export type ClaudeStoredTurn = {
   id: string; items: ClaudeStoredItem[]; status: "completed" | "interrupted" | "failed" | "in_progress";
@@ -87,7 +86,7 @@ export function storedItem(value: unknown): ClaudeStoredItem {
     const image = record(item.image);
     if (typeof image.path === "string" && (image.kind === "generated" || image.kind === "viewed")) {
       const prompt = typeof image.prompt === "string" ? image.prompt : typeof image.revisedPrompt === "string" ? image.revisedPrompt : null;
-      return { id, type, image: { path: image.path, kind: image.kind, prompt }, ...(activity ? { activity } : {}) };
+      return { id, type, image: { path: image.path, kind: image.kind, prompt } };
     }
   }
   if (type === "activity" && activity) return { id, type, activity };
@@ -130,10 +129,6 @@ export function storedTokenUsage(value: unknown): ClaudeStoredTokenUsage | undef
 
 /* Presentation: saved records to the application contract. */
 
-export function activityPayload(activity: ClaudeStoredActivity, itemId: string, turnId: string): TurnActivityEvent["payload"] {
-  return { itemId, turnId, status: activity.status, activity: claudeActivity(activity.tool, activity.fields) };
-}
-
 function contentPart(part: ClaudeStoredContentPart): HistoryContentPart {
   switch (part.type) {
     case "text": return { type: "text", text: part.text };
@@ -152,12 +147,8 @@ export function historyItem(item: ClaudeStoredItem, turnId: string): HistoryItem
     case "assistant_message": return { id: item.id, type: item.type, text: item.text, ...(item.phase ? { phase: item.phase } : {}) };
     case "plan": return { id: item.id, type: item.type, text: item.text };
     case "reasoning": return { id: item.id, type: item.type, summary: [...item.summary] };
-    case "activity": return { id: item.id, type: item.type, activity: activityPayload(item.activity, item.id, turnId) };
-    case "image": return {
-      id: item.id, type: item.type,
-      image: { itemId: item.id, turnId, path: item.image.path, kind: item.image.kind, prompt: item.image.prompt },
-      ...(item.activity ? { activity: activityPayload(item.activity, item.id, turnId) } : {}),
-    };
+    case "activity": return { id: item.id, type: item.type, status: item.activity.status, activity: claudeActivity(item.activity.tool, item.activity.fields) };
+    case "image": return { id: item.id, type: item.type, image: { itemId: item.id, turnId, path: item.image.path, kind: item.image.kind, prompt: item.image.prompt } };
     case "other": return { id: item.id, type: item.type };
   }
 }

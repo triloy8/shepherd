@@ -95,11 +95,10 @@ export class WebSurfaceApi {
         entry.feed.invalidateHistory();
         return;
       }
-      if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {
-        const image = event.payload;
-        const presentation = entry.images.present(image.turnId, image.itemId, image.path, "prompt" in image ? image.prompt : null, event.type === "turn.image.viewed" ? "viewed" : undefined);
-        if (event.type === "turn.image.generated") entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
-        else entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
+      // Live items are presented exactly as history presents them.
+      if (event.type === "item.started" || event.type === "item.completed") {
+        const { turnId, item } = event.payload;
+        entry.feed.publish("bridge", { ...event, payload: { turnId, item: presentHistoryItem(item, turnId ?? "", entry.images) } });
       } else entry.feed.publish("bridge", event);
     });
     this.host = new WebHostControls(this.application.runtimeLifecycle);

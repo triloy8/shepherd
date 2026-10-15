@@ -1,6 +1,6 @@
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { approvalChoices } from "../approval_choices.js";
-import { activityPayload, historyItem, historyTurn, storedContent, threadTokenUsage, type ClaudeStoredTurn, type ClaudeStoredUsage, type ClaudeStoredTokenUsage } from "./history.js";
+import { historyItem, historyTurn, storedContent, threadTokenUsage, type ClaudeStoredItem, type ClaudeStoredTurn, type ClaudeStoredUsage, type ClaudeStoredTokenUsage } from "./history.js";
 import { claudeDefaults } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
@@ -242,7 +242,7 @@ export class ClaudeSession implements ProviderSession {
           }
         }
         if (message.type === "stream_event" && !message.parent_tool_use_id && turn) {
-          if (message.event.type === "content_block_delta" && message.event.delta.type === "text_delta") this.publish("turn.stream.delta", { kind: "assistant_text", textDelta: message.event.delta.text, itemId: streamItemId, turnId: turn.id, phase: null });
+          if (message.event.type === "content_block_delta" && message.event.delta.type === "text_delta") this.publish("item.delta", { turnId: turn.id, itemId: streamItemId, channel: "message", delta: message.event.delta.text, phase: null });
         }
         if (message.type === "assistant" && !message.parent_tool_use_id && turn) this.assistantMessage(message, turn);
         if (message.type === "user" && !message.parent_tool_use_id && turn && Array.isArray(message.message.content)) {
@@ -250,7 +250,7 @@ export class ClaudeSession implements ProviderSession {
             const item = turn.items.find((item) => item.id === block.tool_use_id);
             if (item?.type === "activity") {
               item.activity.status = block.is_error ? "failed" : "completed";
-              this.publish("turn.activity", activityPayload(item.activity, item.id, turn.id));
+              this.publish("item.completed", { turnId: turn.id, item: historyItem(item, turn.id) });
             }
           }
           this.persistSoon();
@@ -324,25 +324,27 @@ export class ClaudeSession implements ProviderSession {
       // Thinking precedes more work in the response, so text before it is interim. Redacted thinking has no text.
       if (block.type === "thinking" && block.thinking.trim()) {
         this.flushText("interim");
-        turn.items.push({ id: `${message.message.id}:thinking:${turn.items.length}`, type: "reasoning", summary: [boundedText(block.thinking)] });
+        this.completeItem(turn, { id: `${message.message.id}:thinking:${turn.items.length}`, type: "reasoning", summary: [boundedText(block.thinking)] });
       }
       if (block.type === "tool_use") {
         this.flushText("interim");
         // A plan proposed for approval is the turn's plan, as well as a tool call.
         const plan = block.name === "ExitPlanMode" && typeof (block.input as { plan?: unknown })?.plan === "string" ? (block.input as { plan: string }).plan : null;
-        if (plan?.trim()) turn.items.push({ id: `${block.id}:plan`, type: "plan", text: plan });
-        const activity = { tool: block.name, fields: claudeActivityFields(block.input), status: "started" as const };
-        turn.items.push({ id: block.id, type: "activity", activity });
-        this.publish("turn.activity", activityPayload(activity, block.id, turn.id));
+        if (plan?.trim()) this.completeItem(turn, { id: `${block.id}:plan`, type: "plan", text: plan });
+        const item: ClaudeStoredItem = { id: block.id, type: "activity", activity: { tool: block.name, fields: claudeActivityFields(block.input), status: "started" } };
+        turn.items.push(item);
+        this.publish("item.started", { turnId: turn.id, item: historyItem(item, turn.id) });
       }
     }
     this.persistSoon();
   }
   private flushText(phase: "interim" | "final"): void {
-    for (const pending of this.pendingText.splice(0)) {
-      pending.turn.items.push({ id: pending.itemId, type: "assistant_message", text: pending.text, phase });
-      if (!this.stopped) this.publish("turn.message.completed", { itemId: pending.itemId, turnId: pending.turn.id, phase, text: pending.text });
-    }
+    for (const pending of this.pendingText.splice(0)) this.completeItem(pending.turn, { id: pending.itemId, type: "assistant_message", text: pending.text, phase });
+  }
+  /** Save a finished item and deliver it as history will present it. */
+  private completeItem(turn: ClaudeStoredTurn, item: ClaudeStoredItem): void {
+    turn.items.push(item);
+    if (!this.stopped) this.publish("item.completed", { turnId: turn.id, item: historyItem(item, turn.id) });
   }
   private contextWindow(usage: Record<string, ModelUsage>): number | null {
     const model = this.requireThread().model;

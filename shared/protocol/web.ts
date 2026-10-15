@@ -1,5 +1,5 @@
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
-import type { BridgeEvent, TurnActivityEvent, TurnImageGeneratedEvent } from "./events.js";
+import type { BridgeEvent, BridgeEventOf } from "./events.js";
 import type { ThreadModelState, ThreadEffortState, ListModelsResponse, ReadThreadTokenUsageResponse, GetThreadStateResponse, HistoryItem, HistoryTurn, ListStoredThreadsResponse, ListThreadTurnsResponse } from "./requests.js";
 import type { SignalEnvelope } from "./signals.js";
 
@@ -18,17 +18,20 @@ export type WebConversationsResponse = { conversations: WebConversation[] };
 export type WebApprovalsResponse = { approvals: ApprovalRecord[] };
 export type WebThreadsResponse = ListStoredThreadsResponse;
 export type WebImage = { url: string; prompt: string | null; name?: string; path?: string; kind?: "generated" | "viewed" };
-/** History as presented to the browser. Images become server URLs; text and summaries remain intact. */
+/** History as presented to the browser. Images become server URLs; everything else is unchanged.
+ * Live items use the same presentation, so a reload shows what the live view showed. */
 export type WebHistoryItem =
-  | Extract<HistoryItem, { type: "user_message" | "assistant_message" | "plan" | "reasoning" }>
-  | { id: string; type: "activity" | "image" | "other"; webActivity?: TurnActivityEvent["payload"]; webImage?: WebImage };
+  | Exclude<HistoryItem, { type: "image" }>
+  | { id: string; type: "image"; webImage: WebImage };
 export type WebHistoryTurn = Omit<HistoryTurn, "items"> & { items: WebHistoryItem[] };
 export type WebHistoryResponse = Omit<ListThreadTurnsResponse, "data"> & { data: WebHistoryTurn[]; revision: number };
-export type WebGeneratedImagePayload = TurnImageGeneratedEvent["payload"] & { url: string };
 export type WebError = { error: { code: string; message: string } };
 /** SSE event names and their JSON data. SSE IDs are opaque replay cursors. */
+type WebItemEvent<K extends "item.started" | "item.completed"> = Omit<BridgeEventOf<K>, "payload"> & { payload: { turnId: string | null; item: WebHistoryItem } };
+/** Application events as delivered to the browser, with items presented like history. */
+export type WebBridgeEvent = Exclude<BridgeEvent, { type: "item.started" | "item.completed" }> | WebItemEvent<"item.started"> | WebItemEvent<"item.completed">;
 export type WebEventData = {
-  bridge: BridgeEvent;
+  bridge: WebBridgeEvent;
   signal: SignalEnvelope;
   reset: { reason: "event_too_large" | "history_changed" };
 };

@@ -18,8 +18,8 @@ export function presentHistoryItem(item: HistoryItem, turnId: string, images: We
     case "assistant_message": return { id: item.id, type: item.type, text: item.text, ...(item.phase ? { phase: item.phase } : {}) };
     case "plan": return { id: item.id, type: item.type, text: item.text };
     case "reasoning": return { id: item.id, type: item.type, summary: item.summary };
-    case "image": return { id: item.id, type: item.type, webImage: images.present(turnId, item.image.itemId, item.image.path, item.image.prompt ?? null, item.image.kind) };
-    case "activity": return { id: item.id, type: item.type, webActivity: item.activity };
-    default: return { id: item.id, type: item.type };
+    case "image": return { id: item.id, type: item.type, webImage: images.present(item.image.turnId ?? turnId, item.image.itemId, item.image.path, item.image.prompt ?? null, item.image.kind) };
+    case "activity": return { id: item.id, type: item.type, status: item.status, activity: item.activity };
+    case "other": return { id: item.id, type: item.type };
   }
 }

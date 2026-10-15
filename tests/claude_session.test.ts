@@ -62,10 +62,10 @@ test("Claude streams common events and resumes with the native session in its sa
     expect(fake.calls[0]!.options.env!.ANTHROPIC_API_KEY).toBe("");
     expect(fake.calls[0]!.options.settings).toMatchObject({ forceLoginMethod: "claudeai", apiKeyHelper: "" });
   }
-  expect(events.map((e) => e.type)).toEqual(["turn.started", "turn.stream.delta", "turn.message.completed", "thread.tokenUsage.updated", "turn.completed"]);
+  expect(events.map((e) => e.type)).toEqual(["turn.started", "item.delta", "item.completed", "thread.tokenUsage.updated", "turn.completed"]);
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(chat.messages.filter((message) => message.role === "assistant")).toMatchObject([{ text: "Hello", complete: true }]);
-  expect(events[1]!.payload).toMatchObject({ kind: "assistant_text", phase: null, itemId: "msg-1", textDelta: "Hello", turnId });
+  expect(events[1]!.payload).toEqual({ channel: "message", phase: null, itemId: "msg-1", delta: "Hello", turnId });
   expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "user_message" }, { type: "assistant_message", text: "Hello" }] });
   const resumed = new ClaudeSession("review_sensitive", undefined, storage, fake);
   await resumed.resumeThread(created.threadId, {});
@@ -538,13 +538,14 @@ test("per-block assistant messages mark text before tools as interim and the las
   const { threadId } = await session.startThread({});
   const events: BridgeEvent[] = []; session.eventBus.subscribe(event => events.push(event), { replay: false });
   await session.startTurn([toTextUserInput("run tests")]); await done(session);
-  expect(events.filter(event => event.type === "turn.stream.delta").map(event => (event.payload as { itemId: string }).itemId)).toEqual(["plan", "answer", "answer:1"]);
-  expect(events.filter(event => event.type === "turn.message.completed").map(event => event.payload)).toMatchObject([
-    { itemId: "plan", phase: "interim" }, { itemId: "answer", phase: "final" }, { itemId: "answer:1", phase: "final" },
-  ]);
-  expect((await session.listThreadTurns(threadId, {})).data[0]!.items.map(item => [item.id, item.phase ?? null])).toEqual([
+  expect(events.flatMap(event => event.type === "item.delta" ? [event.payload.itemId] : [])).toEqual(["plan", "answer", "answer:1"]);
+  const history = (await session.listThreadTurns(threadId, {})).data[0]!.items;
+  expect(history.map(item => [item.id, item.type === "assistant_message" ? item.phase ?? null : null])).toEqual([
     [expect.any(String), null], ["plan", "interim"], ["tool-1", null], ["answer", "final"], ["answer:1", "final"],
   ]);
+  // Live delivery and history agree: every item completed live is the record history returns.
+  expect(events.flatMap(event => event.type === "item.completed" ? [event.payload.item] : [])).toEqual(history.filter(item => item.type !== "user_message"));
+  expect(events.find(event => event.type === "item.started")?.payload).toEqual({ turnId: expect.any(String), item: { id: "tool-1", type: "activity", status: "started", activity: { kind: "command", command: "bun test", cwd: null } } });
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(timelineGroups(chat).flatMap(group => group.finalIds)).toEqual(["answer", "answer:1"]);
   session.stop();

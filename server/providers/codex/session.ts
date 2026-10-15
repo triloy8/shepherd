@@ -51,14 +51,11 @@ import {
 import type { ProviderSession, ThreadBootstrapInfo } from "../../ports/provider_session.js";
 import { EventBus } from "../event_bus.js";
 import {
-  extractCompletedAgentMessage,
-  extractGeneratedImageArtifact,
-  extractViewedImageArtifact,
+  deltaChannel,
   extractItemId,
   extractTextDelta,
   extractThreadId,
   extractTurnId,
-  mapTurnActivity,
   mapApprovalChoices,
   codexApprovalActivity,
 } from "./rpc_mapper.js";
@@ -926,40 +923,25 @@ export class CodexSession implements ProviderSession {
 
     if (lower === "item/started" || lower === "item/completed") {
       this.captureAgentMessagePhase(params);
-      if (lower === "item/completed") {
-        const message = extractCompletedAgentMessage(params);
-        if (message) {
-          this.publish("turn.message.completed", threadId, message);
-          return;
-        }
-        const generatedImage = extractGeneratedImageArtifact(params);
-        if (generatedImage) {
-          this.publish("turn.image.generated", threadId, generatedImage);
-        }
-        const viewedImage = extractViewedImageArtifact(params);
-        if (viewedImage) {
-          this.publish("turn.image.viewed", threadId, viewedImage);
-        }
-      }
-
-      const activity = mapTurnActivity(params, lower === "item/started" ? "started" : "completed");
-      if (activity) {
-        this.publish("turn.activity", threadId, activity);
-      }
-      // Unrecognized native notifications remain private.
+      const native = asRecord(payload.item);
+      // Items without an identity cannot be reconciled with history.
+      if (!asString(native.id)) return;
+      const turnId = extractTurnId(params);
+      const lifecycle = lower === "item/started" ? "started" : "completed";
+      this.publish(lifecycle === "started" ? "item.started" : "item.completed", threadId, { turnId, item: historyItem(native, turnId ?? "", lifecycle) });
       return;
     }
 
-    const delta = extractTextDelta(method, params);
-    if (delta) {
+    const channel = deltaChannel(method);
+    const delta = channel ? extractTextDelta(params) : "";
+    if (channel && delta) {
       const itemId = extractItemId(params);
-      const phase = itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null;
-      this.publish("turn.stream.delta", threadId, {
-        kind: method === "item/agentMessage/delta" ? "assistant_text" : "other",
-        textDelta: delta,
-        itemId,
-        phase,
+      this.publish("item.delta", threadId, {
         turnId: extractTurnId(params) ?? this.activeTurnId,
+        itemId,
+        channel,
+        delta,
+        phase: channel === "message" && itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null,
       });
       return;
     }

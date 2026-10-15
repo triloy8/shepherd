@@ -7,10 +7,10 @@ const event = (id: string, type: BridgeEvent["type"], payload: unknown): BridgeE
 const turn = (id: string, text: string): HistoryTurn => ({ id, items: [{ id: `user-${id}`, type: "user_message", content: [{ type: "text", text }] }], status: "completed", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null });
 
 test("stream replay is deduplicated and canonical completion replaces partial text", () => {
-  const delta = event("delta", "turn.stream.delta", { kind: "assistant_text", itemId: "item", turnId: "turn", textDelta: "Hello" });
+  const delta = event("delta", "item.delta", { turnId: "turn", itemId: "item", channel: "message", delta: "Hello", phase: null });
   const partial = reduceBridge(emptyChat(), delta);
   expect(reduceBridge(partial, delta).messages[0]!.text).toBe("Hello");
-  const complete = reduceBridge(partial, event("complete", "turn.message.completed", { itemId: "item", turnId: "turn", text: "Hello world" }));
+  const complete = reduceBridge(partial, event("complete", "item.completed", { turnId: "turn", item: { id: "item", type: "assistant_message", text: "Hello world" } }));
   expect(complete.messages).toHaveLength(1);
   expect(complete.messages[0]!.text).toBe("Hello world");
   expect(reduceBridge(complete, { ...delta, id: "late" }).messages[0]!.text).toBe("Hello world");
@@ -41,9 +41,9 @@ test("SSE parser caps unterminated input and cancels its reader", async () => {
 test("switching chats discards old deltas and completions buffered in the same SSE chunk", async () => {
   const abort = new AbortController();
   const events = [
-    event("first", "turn.stream.delta", { kind: "assistant_text", itemId: "old-item", turnId: "old-turn", textDelta: "Old chat" }),
-    event("late-delta", "turn.stream.delta", { kind: "assistant_text", itemId: "old-item", turnId: "old-turn", textDelta: " continued" }),
-    event("late-completion", "turn.message.completed", { itemId: "old-item", turnId: "old-turn", text: "Old chat completed" }),
+    event("first", "item.delta", { turnId: "old-turn", itemId: "old-item", channel: "message", delta: "Old chat", phase: null }),
+    event("late-delta", "item.delta", { turnId: "old-turn", itemId: "old-item", channel: "message", delta: " continued", phase: null }),
+    event("late-completion", "item.completed", { turnId: "old-turn", item: { id: "old-item", type: "assistant_message", text: "Old chat completed" } }),
   ];
   const chunk = events.map((data) => `event: bridge\ndata: ${JSON.stringify(data)}\n\n`).join("");
   let chat = emptyChat();
@@ -95,7 +95,7 @@ test("an old chat's delayed stream response cannot mark the new chat connected",
 });
 
 test("history ahead of queued stream deltas is not duplicated", () => {
-  const delta = (id: string, textDelta: string) => event(id, "turn.stream.delta", { kind: "assistant_text", itemId: "agent", turnId: "turn", textDelta });
+  const delta = (id: string, textDelta: string) => event(id, "item.delta", { turnId: "turn", itemId: "agent", channel: "message", delta: textDelta, phase: null });
   let state = reduceBridge(emptyChat(), delta("1", "Hello"));
   state = mergeHistory(state, [{ ...turn("turn", "prompt"), status: "in_progress", items: [{ id: "agent", type: "assistant_message", text: "Hello world" }] }]);
   expect(state.messages[0]!.text).toBe("Hello world");
@@ -106,7 +106,7 @@ test("history ahead of queued stream deltas is not duplicated", () => {
 });
 
 test("ending a turn freezes partial messages instead of leaving a writing indicator", () => {
-  const state = reduceBridge(emptyChat(), event("delta", "turn.stream.delta", { kind: "assistant_text", itemId: "item", turnId: "turn", textDelta: "Partial" }));
+  const state = reduceBridge(emptyChat(), event("delta", "item.delta", { turnId: "turn", itemId: "item", channel: "message", delta: "Partial", phase: null }));
   const ended = reduceBridge(state, event("end", "turn.completed", { turnId: "turn" }));
   expect(ended.messages[0]!.complete).toBe(true);
   expect(ended.activeTurnId).toBeNull();
@@ -173,46 +173,46 @@ test("reused native item IDs survive older pages, refresh and new-turn streaming
     ["old", "Question old"], ["old", "Answer old"], ["new", "Question new"], ["new", "Answer new"],
   ]);
   state = reduceBridge(state, event("start", "turn.started", { turnId: "next" }));
-  state = reduceBridge(state, event("delta", "turn.stream.delta", { turnId: "next", itemId: "answer", kind: "assistant_text", phase: "final", textDelta: "Next partial" }));
-  state = reduceBridge(state, event("complete", "turn.message.completed", { turnId: "next", itemId: "answer", phase: "final", text: "Next canonical" }));
+  state = reduceBridge(state, event("delta", "item.delta", { turnId: "next", itemId: "answer", channel: "message", delta: "Next partial", phase: "final" }));
+  state = reduceBridge(state, event("complete", "item.completed", { turnId: "next", item: { id: "answer", type: "assistant_message", text: "Next canonical", phase: "final" } }));
   expect(state.messages.filter(message => message.id === "answer").map(message => message.text)).toEqual(["Answer old", "Answer new", "Next canonical"]);
 });
 
 for (const reportedPhase of ["final", "interim", null] as const) test(`anonymous web text adopts canonical identity and phase ${reportedPhase}`, () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
-  const first = event("first", "turn.stream.delta", { turnId: null, itemId: null, kind: "assistant_text", phase: reportedPhase, textDelta: "Hello" });
+  const first = event("first", "item.delta", { turnId: null, itemId: null, channel: "message", delta: "Hello", phase: reportedPhase });
   state = reduceBridge(state, first); state = reduceBridge(state, first);
-  state = reduceBridge(state, event("next", "turn.stream.delta", { turnId: "turn", itemId: null, kind: "assistant_text", phase: null, textDelta: " world" }));
+  state = reduceBridge(state, event("next", "item.delta", { turnId: "turn", itemId: null, channel: "message", delta: " world", phase: null }));
   expect(state.messages).toHaveLength(1); expect(state.messages[0]!.text).toBe("Hello world");
-  state = reduceBridge(state, event("complete", "turn.message.completed", { turnId: null, itemId: "canonical", phase: null, text: "Canonical answer" }));
+  state = reduceBridge(state, event("complete", "item.completed", { turnId: null, item: { id: "canonical", type: "assistant_message", text: "Canonical answer" } }));
   expect(state.messages).toHaveLength(1); expect(state.messages[0]).toMatchObject({ id: "canonical", turnId: "turn", text: "Canonical answer", complete: true, anonymous: false });
   expect(state.messages[0]!.phase).toBe(reportedPhase ?? undefined);
-  state = reduceBridge(state, event("late", "turn.stream.delta", { turnId: "turn", itemId: "canonical", kind: "assistant_text", textDelta: "ignored" }));
+  state = reduceBridge(state, event("late", "item.delta", { turnId: "turn", itemId: "canonical", channel: "message", delta: "ignored", phase: null }));
   expect(state.messages[0]!.text).toBe("Canonical answer");
 });
 
 test("identified and anonymous deltas can alternate before canonical completion", () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
-  for (const [index, itemId] of [null, "canonical", null, "canonical"].entries()) state = reduceBridge(state, event(String(index), "turn.stream.delta", { turnId: "turn", itemId, kind: "assistant_text", phase: "final", textDelta: String(index) }));
+  for (const [index, itemId] of [null, "canonical", null, "canonical"].entries()) state = reduceBridge(state, event(String(index), "item.delta", { turnId: "turn", itemId: itemId, channel: "message", delta: String(index), phase: "final" }));
   expect(state.messages).toHaveLength(1); expect(state.messages[0]).toMatchObject({ id: "canonical", text: "0123", anonymous: false });
 });
 
 test("history identifies anonymous streams without duplicating queued replay", () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
-  state = reduceBridge(state, event("first", "turn.stream.delta", { turnId: "turn", itemId: null, kind: "assistant_text", phase: "final", textDelta: "Hello" }));
+  state = reduceBridge(state, event("first", "item.delta", { turnId: "turn", itemId: null, channel: "message", delta: "Hello", phase: "final" }));
   const history: HistoryTurn = { ...turn("turn", "Question"), status: "in_progress", items: [{ id: "canonical", type: "assistant_message", phase: "final", text: "Hello world" }] };
   state = mergeHistory(state, [history]);
-  state = reduceBridge(state, event("second", "turn.stream.delta", { turnId: null, itemId: null, kind: "assistant_text", phase: null, textDelta: " world" }));
+  state = reduceBridge(state, event("second", "item.delta", { turnId: null, itemId: null, channel: "message", delta: " world", phase: null }));
   expect(state.messages).toHaveLength(1); expect(state.messages[0]).toMatchObject({ id: "canonical", text: "Hello world" });
-  state = reduceBridge(state, event("complete", "turn.message.completed", { turnId: null, itemId: "canonical", phase: null, text: "Hello world" }));
+  state = reduceBridge(state, event("complete", "item.completed", { turnId: null, item: { id: "canonical", type: "assistant_message", text: "Hello world" } }));
   state = mergeHistory(state, [{ ...history, status: "completed" }]);
   expect(state.messages).toHaveLength(1); expect(state.messages[0]!.text).toBe("Hello world");
 });
 
 for (const terminal of ["turn.completed", "turn.failed"] as const) test(`null ${terminal} settles the current turn while identified late events stay isolated`, () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "current" }));
-  state = reduceBridge(state, event("activity", "turn.activity", { turnId: null, itemId: "tool", activity: { kind: "command", command: null, cwd: null }, status: "started" }));
-  state = reduceBridge(state, event("text", "turn.stream.delta", { turnId: null, itemId: "answer", kind: "assistant_text", phase: "final", textDelta: "Partial answer" }));
+  state = reduceBridge(state, event("activity", "item.started", { turnId: null, item: { id: "tool", type: "activity", status: "started", activity: { kind: "command", command: null, cwd: null } } }));
+  state = reduceBridge(state, event("text", "item.delta", { turnId: null, itemId: "answer", channel: "message", delta: "Partial answer", phase: "final" }));
   state = reduceBridge(state, event("foreign", "turn.failed", { turnId: "earlier", message: "Foreign failure" }));
   expect(state.activeTurnId).toBe("current"); expect(state.error).toBeNull();
   state = reduceBridge(state, event("terminal", terminal, { turnId: null, message: "Current failure" }));
@@ -223,14 +223,14 @@ for (const terminal of ["turn.completed", "turn.failed"] as const) test(`null ${
 
 test("identified completion resolves an anonymous stream retained by an ambiguous snapshot", () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
-  state = reduceBridge(state, event("first", "turn.stream.delta", { turnId: "turn", itemId: null, kind: "assistant_text", phase: null, textDelta: "Hello" }));
+  state = reduceBridge(state, event("first", "item.delta", { turnId: "turn", itemId: null, channel: "message", delta: "Hello", phase: null }));
   const history: HistoryTurn = { ...turn("turn", "Question"), status: "in_progress", items: [
     { id: "progress", type: "assistant_message", phase: "interim", text: "Hello from progress" },
     { id: "answer", type: "assistant_message", phase: "final", text: "Hello from answer" },
   ] };
   state = mergeHistory(state, [history]);
   expect(state.messages).toHaveLength(3);
-  state = reduceBridge(state, event("canonical", "turn.message.completed", { turnId: "turn", itemId: "answer", phase: "final", text: "Hello from answer" }));
+  state = reduceBridge(state, event("canonical", "item.completed", { turnId: "turn", item: { id: "answer", type: "assistant_message", text: "Hello from answer", phase: "final" } }));
   expect(state.messages).toHaveLength(2);
   expect(state.messages.some(message => message.anonymous)).toBe(false);
   expect(state.messages.map(message => message.text)).toEqual(["Hello from progress", "Hello from answer"]);
@@ -239,7 +239,7 @@ test("identified completion resolves an anonymous stream retained by an ambiguou
 for (const turnId of ["constructor", "toString", "__proto__"]) test(`opaque turn ID ${turnId} streams and settles normally`, () => {
   let state = reduceBridge(emptyChat(), event("s", "turn.started", { turnId }));
   expect(state.activeTurnId).toBe(turnId);
-  state = reduceBridge(state, event("d", "turn.stream.delta", { turnId, itemId: "a", kind: "assistant_text", phase: null, textDelta: "Answer" }));
+  state = reduceBridge(state, event("d", "item.delta", { turnId: turnId, itemId: "a", channel: "message", delta: "Answer", phase: null }));
   state = reduceBridge(state, event("c", "turn.completed", { turnId: null }));
   expect(state.messages).toHaveLength(1);
   expect(state.messages[0]).toMatchObject({ turnId, text: "Answer", complete: true });
@@ -249,15 +249,15 @@ for (const turnId of ["constructor", "toString", "__proto__"]) test(`opaque turn
 
 test("a repeated anonymous message cannot claim an established answer through snapshots or replay", () => {
   let state = reduceBridge(emptyChat(), event("s", "turn.started", { turnId: "t" }));
-  state = reduceBridge(state, event("a", "turn.message.completed", { turnId: "t", itemId: "a", phase: null, text: "Hello" }));
-  state = reduceBridge(state, event("d", "turn.stream.delta", { turnId: "t", itemId: null, kind: "assistant_text", phase: null, textDelta: "Hello" }));
+  state = reduceBridge(state, event("a", "item.completed", { turnId: "t", item: { id: "a", type: "assistant_message", text: "Hello" } }));
+  state = reduceBridge(state, event("d", "item.delta", { turnId: "t", itemId: null, channel: "message", delta: "Hello", phase: null }));
   state = mergeHistory(state, [{ ...turn("t", ""), status: "in_progress", items: [{ id: "a", type: "assistant_message", text: "Hello" }] }]);
-  state = reduceBridge(state, event("a-replay", "turn.message.completed", { turnId: "t", itemId: "a", phase: null, text: "Hello" }));
+  state = reduceBridge(state, event("a-replay", "item.completed", { turnId: "t", item: { id: "a", type: "assistant_message", text: "Hello" } }));
   expect(state.messages).toHaveLength(2);
   expect(state.messages[0]).toMatchObject({ id: "a", text: "Hello", complete: true });
   expect(state.messages[1]!.anonymous).toBe(true);
-  state = reduceBridge(state, event("more", "turn.stream.delta", { turnId: "t", itemId: null, kind: "assistant_text", phase: null, textDelta: " again" }));
-  state = reduceBridge(state, event("b", "turn.message.completed", { turnId: "t", itemId: "b", phase: null, text: "Hello again" }));
+  state = reduceBridge(state, event("more", "item.delta", { turnId: "t", itemId: null, channel: "message", delta: " again", phase: null }));
+  state = reduceBridge(state, event("b", "item.completed", { turnId: "t", item: { id: "b", type: "assistant_message", text: "Hello again" } }));
   expect(state.messages.map(message => [message.id, message.text])).toEqual([["a", "Hello"], ["b", "Hello again"]]);
 });
 

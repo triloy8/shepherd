@@ -34,9 +34,9 @@ function assertLauncherBoundary(adapter: SurfaceAdapterContext) {
 void assertLauncherBoundary;
 
 import type { ProviderSession } from "../server/ports/provider_session.js";
-import type { TurnStreamDeltaEvent } from "../shared/protocol/events.js";
+import type { ItemDeltaEvent } from "../shared/protocol/events.js";
 import type { ApprovalRequestPayload } from "../shared/protocol/approvals.js";
-function assertProviderBoundary(session: ProviderSession, delta: TurnStreamDeltaEvent, approval: ApprovalRequestPayload) {
+function assertProviderBoundary(session: ProviderSession, delta: ItemDeltaEvent, approval: ApprovalRequestPayload) {
   // @ts-expect-error Native account quotas are not a session operation.
   session.readAccountRateLimits();
   // @ts-expect-error SDK method names do not enter application text streams.
@@ -110,11 +110,11 @@ function assertEventPayloads(session: ProviderSession, event: BridgeEvent) {
   const metadata = { id: "event", threadId: "thread", sessionId: "session", ts: "now" };
   session.eventBus.publish({ ...metadata, type: "turn.completed", payload: { turnId: "turn" } });
   // @ts-expect-error A native envelope cannot replace the semantic stream payload.
-  session.eventBus.publish({ ...metadata, type: "turn.stream.delta", payload: { method: "native/message", params: {} } });
+  session.eventBus.publish({ ...metadata, type: "item.delta", payload: { method: "native/message", params: {} } });
   // @ts-expect-error Event names and payloads must agree at the adapter emitter too.
   bridgeEvent({ ...metadata, type: "turn.failed", payload: { turnId: "turn" } });
-  if (event.type === "turn.stream.delta") {
-    const text: string = event.payload.textDelta;
+  if (event.type === "item.delta") {
+    const text: string = event.payload.delta;
     // @ts-expect-error Discrimination exposes only this event's payload.
     event.payload.approvalId;
     void text;
@@ -147,8 +147,8 @@ const partialUsage: ThreadTokenUsage = { last: null, total: { inputTokens: null,
 const unknownLogin: ProviderAccountLimits["account"] = { plan: null, authentication: "unknown", signedIn: null };
 void partialUsage; void unknownLogin;
 
-import type { TurnActivityEvent } from "../shared/protocol/events.js";
-function assertStructuredActivity(step: TurnActivityEvent["payload"], approval: ApprovalRequestPayload, item: Extract<HistoryItem, { type: "activity" }>) {
+import type { BridgeEventType } from "../shared/protocol/events.js";
+function assertStructuredActivity(step: Extract<HistoryItem, { type: "activity" }>, approval: ApprovalRequestPayload, item: Extract<HistoryItem, { type: "activity" }>) {
   // @ts-expect-error Surfaces write activity labels; adapters do not supply free text.
   step.label;
   // @ts-expect-error Activity details come from typed fields, not adapter-formatted strings.
@@ -168,3 +168,12 @@ function assertStructuredActivity(step: TurnActivityEvent["payload"], approval: 
   }
 }
 void assertStructuredActivity;
+
+function assertItemEvents(started: Extract<BridgeEventType, "item.started">, image: Extract<HistoryItem, { type: "image" }>) {
+  // @ts-expect-error Assistant text, activities and images stream as items, not per-kind events.
+  const old: BridgeEventType = "turn.stream.delta"; void old;
+  // @ts-expect-error An image item is the image; its generation is a separate activity item.
+  image.activity;
+  void started;
+}
+void assertItemEvents;

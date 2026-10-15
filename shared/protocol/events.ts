@@ -1,11 +1,16 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
-import type { ApprovalPolicy, ThreadTokenUsage } from "./requests.js";
-import type { Activity, ActivityStatus } from "./activity.js";
+import type { ApprovalPolicy, HistoryItem, ThreadTokenUsage } from "./requests.js";
 
 /** Interim text reports progress during a turn; final text answers it. */
 export type MessagePhase = "interim" | "final";
 
-/** Null turn IDs refer to the current turn. Providers must supply IDs for delayed events
+/** Which part of an item a delta extends: assistant message text, plan text, a reasoning
+ * summary, or an activity's output. */
+export type ItemDeltaChannel = "message" | "plan" | "reasoning" | "output";
+
+/** A turn's items stream live as the records history returns: `item.started` for items that
+ * take time, `item.delta` for streamed text, and `item.completed` with the canonical item.
+ * Null turn IDs refer to the current turn. Providers must supply IDs for delayed events
  * belonging to an earlier turn. Null delta item IDs refer to the pending message, which
  * is anonymous until an identified delta/completion supplies its canonical identity. */
 export interface BridgeEventPayloads {
@@ -22,36 +27,12 @@ export interface BridgeEventPayloads {
   "turn.started": { turnId: string | null };
   "turn.completed": { turnId: string | null };
   "turn.failed": { message: string; turnId: string | null };
-  "turn.stream.delta": {
-    kind: "assistant_text" | "other";
-    textDelta: string;
-    itemId: string | null;
-    phase: MessagePhase | null;
-    turnId: string | null;
-  };
-  "turn.message.completed": {
-    itemId: string;
-    phase: MessagePhase | null;
-    text: string;
-    turnId: string | null;
-  };
-  "turn.image.generated": {
-    itemId: string;
-    turnId: string | null;
-    path: string;
-    prompt: string | null;
-  };
-  "turn.image.viewed": {
-    itemId: string;
-    turnId: string | null;
-    path: string;
-  };
-  "turn.activity": {
-    itemId: string | null;
-    turnId: string | null;
-    status: ActivityStatus;
-    activity: Activity;
-  };
+  /** An item that takes time has begun; it is the same record history returns, in its current state. */
+  "item.started": { turnId: string | null; item: HistoryItem };
+  /** Streamed text for an item. Only `message` text is part of an assistant message. */
+  "item.delta": { turnId: string | null; itemId: string | null; channel: ItemDeltaChannel; delta: string; phase: MessagePhase | null };
+  /** The canonical item, equal to what history returns for it. */
+  "item.completed": { turnId: string | null; item: HistoryItem };
   "approval.requested": ApprovalRequestPayload;
   /** Reused native IDs need requestEventId (the request event ID), or a uniquely identifying turnId. */
   "approval.decided": { approvalId: string; decision: string; state: ApprovalRecord["status"]; turnId?: string | null; requestEventId?: string };
@@ -84,11 +65,9 @@ export type ThreadTokenUsageUpdatedEvent = BridgeEventOf<"thread.tokenUsage.upda
 export type TurnStartedEvent = BridgeEventOf<"turn.started">;
 export type TurnCompletedEvent = BridgeEventOf<"turn.completed">;
 export type TurnFailedEvent = BridgeEventOf<"turn.failed">;
-export type TurnStreamDeltaEvent = BridgeEventOf<"turn.stream.delta">;
-export type TurnMessageCompletedEvent = BridgeEventOf<"turn.message.completed">;
-export type TurnImageGeneratedEvent = BridgeEventOf<"turn.image.generated">;
-export type TurnImageViewedEvent = BridgeEventOf<"turn.image.viewed">;
-export type TurnActivityEvent = BridgeEventOf<"turn.activity">;
+export type ItemStartedEvent = BridgeEventOf<"item.started">;
+export type ItemDeltaEvent = BridgeEventOf<"item.delta">;
+export type ItemCompletedEvent = BridgeEventOf<"item.completed">;
 export type ApprovalRequestedEvent = BridgeEventOf<"approval.requested">;
 export type ApprovalDecidedEvent = BridgeEventOf<"approval.decided">;
 export type ApprovalAppliedEvent = BridgeEventOf<"approval.applied">;

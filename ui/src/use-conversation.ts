@@ -3,7 +3,7 @@ import type { WebSettingsResponse } from "../../shared/protocol/web";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import { startTransition, useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
-import type { BridgeEvent } from "../../shared/protocol/events";
+import type { WebBridgeEvent } from "../../shared/protocol/web";
 import type { WebConversation } from "../../shared/protocol/web";
 import { api, ApiError, explainError, streamConversation } from "./api";
 import { acceptUserMessage, emptyChat, mergeHistory, reduceBridge, type ChatState } from "./chat-state";
@@ -125,7 +125,7 @@ export function useConversation(conversation: WebConversation | null) {
       if (scheduled) clearTimeout(scheduled);
       scheduled = setTimeout(() => { void refresh(); }, 150);
     };
-    let pendingDeltas: BridgeEvent[] = [];
+    let pendingDeltas: WebBridgeEvent[] = [];
     let deltaFrame: number | undefined;
     const flushDeltas = () => {
       if (deltaFrame !== undefined) cancelAnimationFrame(deltaFrame);
@@ -149,7 +149,7 @@ export function useConversation(conversation: WebConversation | null) {
             if (event.id) cursor = event.id;
             if (event.type === "bridge") {
               if (["turn.started", "turn.completed", "turn.failed"].includes(event.data.type)) turnRevision++;
-              if (event.data.type === "turn.stream.delta") {
+              if (event.data.type === "item.delta") {
                 pendingDeltas.push(event.data);
                 // Animation frames pause in background tabs. Bound the queue
                 // there too, while preserving the original event order.
@@ -159,7 +159,7 @@ export function useConversation(conversation: WebConversation | null) {
                 flushDeltas();
                 setChat((chat) => current() ? reduceBridge(chat, event.data) : chat);
               }
-              if (event.data.type.startsWith("approval.") || ["turn.started", "turn.completed", "turn.failed", "turn.message.completed"].includes(event.data.type)) soon();
+              if (event.data.type.startsWith("approval.") || ["turn.started", "turn.completed", "turn.failed"].includes(event.data.type) || (event.data.type === "item.completed" && event.data.payload.item.type === "assistant_message")) soon();
             } else {
               flushDeltas();
               if (event.type === "reset" && event.data.reason === "history_changed") {

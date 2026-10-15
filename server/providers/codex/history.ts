@@ -1,6 +1,6 @@
 import type { HistoryContentPart, HistoryItem, HistoryItemsView, HistoryTurn, TurnStatus } from "../../../shared/protocol/requests.js";
 import type { MessagePhase } from "../../../shared/protocol/events.js";
-import { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
+import { activityStatus, codexActivity, extractGeneratedImageArtifact, extractViewedImageArtifact } from "./history_presentation.js";
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const optionalString = (value: unknown): string | null => typeof value === "string" ? value : null;
 
@@ -27,8 +27,9 @@ function contentPart(raw: unknown): HistoryContentPart {
   return { type: "attachment", name: optionalString(part.name), path: optionalString(part.path) };
 }
 
-/** Decode a native Codex thread item before it crosses the provider boundary. */
-export function historyItem(value: unknown, turnId: string): HistoryItem {
+/** Decode a native Codex thread item before it crosses the provider boundary. History and
+ * live notifications share this decoder; a live notification states its own lifecycle. */
+export function historyItem(value: unknown, turnId: string, lifecycle?: "started" | "completed"): HistoryItem {
   const item = record(value), id = String(item.id ?? "");
   if (item.type === "userMessage") return { id, type: "user_message", content: (Array.isArray(item.content) ? item.content : []).map(contentPart) };
   if (item.type === "agentMessage") {
@@ -37,12 +38,14 @@ export function historyItem(value: unknown, turnId: string): HistoryItem {
   }
   if (item.type === "plan") return { id, type: "plan", text: String(item.text ?? "") };
   if (item.type === "reasoning") return { id, type: "reasoning", summary: Array.isArray(item.summary) ? item.summary.filter((text: unknown): text is string => typeof text === "string") : [] };
-  const generated = extractGeneratedImageArtifact({ turnId, item });
-  const viewed = extractViewedImageArtifact({ turnId, item });
-  const activity = mapTurnActivity({ turnId, item }, item.status === "inProgress" ? "started" : "completed");
-  if (generated) return { id, type: "image", image: { ...generated, kind: "generated" }, ...(activity ? { activity } : {}) };
-  if (viewed) return { id, type: "image", image: { ...viewed, kind: "viewed" }, ...(activity ? { activity } : {}) };
-  return activity ? { id, type: "activity", activity } : { id, type: "other" };
+  const stage = lifecycle ?? (item.status === "inProgress" ? "started" : "completed");
+  // An image is presented once it exists; until then its generation or viewing is an activity.
+  const generated = stage === "completed" ? extractGeneratedImageArtifact({ turnId, item }) : null;
+  const viewed = stage === "completed" ? extractViewedImageArtifact({ turnId, item }) : null;
+  if (generated) return { id, type: "image", image: { ...generated, kind: "generated" } };
+  if (viewed) return { id, type: "image", image: { ...viewed, kind: "viewed" } };
+  const activity = codexActivity(item);
+  return activity ? { id, type: "activity", status: activityStatus(item, stage), activity } : { id, type: "other" };
 }
 
 export function historyTurn(value: unknown): HistoryTurn {

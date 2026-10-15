@@ -56,8 +56,8 @@ function itemLabel(item: HistoryItem): string {
     case "assistant_message": return "Assistant message";
     case "plan": return "Plan";
     case "reasoning": return "Reasoning summary";
-    case "activity": return describeActivity(item.activity.activity).title;
-    case "image": return item.activity ? describeActivity(item.activity.activity).title : "Image";
+    case "activity": return describeActivity(item.activity).title;
+    case "image": return item.image.kind === "generated" ? "Generated image" : "Viewed image";
     default: return "Activity";
   }
 }
@@ -78,8 +78,8 @@ function itemText(item: HistoryItem): string {
     case "assistant_message":
     case "plan": return item.text;
     case "reasoning": return item.summary.join(" ");
-    case "activity": return formatActivityLine(item.activity);
-    case "image": return item.activity ? formatActivityLine(item.activity) : item.image.path;
+    case "activity": return formatActivityLine(item);
+    case "image": return item.image.prompt ?? item.image.path;
     default: return item.type;
   }
 }

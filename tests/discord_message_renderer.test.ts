@@ -90,7 +90,7 @@ describe("Discord message renderer", () => {
 
   test("surfaces shared errors without requiring native notification methods", () => {
     expect(formatEventLine(makeEvent("session.error", { message: "Tool failed" }))).toBe("Session Error\n\nTool failed");
-    expect(formatEventLine(makeEvent("turn.activity", {}))).toBeNull();
+    expect(formatEventLine(makeEvent("item.started", { turnId: null, item: { id: "activity", type: "activity", status: "started", activity: { kind: "command", command: "bun test", cwd: null } } }))).toBeNull();
   });
 
   test("renders concise activity lines and redacts command secrets", () => {

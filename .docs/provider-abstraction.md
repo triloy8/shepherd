@@ -29,12 +29,18 @@ when unset) and registration rejects an unregistered default; descriptors mark i
 
 ## Execution and presentation
 
-Both adapters emit application `BridgeEvent` records. Core owns a separate bounded stream for surface delivery and replay, after applying capability checks. Assistant deltas
-carry `kind: "assistant_text"`; core and UI never infer their meaning from an SDK method.
+Both adapters emit application `BridgeEvent` records. Core owns a separate bounded stream for surface delivery and replay, after applying capability checks. A turn's items stream
+live as the same `HistoryItem` records history returns: `item.started` for items that take
+time (a running tool, an image being generated), `item.delta` for streamed text, and
+`item.completed` with the canonical item. Each adapter decodes live and stored items with one
+decoder, so the item completed live equals the item history later returns; tests check this for
+both adapters. Deltas name their `channel` (`message`, `plan`, `reasoning`, `output`); only
+`message` text is part of an assistant message, and core and UI never infer meaning from an SDK
+method. Codex keeps raw reasoning text private and streams only reasoning summaries.
 Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
 Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
-Native notifications stay private. User-facing failures, activities, completed messages,
-images, token usage, and background task counts have shared representations. Token counts that a provider does not report are `null`, including input, output and total counts. The most recent request and cumulative breakdowns can each be absent (`last: null` / `total: null`); reporting a cumulative total does not require inventing a last-request measurement.
+Native notifications stay private. User-facing failures, items, token usage, and background
+task counts have shared representations. Token counts that a provider does not report are `null`, including input, output and total counts. The most recent request and cumulative breakdowns can each be absent (`last: null` / `total: null`); reporting a cumulative total does not require inventing a last-request measurement.
 
 Unknown assistant message phases remain valid. Discord uses the last unphased message
 as the answer when no explicit final message exists, matching application history;

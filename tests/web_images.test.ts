@@ -56,26 +56,29 @@ test("live viewed image events replace activity and survive replay without dupli
   const reader = response.body!.getReader();
   try {
     await reader.read();
-    const viewed = { id: "viewed", type: "turn.image.viewed" as const, threadId: a.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { itemId: "view", turnId: "turn", path: "/tmp/desktop-screenshot.png" } };
+    const path = "/tmp/desktop-screenshot.png";
+    const viewed = { id: "viewed", type: "item.completed" as const, threadId: a.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { turnId: "turn", item: { id: "view", type: "image" as const, image: { itemId: "view", turnId: "turn", path, kind: "viewed" as const } } } };
     h.publish(a.id, viewed);
     const chunk = new TextDecoder().decode((await reader.read()).value);
     const event = JSON.parse(chunk.split("\n").find((line) => line.startsWith("data:"))!.slice(5));
-    expect(event.payload.url).toMatch(/^\/api\/conversations\/[\w-]+\/images\/[\w-]+$/);
-    expect(event.payload.name).toBe("desktop-screenshot.png");
-    let state = reduceBridge(emptyChat(), { ...viewed, id: "started", type: "turn.activity", payload: { itemId: "view", turnId: "turn", activity: { kind: "image", action: "view", path: viewed.payload.path, prompt: null }, status: "started" } });
+    // The browser receives the item as history presents it: a scoped URL, never the server path alone.
+    expect(event.payload.item.webImage.url).toMatch(/^\/api\/conversations\/[\w-]+\/images\/[\w-]+$/);
+    expect(event.payload.item.webImage.name).toBe("desktop-screenshot.png");
+    expect(event.payload.item).not.toHaveProperty("image");
+    let state = reduceBridge(emptyChat(), { ...viewed, id: "started", type: "item.started", payload: { turnId: "turn", item: { id: "view", type: "activity", status: "started", activity: { kind: "image", action: "view", path, prompt: null } } } });
     state = reduceBridge(state, event);
     state = reduceBridge(state, { ...event, id: "replay" });
-    state = reduceBridge(state, { ...viewed, id: "finished", type: "turn.activity", payload: { itemId: "view", turnId: "turn", activity: { kind: "image", action: "view", path: viewed.payload.path, prompt: null }, status: "completed" } });
+    state = reduceBridge(state, { ...viewed, id: "finished", type: "item.completed", payload: { turnId: "turn", item: { id: "view", type: "activity", status: "completed", activity: { kind: "image", action: "view", path, prompt: null } } } });
     expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.image).toMatchObject({ url: event.payload.url, name: "desktop-screenshot.png", prompt: null, path: viewed.payload.path });
+    expect(state.messages[0]?.image).toMatchObject({ url: event.payload.item.webImage.url, name: "desktop-screenshot.png", prompt: null, path });
     const html = renderToStaticMarkup(createElement(Timeline, { chat: state }));
     expect(html).not.toContain('<img');
     expect(html).toContain("viewed-image-disclosure");
     expect(html).not.toContain(" open=");
-    state = reduceBridge(state, { ...viewed, id: "answer", type: "turn.message.completed", payload: { itemId: "answer", turnId: "turn", phase: "final", text: `Here is your screenshot:\n\n![Desktop view](${viewed.payload.path})` } });
+    state = reduceBridge(state, { ...viewed, id: "answer", type: "item.completed", payload: { turnId: "turn", item: { id: "answer", type: "assistant_message", text: `Here is your screenshot:\n\n![Desktop view](${path})`, phase: "final" } } });
     const answerHtml = renderToStaticMarkup(createElement(Timeline, { chat: state }));
     expect(answerHtml).toContain('alt="Desktop view"');
-    expect(answerHtml).toContain(`src="${event.payload.url}"`);
+    expect(answerHtml).toContain(`src="${event.payload.item.webImage.url}"`);
   } finally { await reader.cancel(); h.api.dispose(); }
 });
 
@@ -91,7 +94,7 @@ test("history exposes scoped images and shared activity mapping; image reads res
     const a = await h.create(); const b = await h.create();
     const page = await (await h.request(`/conversations/${a.id}/turns`)).json();
     const url = page.data[0].items[0].webImage.url as string;
-    expect(page.data[0].items[1].webActivity.status).toBe("failed");
+    expect(page.data[0].items[1].status).toBe("failed");
     expect(JSON.stringify(page)).not.toContain("aggregatedOutput");
     expect(JSON.stringify(page).length).toBeLessThan(10_000);
     const response = await h.request(url.replace("/api", ""));
@@ -127,7 +130,7 @@ test("live image events receive a scoped asset URL before entering the event fee
   const reader = response.body!.getReader();
   try {
     await reader.read(); // connection comment
-    h.publish(conversation.id, { id: "image-event", type: "turn.image.generated", threadId: conversation.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { itemId: "image", turnId: "turn", path: "/missing.png", prompt: "Image" } });
+    h.publish(conversation.id, { id: "image-event", type: "item.completed", threadId: conversation.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { turnId: "turn", item: { id: "image", type: "image", image: { itemId: "image", turnId: "turn", path: "/missing.png", prompt: "Image", kind: "generated" } } } });
     const chunk = new TextDecoder().decode((await reader.read()).value);
     expect(chunk).toContain(`/api/conversations/${conversation.id}/images/`);
     expect(chunk).toContain('"prompt":"Image"');

@@ -191,18 +191,18 @@ Legacy note:
 | `turn/diff/updated` | Generic | Maybe Later |
 | `turn/plan/updated` | Generic | Maybe Later |
 | `hook/started` / `hook/completed` | Generic | Out of Scope (for now) |
-| `item/started` / `item/completed` | Tracks message phase and emits typed completed-message, generated-image, and tool-activity events; other items retain generic notifications | Core |
+| `item/started` / `item/completed` | Decoded with the history decoder into `item.started` / `item.completed`; tracks message phase for deltas | Core |
 | `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Generic | Maybe Later |
 | `autoApprovalReview/strictReviewRequired` | Generic | Maybe Later |
 | `rawResponseItem/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
 | `rawResponse/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
-| `item/agentMessage/delta` | Partially interpreted via text delta | Core |
-| `item/plan/delta` | Partially interpreted via text delta | Maybe Later |
-| `command/exec/outputDelta` | Partially interpreted via text delta | Out of Scope (for now) |
+| `item/agentMessage/delta` | `item.delta` on the `message` channel | Core |
+| `item/plan/delta` | `item.delta` on the `plan` channel; surfaces show the completed item | Partial |
+| `command/exec/outputDelta` | Private | Out of Scope (for now) |
 | `process/outputDelta` / `process/exited` | Generic | Out of Scope (for now) |
-| `item/commandExecution/outputDelta` | Partially interpreted via text delta | Maybe Later |
+| `item/commandExecution/outputDelta` | `item.delta` on the `output` channel; surfaces show the completed item | Partial |
 | `item/commandExecution/terminalInteraction` | Generic | Maybe Later |
-| `item/fileChange/outputDelta` | Partially interpreted via text delta | Maybe Later |
+| `item/fileChange/outputDelta` | `item.delta` on the `output` channel; surfaces show the completed item | Partial |
 | `item/fileChange/patchUpdated` | Generic | Maybe Later |
 | `serverRequest/resolved` | Matches pending user-input request IDs and emits `approval.expired`; no general resolution tracking for other request methods | Core (User input) |
 | `item/mcpToolCall/progress` | Generic | Out of Scope (for now) |
@@ -215,9 +215,9 @@ Legacy note:
 | `externalAgentConfig/import/progress` | Generic | Out of Scope (for now) |
 | `externalAgentConfig/import/completed` | Generic | Out of Scope (for now) |
 | `fs/changed` | Generic | Out of Scope (for now) |
-| `item/reasoning/summaryTextDelta` | Partially interpreted via text delta | Maybe Later |
+| `item/reasoning/summaryTextDelta` | `item.delta` on the `reasoning` channel; surfaces show the completed item | Partial |
 | `item/reasoning/summaryPartAdded` | Generic | Maybe Later |
-| `item/reasoning/textDelta` | Partially interpreted via text delta | Maybe Later |
+| `item/reasoning/textDelta` | Private; history keeps summaries, not raw reasoning | Out of Scope (for now) |
 | `model/rerouted` | Generic | Maybe Later |
 | `model/verification` | Generic | Maybe Later |
 | `modelProvider/authRecoveryStarted` / `modelProvider/authRecoveryCompleted` | Generic | Maybe Later |

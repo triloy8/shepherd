@@ -33,7 +33,7 @@ test("an independent provider uses production orchestration, settings, events, h
     const events: import("../shared/protocol/events").BridgeEvent[] = [];
     conversation.subscribeToThreadEvents(threadId, event => events.push(event));
     await conversation.submitTurn(threadId, { input: [toTextUserInput("Hello")] });
-    expect(events.find(event => event.type === "turn.stream.delta")!.payload).toMatchObject({ kind: "assistant_text", textDelta: "Third provider answer" });
+    expect(events.find(event => event.type === "item.delta")!.payload).toMatchObject({ channel: "message", delta: "Third provider answer" });
     expect(sessions[0]!.inputs).toEqual([{ type: "text", text: "Hello" }]);
     expect((await conversation.listThreadTurns(threadId, { sortDirection: "desc" })).data[0]!.items[0]!.text).toBe("Third provider answer");
     expect((await conversation.readAccount(descriptor.id)).provider).toBe(descriptor.id);
@@ -82,7 +82,7 @@ test("native input and history fields are encoded and sanitized inside adapters"
     { type: "text", text: "hi", text_elements: [] }, { type: "localImage", path: "/tmp/a.png", detail: "high" }, { type: "image", url: "https://example.com/a.png", detail: "original" }, { type: "localAudio", path: "/tmp/a.wav" },
   ]);
   const item = historyItem({ id: "tool", type: "commandExecution", command: "bun test", status: "completed", nativeSecret: "private", aggregatedOutput: "private" }, "turn");
-  expect(item).toMatchObject({ id: "tool", type: "activity", activity: { status: "completed", activity: { kind: "command", command: "bun test" } } });
+  expect(item).toEqual({ id: "tool", type: "activity", status: "completed", activity: { kind: "command", command: "bun test", cwd: null } });
   expect(JSON.stringify(item)).not.toContain("nativeSecret"); expect(JSON.stringify(item)).not.toContain("aggregatedOutput");
 });
 

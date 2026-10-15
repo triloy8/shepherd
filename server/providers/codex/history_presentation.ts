@@ -1,4 +1,3 @@
-import type { TurnActivityEvent } from "../../../shared/protocol/events.js";
 import type { Activity, ActivityStatus } from "../../../shared/protocol/activity.js";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
@@ -54,9 +53,7 @@ export function extractViewedImageArtifact(params: unknown): ViewedImageArtifact
   return { itemId, turnId: extractTurnId(params), path };
 }
 
-export type NormalizedTurnActivity = TurnActivityEvent["payload"];
-
-function activityStatus(item: Record<string, unknown>, lifecycle: "started" | "completed"): ActivityStatus {
+export function activityStatus(item: Record<string, unknown>, lifecycle: "started" | "completed"): ActivityStatus {
   if (lifecycle === "started") return "started";
   const status = asString(item.status)?.toLowerCase() ?? "";
   const success = item.success;
@@ -119,14 +116,4 @@ export function codexApprovalActivity(method: string, params: unknown): Activity
     case "applyPatchApproval": return { kind: "file_change", paths: changedPaths(record.fileChanges) };
     default: return { kind: "other", title: "Continue", detail: null };
   }
-}
-
-export function mapTurnActivity(
-  params: unknown,
-  lifecycle: "started" | "completed",
-): NormalizedTurnActivity | null {
-  const item = asRecord(asRecord(params).item);
-  const activity = codexActivity(item);
-  if (!activity) return null;
-  return { itemId: asString(item.id), turnId: extractTurnId(params), status: activityStatus(item, lifecycle), activity };
 }

@@ -5,7 +5,7 @@ import { claudeDefaults } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
-import { claudeActivityKind } from "./activity.js";
+import { claudeActivity, claudeActivityFields } from "./activity.js";
 import { approvalPolicyFromStored, claudePermissionOptions, storedApprovalMode } from "./permissions.js";
 import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
 import type { UserQuestionRequest } from "../../../shared/protocol/user_questions.js";
@@ -62,13 +62,6 @@ function summaryItems(items: P.HistoryItem[]): P.HistoryItem[] {
 /** The SDK transcript keeps full text. Shepherd history keeps a bounded preview. */
 function boundedText(value: string): string {
   return value.length > storedResultChars ? `${value.slice(0, storedResultChars)}\n[${value.length - storedResultChars} characters omitted]` : value;
-}
-
-function storedToolResult(content: unknown): unknown {
-  const text = boundedText;
-  if (typeof content === "string") return text(content);
-  if (!Array.isArray(content)) return content;
-  return content.map((block: { type?: unknown; text?: unknown }) => block?.type === "text" && typeof block.text === "string" ? { type: "text", text: text(block.text) } : { type: typeof block?.type === "string" ? block.type : "unknown", omitted: true });
 }
 
 export class ClaudeSession implements ProviderSession {
@@ -256,9 +249,8 @@ export class ClaudeSession implements ProviderSession {
           for (const block of message.message.content) if (block.type === "tool_result") {
             const item = turn.items.find((item) => item.id === block.tool_use_id);
             if (item?.type === "activity") {
-              item.output = JSON.stringify(storedToolResult(block.content));
               item.activity.status = block.is_error ? "failed" : "completed";
-              this.publish("turn.activity", { ...activityPayload(item.activity, item.id, turn.id), detail: null });
+              this.publish("turn.activity", activityPayload(item.activity, item.id, turn.id));
             }
           }
           this.persistSoon();
@@ -339,8 +331,7 @@ export class ClaudeSession implements ProviderSession {
         // A plan proposed for approval is the turn's plan, as well as a tool call.
         const plan = block.name === "ExitPlanMode" && typeof (block.input as { plan?: unknown })?.plan === "string" ? (block.input as { plan: string }).plan : null;
         if (plan?.trim()) turn.items.push({ id: `${block.id}:plan`, type: "plan", text: plan });
-        const kind = claudeActivityKind(block.name);
-        const activity = { kind, label: block.name, detail: JSON.stringify(block.input), status: "started" as const };
+        const activity = { tool: block.name, fields: claudeActivityFields(block.input), status: "started" as const };
         turn.items.push({ id: block.id, type: "activity", activity });
         this.publish("turn.activity", activityPayload(activity, block.id, turn.id));
       }
@@ -376,9 +367,9 @@ export class ClaudeSession implements ProviderSession {
       const deny = () => { if (this.approvals.delete(approvalId)) this.publish("approval.expired", { approvalId }); resolve({ behavior: "deny", message: "Approval interrupted." }); };
       context.signal.addEventListener("abort", deny, { once: true });
       this.approvals.set(approvalId, { input, suggestions, questions, replies: offered.replies, resolve: (result) => { context.signal.removeEventListener("abort", deny); resolve(result); } });
-      this.publish("approval.requested", { approvalId, kind: questions ? "question" : "permission", prompt: questions ? questions.questions.map(q => q.question).join("\n") : `Allow Claude to use ${name}?`,
-        choices: offered.choices,
-        detail: questions ? null : JSON.stringify(input, null, 2), ...(questions ? { userInput: questions } : {}) });
+      this.publish("approval.requested", questions
+        ? { approvalId, kind: "question", choices: offered.choices, userInput: questions }
+        : { approvalId, kind: "permission", choices: offered.choices, activity: claudeActivity(name, claudeActivityFields(input)), reason: context.decisionReason ?? context.description ?? null });
     });
   }
   async applyApprovalDecision(approvalId: string, decision: ApprovalDecisionRequest) {

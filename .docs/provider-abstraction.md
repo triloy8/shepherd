@@ -61,18 +61,23 @@ status; web/Discord do not decode native tool records. Codex decodes its thread 
 its adapter. Claude saves snapshots in its own record types (`ClaudeStored*` in
 `server/providers/claude/history.ts`), normalizes snapshots written with earlier names when
 reading them, and converts saved records into application items only when presenting
-history, so shared contract changes do not change the saved format. User message history has a
+history, so shared contract changes do not change the saved format. Saved tool calls keep the
+tool name and the bounded arguments an activity is described from; activities saved before
+that format have nothing to present and read as `other`. User message history has a
 content part for every application input kind (`text`, `image`, `image_file`, `audio`, `audio_file`,
 `skill`); `attachment` is only for provider content with no application counterpart, such as
 Codex connector mentions, and keeps an indicator and available name/path in the web UI. The web
-labels audio but never sends its URL or bytes to the browser. Activity kinds (`command`,
-`file_change`, `mcp_tool`, `dynamic_tool`, `web_search`, `collaboration`, `image`, `wait`,
-`other`) are application categories that surfaces use for icons and folding, not a mirror of
-any provider's item types. Each adapter classifies its own tools into them (Claude's `Bash` is
-`command`, `Agent`/`Task` are `collaboration`, `WebFetch` is `web_search`) and uses `other`
-rather than adding a provider-specific kind; a new category belongs in the shared contract only
-when surfaces present it differently. Native tool arguments, transport envelopes, and arbitrary
-thread properties do
+labels audio but never sends its URL or bytes to the browser. Activities
+(`shared/protocol/activity.ts`) describe what an action does by its target: `command`
+(command, cwd), `file_change` (paths), `tool` (source `application`/`mcp`/`builtin`, server,
+name, main argument), `web` (query or URL), `delegation`, `image`, `wait`, and `other` (a
+title for lifecycle steps such as context compaction). Each adapter classifies its own tools
+and extracts these fields (Claude's `Bash` is a `command`, `Agent`/`Task` are `delegation`,
+`Read` is a `builtin` tool targeting its path), and uses `other` rather than adding a
+provider-specific kind; a new kind belongs in the shared contract only when surfaces present it
+differently. Surfaces write every activity title and detail from these fields with
+`describeActivity`, so an activity reads the same whichever agent ran it. Native tool arguments,
+tool results, transport envelopes, and arbitrary thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
 `audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex
 text elements and connector mentions are not part of the shared contract. Claude converts
@@ -91,7 +96,9 @@ Question answer state uses own-property lookups for opaque IDs, including multis
 The web UI offers Skip only when a cancellation choice is supplied and disables answer submission
 when no answer intent is offered.
 
-An approval exposes a prompt, descriptive detail, a kind, and labeled choices. Choice
+A permission request names the `activity` it would allow and the agent's own `reason`, when
+it gives one; surfaces write the prompt from the activity with `describePermission`. A question
+carries its form (`userInput`) instead. Both offer labeled choices. Choice
 values are opaque tokens and may recur in different requests. Their shared intent is allow, deny, answer,
 or cancel. Native reply strings, permission amendments, RPC IDs, and SDK callbacks stay
 inside the adapter. Surfaces send the selected token unchanged.

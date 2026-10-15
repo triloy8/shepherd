@@ -1,4 +1,4 @@
-export { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
+export { codexApprovalActivity, extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
 import { codexPhase } from "./history.js";
 import type {
   MessagePhase,
@@ -123,21 +123,4 @@ export function mapApprovalChoices(method: string): Array<{ value: string; label
   }
 
   return [];
-}
-
-export function mapApprovalPrompt(method: string, params: unknown): string {
-  const record = asRecord(params);
-  const reason = asString(record.reason);
-  if (reason) return reason;
-
-  if (method === "item/commandExecution/requestApproval") {
-    const command = asString(record.command);
-    return command ? `Command approval requested: ${command}` : "Command approval requested";
-  }
-
-  if (method === "item/fileChange/requestApproval") {
-    return "File change approval requested";
-  }
-
-  return "The agent requests permission to continue.";
 }

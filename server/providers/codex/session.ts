@@ -60,7 +60,7 @@ import {
   extractTurnId,
   mapTurnActivity,
   mapApprovalChoices,
-  mapApprovalPrompt,
+  codexApprovalActivity,
 } from "./rpc_mapper.js";
 
 function getDefaultModel(): string {
@@ -732,9 +732,7 @@ export class CodexSession implements ProviderSession {
         const offered = approvalChoices([{ value: "submit", label: "Submit answers", intent: "answer" }, { value: "cancel", label: "Skip questions", intent: "cancel" }]);
         this.approvalReplies.set(approvalId, offered.replies);
         this.publish("approval.requested", userInput.threadId, {
-          approvalId, kind: "question", prompt: userInput.questions.map(q => q.question).join("\n\n"),
-          choices: offered.choices,
-          detail: null, userInput,
+          approvalId, kind: "question", choices: offered.choices, userInput,
         } satisfies ApprovalRequestPayload);
       } catch (error) {
         this.writeLine({ id: request.id, error: { code: -32602, message: (error as Error).message } });
@@ -768,9 +766,9 @@ export class CodexSession implements ProviderSession {
     const approvalPayload: ApprovalRequestPayload = {
       approvalId,
       kind: "permission",
-      prompt: mapApprovalPrompt(request.method, request.params),
+      activity: codexApprovalActivity(request.method, request.params),
+      reason: asString(params.reason),
       choices: offered.choices,
-      detail: approvalDetail(request.params),
     };
 
     this.serverRequestsByApprovalId.set(approvalId, request);
@@ -1000,13 +998,6 @@ export class CodexSession implements ProviderSession {
   private parseMessagePhase(value: unknown): MessagePhase | null {
     return codexPhase(value);
   }
-}
-
-function approvalDetail(value: unknown): string | null {
-  const params = asRecord(value);
-  const lines = [asString(params.command), asString(params.cwd), asString(params.reason)];
-  if (Array.isArray(params.changes)) lines.push(...params.changes.map(change => asString(asRecord(change).path)));
-  return lines.filter(Boolean).join("\n") || null;
 }
 
 function commandApprovalChoices(method: string, value: unknown): NativeApprovalChoice[] {

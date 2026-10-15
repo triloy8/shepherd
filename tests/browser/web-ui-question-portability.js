@@ -4,7 +4,7 @@ async page => {
   const errors = [], submissions = [];
   page.on('pageerror', error => errors.push(error.message));
   let id = 'constructor', answered = false;
-  const record = () => ({ approvalId: `question-${id}`, kind: 'question', prompt: 'Choose', detail: null,
+  const record = () => ({ approvalId: `question-${id}`, kind: 'question',
     choices: [{ value: 'submit-native', label: 'Answer', intent: 'answer' }],
     userInput: { threadId: 'stored', turnId: 'question-turn', itemId: 'q', isBlocking: true,
       questions: [{ id, header: 'Choose', question: `Choose for ${id}`, multiSelect: true, isOther: false,

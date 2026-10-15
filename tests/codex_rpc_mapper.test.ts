@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import { describeActivity } from "../shared/protocol/activity.js";
 import {
+  codexApprovalActivity,
   extractCompletedAgentMessage,
   extractGeneratedImageArtifact,
   extractViewedImageArtifact,
@@ -24,78 +26,72 @@ describe("Codex RPC activity mapping", () => {
       expect(extractViewedImageArtifact(params({ ...item, ...changed }))).toBeNull();
     }
   });
-  test("normalizes command, file, MCP, dynamic, and web activity", () => {
+  test("classifies command, file, MCP, dynamic, and web items by their targets", () => {
     expect(
       mapTurnActivity(
-        params({ type: "commandExecution", id: "command-1", command: "bun test", status: "inProgress" }),
+        params({ type: "commandExecution", id: "command-1", command: "bun test", cwd: "/repo", status: "inProgress" }),
         "started",
       ),
-    ).toMatchObject({
+    ).toEqual({
       itemId: "command-1",
       turnId: "turn-1",
-      kind: "command",
-      label: "Running command",
-      detail: "bun test",
       status: "started",
+      activity: { kind: "command", command: "bun test", cwd: "/repo" },
     });
+    const files = mapTurnActivity(
+      params({
+        type: "fileChange",
+        id: "file-1",
+        changes: [
+          { path: "one.ts", kind: "update" },
+          { path: "two.ts", kind: "add" },
+          { path: "three.ts", kind: "delete" },
+          { path: "four.ts", kind: "update" },
+        ],
+        status: "completed",
+      }),
+      "started",
+    )!;
+    expect(files.activity).toEqual({ kind: "file_change", paths: ["one.ts", "two.ts", "three.ts", "four.ts"] });
+    expect(describeActivity(files.activity).detail).toBe("one.ts, two.ts, three.ts +1 more");
     expect(
-      mapTurnActivity(
-        params({
-          type: "fileChange",
-          id: "file-1",
-          changes: [
-            { path: "one.ts", kind: "update" },
-            { path: "two.ts", kind: "add" },
-            { path: "three.ts", kind: "delete" },
-            { path: "four.ts", kind: "update" },
-          ],
-          status: "completed",
-        }),
-        "started",
-      )?.detail,
-    ).toBe("one.ts, two.ts, three.ts +1 more");
+      mapTurnActivity(params({ type: "mcpToolCall", id: "mcp-1", server: "github", tool: "get_pr", status: "inProgress" }), "started")?.activity,
+    ).toEqual({ kind: "tool", source: "mcp", server: "github", name: "get_pr", target: null });
     expect(
-      mapTurnActivity(
-        params({ type: "mcpToolCall", id: "mcp-1", server: "github", tool: "get_pr", status: "inProgress" }),
-        "started",
-      ),
-    ).toMatchObject({ kind: "mcp_tool", detail: "github.get_pr" });
+      mapTurnActivity(params({ type: "dynamicToolCall", id: "tool-1", namespace: "browser", tool: "open", status: "inProgress" }), "started")?.activity,
+    ).toEqual({ kind: "tool", source: "application", server: "browser", name: "open", target: null });
     expect(
-      mapTurnActivity(
-        params({ type: "dynamicToolCall", id: "tool-1", namespace: "browser", tool: "open", status: "inProgress" }),
-        "started",
-      ),
-    ).toMatchObject({ kind: "dynamic_tool", detail: "browser.open" });
-    expect(
-      mapTurnActivity(
-        params({ type: "webSearch", id: "search-1", query: "Discord limits" }),
-        "started",
-      ),
-    ).toMatchObject({ kind: "web_search", detail: "Discord limits" });
+      mapTurnActivity(params({ type: "webSearch", id: "search-1", query: "Discord limits" }), "started")?.activity,
+    ).toEqual({ kind: "web", query: "Discord limits", url: null });
   });
 
-  test("normalizes collaboration, image, wait, and lifecycle activity", () => {
+  test("classifies delegation, image, wait, and lifecycle items", () => {
     expect(
-      mapTurnActivity(
-        params({ type: "collabAgentToolCall", id: "collab-1", tool: "spawnAgent", status: "inProgress" }),
-        "started",
-      ),
-    ).toMatchObject({ kind: "collaboration", detail: "spawnAgent" });
+      mapTurnActivity(params({ type: "collabAgentToolCall", id: "collab-1", tool: "spawnAgent", status: "inProgress" }), "started")?.activity,
+    ).toEqual({ kind: "delegation", description: "spawnAgent" });
     expect(
-      mapTurnActivity(
-        params({ type: "subAgentActivity", id: "sub-1", kind: "message", agentThreadId: "agent-1" }),
-        "started",
-      ),
-    ).toMatchObject({ kind: "collaboration", label: "Agent activity" });
+      mapTurnActivity(params({ type: "subAgentActivity", id: "sub-1", kind: "message", agentThreadId: "agent-1" }), "started")?.activity,
+    ).toEqual({ kind: "delegation", description: "message" });
     expect(
-      mapTurnActivity(params({ type: "imageView", id: "image-1", path: "/tmp/example.png" }), "started"),
-    ).toMatchObject({ kind: "image", detail: "/tmp/example.png" });
+      mapTurnActivity(params({ type: "imageView", id: "image-1", path: "/tmp/example.png" }), "started")?.activity,
+    ).toEqual({ kind: "image", action: "view", path: "/tmp/example.png", prompt: null });
+    const wait = mapTurnActivity(params({ type: "sleep", id: "sleep-1", durationMs: 1_500 }), "started")!;
+    expect(wait.activity).toEqual({ kind: "wait", durationMs: 1_500 });
+    expect(describeActivity(wait.activity).detail).toBe("1500 ms");
     expect(
-      mapTurnActivity(params({ type: "sleep", id: "sleep-1", durationMs: 1_500 }), "started"),
-    ).toMatchObject({ kind: "wait", detail: "1500 ms" });
-    expect(
-      mapTurnActivity(params({ type: "contextCompaction", id: "compact-1" }), "started"),
-    ).toMatchObject({ kind: "other", label: "Compacting context" });
+      mapTurnActivity(params({ type: "contextCompaction", id: "compact-1" }), "started")?.activity,
+    ).toEqual({ kind: "other", title: "Compacting context", detail: null });
+  });
+
+  test("describes approval requests by the activity they would allow", () => {
+    expect(codexApprovalActivity("item/commandExecution/requestApproval", { command: "rm -rf build", cwd: "/repo", reason: "cleanup" }))
+      .toEqual({ kind: "command", command: "rm -rf build", cwd: "/repo" });
+    expect(codexApprovalActivity("execCommandApproval", { command: ["git", "push"], cwd: "/repo" }))
+      .toEqual({ kind: "command", command: "git push", cwd: "/repo" });
+    expect(codexApprovalActivity("item/fileChange/requestApproval", { grantRoot: "/repo/out" }))
+      .toEqual({ kind: "file_change", paths: ["/repo/out"] });
+    expect(codexApprovalActivity("applyPatchApproval", { fileChanges: { "a.ts": {}, "b.ts": {} } }))
+      .toEqual({ kind: "file_change", paths: ["a.ts", "b.ts"] });
   });
 
   test("marks failed completed activity", () => {

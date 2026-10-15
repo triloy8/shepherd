@@ -179,8 +179,8 @@ describe("Discord thread event handler", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
       kind: "permission",
-      prompt: "Approve?",
-      detail: null,
+      activity: { kind: "command", command: "bun test", cwd: null },
+      reason: null,
       choices: [
         { value: "approve", label: "Approve", intent: "allow" },
         { value: "reject", label: "Reject", intent: "deny" },
@@ -198,8 +198,8 @@ describe("Discord thread event handler", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
       kind: "permission",
-      prompt: "Run `bun install`?",
-      detail: null,
+      activity: { kind: "command", command: "bun install", cwd: null },
+      reason: null,
       choices: [
         { value: "approve", label: "Approve", intent: "allow" },
         { value: "reject", label: "Reject", intent: "deny" },
@@ -295,9 +295,7 @@ describe("Discord thread event handler", () => {
       makeEvent("turn.activity", {
         itemId: "command-1",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun test",
+        activity: { kind: "command", command: "bun test", cwd: null },
         status: "started",
       }),
     );
@@ -332,9 +330,7 @@ describe("Discord thread event handler", () => {
       makeEvent("turn.activity", {
         itemId: "command-1",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun test",
+        activity: { kind: "command", command: "bun test", cwd: null },
         status: "started",
       }),
     );
@@ -353,9 +349,7 @@ describe("Discord thread event handler", () => {
       makeEvent("turn.activity", {
         itemId: "search-1",
         turnId: "turn-1",
-        kind: "web_search",
-        label: "Searching the web",
-        detail: "Discord ordering",
+        activity: { kind: "web", query: "Discord ordering", url: null },
         status: "started",
       }),
     );
@@ -372,9 +366,7 @@ describe("Discord thread event handler", () => {
       makeEvent("turn.activity", {
         itemId: "command-2",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun run check",
+        activity: { kind: "command", command: "bun run check", cwd: null },
         status: "started",
       }),
     );
@@ -402,9 +394,7 @@ describe("Discord thread event handler", () => {
       makeEvent("turn.activity", {
         itemId: "command-1",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun test",
+        activity: { kind: "command", command: "bun test", cwd: null },
         status: "started",
       }),
     );
@@ -417,9 +407,7 @@ describe("Discord thread event handler", () => {
       makeEvent("turn.activity", {
         itemId: "command-2",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun run check",
+        activity: { kind: "command", command: "bun run check", cwd: null },
         status: "started",
       }),
     );
@@ -445,9 +433,7 @@ describe("Discord thread event handler", () => {
     const firstActivity = makeEvent("turn.activity", {
       itemId: "command-1",
       turnId: "turn-1",
-      kind: "command",
-      label: "Running command",
-      detail: "bun test",
+      activity: { kind: "command", command: "bun test", cwd: null },
       status: "started",
     });
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
@@ -462,9 +448,7 @@ describe("Discord thread event handler", () => {
       makeEvent("turn.activity", {
         itemId: "search-1",
         turnId: "turn-1",
-        kind: "web_search",
-        label: "Searching the web",
-        detail: "Discord limits",
+        activity: { kind: "web", query: "Discord limits", url: null },
         status: "started",
       }),
     );
@@ -505,9 +489,7 @@ describe("Discord thread event handler", () => {
       makeEvent("turn.activity", {
         itemId: "image-1",
         turnId: "turn-1",
-        kind: "image",
-        label: "Generating image",
-        detail: "A pastel unicorn",
+        activity: { kind: "image", action: "generate", path: null, prompt: "A pastel unicorn" },
         status: "started",
       }),
     );
@@ -730,8 +712,8 @@ describe("Discord thread event handler", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
       kind: "permission",
-      prompt: "Run tests?",
-      detail: null,
+      activity: { kind: "command", command: "Run tests?", cwd: null },
+      reason: null,
       choices: [{ value: "accept", label: "Allow Once", intent: "allow" }],
     };
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));

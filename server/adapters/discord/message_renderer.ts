@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ApprovalChoice, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
-import type { BridgeEvent, TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
+import type { BridgeEvent, TurnActivityEvent } from "../../../shared/protocol/events.js";
+import { describeActivity, describePermission, type Activity } from "../../../shared/protocol/activity.js";
 
 function formatStatusBlock(title: string, lines: string[]): string {
   const body = lines.map((line) => line.trim()).filter(Boolean);
@@ -39,17 +40,18 @@ export function formatEventLine(event: BridgeEvent): string | null {
   return null;
 }
 
-const ACTIVITY_ICON: Record<TurnActivityKind, string> = {
-  command: "🔧",
-  file_change: "📝",
-  mcp_tool: "🔌",
-  dynamic_tool: "🛠️",
-  web_search: "🔎",
-  collaboration: "🤝",
-  image: "🖼️",
-  wait: "⏳",
-  other: "•",
-};
+function activityIcon(activity: Activity): string {
+  switch (activity.kind) {
+    case "command": return "🔧";
+    case "file_change": return "📝";
+    case "tool": return activity.source === "mcp" ? "🔌" : activity.source === "application" ? "🛠️" : "•";
+    case "web": return "🔎";
+    case "delegation": return "🤝";
+    case "image": return "🖼️";
+    case "wait": return "⏳";
+    case "other": return "•";
+  }
+}
 
 function redactActivityDetail(value: string): string {
   return value
@@ -75,11 +77,19 @@ function truncateActivityDetail(value: string, maxLength = 160): string {
   return `${points.slice(0, maxLength - 1).join("")}…`;
 }
 
-export function formatActivityLine(activity: TurnActivityEvent["payload"]): string {
-  const icon = activity.status === "failed" ? "⚠️" : ACTIVITY_ICON[activity.kind];
-  const detail = activity.detail ? truncateActivityDetail(activity.detail) : "";
-  const statusSuffix = activity.status === "failed" ? " failed" : "";
-  return `${icon} ${activity.label}${statusSuffix}${detail ? `: ${detail}` : ""}`;
+export function formatActivityLine(payload: Pick<TurnActivityEvent["payload"], "activity" | "status">): string {
+  const icon = payload.status === "failed" ? "⚠️" : activityIcon(payload.activity);
+  const { title, detail } = describeActivity(payload.activity);
+  const shown = detail ? truncateActivityDetail(detail) : "";
+  const statusSuffix = payload.status === "failed" ? " failed" : "";
+  return `${icon} ${title}${statusSuffix}${shown ? `: ${shown}` : ""}`;
+}
+
+/** What an approval asks: the permission written from its activity, or the questions. */
+export function approvalRequestLines(approval: ApprovalRequestPayload): string[] {
+  if (approval.kind === "question") return approval.userInput.questions.map((question) => question.question.trim());
+  const { title, detail } = describePermission(approval.activity);
+  return [title, ...(approval.reason?.trim() ? [approval.reason.trim()] : []), ...(detail ? [redactActivityDetail(detail)] : [])];
 }
 
 export function formatApprovalText(approval: ApprovalRequestPayload): string {
@@ -88,7 +98,7 @@ export function formatApprovalText(approval: ApprovalRequestPayload): string {
   lines.push("");
   lines.push(`Action: ${approval.kind}`);
   lines.push("");
-  lines.push(approval.prompt.trim());
+  lines.push(...approvalRequestLines(approval));
 
   if (approval.choices.length > 0) {
     lines.push("");

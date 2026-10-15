@@ -82,7 +82,7 @@ test("native input and history fields are encoded and sanitized inside adapters"
     { type: "text", text: "hi", text_elements: [] }, { type: "localImage", path: "/tmp/a.png", detail: "high" }, { type: "image", url: "https://example.com/a.png", detail: "original" }, { type: "localAudio", path: "/tmp/a.wav" },
   ]);
   const item = historyItem({ id: "tool", type: "commandExecution", command: "bun test", status: "completed", nativeSecret: "private", aggregatedOutput: "private" }, "turn");
-  expect(item).toMatchObject({ id: "tool", type: "activity", activity: { kind: "command", status: "completed", detail: "bun test" } });
+  expect(item).toMatchObject({ id: "tool", type: "activity", activity: { status: "completed", activity: { kind: "command", command: "bun test" } } });
   expect(JSON.stringify(item)).not.toContain("nativeSecret"); expect(JSON.stringify(item)).not.toContain("aggregatedOutput");
 });
 

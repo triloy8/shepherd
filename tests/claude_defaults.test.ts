@@ -32,8 +32,19 @@ test("catalog avoids duplicate IDs and does not advertise an unsupported default
   expect(limited[0]!.defaultEffort).toBeNull();
 });
 
-test("Claude tool calls map to shared activity kinds rather than defaulting to MCP", async () => {
-  const { claudeActivityKind } = await import("../server/providers/claude/activity");
-  expect(["Bash", "Edit", "NotebookEdit", "WebFetch", "Agent", "mcp__shepherd__signals__callback", "mcp__github__search", "Read", "TodoWrite"].map(claudeActivityKind))
-    .toEqual(["command", "file_change", "file_change", "web_search", "collaboration", "dynamic_tool", "mcp_tool", "other", "other"]);
+test("Claude tool calls are classified by what they do, from a bounded subset of their arguments", async () => {
+  const { claudeActivity, claudeActivityFields } = await import("../server/providers/claude/activity");
+  const classify = (tool: string, input: Record<string, unknown>) => claudeActivity(tool, claudeActivityFields(input));
+  expect(classify("Bash", { command: "bun test", description: "Run tests", timeout: 1 })).toEqual({ kind: "command", command: "bun test", cwd: null });
+  expect(classify("Edit", { file_path: "/a.ts", old_string: "x", new_string: "y" })).toEqual({ kind: "file_change", paths: ["/a.ts"] });
+  expect(classify("NotebookEdit", { notebook_path: "/n.ipynb" })).toEqual({ kind: "file_change", paths: ["/n.ipynb"] });
+  expect(classify("WebSearch", { query: "bun docs" })).toEqual({ kind: "web", query: "bun docs", url: null });
+  expect(classify("WebFetch", { url: "https://example.com", prompt: "summarize" })).toEqual({ kind: "web", query: null, url: "https://example.com" });
+  expect(classify("Agent", { description: "Explore", prompt: "long brief" })).toEqual({ kind: "delegation", description: "Explore" });
+  expect(classify("mcp__shepherd__signals__callback", {})).toEqual({ kind: "tool", source: "application", server: "signals", name: "callback", target: null });
+  expect(classify("mcp__shepherd__ping", {})).toEqual({ kind: "tool", source: "application", server: null, name: "ping", target: null });
+  expect(classify("mcp__github__search_code", { q: "x" })).toEqual({ kind: "tool", source: "mcp", server: "github", name: "search_code", target: null });
+  expect(classify("Read", { file_path: "/readme.md" })).toEqual({ kind: "tool", source: "builtin", server: null, name: "Read", target: "/readme.md" });
+  expect(classify("Grep", { pattern: "TODO", path: "/src" })).toEqual({ kind: "tool", source: "builtin", server: null, name: "Grep", target: "/src" });
+  expect(classify("TodoWrite", { todos: [] })).toEqual({ kind: "tool", source: "builtin", server: null, name: "TodoWrite", target: null });
 });

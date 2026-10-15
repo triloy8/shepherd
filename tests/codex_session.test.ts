@@ -440,8 +440,7 @@ describe("CodexSession app-server contract", () => {
     expect(events.find((event) => event.type === "turn.activity")?.payload).toMatchObject({
       itemId: "command-1",
       turnId: "turn-1",
-      kind: "command",
-      detail: "bun test",
+      activity: { kind: "command", command: "bun test" },
       status: "started",
     });
     expect(events.find((event) => event.type === "turn.message.completed")?.payload).toEqual({

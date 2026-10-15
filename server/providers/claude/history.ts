@@ -1,5 +1,6 @@
 import type { HistoryContentPart, HistoryItem, HistoryTurn, ThreadTokenUsage, TokenUsageBreakdown } from "../../../shared/protocol/requests.js";
-import type { TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
+import type { TurnActivityEvent } from "../../../shared/protocol/events.js";
+import { claudeActivity, claudeActivityFields, type ClaudeActivityFields } from "./activity.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 
 /* Claude's saved snapshot format. It belongs to this adapter: snapshots are normalized into
@@ -13,13 +14,14 @@ export type ClaudeStoredContentPart =
   | { type: "audio_file"; path: string }
   | { type: "skill"; name: string; path: string }
   | { type: "attachment"; name: string | null; path: string | null };
-export type ClaudeStoredActivity = { kind: string; label: string; detail: string | null; status: "started" | "completed" | "failed" };
+/** A tool call as Claude made it: the tool name and the bounded arguments it is described from. */
+export type ClaudeStoredActivity = { tool: string; fields: ClaudeActivityFields; status: "started" | "completed" | "failed" };
 export type ClaudeStoredItem =
   | { id: string; type: "user_message"; content: ClaudeStoredContentPart[] }
   | { id: string; type: "assistant_message"; text: string; phase?: "interim" | "final" }
   | { id: string; type: "plan"; text: string }
   | { id: string; type: "reasoning"; summary: string[] }
-  | { id: string; type: "activity"; activity: ClaudeStoredActivity; output?: string }
+  | { id: string; type: "activity"; activity: ClaudeStoredActivity }
   | { id: string; type: "image"; image: { path: string; kind: "generated" | "viewed"; prompt: string | null }; activity?: ClaudeStoredActivity }
   | { id: string; type: "other" };
 export type ClaudeStoredTurn = {
@@ -34,7 +36,6 @@ export type ClaudeStoredTokenUsage = { last: ClaudeStoredUsage | null; total: Cl
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const optionalString = (value: unknown): string | null => typeof value === "string" ? value : null;
-const activityKinds: readonly TurnActivityKind[] = ["command", "file_change", "mcp_tool", "dynamic_tool", "web_search", "collaboration", "image", "wait", "other"];
 
 /** Snapshots written before the neutral history contract used other item and status names. */
 const legacyTypes: Record<string, ClaudeStoredItem["type"]> = { userMessage: "user_message", agentMessage: "assistant_message" };
@@ -60,13 +61,12 @@ function storedPhase(value: unknown): "interim" | "final" | null {
   return value === "final" || value === "final_answer" ? "final" : null;
 }
 
+/** Snapshots without a native tool name have no activity to present; their items read as `other`. */
 function storedActivity(value: unknown): ClaudeStoredActivity | null {
   const activity = record(value);
-  if (!Object.keys(activity).length) return null;
+  if (typeof activity.tool !== "string" || !activity.tool) return null;
   return {
-    kind: typeof activity.kind === "string" ? activity.kind : "other",
-    label: String(activity.label ?? "Activity"),
-    detail: typeof activity.detail === "string" ? activity.detail : null,
+    tool: activity.tool, fields: claudeActivityFields(activity.fields),
     status: activity.status === "started" || activity.status === "failed" ? activity.status : "completed",
   };
 }
@@ -90,10 +90,7 @@ export function storedItem(value: unknown): ClaudeStoredItem {
       return { id, type, image: { path: image.path, kind: image.kind, prompt }, ...(activity ? { activity } : {}) };
     }
   }
-  if (type === "activity" && activity) {
-    const output = typeof item.output === "string" ? item.output : typeof item.text === "string" ? item.text : undefined;
-    return { id, type, activity, ...(output !== undefined ? { output } : {}) };
-  }
+  if (type === "activity" && activity) return { id, type, activity };
   return { id, type: "other" };
 }
 
@@ -134,11 +131,7 @@ export function storedTokenUsage(value: unknown): ClaudeStoredTokenUsage | undef
 /* Presentation: saved records to the application contract. */
 
 export function activityPayload(activity: ClaudeStoredActivity, itemId: string, turnId: string): TurnActivityEvent["payload"] {
-  return {
-    itemId, turnId,
-    kind: activityKinds.includes(activity.kind as TurnActivityKind) ? activity.kind as TurnActivityKind : "other",
-    label: activity.label, detail: activity.detail, status: activity.status,
-  };
+  return { itemId, turnId, status: activity.status, activity: claudeActivity(activity.tool, activity.fields) };
 }
 
 function contentPart(part: ClaudeStoredContentPart): HistoryContentPart {
@@ -159,7 +152,7 @@ export function historyItem(item: ClaudeStoredItem, turnId: string): HistoryItem
     case "assistant_message": return { id: item.id, type: item.type, text: item.text, ...(item.phase ? { phase: item.phase } : {}) };
     case "plan": return { id: item.id, type: item.type, text: item.text };
     case "reasoning": return { id: item.id, type: item.type, summary: [...item.summary] };
-    case "activity": return { id: item.id, type: item.type, activity: activityPayload(item.activity, item.id, turnId), ...(item.output !== undefined ? { output: item.output } : {}) };
+    case "activity": return { id: item.id, type: item.type, activity: activityPayload(item.activity, item.id, turnId) };
     case "image": return {
       id: item.id, type: item.type,
       image: { itemId: item.id, turnId, path: item.image.path, kind: item.image.kind, prompt: item.image.prompt },

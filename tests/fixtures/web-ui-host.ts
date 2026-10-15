@@ -133,8 +133,8 @@ h.context.ingress.submitTurn = async (threadId, request) => {
         { label: "Set one provider for the entire server", description: "All conversations use the same provider." },
       ],
     }] };
-    const approval = { approvalId: `question-${sequence}`, kind: "question", prompt: userInput.questions[0]!.question,
-      choices: [{ value: crypto.randomUUID(), label: "Submit answers", intent: "answer" }, { value: crypto.randomUUID(), label: "Skip questions", intent: "cancel" }], detail: null, userInput };
+    const approval = { approvalId: `question-${sequence}`, kind: "question",
+      choices: [{ value: crypto.randomUUID(), label: "Submit answers", intent: "answer" }, { value: crypto.randomUUID(), label: "Skip questions", intent: "cancel" }], userInput };
     const record = h.approvals.create(approval, { threadId, sessionId: "fixture" });
     publish(threadId, "approval.requested", record);
     return { ok: true, turnId };
@@ -166,14 +166,14 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     if (text.includes("view screenshot") || text.includes("answer screenshot")) {
       const image = { id: `view-${sequence}`, path: viewedImagePath };
       turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: image.path, kind: "viewed" }, activity: activity(image.id, turnId, "image", "Viewing image", image.path, "completed") });
-      publish(threadId, "turn.activity", { itemId: image.id, turnId, kind: "image", label: "Viewing image", detail: image.path, status: "started" });
+      publish(threadId, "turn.activity", { itemId: image.id, turnId, activity: { kind: "image", action: "view", path: image.path, prompt: null }, status: "started" });
       publish(threadId, "turn.image.viewed", { itemId: image.id, turnId, path: image.path });
-      publish(threadId, "turn.activity", { itemId: image.id, turnId, kind: "image", label: "Viewing image", detail: image.path, status: "completed" });
+      publish(threadId, "turn.activity", { itemId: image.id, turnId, activity: { kind: "image", action: "view", path: image.path, prompt: null }, status: "completed" });
     }
     if (text.includes("parity")) {
       const tool = { id: `tool-${sequence}`, command: "bun test" };
       turn.items.push({ id: tool.id, type: "activity", activity: activity(tool.id, turnId, "command", "Running command", tool.command, "failed") });
-      publish(threadId, "turn.activity", { itemId: tool.id, turnId, kind: "command", label: "Running command", detail: tool.command, status: "failed" });
+      publish(threadId, "turn.activity", { itemId: tool.id, turnId, activity: { kind: "command", command: tool.command, cwd: null }, status: "failed" });
       const image = { id: `image-${sequence}`, prompt: "Fixture image" };
       turn.items.push({ id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, prompt: image.prompt, kind: "generated" }, activity: activity(image.id, turnId, "image", "Generating image", image.prompt, "completed") });
       publish(threadId, "turn.image.generated", { itemId: image.id, turnId, path: imagePath, prompt: image.prompt });
@@ -182,7 +182,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
       publish(threadId, "turn.message.completed", { itemId: final.id, turnId, phase: final.phase, text: final.text });
     }
     if (text.includes("approval")) {
-      const approval = { approvalId: `approval-${sequence}`, kind: "permission", prompt: "Allow Shepherd to run the project’s test suite?", choices: [{ value: crypto.randomUUID(), label: "Allow once", intent: "allow" }, { value: crypto.randomUUID(), label: "Decline", intent: "deny" }], detail: "bun test\n~/project" };
+      const approval = { approvalId: `approval-${sequence}`, kind: "permission", activity: { kind: "command", command: "bun test", cwd: "~/project" }, reason: "Shepherd wants to run the project’s test suite.", choices: [{ value: crypto.randomUUID(), label: "Allow once", intent: "allow" }, { value: crypto.randomUUID(), label: "Decline", intent: "deny" }] } as const;
       const record = h.approvals.create(approval, { threadId, sessionId: "fixture" });
       publish(threadId, "approval.requested", record);
     } else finish(threadId, "completed", portable ? null : turnId);
@@ -206,10 +206,10 @@ Object.assign(h.application.conversation, {
     histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
     h.active.set(threadId, turnId);
     publish(threadId, "turn.started", { turnId });
-    publish(threadId, "turn.activity", { turnId, itemId, kind: "other", label: "Compacting context", detail: null, status: "started" });
+    publish(threadId, "turn.activity", { turnId, itemId, activity: { kind: "other", title: "Compacting context", detail: null }, status: "started" });
     later(1000, () => {
       compaction.status = "completed";
-      publish(threadId, "turn.activity", { turnId, itemId, kind: "other", label: "Compacting context", detail: null, status: "completed" });
+      publish(threadId, "turn.activity", { turnId, itemId, activity: { kind: "other", title: "Compacting context", detail: null }, status: "completed" });
       finish(threadId);
     });
     return { ok: true };

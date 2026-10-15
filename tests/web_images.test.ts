@@ -62,10 +62,10 @@ test("live viewed image events replace activity and survive replay without dupli
     const event = JSON.parse(chunk.split("\n").find((line) => line.startsWith("data:"))!.slice(5));
     expect(event.payload.url).toMatch(/^\/api\/conversations\/[\w-]+\/images\/[\w-]+$/);
     expect(event.payload.name).toBe("desktop-screenshot.png");
-    let state = reduceBridge(emptyChat(), { ...viewed, id: "started", type: "turn.activity", payload: { itemId: "view", turnId: "turn", kind: "image", label: "Viewing image", detail: viewed.payload.path, status: "started" } });
+    let state = reduceBridge(emptyChat(), { ...viewed, id: "started", type: "turn.activity", payload: { itemId: "view", turnId: "turn", activity: { kind: "image", action: "view", path: viewed.payload.path, prompt: null }, status: "started" } });
     state = reduceBridge(state, event);
     state = reduceBridge(state, { ...event, id: "replay" });
-    state = reduceBridge(state, { ...viewed, id: "finished", type: "turn.activity", payload: { itemId: "view", turnId: "turn", kind: "image", label: "Viewing image", detail: viewed.payload.path, status: "completed" } });
+    state = reduceBridge(state, { ...viewed, id: "finished", type: "turn.activity", payload: { itemId: "view", turnId: "turn", activity: { kind: "image", action: "view", path: viewed.payload.path, prompt: null }, status: "completed" } });
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]?.image).toMatchObject({ url: event.payload.url, name: "desktop-screenshot.png", prompt: null, path: viewed.payload.path });
     const html = renderToStaticMarkup(createElement(Timeline, { chat: state }));

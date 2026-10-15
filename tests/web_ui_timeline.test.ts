@@ -29,8 +29,8 @@ test("plans and reasoning survive web presentation and render as progress rather
   const presented = { ...source, items: source.items.map(item => presentHistoryItem(item, source.id, images)) };
   expect(presented.items.slice(0, 2)).toEqual(source.items.slice(0, 2));
   const state = mergeHistory(emptyChat(), [presented]);
-  expect(state.messages[0]?.activity).toMatchObject({ label: "Plan", detail: source.items[0].text });
-  expect(state.messages[1]?.activity).toMatchObject({ label: "Reasoning summary", detail: "The fixture is incomplete.\n\nPreserve its missing fields." });
+  expect(state.messages[0]?.activity?.activity).toEqual({ kind: "other", title: "Plan", detail: source.items[0].text });
+  expect(state.messages[1]?.activity?.activity).toEqual({ kind: "other", title: "Reasoning summary", detail: "The fixture is incomplete.\n\nPreserve its missing fields." });
   const html = render(state);
   expect(html).toContain("Check the fixtures, then update the decoder.");
   expect(html).toContain("The fixture is incomplete.");
@@ -56,7 +56,7 @@ test("empty reasoning summaries do not create activity rows in live or completed
     // A later history refresh can supply a real summary for the same item.
     presented.items[1] = { id: "empty-reasoning", type: "reasoning", summary: ["A useful summary."] };
     const refreshed = mergeHistory(state, [presented]);
-    expect(refreshed.messages.find(message => message.id === "empty-reasoning")?.activity?.detail).toBe("A useful summary.");
+    expect(refreshed.messages.find(message => message.id === "empty-reasoning")?.activity?.activity).toEqual({ kind: "other", title: "Reasoning summary", detail: "A useful summary." });
   }
 });
 
@@ -150,15 +150,15 @@ test("all explicit final messages remain visible and copyable", () => {
 test("stale turn completion and activity cannot clear a newer active turn", () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "new" }));
   for (const type of ["turn.completed", "turn.failed", "turn.activity", "turn.stream.delta"] as const) {
-    state = reduceBridge(state, event(type, type, { turnId: "old", itemId: "late", kind: "assistant_text", textDelta: "Late", status: "started", label: "Old command" }));
+    state = reduceBridge(state, event(type, type, { turnId: "old", itemId: "late", kind: "assistant_text", textDelta: "Late", status: "started", activity: { kind: "command", command: "old", cwd: null } }));
     expect(state.activeTurnId).toBe("new"); expect(state.messages).toHaveLength(0); expect(state.error).toBeNull();
   }
 });
 
 test("a failed tool step does not prevent completed work from collapsing", () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
-  state = reduceBridge(state, event("tool1", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "started" }));
-  state = reduceBridge(state, event("tool2", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "failed" }));
+  state = reduceBridge(state, event("tool1", "turn.activity", { itemId: "tool", turnId: "turn", activity: { kind: "command", command: "bun test", cwd: null }, status: "started" }));
+  state = reduceBridge(state, event("tool2", "turn.activity", { itemId: "tool", turnId: "turn", activity: { kind: "command", command: "bun test", cwd: null }, status: "failed" }));
   expect(state.messages).toHaveLength(1);
   state.activeTurnId = null; state.turns.turn = { status: "completed", durationMs: 1 };
   const html = render(state);
@@ -170,7 +170,7 @@ test("a failed tool step does not prevent completed work from collapsing", () =>
 });
 
 test("tool history survives reload and is not mistaken for a final answer", () => {
-  const history = turn(); history.items.splice(2, 0, { id: "tool", type: "commandExecution", webActivity: { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "completed" } });
+  const history = turn(); history.items.splice(2, 0, { id: "tool", type: "commandExecution", webActivity: { itemId: "tool", turnId: "turn", activity: { kind: "command", command: "bun test", cwd: null }, status: "completed" } });
   const state = mergeHistory(emptyChat(), [history]);
   expect(state.messages.find((m) => m.id === "tool")?.activity?.status).toBe("completed");
   expect(timelineGroups(state).flatMap((g) => g.finalIds)).toEqual(["answer"]);
@@ -249,9 +249,9 @@ test("superseded and completed turns cannot restart from late events", () => {
 });
 
 test("a stale history snapshot cannot regress finished tool activity", () => {
-  let state = reduceBridge(emptyChat(), event("tool", "turn.activity", { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "failed" }));
+  let state = reduceBridge(emptyChat(), event("tool", "turn.activity", { itemId: "tool", turnId: "turn", activity: { kind: "command", command: "bun test", cwd: null }, status: "failed" }));
   const history = turn("in_progress");
-  history.items.push({ id: "tool", type: "commandExecution", webActivity: { itemId: "tool", turnId: "turn", label: "Running command", detail: "bun test", kind: "command", status: "started" } });
+  history.items.push({ id: "tool", type: "commandExecution", webActivity: { itemId: "tool", turnId: "turn", activity: { kind: "command", command: "bun test", cwd: null }, status: "started" } });
   state = mergeHistory(state, [history]);
   expect(state.messages.find((m) => m.id === "tool")?.activity?.status).toBe("failed");
 });

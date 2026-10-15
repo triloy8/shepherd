@@ -10,7 +10,7 @@ import {
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../../../shared/protocol/events.js";
 import { chunkForDiscord } from "./chunking.js";
-import { formatEventLine } from "./message_renderer.js";
+import { approvalRequestLines, formatEventLine } from "./message_renderer.js";
 import { normalizeDiscordMarkdown } from "./markdown_normalizer.js";
 
 export const DISCORD_TEXT_DISPLAY_LIMIT = 4_000;
@@ -97,8 +97,9 @@ export function buildApprovalPages(
   actionRows: ActionRowBuilder<ButtonBuilder>[],
 ): DiscordSurfacePage[] {
   const details = [
-    approval.prompt.trim(),
-    ...(approval.userInput ? approval.userInput.questions.map(q => [q.header, ...(q.options ?? []).map(o => `• ${o.label}: ${o.description}`)].join("\n")) : []),
+    ...(approval.kind === "question"
+      ? approval.userInput.questions.map(q => [q.question.trim(), q.header, ...(q.options ?? []).map(o => `• ${o.label}: ${o.description}`)].join("\n"))
+      : approvalRequestLines(approval)),
     "",
     `**Action:** \`${approval.kind}\``,
     `**Thread:** \`${threadId}\``,

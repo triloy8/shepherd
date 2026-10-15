@@ -1,4 +1,5 @@
-import type { TurnActivityEvent, TurnActivityKind, TurnActivityStatus } from "../../../shared/protocol/events.js";
+import type { TurnActivityEvent } from "../../../shared/protocol/events.js";
+import type { Activity, ActivityStatus } from "../../../shared/protocol/activity.js";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
 function asString(value: unknown): string | null { return typeof value === "string" && value.trim() ? value : null; }
@@ -55,25 +56,7 @@ export function extractViewedImageArtifact(params: unknown): ViewedImageArtifact
 
 export type NormalizedTurnActivity = TurnActivityEvent["payload"];
 
-function activityResult(
-  params: unknown,
-  item: Record<string, unknown>,
-  status: TurnActivityStatus,
-  kind: TurnActivityKind,
-  label: string,
-  detail: string | null,
-): NormalizedTurnActivity {
-  return {
-    itemId: asString(item.id),
-    turnId: extractTurnId(params),
-    kind,
-    label,
-    detail,
-    status,
-  };
-}
-
-function activityStatus(item: Record<string, unknown>, lifecycle: "started" | "completed"): TurnActivityStatus {
+function activityStatus(item: Record<string, unknown>, lifecycle: "started" | "completed"): ActivityStatus {
   if (lifecycle === "started") return "started";
   const status = asString(item.status)?.toLowerCase() ?? "";
   const success = item.success;
@@ -89,73 +72,61 @@ function activityStatus(item: Record<string, unknown>, lifecycle: "started" | "c
   return "completed";
 }
 
-function summarizeFileChanges(item: Record<string, unknown>): string | null {
-  if (!Array.isArray(item.changes)) return null;
-  const paths = item.changes
-    .map((change) => asString(asRecord(change).path))
-    .filter((path): path is string => Boolean(path));
-  if (paths.length === 0) return null;
-  const visible = paths.slice(0, 3);
-  const suffix = paths.length > visible.length ? ` +${paths.length - visible.length} more` : "";
-  return `${visible.join(", ")}${suffix}`;
+function changedPaths(changes: unknown): string[] {
+  if (Array.isArray(changes)) return changes.map((change) => asString(asRecord(change).path)).filter((path): path is string => Boolean(path));
+  // Legacy patch approvals key their changes by path.
+  return Object.keys(asRecord(changes));
+}
+
+/** A Codex command arrives as a shell string or, from legacy approvals, an argument list. */
+function commandText(value: unknown): string | null {
+  if (Array.isArray(value)) return value.every((part) => typeof part === "string") && value.length ? value.join(" ") : null;
+  return asString(value);
+}
+
+/** Classify a native Codex thread item. */
+export function codexActivity(item: Record<string, unknown>): Activity | null {
+  switch (asString(item.type)) {
+    case "commandExecution": return { kind: "command", command: commandText(item.command), cwd: asString(item.cwd) };
+    case "fileChange": return { kind: "file_change", paths: changedPaths(item.changes) };
+    case "mcpToolCall": return { kind: "tool", source: "mcp", server: asString(item.server), name: asString(item.tool) ?? "tool", target: null };
+    case "dynamicToolCall": return { kind: "tool", source: "application", server: asString(item.namespace), name: asString(item.tool) ?? "tool", target: null };
+    case "webSearch": return { kind: "web", query: asString(item.query), url: null };
+    case "collabAgentToolCall": return { kind: "delegation", description: asString(item.tool) };
+    case "subAgentActivity": return { kind: "delegation", description: asString(item.kind) };
+    case "imageView": return { kind: "image", action: "view", path: asString(item.path), prompt: null };
+    case "imageGeneration": return { kind: "image", action: "generate", path: asString(item.savedPath), prompt: asString(item.revisedPrompt) };
+    case "sleep": return { kind: "wait", durationMs: typeof item.durationMs === "number" ? item.durationMs : null };
+    case "enteredReviewMode": return { kind: "other", title: "Entering review mode", detail: null };
+    case "exitedReviewMode": return { kind: "other", title: "Leaving review mode", detail: null };
+    case "contextCompaction": return { kind: "other", title: "Compacting context", detail: null };
+    default: return null;
+  }
+}
+
+/** The activity a Codex approval request would allow. */
+export function codexApprovalActivity(method: string, params: unknown): Activity {
+  const record = asRecord(params);
+  switch (method) {
+    case "item/commandExecution/requestApproval":
+    case "execCommandApproval":
+      return { kind: "command", command: commandText(record.command), cwd: asString(record.cwd) };
+    case "item/fileChange/requestApproval": {
+      const paths = changedPaths(record.changes);
+      const root = asString(record.grantRoot);
+      return { kind: "file_change", paths: paths.length ? paths : root ? [root] : [] };
+    }
+    case "applyPatchApproval": return { kind: "file_change", paths: changedPaths(record.fileChanges) };
+    default: return { kind: "other", title: "Continue", detail: null };
+  }
 }
 
 export function mapTurnActivity(
   params: unknown,
   lifecycle: "started" | "completed",
 ): NormalizedTurnActivity | null {
-  const record = asRecord(params);
-  const item = asRecord(record.item);
-  const type = asString(item.type);
-  if (!type) return null;
-  const status = activityStatus(item, lifecycle);
-
-  switch (type) {
-    case "commandExecution":
-      return activityResult(params, item, status, "command", "Running command", asString(item.command));
-    case "fileChange":
-      return activityResult(params, item, status, "file_change", "Changing files", summarizeFileChanges(item));
-    case "mcpToolCall": {
-      const server = asString(item.server);
-      const tool = asString(item.tool);
-      const detail = [server, tool].filter(Boolean).join(".");
-      const kind = item.activityKind === "command" || item.activityKind === "file_change" ? item.activityKind : "mcp_tool";
-      return activityResult(params, item, status, kind, kind === "command" ? "Running command" : kind === "file_change" ? "Changing files" : "Calling MCP tool", detail || null);
-    }
-    case "dynamicToolCall": {
-      const namespace = asString(item.namespace);
-      const tool = asString(item.tool);
-      const detail = [namespace, tool].filter(Boolean).join(".");
-      return activityResult(params, item, status, "dynamic_tool", "Calling tool", detail || null);
-    }
-    case "webSearch":
-      return activityResult(params, item, status, "web_search", "Searching the web", asString(item.query));
-    case "collabAgentToolCall":
-      return activityResult(params, item, status, "collaboration", "Coordinating agents", asString(item.tool));
-    case "subAgentActivity":
-      return activityResult(params, item, status, "collaboration", "Agent activity", asString(item.kind));
-    case "imageView":
-      return activityResult(params, item, status, "image", "Viewing image", asString(item.path));
-    case "imageGeneration":
-      return activityResult(params, item, status, "image", "Generating image", asString(item.revisedPrompt));
-    case "sleep": {
-      const durationMs = typeof item.durationMs === "number" ? item.durationMs : null;
-      return activityResult(
-        params,
-        item,
-        status,
-        "wait",
-        "Waiting",
-        durationMs === null ? null : `${durationMs} ms`,
-      );
-    }
-    case "enteredReviewMode":
-      return activityResult(params, item, status, "other", "Entering review mode", null);
-    case "exitedReviewMode":
-      return activityResult(params, item, status, "other", "Leaving review mode", null);
-    case "contextCompaction":
-      return activityResult(params, item, status, "other", "Compacting context", null);
-    default:
-      return null;
-  }
+  const item = asRecord(asRecord(params).item);
+  const activity = codexActivity(item);
+  if (!activity) return null;
+  return { itemId: asString(item.id), turnId: extractTurnId(params), status: activityStatus(item, lifecycle), activity };
 }

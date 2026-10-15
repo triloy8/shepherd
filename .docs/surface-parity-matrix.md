@@ -122,9 +122,9 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Collapse completed progress | Partial — Discord progress presentation | Yes — completed progress disclosure | Failed activity remains visible in web |
 | Command execution activity | Yes — progress lines | Yes — expandable activity | Summary, not a terminal emulator |
 | File-change activity | Yes — progress lines | Yes — expandable activity | No dedicated interactive diff viewer |
-| MCP/dynamic tool activity | Yes — progress lines | Yes — expandable activity | Shared activity mapping |
+| Tool activity (application, MCP, built-in) | Yes — progress lines | Yes — expandable activity | Titles written by surfaces from shared activity fields |
 | Web-search activity | Yes | Yes | Shared activity mapping |
-| Agent collaboration activity | Yes | Yes | Summaries, not an agent management UI |
+| Agent delegation activity | Yes | Yes | Summaries, not an agent management UI |
 | Image-view/generation activity | Yes | Yes | Separate from actual generated image delivery |
 | Wait/sleep activity | Yes | Yes | Shared activity mapping |
 | Per-item completed activity state | Partial — live lines emphasize started/failed | Yes — Running/Done/Failed/Stopped labels | Not identical lifecycle presentation |

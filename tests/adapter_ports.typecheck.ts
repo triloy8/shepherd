@@ -146,3 +146,25 @@ import type { ProviderAccountLimits } from "../shared/protocol/account_limits.js
 const partialUsage: ThreadTokenUsage = { last: null, total: { inputTokens: null, outputTokens: null, totalTokens: 42, cacheReadInputTokens: null, cacheWriteInputTokens: null, reasoningOutputTokens: null }, contextWindow: null };
 const unknownLogin: ProviderAccountLimits["account"] = { plan: null, authentication: "unknown", signedIn: null };
 void partialUsage; void unknownLogin;
+
+import type { TurnActivityEvent } from "../shared/protocol/events.js";
+function assertStructuredActivity(step: TurnActivityEvent["payload"], approval: ApprovalRequestPayload, item: Extract<HistoryItem, { type: "activity" }>) {
+  // @ts-expect-error Surfaces write activity labels; adapters do not supply free text.
+  step.label;
+  // @ts-expect-error Activity details come from typed fields, not adapter-formatted strings.
+  step.detail;
+  // @ts-expect-error Activity kinds are application categories, not tool provenance.
+  const kind: typeof step.activity.kind = "mcp_tool"; void kind;
+  // @ts-expect-error Tool output does not cross the boundary.
+  item.output;
+  if (approval.kind === "permission") {
+    // @ts-expect-error Permission prompts are written from the activity they would allow.
+    approval.prompt;
+    // @ts-expect-error Native tool input is not an approval detail.
+    approval.detail;
+  } else {
+    // @ts-expect-error Questions carry their form, not an activity.
+    const activity: NonNullable<typeof approval.activity> = { kind: "other", title: "x", detail: null }; void activity;
+  }
+}
+void assertStructuredActivity;

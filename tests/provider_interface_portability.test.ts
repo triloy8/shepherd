@@ -146,8 +146,8 @@ test("overlapping native thread and approval IDs stay independent through histor
     expect(first).not.toBe(second);
     expect(first).toBe(scopedThreadId("first", "1"));
     for (const session of [a.sessions[0]!, b.sessions[0]!]) session.eventBus.publish({ id: "approval", type: "approval.requested",
-      threadId: "1", sessionId: session.sessionId, ts: "now", payload: { approvalId: "1", kind: "permission", prompt: "Run?",
-        choices: [{ value: "allow", intent: "allow", label: "Allow" }], detail: null } });
+      threadId: "1", sessionId: session.sessionId, ts: "now", payload: { approvalId: "1", kind: "permission", activity: { kind: "command", command: "Run?", cwd: null }, reason: null,
+        choices: [{ value: "allow", intent: "allow", label: "Allow" }] } });
     expect(conversation.listApprovals(first)).toHaveLength(1);
     expect(conversation.listApprovals(second)).toHaveLength(1);
     const replay: string[] = [];
@@ -211,7 +211,7 @@ test("identity translation covers tools, nested question targets, loaded discove
     await nativeTools.execute({ threadId: "1", turnId: "turn", callId: "call", namespace: null, tool: "probe", arguments: null });
     expect(calls).toEqual([threadId]);
     native.eventBus.publish({ id: "question", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested",
-      payload: { approvalId: "1", kind: "question", prompt: "Which?", choices: [], detail: null,
+      payload: { approvalId: "1", kind: "question", choices: [],
         userInput: { threadId: "1", turnId: "turn", itemId: "item", isBlocking: true, questions: [] } } });
     const targets: string[] = [];
     const unsubscribe = session.eventBus.subscribe(event => { if (event.type === "approval.requested") targets.push(event.threadId, event.payload.userInput!.threadId); });
@@ -343,7 +343,7 @@ for (const terminal of ["turn.completed", "turn.failed"] as const) test(`${termi
     const publish = (approvalId: string, turnId: string | null) => {
       native.activeTurnId = turnId;
       native.eventBus.publish({ id: approvalId, type: "approval.requested", threadId: "1", sessionId: native.sessionId, ts: "now",
-        payload: { approvalId, kind: "permission", prompt: "Run?", detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+        payload: { approvalId, kind: "permission", activity: { kind: "command", command: "Run?", cwd: null }, reason: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
     };
     publish("old", "old-turn"); publish("new", "new-turn");
     const [old, newer] = conversation.listApprovals(threadId).map(approval => approval.approvalId);
@@ -463,7 +463,7 @@ test("stale Discord controls cannot authorize a newer occurrence of a reused nat
     const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
     const publish = (id: string, turnId: string, prompt: string) => {
       native.activeTurnId = turnId;
-      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt, detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", activity: { kind: "command", command: prompt, cwd: null }, reason: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
     };
     publish("old", "old-turn", "Old permission");
     const old = conversation.listApprovals(threadId)[0]!;
@@ -494,7 +494,7 @@ test("late native lifecycle events and in-flight decisions cannot mutate reused 
     const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
     const request = (id: string) => {
       native.activeTurnId = "same-turn";
-      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt: id, detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", activity: { kind: "command", command: id, cwd: null }, reason: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
     };
     request("old"); const old = conversation.listApprovals(threadId)[0]!;
     let finish!: () => void;
@@ -516,10 +516,10 @@ test("rejected question IDs can be reused by permissions without accepting delay
   try {
     const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
     native.activeTurnId = "question-turn";
-    native.eventBus.publish({ id: "question", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "question", prompt: "Unsupported", detail: null, choices: [{ value: "cancel", label: "Cancel", intent: "cancel" }] } });
+    native.eventBus.publish({ id: "question", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "question", choices: [{ value: "cancel", label: "Cancel", intent: "cancel" }] } });
     await new Promise(resolve => setTimeout(resolve, 0));
     native.activeTurnId = "permission-turn";
-    native.eventBus.publish({ id: "permission", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt: "Run?", detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+    native.eventBus.publish({ id: "permission", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", activity: { kind: "command", command: "Run?", cwd: null }, reason: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
     for (const payload of [{ approvalId: "1" }, { approvalId: "1", turnId: "question-turn" }, { approvalId: "1", requestEventId: "question" }]) {
       native.eventBus.publish({ id: crypto.randomUUID(), threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.expired", payload });
     }
@@ -537,7 +537,7 @@ test("native turn correlation resolves approval lifecycle events after cross-tur
     const { threadId } = await conversation.createThread({}); const native = h.sessions[0]!;
     for (const turnId of ["old", "new"]) {
       native.activeTurnId = turnId;
-      native.eventBus.publish({ id: turnId, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt: turnId, detail: null, choices: [] } });
+      native.eventBus.publish({ id: turnId, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", activity: { kind: "command", command: turnId, cwd: null }, reason: null, choices: [] } });
     }
     native.eventBus.publish({ id: "failed", threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.failed", payload: { approvalId: "1", turnId: "new", message: "Cancelled upstream" } });
     expect(conversation.listApprovals(threadId).map(a => a.status)).toEqual(["expired", "failed"]);

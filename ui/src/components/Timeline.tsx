@@ -5,6 +5,8 @@ import { messageKey, type ChatMessage, type ChatState } from "../chat-state";
 import { timelineGroups, type TimelineGroup } from "../timeline";
 import { ImageArtifact } from "./ImageArtifact";
 import { Message } from "./Message";
+import { describeActivity } from "../../../shared/protocol/activity";
+import type { TurnActivityEvent } from "../../../shared/protocol/events";
 
 export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true, onRevert, onReload }: { chat: ChatState; waitingForAnswer?: boolean; revertDisabled?: boolean; onRevert?: (turnId: string) => Promise<void>; onReload?: () => Promise<void> }) {
   const [target, setTarget] = useState<ChatMessage | null>(null);
@@ -29,10 +31,7 @@ const TimelineGroupView = memo(function TimelineGroupView({ group, images, waiti
     const updates = <div className="space-y-4 border-l border-line pl-4 text-muted">{progress.map((message) => message.image ? <DeferredDetails key={message.id} className="viewed-image-disclosure text-xs text-muted"
       summary={<>Viewed image{message.image.name ? ` · ${message.image.name}` : ""}</>}>
       <ImageArtifact image={message.image} eager />
-    </DeferredDetails> : message.activity ? <details key={message.id} className={message.activity.status === "failed" ? "notice" : "text-xs text-muted"}>
-      <summary className="cursor-pointer">{message.activity.label} · {message.activity.status === "started" && turnStatus && turnStatus !== "in_progress" ? "Stopped" : message.activity.status === "started" ? "Running" : message.activity.status === "failed" ? "Failed" : "Done"}</summary>
-      {message.activity.detail && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{message.activity.detail.slice(0, 16384)}</pre>}
-    </details> : <Message key={message.id} message={message} images={images} writingPaused={waiting} progress showCopy={false} />)}</div>;
+    </DeferredDetails> : message.activity ? <ActivityStep key={message.id} step={message.activity} turnStatus={turnStatus} /> : <Message key={message.id} message={message} images={images} writingPaused={waiting} progress showCopy={false} />)}</div>;
     return <section className="timeline-entry space-y-5" aria-label="Assistant turn">
       {progress.length > 0 && (group.settled ?
         <DeferredDetails summary={<>{group.label}{failures > 0 && <span className="text-amber-400"> · {failures} failed {failures === 1 ? "step" : "steps"}</span>}</>} >{updates}</DeferredDetails> :
@@ -53,5 +52,14 @@ function DeferredDetails({ summary, children, className = "progress-disclosure" 
   return <details className={className} onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
     <summary className="cursor-pointer text-xs text-muted hover:text-ink">{summary}</summary>
     {opened && <div className="mt-4">{children}</div>}
+  </details>;
+}
+
+function ActivityStep({ step, turnStatus }: { step: TurnActivityEvent["payload"]; turnStatus?: string }) {
+  const { title, detail } = describeActivity(step.activity);
+  const state = step.status === "started" && turnStatus && turnStatus !== "in_progress" ? "Stopped" : step.status === "started" ? "Running" : step.status === "failed" ? "Failed" : "Done";
+  return <details className={step.status === "failed" ? "notice" : "text-xs text-muted"}>
+    <summary className="cursor-pointer">{title} · {state}</summary>
+    {detail && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{detail.slice(0, 16384)}</pre>}
   </details>;
 }

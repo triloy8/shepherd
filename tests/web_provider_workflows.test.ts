@@ -83,7 +83,7 @@ test("web sees terminal approval expiry through SSE and null context telemetry t
     const emit = (event: BridgeEvent) => native.eventBus.publish({ ...event, threadId: "1", sessionId: native.sessionId });
     const envelope = { id: "event", threadId: "1", sessionId: native.sessionId, ts: "now" };
     native.activeTurnId = "turn";
-    emit({ ...envelope, type: "approval.requested", payload: { approvalId: "permission", kind: "permission", prompt: "Run?", detail: null, choices: [{ value: "allow", intent: "allow", label: "Allow" }] } });
+    emit({ ...envelope, type: "approval.requested", payload: { approvalId: "permission", kind: "permission", activity: { kind: "command", command: "Run?", cwd: null }, reason: null, choices: [{ value: "allow", intent: "allow", label: "Allow" }] } });
     const approval = (await (await h.request(`${path}/approvals`)).json()).approvals[0];
     expect(approval.status).toBe("pending");
     native.activeTurnId = null;
@@ -142,7 +142,7 @@ test("HTTP stale approval handles and native IDs cannot authorize a reused permi
     const c = await h.create({ project: "fixture" }); const path = `/conversations/${c.id}/approvals`;
     const emit = (id: string) => {
       native.activeTurnId = id;
-      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", prompt: id, detail: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
+      native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", activity: { kind: "command", command: id, cwd: null }, reason: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
     };
     emit("old"); const old = (await (await h.request(path)).json()).approvals[0];
     emit("new"); const newer = (await (await h.request(path)).json()).approvals[1];

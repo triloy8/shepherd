@@ -433,11 +433,11 @@ test("question requests from a provider that does not declare questions are fail
     conversation.subscribeToThreadEvents(threadId, event => events.push(event.type), { replay: false });
     session.applyApprovalDecision = async (id, decision) => { decisions.push({ id, decision }); return { approvalId: id }; };
     const userInput = { threadId, turnId: "turn", itemId: "item", isBlocking: true, questions: [{ id: "q", header: "Q", question: "Which?", isOther: true, isSecret: false, options: null }] };
-    session.eventBus.publish({ id: "question", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: { approvalId: "ask", kind: "question", prompt: "Which?", choices: [{ value: "opaque-skip", label: "Skip", intent: "cancel" }], detail: null, userInput } });
-    session.eventBus.publish({ id: "permission", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: { approvalId: "allow", kind: "permission", prompt: "Run?", choices: [], detail: null } });
+    session.eventBus.publish({ id: "question", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: { approvalId: "ask", kind: "question", choices: [{ value: "opaque-skip", label: "Skip", intent: "cancel" }], userInput } });
+    session.eventBus.publish({ id: "permission", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: { approvalId: "allow", kind: "permission", activity: { kind: "command", command: "Run?", cwd: null }, reason: null, choices: [] } });
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(conversation.listApprovals(threadId)).toHaveLength(1);
-    expect(conversation.listApprovals(threadId)[0]!.prompt).toBe("Run?");
+    expect(conversation.listApprovals(threadId)[0]!.activity).toEqual({ kind: "command", command: "Run?", cwd: null });
     expect(events).toEqual(["approval.requested", "approval.failed"]);
     expect(decisions).toEqual([{ id: "ask", decision: { decision: "opaque-skip", reason: "This agent does not support questions." } }]);
     const replay: string[] = [];
@@ -463,7 +463,7 @@ test("invalid question cancellation stops the session instead of leaving a provi
       const events: string[] = [];
       conversation.subscribeToThreadEvents(threadId, event => events.push(event.type), { replay: false });
       session.eventBus.publish({ id: "invalid", type: "approval.requested", threadId, sessionId: session.sessionId, ts: new Date().toISOString(), payload: {
-        approvalId: "ask", kind: "question", prompt: "Which?", choices: cancellation === "missing" ? [] : [{ value: "opaque", label: "Skip", intent: "cancel" }], detail: null,
+        approvalId: "ask", kind: "question", choices: cancellation === "missing" ? [] : [{ value: "opaque", label: "Skip", intent: "cancel" }],
       } });
       await new Promise(resolve => setTimeout(resolve, 0));
       expect(session.stopped).toBe(true);

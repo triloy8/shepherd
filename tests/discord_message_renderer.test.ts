@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { ApprovalRequestPayload } from "../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import {
+  approvalRequestLines,
   formatActivityLine,
   formatApprovalDecisionLabel,
   formatApprovalDecisionReply,
@@ -26,8 +27,8 @@ describe("Discord message renderer", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
       kind: "permission",
-      prompt: "Run `bun install` in the workspace?",
-      detail: null,
+      activity: { kind: "command", command: "bun install", cwd: "/repo" },
+      reason: "Dependencies changed.",
       choices: [
         { value: "approve", label: "Approve", intent: "allow" },
         { value: "reject", label: "Reject", intent: "deny" },
@@ -35,8 +36,20 @@ describe("Discord message renderer", () => {
     };
 
     expect(formatApprovalText(approval)).toBe(
-      "Approval Required\n\nAction: permission\n\nRun `bun install` in the workspace?\n\nOptions: Approve / Reject",
+      "Approval Required\n\nAction: permission\n\nAllow this command?\nDependencies changed.\nbun install\n\nOptions: Approve / Reject",
     );
+  });
+
+  test("writes approval prompts from the activity and redacts secrets in them", () => {
+    const lines = approvalRequestLines({
+      approvalId: "approval-2", kind: "permission", reason: null, choices: [],
+      activity: { kind: "command", command: "API_TOKEN=super-secret deploy", cwd: null },
+    });
+    expect(lines).toEqual(["Allow this command?", "API_TOKEN=[REDACTED] deploy"]);
+    expect(approvalRequestLines({
+      approvalId: "approval-3", kind: "permission", reason: null, choices: [],
+      activity: { kind: "tool", source: "mcp", server: "github", name: "merge_pr", target: null },
+    })).toEqual(["Allow github.merge_pr?"]);
   });
 
   test("labels approval outcomes by declared intent, never by the provider's wording", () => {
@@ -85,9 +98,7 @@ describe("Discord message renderer", () => {
       formatActivityLine({
         itemId: "command-1",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "API_TOKEN=super-secret bun test",
+        activity: { kind: "command", command: "API_TOKEN=super-secret bun test", cwd: null },
         status: "started",
       }),
     ).toBe("🔧 Running command: API_TOKEN=[REDACTED] bun test");
@@ -95,9 +106,7 @@ describe("Discord message renderer", () => {
       formatActivityLine({
         itemId: "command-2",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "tool --api-key hidden-value --token=second-secret",
+        activity: { kind: "command", command: "tool --api-key hidden-value --token=second-secret", cwd: null },
         status: "started",
       }),
     ).toBe("🔧 Running command: tool --api-key [REDACTED] --token=[REDACTED]");
@@ -105,10 +114,7 @@ describe("Discord message renderer", () => {
       formatActivityLine({
         itemId: "command-3",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail:
-          "just launch-signaled run-specs/gpu-smoke.json SPEND http://127.0.0.1:8787/signals/abcdefghijklmnopqrstuvwx",
+        activity: { kind: "command", command: "just launch-signaled run-specs/gpu-smoke.json SPEND http://127.0.0.1:8787/signals/abcdefghijklmnopqrstuvwx", cwd: null },
         status: "started",
       }),
     ).toBe(
@@ -118,9 +124,7 @@ describe("Discord message renderer", () => {
       formatActivityLine({
         itemId: "tool-1",
         turnId: "turn-1",
-        kind: "mcp_tool",
-        label: "Calling MCP tool",
-        detail: "github.get_pull_request",
+        activity: { kind: "tool", source: "mcp", server: "github", name: "get_pull_request", target: null },
         status: "failed",
       }),
     ).toBe("⚠️ Calling MCP tool failed: github.get_pull_request");
@@ -130,9 +134,7 @@ describe("Discord message renderer", () => {
     const line = formatActivityLine({
       itemId: "command-1",
       turnId: "turn-1",
-      kind: "command",
-      label: "Running command",
-      detail: "x".repeat(500),
+      activity: { kind: "command", command: "x".repeat(500), cwd: null },
       status: "started",
     });
     expect(line.endsWith("…")).toBe(true);

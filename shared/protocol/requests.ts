@@ -349,7 +349,7 @@ export type HistoryItem =
   | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }
   | { id: string; type: "plan"; text: string }
   | { id: string; type: "reasoning"; summary: string[] }
-  | { id: string; type: "activity"; activity: HistoryActivity; output?: string }
+  | { id: string; type: "activity"; activity: HistoryActivity }
   | { id: string; type: "image"; image: HistoryImage; activity?: HistoryActivity }
   | { id: string; type: "other" };
 

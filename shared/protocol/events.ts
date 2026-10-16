@@ -1,23 +1,9 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
 import type { ApprovalPolicy, ThreadTokenUsage } from "./requests.js";
+import type { Activity, ActivityStatus } from "./activity.js";
 
 /** Interim text reports progress during a turn; final text answers it. */
 export type MessagePhase = "interim" | "final";
-
-/** Application categories for presentation, not provider item types. Adapters classify their own
- * tools into these and use `other` rather than adding provider-specific kinds. */
-export type TurnActivityKind =
-  | "command"
-  | "file_change"
-  | "mcp_tool"
-  | "dynamic_tool"
-  | "web_search"
-  | "collaboration"
-  | "image"
-  | "wait"
-  | "other";
-
-export type TurnActivityStatus = "started" | "completed" | "failed";
 
 /** Null turn IDs refer to the current turn. Providers must supply IDs for delayed events
  * belonging to an earlier turn. Null delta item IDs refer to the pending message, which
@@ -63,10 +49,8 @@ export interface BridgeEventPayloads {
   "turn.activity": {
     itemId: string | null;
     turnId: string | null;
-    kind: TurnActivityKind;
-    label: string;
-    detail: string | null;
-    status: TurnActivityStatus;
+    status: ActivityStatus;
+    activity: Activity;
   };
   "approval.requested": ApprovalRequestPayload;
   /** Reused native IDs need requestEventId (the request event ID), or a uniquely identifying turnId. */

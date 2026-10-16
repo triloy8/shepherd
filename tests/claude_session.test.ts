@@ -257,7 +257,7 @@ test("instructions saved by earlier versions still extend the preset prompt; new
   } finally { resumed.stop(); }
 });
 
-test("renaming and archiving preserve in-memory tool results during an active turn", async () => {
+test("renaming and archiving preserve in-memory tool progress during an active turn", async () => {
   const emitted = signal(); const gate = signal(); const storage = store();
   const fake = sdk(async function* () {
     yield { type: "assistant", parent_tool_use_id: null, message: { id: "tools", content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: {} }] } } as SDKMessage;
@@ -268,7 +268,7 @@ test("renaming and archiving preserve in-memory tool results during an active tu
   await session.startTurn([toTextUserInput("run")]); await emitted.promise;
   await session.setThreadName(created.threadId, "Renamed"); await session.archiveThread(created.threadId);
   gate.resolve(); await done(session);
-  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "user_message" }, { id: "tool-1", type: "activity", activity: { status: "completed" }, output: JSON.stringify("fresh") }] }] });
+  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "user_message" }, { id: "tool-1", type: "activity", activity: { tool: "Bash", status: "completed" } }] }] });
   session.stop();
 });
 
@@ -597,13 +597,13 @@ test("forking a materialized thread searches every project directory for its tra
   source.stop(); fork.stop();
 });
 
-test("streamed blocks coalesce history writes and stored tool output is bounded", async () => {
+test("streamed blocks coalesce history writes and saved tool calls keep only bounded activity fields", async () => {
   const storage = store(); let writes = 0;
   const write = storage.write.bind(storage); storage.write = thread => { writes++; write(thread); };
   const fake = sdk(async function* () {
     for (let index = 0; index < 20; index++) {
-      yield { type: "assistant", parent_tool_use_id: null, message: { id: `m${index}`, content: [{ type: "tool_use", id: `tool-${index}`, name: "Read", input: {} }] } } as SDKMessage;
-      yield { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: `tool-${index}`, content: index ? "x".repeat(20_000) : [{ type: "image", source: { type: "base64", data: "AAAA" } }, { type: "text", text: "caption" }], is_error: false }] } } as SDKMessage;
+      yield { type: "assistant", parent_tool_use_id: null, message: { id: `m${index}`, content: [{ type: "tool_use", id: `tool-${index}`, name: index ? "Write" : "Read", input: { file_path: index ? "x".repeat(20_000) : "/project/a.ts", content: "secret body" } }] } } as SDKMessage;
+      yield { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: `tool-${index}`, content: "x".repeat(20_000), is_error: false }] } } as SDKMessage;
     }
     yield result;
   });
@@ -612,9 +612,11 @@ test("streamed blocks coalesce history writes and stored tool output is bounded"
   await session.startTurn([toTextUserInput("read")]); await done(session);
   expect(writes).toBeLessThanOrEqual(3);
   const items = storage.read(threadId).turns[0]!.items;
-  const output = (index: number) => { const item = items[index]!; if (item.type !== "activity") throw new Error("Expected tool activity."); return item.output; };
-  expect(JSON.parse(output(1)!)).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
-  expect(String(output(2)).length).toBeLessThan(8_100);
+  const activity = (index: number) => { const item = items[index]!; if (item.type !== "activity") throw new Error("Expected tool activity."); return item.activity; };
+  // Tool results and arguments an activity is not described from are never saved.
+  expect(activity(1)).toEqual({ tool: "Read", fields: { file_path: "/project/a.ts" }, status: "completed" });
+  expect(JSON.stringify(items)).not.toContain("secret body");
+  expect(activity(2).fields.file_path!.length).toBeLessThan(8_100);
   session.stop();
 });
 
@@ -689,7 +691,8 @@ test("snapshots written with earlier item names decode into the application hist
   const thread = new ClaudeThreadStore(directory).read(id);
   expect(thread.turns[0]).toMatchObject({ status: "in_progress", items: [
     { type: "user_message", content: [{ type: "text", text: "hi" }, { type: "image", url: "data:image/png;base64,AA" }] },
-    { type: "activity", output: "\"ok\"", activity: { kind: "command" } },
+    // Activities saved before tool names were recorded have nothing to present.
+    { id: "tool", type: "other" },
     { type: "assistant_message", text: "hello", phase: "final" },
     { type: "other" },
   ] });
@@ -709,7 +712,7 @@ test("snapshots written with earlier item names decode into the application hist
   // Resuming rewrote the snapshot in Claude's own saved format, without application-only fields.
   const saved = JSON.parse(readFileSync(join(directory, `${id}.json`), "utf8"));
   expect(saved.turns[0]).not.toHaveProperty("itemsView");
-  expect(saved.turns[0].items[1]).toEqual({ id: "tool", type: "activity", activity: { kind: "command", label: "Bash", detail: null, status: "completed" }, output: "\"ok\"" });
+  expect(saved.turns[0].items[1]).toEqual({ id: "tool", type: "other" });
   expect(saved.tokenUsage).toHaveProperty("contextWindow", 200_000);
   expect(saved.tokenUsage).not.toHaveProperty("modelContextWindow");
 });
@@ -726,7 +729,7 @@ test("Claude applies opaque permission options through the shared session bounda
   manager.subscribeToThreadEvents(threadId, event => observed.push(event));
   await manager.submitTurn(threadId, { input: [toTextUserInput("read")] }); await asked.promise;
   const pending = manager.listApprovals(threadId)[0]!;
-  expect(pending.kind).toBe("permission"); expect(pending.detail).toContain("/project/readme.md");
+  expect(pending.kind).toBe("permission"); expect(pending.activity).toEqual({ kind: "tool", source: "builtin", server: null, name: "Read", target: "/project/readme.md" });
   expect(pending.choices.map(choice => choice.intent)).toEqual(["allow", "deny"]);
   expect(pending.choices.some(choice => ["allow", "deny"].includes(choice.value))).toBe(false);
   await manager.applyApprovalDecision(threadId, pending.approvalId, { decision: pending.choices.find(choice => choice.intent === "allow")!.value });

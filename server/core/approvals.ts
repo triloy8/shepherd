@@ -13,11 +13,11 @@ export class ApprovalDecisionError extends Error {
   }
 }
 
-interface StoredApproval extends ApprovalRecord {
+type StoredApproval = ApprovalRecord & {
   internalId: string;
   requestEventId?: string;
   turnId: string | null;
-}
+};
 
 export class ApprovalsStore {
   private approvals = new Map<string, StoredApproval>();

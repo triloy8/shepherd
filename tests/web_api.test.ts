@@ -76,7 +76,7 @@ test("approval choices are validated without consuming invalid requests; duplica
   const h = webHarness();
   try {
     const c = await h.create(); const path = `/conversations/${c.id}/approvals`;
-    const approval = h.approvals.create({ approvalId: "approval:1", kind: "permission", prompt: "Allow?", choices: [{ value: "accept", label: "Accept", intent: "allow" }], detail: null }, { threadId: c.threadId, sessionId: "session" });
+    const approval = h.approvals.create({ approvalId: "approval:1", kind: "permission", activity: { kind: "command", command: "Allow?", cwd: null }, reason: null, choices: [{ value: "accept", label: "Accept", intent: "allow" }] }, { threadId: c.threadId, sessionId: "session" });
     expect((await (await h.request(path)).json()).approvals[0].status).toBe("pending");
     expect((await h.request(`${path}/${approval.approvalId}`, "POST", { decision: "bogus" })).status).toBe(400);
     expect(h.approvals.listByThread(c.threadId)[0]!.status).toBe("pending");

@@ -211,7 +211,7 @@ test("history identifies anonymous streams without duplicating queued replay", (
 
 for (const terminal of ["turn.completed", "turn.failed"] as const) test(`null ${terminal} settles the current turn while identified late events stay isolated`, () => {
   let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "current" }));
-  state = reduceBridge(state, event("activity", "turn.activity", { turnId: null, itemId: "tool", kind: "command", label: "Working", detail: null, status: "started" }));
+  state = reduceBridge(state, event("activity", "turn.activity", { turnId: null, itemId: "tool", activity: { kind: "command", command: null, cwd: null }, status: "started" }));
   state = reduceBridge(state, event("text", "turn.stream.delta", { turnId: null, itemId: "answer", kind: "assistant_text", phase: "final", textDelta: "Partial answer" }));
   state = reduceBridge(state, event("foreign", "turn.failed", { turnId: "earlier", message: "Foreign failure" }));
   expect(state.activeTurnId).toBe("current"); expect(state.error).toBeNull();

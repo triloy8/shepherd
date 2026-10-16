@@ -1,5 +1,6 @@
 import { imageDataParts, WEB_IMAGE_MAX_COUNT } from "../../shared/protocol/image_input";
 import type { BridgeEvent, TurnActivityEvent } from "../../shared/protocol/events";
+import { describeActivity } from "../../shared/protocol/activity";
 import type { WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryTurn } from "../../shared/protocol/requests";
 
@@ -23,9 +24,8 @@ export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
     if (item.type === "plan" || item.type === "reasoning") {
       if (item.type === "reasoning" && !item.summary.some(part => part.trim())) return [];
       return [{ id: item.id, turnId: turn.id, role: "assistant", text: "", complete: turn.status !== "in_progress", activity: {
-        itemId: item.id, turnId: turn.id, kind: "other", label: item.type === "plan" ? "Plan" : "Reasoning summary",
-        detail: item.type === "plan" ? item.text : item.summary.join("\n\n"),
-        status: turn.status === "in_progress" ? "started" : "completed",
+        itemId: item.id, turnId: turn.id, status: turn.status === "in_progress" ? "started" : "completed",
+        activity: { kind: "other", title: item.type === "plan" ? "Plan" : "Reasoning summary", detail: item.type === "plan" ? item.text : item.summary.join("\n\n") },
       } }];
     }
     if (item.webImage) return [{ id: item.id, turnId: turn.id, role: "assistant", text: "", complete: true, image: item.webImage }];
@@ -156,7 +156,7 @@ export function reduceBridge(state: ChatState, event: BridgeEvent): ChatState {
     if (previous?.image) return next;
     if (previous?.activity && previous.activity.status !== "started" && activity.status === "started") return next;
     const message: ChatMessage = { id, turnId, role: "assistant", text: "", complete: activity.status !== "started", activity };
-    return { ...next, messages: previous ? state.messages.map((m) => m === previous ? message : m) : [...state.messages, message], activity: activity.status === "started" ? activity.label || "Working" : "Thinking" };
+    return { ...next, messages: previous ? state.messages.map((m) => m === previous ? message : m) : [...state.messages, message], activity: activity.status === "started" ? describeActivity(activity.activity).title : "Thinking" };
   }
   if (event.type !== "turn.stream.delta" && event.type !== "turn.message.completed") return next;
   // Reasoning/tool deltas are not agent message text.

@@ -9,6 +9,7 @@ import type { HistoryContentPart, HistoryItem } from "../../../shared/protocol/r
 import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.js";
 import { DISCORD_LIST_PAGE_SIZE, navigationRow } from "./list_pagination.js";
 import { formatActivityLine } from "./message_renderer.js";
+import { describeActivity } from "../../../shared/protocol/activity.js";
 import { chunkForDiscord } from "./chunking.js";
 import { normalizeDiscordMarkdown } from "./markdown_normalizer.js";
 
@@ -55,8 +56,8 @@ function itemLabel(item: HistoryItem): string {
     case "assistant_message": return "Assistant message";
     case "plan": return "Plan";
     case "reasoning": return "Reasoning summary";
-    case "activity": return item.activity.label;
-    case "image": return item.activity?.label ?? "Image";
+    case "activity": return describeActivity(item.activity.activity).title;
+    case "image": return item.activity ? describeActivity(item.activity.activity).title : "Image";
     default: return "Activity";
   }
 }

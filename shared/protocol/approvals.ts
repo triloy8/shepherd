@@ -1,4 +1,5 @@
 import type { UserQuestionRequest, UserQuestionAnswers } from "./user_questions.js";
+import type { Activity } from "./activity.js";
 
 export type ApprovalState = "pending" | "approved" | "rejected" | "expired" | "applied" | "failed";
 
@@ -8,15 +9,17 @@ export interface ApprovalChoice {
   intent: "allow" | "deny" | "answer" | "cancel";
 }
 
-export interface ApprovalRequestPayload {
+interface ApprovalRequestBase {
   /** Native at the provider boundary; an immutable occurrence handle in application records/events. */
   approvalId: string;
-  kind: "permission" | "question";
-  prompt: string;
   choices: ApprovalChoice[];
-  detail: string | null;
-  userInput?: UserQuestionRequest;
 }
+
+/** A permission names the activity it would allow; surfaces write the prompt from it.
+ * `reason` is the agent's own explanation, when it gives one. A question carries its form. */
+export type ApprovalRequestPayload =
+  | ApprovalRequestBase & { kind: "permission"; activity: Activity; reason: string | null; userInput?: undefined }
+  | ApprovalRequestBase & { kind: "question"; userInput: UserQuestionRequest; activity?: undefined; reason?: undefined };
 
 export interface ApprovalDecisionRequest {
   decision: string;
@@ -24,7 +27,7 @@ export interface ApprovalDecisionRequest {
   answers?: UserQuestionAnswers;
 }
 
-export interface ApprovalRecord extends ApprovalRequestPayload {
+export type ApprovalRecord = ApprovalRequestPayload & {
   threadId: string;
   sessionId: string;
   status: ApprovalState;
@@ -33,7 +36,7 @@ export interface ApprovalRecord extends ApprovalRequestPayload {
   expiresAt?: string;
   decisionBy?: string;
   decisionReason?: string;
-}
+};
 
 export function isApprovalState(value: string): value is ApprovalState {
   return (

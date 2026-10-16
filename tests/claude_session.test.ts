@@ -1,6 +1,7 @@
-import { ClaudeThreadStore } from "../server/storage/claude_thread_store.js";
+import { ClaudeModelCache } from "../server/providers/claude/model_cache.js";
+import { ClaudeThreadStore } from "../server/providers/claude/file_thread_store.js";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { query, Query, SDKMessage, SDKUserMessage, PermissionResult, Options, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
@@ -29,7 +30,7 @@ function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) =>
   const queryFn = (({ prompt, options }: Parameters<typeof query>[0]) => {
     const input = prompt as AsyncIterable<SDKUserMessage>;
     calls.push({ options: options!, input });
-    return Object.assign(script(input, options!), { close: () => { closed++; }, interrupt: async () => { interruptions++; interrupt(); }, supportedModels: async () => [{ value: "sonnet", displayName: "Sonnet", description: "Claude", supportsEffort: true, supportedEffortLevels: ["low", "high"] }] }) as Query;
+    return Object.assign(script(input, options!), { close: () => { closed++; }, interrupt: async () => { interruptions++; interrupt(); }, supportedModels: async () => [{ value: "sonnet", displayName: "Sonnet", description: "Claude", supportsEffort: true, supportedEffortLevels: ["low", "high"] }, { value: "claude-opus-5-5", displayName: "Opus", description: "Default", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high"] }] }) as Query;
   }) as typeof query;
   const forks: unknown[][] = [];
   return { query: queryFn, forkSession: async (...args: unknown[]) => { forks.push(args); return { sessionId: "12345678-1234-1234-1234-123456789abc" }; }, forks, calls, closed: () => closed, interruptions: () => interruptions, onInterrupt: (fn: () => void) => { interrupt = fn; } };
@@ -65,7 +66,7 @@ test("Claude streams common events and resumes with the native session in its sa
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(chat.messages.filter((message) => message.role === "assistant")).toMatchObject([{ text: "Hello", complete: true }]);
   expect(events[1]!.payload).toMatchObject({ kind: "assistant_text", phase: null, itemId: "msg-1", textDelta: "Hello", turnId });
-  expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "userMessage" }, { type: "agentMessage", text: "Hello" }] });
+  expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "user_message" }, { type: "assistant_message", text: "Hello" }] });
   const resumed = new ClaudeSession("review_sensitive", undefined, storage, fake);
   await resumed.resumeThread(created.threadId, {});
   await resumed.startTurn([toTextUserInput("again")]); await done(resumed);
@@ -156,7 +157,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
     providers.push(provider);
     if (provider === "claude") return new ClaudeSession(policy, tools, storage, fake);
     const codex = new CodexSession(policy, tools);
-    codex.startThread = async () => ({ threadId: "codex-thread", model: "codex-model", modelProvider: "openai", reasoningEffort: null });
+    codex.startThread = async () => ({ threadId: "codex-thread", cwd: "/tmp", model: "codex-model", effort: null });
     return codex;
   }, () => false, { resolve: id => id.startsWith("claude-") ? "claude" : "codex", bind: () => {} }, ["codex", "claude"]);
   await manager.createThread({});
@@ -168,7 +169,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
   expect((await manager.listThreadTurns(unloaded.threadId, {})).data).toEqual([]);
   expect(providers).toEqual(["codex", "claude", "claude"]);
   const models = await manager.listModels({ provider: "claude" });
-  expect(models.data[0]!.model).toBe("sonnet");
+  expect(models.data[0]!.id).toBe("sonnet");
   manager.stopAll(); created.stop();
 });
 
@@ -180,7 +181,7 @@ test("request validation preserves opaque provider identities and rejects native
 
 test("Shepherd dynamic tools retain namespaces and conversation identity through Claude MCP", async () => {
   const registry = new DynamicToolRegistry(); const calls: unknown[] = [];
-  registry.register({ namespace: "signals", namespaceDescription: "Signal controls", name: "callback", description: "Create callback", inputSchema: { type: "object", properties: { kind: { type: "string" } }, required: ["kind"] }, execute: async (params) => { calls.push(params); return { success: true, contentItems: [{ type: "inputText", text: "callback-created" }] }; } });
+  registry.register({ namespace: "signals", namespaceDescription: "Signal controls", name: "callback", description: "Create callback", inputSchema: { type: "object", properties: { kind: { type: "string" } }, required: ["kind"] }, execute: async (params) => { calls.push(params); return { success: true, contentItems: [{ type: "text", text: "callback-created" }] }; } });
   const fake = sdk(async function* (_input, options) {
     const server = options.mcpServers!.shepherd!;
     if (!("instance" in server)) throw new Error("Missing in-process MCP server.");
@@ -233,13 +234,27 @@ test("never approval policy maps to explicit Claude permission bypass", async ()
 test("fork overrides never mutate source metadata or history", async () => {
   const storage = store(); const fake = sdk(async function* () { yield result; });
   const source = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const created = await source.startThread({ cwd: "/source", model: "sonnet", baseInstructions: "source instructions" });
+  const created = await source.startThread({ cwd: "/source", model: "sonnet" });
   const before = storage.read(created.threadId);
   const fork = new ClaudeSession("review_sensitive", undefined, storage, fake);
-  const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus", baseInstructions: "fork instructions" });
+  const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus" });
   expect(storage.read(created.threadId)).toEqual(before);
-  expect(storage.read(forked.threadId)).toMatchObject({ cwd: "/fork", model: "opus", instructions: "fork instructions" });
+  expect(storage.read(forked.threadId)).toMatchObject({ cwd: "/fork", model: "opus" });
   source.stop(); fork.stop();
+});
+
+test("instructions saved by earlier versions still extend the preset prompt; new threads add none", async () => {
+  const storage = store(); const fake = sdk(async function* (input) { for await (const _ of input) { yield result; break; } });
+  const original = new ClaudeSession("review_sensitive", undefined, storage, fake);
+  const { threadId } = await original.startThread({ cwd: "/project" }); original.stop();
+  expect(storage.read(threadId)).not.toHaveProperty("instructions");
+  storage.write({ ...storage.read(threadId), instructions: "Prefer small diffs." });
+  const resumed = new ClaudeSession("review_sensitive", undefined, storage, fake);
+  try {
+    await resumed.resumeThread(threadId, {});
+    await resumed.startTurn([toTextUserInput("hello")]); await done(resumed);
+    expect(fake.calls[0]!.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Prefer small diffs." });
+  } finally { resumed.stop(); }
 });
 
 test("renaming and archiving preserve in-memory tool results during an active turn", async () => {
@@ -253,7 +268,7 @@ test("renaming and archiving preserve in-memory tool results during an active tu
   await session.startTurn([toTextUserInput("run")]); await emitted.promise;
   await session.setThreadName(created.threadId, "Renamed"); await session.archiveThread(created.threadId);
   gate.resolve(); await done(session);
-  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "userMessage" }, { id: "tool-1", type: "activity", activity: { status: "completed" }, text: JSON.stringify("fresh") }] }] });
+  expect(storage.read(created.threadId)).toMatchObject({ name: "Renamed", archived: true, turns: [{ status: "completed", items: [{ type: "user_message" }, { id: "tool-1", type: "activity", activity: { status: "completed" }, output: JSON.stringify("fresh") }] }] });
   session.stop();
 });
 
@@ -270,7 +285,7 @@ test("Claude questions support multiple answers, invalid retries, and bypass per
   expect(approval.userInput!.questions[0]).toMatchObject({ id: "question-0", multiSelect: true });
   await expect(manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: {} })).rejects.toThrow("Answer every question");
   expect(manager.listApprovals(threadId)[0]!.status).toBe("pending");
-  await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": { answers: ["API", "UI"] } } }); await done(session);
+  await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": ["API", "UI"] } }); await done(session);
   expect(permission).toEqual({ behavior: "allow", updatedInput: { ...native, answers: { "Which parts?": ["API", "UI"] } } });
   manager.stopAll();
 });
@@ -308,24 +323,26 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   const manager = new SessionManager(undefined, () => session, undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
   function waitFor(type: string) { return new Promise<void>(resolve => { const off = session.eventBus.subscribe(event => { if (event.type === type) { off(); resolve(); } }, { replay: false }); }); }
   await manager.submitTurn(threadId, { input: [toTextUserInput("background work")] });
+  const closedBeforeResult = fake.closed();
+  const callsBeforeResult = fake.calls.length;
   const first = done(session);
   events.push({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "task-1", ambient: false }] } as SDKMessage);
   events.push(result); await first;
-  expect(session.activeTurnId).toBeNull(); expect(fake.closed()).toBe(0);
+  expect(session.activeTurnId).toBeNull(); expect(fake.closed()).toBe(closedBeforeResult);
   expect(manager.getRuntimeActivity().activeTurnThreadIds).toEqual([threadId]);
   await expect(session.startTurn([toTextUserInput("change")], undefined, "opus")).rejects.toThrow("Wait for background tasks");
-  expect(fake.calls).toHaveLength(1);
+  expect(fake.calls).toHaveLength(callsBeforeResult);
   const started = waitFor("turn.started"); const completed = waitFor("turn.completed");
   events.push({ type: "assistant", parent_tool_use_id: null, message: { id: "wake-message", content: [{ type: "text", text: "Background result" }] } } as SDKMessage);
   await started; events.push(result); await completed;
   expect(storage.read(threadId).turns).toHaveLength(2);
-  expect(storage.read(threadId).turns[1]!.items).toMatchObject([{ type: "agentMessage", text: "Background result" }]);
+  expect(storage.read(threadId).turns[1]!.items).toMatchObject([{ type: "assistant_message", text: "Background result" }]);
   const cleared = waitFor("thread.status.changed");
   events.push({ type: "system", subtype: "background_tasks_changed", tasks: [] } as SDKMessage); await cleared;
   expect(manager.getRuntimeActivity().activeTurnThreadIds).toEqual([]);
   await manager.submitTurn(threadId, { input: [toTextUserInput("continue")] });
   const third = done(session); events.push(result); await third;
-  expect(fake.calls).toHaveLength(1); expect(storage.read(threadId).turns).toHaveLength(3);
+  expect(fake.calls).toHaveLength(callsBeforeResult); expect(storage.read(threadId).turns).toHaveLength(3);
   manager.stopAll(); events.close();
 });
 
@@ -361,7 +378,7 @@ test("loaded conversations include every provider and respect page size", async 
   const manager = new SessionManager(undefined, (policy, tools, provider) => {
     if (provider === "claude") return new ClaudeSession(policy, tools, storage, fake);
     const session = new CodexSession(policy, tools); session.initialize = async () => {};
-    session.startThread = async () => ({ threadId: "opaque-codex-id", model: "codex", modelProvider: "openai", reasoningEffort: null });
+    session.startThread = async () => ({ threadId: "opaque-codex-id", cwd: "/tmp", model: "codex", effort: null });
     session.listLoadedThreads = async () => ({ data: ["opaque-codex-id"], nextCursor: null }); return session;
   }, undefined, undefined, ["codex", "claude"]);
   const codex = await manager.createThread({}); const claude = await manager.createThread({ provider: "claude" });
@@ -383,7 +400,7 @@ test("background questions create a pending wake turn before an assistant messag
   const request = manager.listApprovals(threadId).find(approval => approval.status === "pending")!;
   expect(request.userInput!.turnId).toBe(session.activeTurnId);
   await expect(Promise.resolve().then(() => session.setCwd("/different"))).rejects.toThrow("Wait for Claude work");
-  await manager.applyApprovalDecision(threadId, request.approvalId, { decision: request.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": { answers: ["Yes"] } } }); await done(session);
+  await manager.applyApprovalDecision(threadId, request.approvalId, { decision: request.choices.find(choice => choice.intent === "answer")!.value, answers: { "question-0": ["Yes"] } }); await done(session);
   expect((await session.listThreadTurns(threadId, {})).data).toHaveLength(2); manager.stopAll();
 });
 
@@ -436,15 +453,15 @@ test("new Claude defaults reach SDK turns and saved conversations retain explici
   const forked = new ClaudeSession("review_sensitive", undefined, storage, fake);
   try {
     const created = await session.startThread({ cwd: "/project" });
-    expect(created).toMatchObject({ model: "claude-opus-5-5", reasoningEffort: "medium" });
+    expect(created).toMatchObject({ model: "claude-opus-5-5", effort: "medium" });
     await session.startTurn([toTextUserInput("hello")]); await done(session);
     expect(fake.calls[0]!.options).toMatchObject({ model: "claude-opus-5-5", effort: "medium" });
     const saved = storage.read(created.threadId); saved.model = "sonnet"; saved.effort = "high"; saved.materialized = false; storage.write(saved);
     process.env.CLAUDE_MODEL = "haiku"; process.env.CLAUDE_EFFORT = "low";
-    expect(await resumed.resumeThread(created.threadId, {})).toMatchObject({ model: "sonnet", reasoningEffort: "high" });
-    expect(await forked.forkThread(created.threadId, {})).toMatchObject({ model: "sonnet", reasoningEffort: "high" });
+    expect(await resumed.resumeThread(created.threadId, {})).toMatchObject({ model: "sonnet", effort: "high" });
+    expect(await forked.forkThread(created.threadId, {})).toMatchObject({ model: "sonnet", effort: "high" });
     const explicit = new ClaudeSession("review_sensitive", undefined, storage, fake);
-    expect(await explicit.startThread({ model: "opus" })).toMatchObject({ model: "opus", reasoningEffort: "low" });
+    expect(await explicit.startThread({ model: "opus" })).toMatchObject({ model: "opus", effort: "low" });
     explicit.stop();
   } finally {
     session.stop(); resumed.stop(); forked.stop();
@@ -464,14 +481,41 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
   try {
     const { threadId } = await manager.createThread({ provider: "claude", model: "claude-opus-5-5" });
     expect(await manager.getThreadEffort(threadId)).toMatchObject({ model: "claude-opus-5-5", currentEffort: "medium", defaultEffort: "medium" });
-    expect(await manager.setThreadEffort(threadId, "default")).toMatchObject({ pendingEffort: "medium" });
+    expect(await manager.setThreadEffort(threadId, { mode: "default" })).toMatchObject({ pendingEffort: "medium" });
     const legacy = await manager.createThread({ provider: "claude", model: "opus" });
     expect(await manager.getThreadEffort(legacy.threadId)).toMatchObject({ model: "opus", currentEffort: "medium" });
-    expect((await manager.listModels({ provider: "claude" })).data.map(row => row.model)).toEqual(["claude-opus-5-5"]);
+    expect((await manager.listModels({ provider: "claude" })).data.map(row => row.id)).toEqual(["claude-opus-5-5"]);
   } finally { manager.stopAll(); }
 });
 
-test("per-block assistant messages mark text before tools as commentary and the last text as the answer", async () => {
+test("Claude history records thinking as reasoning and proposed plans as plans, in order", async () => {
+  const assistant = (id: string, block: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { id, content: [block] } }) as SDKMessage;
+  const fake = sdk(async function* () {
+    yield assistant("m1", { type: "text", text: "Looking first." });
+    yield assistant("m1", { type: "thinking", thinking: "The parser drops empty lines.", signature: "s" });
+    yield assistant("m1", { type: "redacted_thinking", data: "opaque" });
+    yield assistant("m1", { type: "thinking", thinking: "x".repeat(9_000), signature: "s" });
+    yield assistant("m1", { type: "tool_use", id: "tool-plan", name: "ExitPlanMode", input: { plan: "1. Fix the parser.\n2. Add a test." } });
+    yield { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "tool-plan", content: "approved", is_error: false }] } } as SDKMessage;
+    yield assistant("m2", { type: "text", text: "Done." });
+    yield result;
+  });
+  const session = new ClaudeSession("review_sensitive", undefined, store(), fake);
+  try {
+    const { threadId } = await session.startThread({});
+    await session.startTurn([toTextUserInput("fix it")]); await done(session);
+    const items = (await session.listThreadTurns(threadId, {})).data[0]!.items;
+    expect(items.map(item => item.type)).toEqual(["user_message", "assistant_message", "reasoning", "reasoning", "plan", "activity", "assistant_message"]);
+    expect(items[1]).toMatchObject({ text: "Looking first.", phase: "interim" });
+    expect(items[2]).toMatchObject({ summary: ["The parser drops empty lines."] });
+    expect((items[3] as { summary: string[] }).summary[0]).toEndWith("[1000 characters omitted]");
+    expect(items[4]).toMatchObject({ type: "plan", text: "1. Fix the parser.\n2. Add a test." });
+    expect(new Set(items.map(item => item.id)).size).toBe(items.length);
+    expect((await session.listThreadTurns(threadId, { itemsView: "summary" })).data[0]!.items.map(item => item.type)).toEqual(["user_message", "assistant_message"]);
+  } finally { session.stop(); }
+});
+
+test("per-block assistant messages mark text before tools as interim and the last text as the answer", async () => {
   const stream = (event: unknown) => ({ type: "stream_event", parent_tool_use_id: null, event }) as SDKMessage;
   const assistant = (id: string, block: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { id, content: [block] } }) as SDKMessage;
   const fake = sdk(async function* () {
@@ -496,13 +540,26 @@ test("per-block assistant messages mark text before tools as commentary and the 
   await session.startTurn([toTextUserInput("run tests")]); await done(session);
   expect(events.filter(event => event.type === "turn.stream.delta").map(event => (event.payload as { itemId: string }).itemId)).toEqual(["plan", "answer", "answer:1"]);
   expect(events.filter(event => event.type === "turn.message.completed").map(event => event.payload)).toMatchObject([
-    { itemId: "plan", phase: "commentary" }, { itemId: "answer", phase: "final_answer" }, { itemId: "answer:1", phase: "final_answer" },
+    { itemId: "plan", phase: "interim" }, { itemId: "answer", phase: "final" }, { itemId: "answer:1", phase: "final" },
   ]);
   expect((await session.listThreadTurns(threadId, {})).data[0]!.items.map(item => [item.id, item.phase ?? null])).toEqual([
-    [expect.any(String), null], ["plan", "commentary"], ["tool-1", null], ["answer", "final_answer"], ["answer:1", "final_answer"],
+    [expect.any(String), null], ["plan", "interim"], ["tool-1", null], ["answer", "final"], ["answer:1", "final"],
   ]);
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(timelineGroups(chat).flatMap(group => group.finalIds)).toEqual(["answer", "answer:1"]);
+  session.stop();
+});
+
+test("per-request cache counts the SDK omits are unreported, not zero", async () => {
+  const fake = sdk(async function* () {
+    yield { type: "assistant", parent_tool_use_id: null, message: { id: "m", usage: { input_tokens: 7, output_tokens: 2 }, content: [{ type: "text", text: "Done" }] } } as SDKMessage;
+    yield result;
+  });
+  const session = new ClaudeSession("review_sensitive", undefined, store(), fake);
+  await session.startThread({});
+  const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
+  await session.startTurn([toTextUserInput("hello")]); await done(session);
+  expect(updates).toMatchObject([{ tokenUsage: { last: { inputTokens: null, cacheReadInputTokens: null, cacheWriteInputTokens: null, outputTokens: 2, totalTokens: null } } }]);
   session.stop();
 });
 
@@ -519,7 +576,11 @@ test("token usage reports the last request's context and the model context windo
   await session.startThread({ model: "claude-opus-5-5" });
   const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
   await session.startTurn([toTextUserInput("hello")]); await done(session);
-  expect(updates).toMatchObject([{ tokenUsage: { last: { inputTokens: 1015, cachedInputTokens: 1000, outputTokens: 50, totalTokens: 1065 }, modelContextWindow: 200_000 } }]);
+  expect(updates).toMatchObject([{ tokenUsage: {
+    last: { inputTokens: 1015, cacheReadInputTokens: 1000, cacheWriteInputTokens: 5, outputTokens: 50, reasoningOutputTokens: null, totalTokens: 1065 },
+    total: { inputTokens: 1015, cacheReadInputTokens: 1000, cacheWriteInputTokens: 5, reasoningOutputTokens: null },
+    contextWindow: 200_000,
+  } }]);
   session.stop();
 });
 
@@ -551,8 +612,9 @@ test("streamed blocks coalesce history writes and stored tool output is bounded"
   await session.startTurn([toTextUserInput("read")]); await done(session);
   expect(writes).toBeLessThanOrEqual(3);
   const items = storage.read(threadId).turns[0]!.items;
-  expect(JSON.parse(items[1]!.text!)).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
-  expect(String(items[2]!.text).length).toBeLessThan(8_100);
+  const output = (index: number) => { const item = items[index]!; if (item.type !== "activity") throw new Error("Expected tool activity."); return item.output; };
+  expect(JSON.parse(output(1)!)).toEqual([{ type: "image", omitted: true }, { type: "text", text: "caption" }]);
+  expect(String(output(2)).length).toBeLessThan(8_100);
   session.stop();
 });
 
@@ -563,6 +625,16 @@ test("the model catalog is cached and concurrent lookups share one CLI process",
   await session.listModels({ includeHidden: true });
   expect(fake.calls).toHaveLength(1);
   session.stop();
+});
+
+test("sessions sharing a runtime model cache start one CLI process for the model list", async () => {
+  const fake = sdk(async function* () { yield result; });
+  const models = new ClaudeModelCache({ scope: () => "login" });
+  const first = new ClaudeSession("review_sensitive", undefined, store(), fake, undefined, models);
+  const second = new ClaudeSession("review_sensitive", undefined, store(), fake, undefined, models);
+  await first.listModels({}); await second.listModels({});
+  expect(fake.calls).toHaveLength(1);
+  first.stop(); second.stop();
 });
 
 test("newly registered Shepherd tools reopen the idle SDK process before the next turn", async () => {
@@ -593,6 +665,53 @@ test("thread listing reads summaries, rebuilds legacy summaries, and skips unrea
   expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ id: threadId, cwd: "/project" }); expect("turns" in rows[0]!).toBe(false);
   expect(existsSync(join(directory, `${threadId}.meta.json`))).toBe(true);
   expect(warnings).toHaveLength(1); expect(storage.hasThreads()).toBe(true);
+  // Ownership checks look up one snapshot by ID rather than listing every thread.
+  expect(storage.has(threadId)).toBe(true);
+  expect(storage.has("claude-11111111-1111-1111-1111-111111111111")).toBe(false);
+  expect(storage.has("../outside")).toBe(false);
+});
+
+test("snapshots written with earlier item names decode into the application history contract", async () => {
+  const { writeFileSync } = await import("node:fs");
+  const directory = mkdtempSync(join(tmpdir(), "shepherd-claude-test-")); directories.push(directory);
+  const id = "claude-11111111-1111-4111-8111-111111111111";
+  writeFileSync(join(directory, `${id}.json`), JSON.stringify({
+    id, nativeId: "11111111-1111-4111-8111-111111111111", materialized: true, cwd: "/project", model: "claude-opus-5-5", effort: "medium",
+    name: null, preview: "hi", archived: false, createdAt: 1, updatedAt: 2, instructions: "",
+    turns: [{ id: "turn", status: "inProgress", itemsView: "full", error: null, startedAt: 1, completedAt: null, durationMs: null, items: [
+      { id: "user", type: "userMessage", content: [{ type: "text", text: "hi" }, { type: "image", url: "data:image/png;base64,AA" }] },
+      { id: "tool", type: "activity", activity: { itemId: "tool", turnId: "turn", kind: "command", label: "Bash", detail: null, status: "completed" }, text: "\"ok\"" },
+      { id: "answer", type: "agentMessage", text: "hello", phase: "final_answer" },
+      { id: "unknown", type: "somethingNew" },
+    ] }],
+    tokenUsage: { last: { inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 12 }, total: { inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12 }, modelContextWindow: 200_000 },
+  }));
+  const thread = new ClaudeThreadStore(directory).read(id);
+  expect(thread.turns[0]).toMatchObject({ status: "in_progress", items: [
+    { type: "user_message", content: [{ type: "text", text: "hi" }, { type: "image", url: "data:image/png;base64,AA" }] },
+    { type: "activity", output: "\"ok\"", activity: { kind: "command" } },
+    { type: "assistant_message", text: "hello", phase: "final" },
+    { type: "other" },
+  ] });
+  expect(thread.tokenUsage).toEqual({
+    last: { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 2, reasoningOutputTokens: null, totalTokens: 12 },
+    total: { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12 },
+    contextWindow: 200_000,
+  });
+  const session = new ClaudeSession("review_sensitive", undefined, new ClaudeThreadStore(directory), sdk(async function* () { yield result; }));
+  await session.resumeThread(id, {});
+  expect((await session.listThreadTurns(id, {})).data[0]!.status).toBe("interrupted");
+  // A summary keeps what the user sent and the answer, not tool activity or unknown items.
+  expect((await session.listThreadTurns(id, { itemsView: "summary" })).data[0]).toMatchObject({ itemsView: "summary", items: [{ id: "user" }, { id: "answer" }] });
+  expect((await session.listThreadTurns(id, { itemsView: "summary" })).data[0]!.items).toHaveLength(2);
+  expect((await session.listThreadTurns(id, { itemsView: "none" })).data[0]!.items).toEqual([]);
+  session.stop();
+  // Resuming rewrote the snapshot in Claude's own saved format, without application-only fields.
+  const saved = JSON.parse(readFileSync(join(directory, `${id}.json`), "utf8"));
+  expect(saved.turns[0]).not.toHaveProperty("itemsView");
+  expect(saved.turns[0].items[1]).toEqual({ id: "tool", type: "activity", activity: { kind: "command", label: "Bash", detail: null, status: "completed" }, output: "\"ok\"" });
+  expect(saved.tokenUsage).toHaveProperty("contextWindow", 200_000);
+  expect(saved.tokenUsage).not.toHaveProperty("modelContextWindow");
 });
 
 test("Claude applies opaque permission options through the shared session boundary", async () => {
@@ -609,7 +728,7 @@ test("Claude applies opaque permission options through the shared session bounda
   const pending = manager.listApprovals(threadId)[0]!;
   expect(pending.kind).toBe("permission"); expect(pending.detail).toContain("/project/readme.md");
   expect(pending.choices.map(choice => choice.intent)).toEqual(["allow", "deny"]);
-  expect(pending.choices.some(choice => ["accept", "decline"].includes(choice.value))).toBe(false);
+  expect(pending.choices.some(choice => ["allow", "deny"].includes(choice.value))).toBe(false);
   await manager.applyApprovalDecision(threadId, pending.approvalId, { decision: pending.choices.find(choice => choice.intent === "allow")!.value });
   await done(session);
   expect(decisions).toEqual([{ behavior: "allow", updatedInput: { file_path: "/project/readme.md" } }]);
@@ -631,7 +750,9 @@ test("Claude permission modes, typed effort and native defaults survive resume a
       await resumed.resumeThread(created.threadId, { approvalPolicy: "provider_default" });
       expect(resumed.approvalPolicy).toBe(approvalPolicy);
       await resumed.startTurn([toTextUserInput("Resume")], "provider_default"); await done(resumed);
-      expect(fake.calls[0]!.options).toMatchObject({ effort: "high", permissionMode: approvalPolicy === "bypass" ? "bypassPermissions" : "default" });
+      expect(fake.calls[0]!.options).toMatchObject({ effort: "high" });
+      // The provider default leaves the mode to Claude's settings; review asks explicitly.
+      expect(fake.calls[0]!.options.permissionMode).toBe(({ provider_default: undefined, review_sensitive: "default", bypass: "bypassPermissions" } as const)[approvalPolicy]);
       expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBe(approvalPolicy === "bypass" ? true : undefined);
       const forked = new ClaudeSession("provider_default", undefined, storage, fake);
       try {
@@ -643,18 +764,34 @@ test("Claude permission modes, typed effort and native defaults survive resume a
   }
 });
 
-test("Claude rejects trust-review mode before creation, execution, or steering and leaves work unchanged", async () => {
-  const storage = store(); const fake = sdk(async function* () { yield result; });
+test("Claude reviews untrusted actions with its default permission mode and keeps that mode on resume", async () => {
+  const storage = store(); const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });
   const session = new ClaudeSession("provider_default", undefined, storage, fake);
+  const resumed = new ClaudeSession("provider_default", undefined, storage, fake);
   try {
-    await expect(session.startThread({ approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    expect(storage.hasThreads()).toBe(false);
-    const created = await session.startThread({});
-    await expect(session.resumeThread(created.threadId, { approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    await expect(session.forkThread(created.threadId, { approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode review_untrusted");
-    await expect(session.startTurn([toTextUserInput("Hello")], "review_untrusted")).rejects.toThrow("approval mode review_untrusted");
+    const created = await session.startThread({ approvalPolicy: "review_untrusted" });
+    expect(created.approvalPolicy).toBe("review_untrusted");
     await expect(session.steerTurn([{ type: "audio", url: "audio" }])).rejects.toThrow("audio inputs");
-    expect(fake.calls).toHaveLength(0); expect(fake.forks).toHaveLength(0);
-    expect(session.activeTurnId).toBeNull(); expect(storage.read(created.threadId).turns).toEqual([]);
+    await session.startTurn([toTextUserInput("Hello")]); await done(session);
+    expect(fake.calls[0]!.options).toMatchObject({ permissionMode: "default" });
+    expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBeUndefined();
+    expect((await resumed.resumeThread(created.threadId, {})).approvalPolicy).toBe("review_untrusted");
+  } finally { session.stop(); resumed.stop(); }
+});
+
+test("Claude clears effort by restarting with no SDK effort and persisting the cleared setting", async () => {
+  const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });
+  const storage = store();
+  const session = new ClaudeSession("review_sensitive", undefined, storage, fake);
+  try {
+    const { threadId } = await session.startThread({});
+    await session.startTurn([toTextUserInput("first")]); await done(session);
+    expect(fake.calls[0]!.options.effort).toBe("medium");
+    await session.startTurn([toTextUserInput("second")], undefined, undefined, undefined, null); await done(session);
+    expect(fake.calls).toHaveLength(2);
+    expect(fake.calls[1]!.options.effort).toBeUndefined();
+    expect(storage.read(threadId).effort).toBeUndefined();
+    await session.startTurn([toTextUserInput("third")]); await done(session);
+    expect(fake.calls).toHaveLength(2);
   } finally { session.stop(); }
 });

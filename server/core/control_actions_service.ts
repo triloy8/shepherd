@@ -13,12 +13,14 @@ import type {
 import { resolveSkillPathFromList } from "./skill_resolution_service.js";
 import type { ProviderAccountLimits, AccountResetRequest, AccountResetResponse } from "../../shared/protocol/account_limits.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
-import type { AgentProvider } from "../../shared/protocol/requests.js";
+import type { AgentProvider, EffortSelection } from "../../shared/protocol/requests.js";
+import { assertProviderOperation } from "../../shared/protocol/provider_support.js";
 
 type ControlConversation = {
+  getThreadState: (threadId: string) => import("../../shared/protocol/requests.js").GetThreadStateResponse;
   getThreadProvider: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
-  getThreadEffort: (threadId: string) => Promise<ThreadEffortState>;
-  setThreadEffort: (threadId: string, effort: string) => Promise<ThreadEffortState>;
+  getThreadEffort: (threadId: string, model?: string) => Promise<ThreadEffortState>;
+  setThreadEffort: (threadId: string, effort: EffortSelection) => Promise<ThreadEffortState>;
   listSkills: (threadId: string, request: Record<string, never>) => Promise<SkillsListResponse>;
   writeSkillConfig: (
     threadId: string,
@@ -53,7 +55,7 @@ export type ControlActionsContext = {
 
 export type ControlActionRequest =
   | { type: "effort.get"; surfaceId: string }
-  | { type: "effort.set"; surfaceId: string; effort: string }
+  | { type: "effort.set"; surfaceId: string; effort: EffortSelection }
   | { type: "repo.get"; surfaceId: string }
   | { type: "repo.set"; surfaceId: string; repoInput: string }
   | { type: "limits.read"; provider?: string; surfaceId?: string; refresh?: boolean }
@@ -61,7 +63,7 @@ export type ControlActionRequest =
   | { type: "models.list"; surfaceId: string; cursor?: string; limit?: number }
   | { type: "model.set"; surfaceId: string; requestedModel: string }
   | { type: "context.read"; surfaceId: string }
-  | { type: "skill.set-enabled"; surfaceId: string; requestedSkill: string; enabled: boolean }
+  | ({ type: "skill.set-enabled"; surfaceId: string; enabled: boolean } & ({ path: string } | { requestedSkill: string }))
   | { type: "thread.get-current"; surfaceId: string }
   | { type: "thread.create"; surfaceId: string; provider?: AgentProvider }
   | { type: "thread.switch"; surfaceId: string; threadId: string }
@@ -86,7 +88,7 @@ export type ControlActionResult =
   | { type: "model.set"; ok: false; error: ActionFailure }
   | { type: "context.read"; ok: true; threadId: string; tokenUsage: ReadThreadTokenUsageResponse["tokenUsage"] }
   | { type: "context.read"; ok: false; error: ActionFailure }
-  | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; effectiveEnabled: boolean }
+  | { type: "skill.set-enabled"; ok: true; requestedSkill: string; enabled: boolean; appliedEnabled: boolean }
   | { type: "skill.set-enabled"; ok: false; error: ActionFailure }
   | { type: "thread.get-current"; threadId: string | null }
   | { type: "thread.create"; threadId: string }
@@ -108,13 +110,7 @@ export type ControlActionResult =
   | { type: "turn.interrupt"; ok: false; error: ActionFailure };
 
 function resolveModelArgument(models: ModelSummary[], raw: string): ModelSummary | null {
-  const normalized = raw.trim().toLowerCase();
-  if (!normalized) return null;
-  return (
-    models.find((entry) => entry.model.toLowerCase() === normalized) ??
-    models.find((entry) => entry.id.toLowerCase() === normalized) ??
-    null
-  );
+  return models.find((entry) => entry.id === raw) ?? null;
 }
 
 export async function executeControlAction(
@@ -157,7 +153,7 @@ export async function executeControlAction(
   }
   if (request.type === "limits.read") {
     const threadId = request.surfaceId ? context.getSurfaceThreadId(request.surfaceId) : null;
-    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider(threadId) : undefined) ?? context.conversation.listProviders()[0]?.id;
+    const provider = request.provider ?? (threadId ? context.conversation.getThreadProvider(threadId) : undefined) ?? context.conversation.listProviders().find(entry => entry.isDefault)?.id;
     if (!provider) throw new Error("No agent provider is configured.");
     return { type: request.type, limits: await context.conversation.readAccount(provider, request.refresh) };
   }
@@ -169,6 +165,7 @@ export async function executeControlAction(
       cursor: request.cursor,
       limit: request.limit ?? 20,
       ...(provider ? { provider } : {}),
+      ...(threadId ? { threadId } : {}),
     });
     return {
       type: "models.list",
@@ -188,17 +185,25 @@ export async function executeControlAction(
     }
 
     const provider = context.conversation.getThreadProvider(threadId);
+    const capabilities = context.conversation.getThreadState(threadId).capabilities;
+    assertProviderOperation(provider, capabilities, "modelSelection");
+    if (!capabilities.modelCatalog) {
+      const updated = context.conversation.setThreadModel(threadId, request.requestedModel);
+      return { type: "model.set", ok: true, threadId: updated.threadId, model: request.requestedModel };
+    }
     let cursor: string | undefined;
     let resolved: ModelSummary | null = null;
     const seenCursors = new Set<string>();
-    do {
-      const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, ...(provider ? { provider } : {}) });
-      resolved = resolveModelArgument(models.data, request.requestedModel);
-      if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
-      seenCursors.add(models.nextCursor);
-      cursor = models.nextCursor;
-    } while (true);
-    if (!resolved) {
+    try {
+      do {
+        const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, threadId, ...(provider ? { provider } : {}) });
+        resolved = resolveModelArgument(models.data, request.requestedModel);
+        if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
+        seenCursors.add(models.nextCursor);
+        cursor = models.nextCursor;
+      } while (true);
+    } catch (error) { if (capabilities.modelCatalogAuthoritative) throw error; }
+    if (!resolved && capabilities.modelCatalogAuthoritative) {
       return {
         type: "model.set",
         ok: false,
@@ -206,12 +211,13 @@ export async function executeControlAction(
       };
     }
 
-    const updated = context.conversation.setThreadModel(threadId, resolved.model);
+    const selected = resolved?.id ?? request.requestedModel;
+    const updated = context.conversation.setThreadModel(threadId, selected);
     return {
       type: "model.set",
       ok: true,
       threadId: updated.threadId,
-      model: resolved.model,
+      model: selected,
     };
   }
 
@@ -408,8 +414,16 @@ export async function executeControlAction(
     };
   }
 
-  const listed = await context.conversation.listSkills(threadId, {});
-  const resolved = resolveSkillPathFromList(listed, request.requestedSkill);
+  const provider = context.conversation.getThreadProvider(threadId);
+  assertProviderOperation(provider, context.conversation.getThreadState(threadId).capabilities, "skillConfig");
+  // Explicit paths do not need discovery; only human-readable names need a catalog.
+  const requestedSkill = "path" in request ? request.path : request.requestedSkill;
+  const value = requestedSkill.trim();
+  const explicitPath = "path" in request || value.includes("/") || value.includes("\\") || value.endsWith(".md");
+  const listed = explicitPath ? { skills: [], errors: [] } : await context.conversation.listSkills(threadId, {});
+  const resolved = "path" in request
+    ? value ? { path: request.path } : { error: { code: "invalid_skill" as const } }
+    : resolveSkillPathFromList(listed, requestedSkill);
   if ("error" in resolved) {
     return {
       type: "skill.set-enabled",
@@ -425,8 +439,8 @@ export async function executeControlAction(
   return {
     type: "skill.set-enabled",
     ok: true,
-    requestedSkill: request.requestedSkill,
+    requestedSkill,
     enabled: request.enabled,
-    effectiveEnabled: result.effectiveEnabled,
+    appliedEnabled: result.enabled,
   };
 }

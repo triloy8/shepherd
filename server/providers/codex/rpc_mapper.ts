@@ -1,4 +1,5 @@
-export { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "../history_presentation.js";
+export { extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
+import { codexPhase } from "./history.js";
 import type {
   MessagePhase,
 } from "../../../shared/protocol/events.js";
@@ -92,34 +93,32 @@ export function extractCompletedAgentMessage(params: unknown): CompletedAgentMes
   const itemId = asString(item.id);
   if (!itemId) return null;
 
-  const rawPhase = asString(item.phase);
-  const phase = rawPhase === "commentary" || rawPhase === "final_answer" ? rawPhase : null;
   return {
     itemId,
-    phase,
+    phase: codexPhase(item.phase),
     text: typeof item.text === "string" ? item.text : "",
     turnId: extractTurnId(params),
   };
 }
 
-export function mapApprovalChoices(method: string): Array<{ value: string; label: string }> {
+export function mapApprovalChoices(method: string): Array<{ value: string; label: string; intent: "allow" | "deny" | "cancel" }> {
   const normalized = method.toLowerCase();
 
   if (normalized === "item/commandexecution/requestapproval" || normalized === "item/filechange/requestapproval") {
     return [
-      { value: "accept", label: "Allow Once" },
-      { value: "acceptForSession", label: "Allow Session" },
-      { value: "decline", label: "Deny" },
-      { value: "cancel", label: "Cancel" },
+      { value: "accept", label: "Allow Once", intent: "allow" },
+      { value: "acceptForSession", label: "Allow Session", intent: "allow" },
+      { value: "decline", label: "Deny", intent: "deny" },
+      { value: "cancel", label: "Cancel", intent: "cancel" },
     ];
   }
 
   if (normalized === "execcommandapproval" || normalized === "applypatchapproval") {
     return [
-      { value: "approved", label: "Approve Once" },
-      { value: "approved_for_session", label: "Approve Session" },
-      { value: "denied", label: "Deny" },
-      { value: "abort", label: "Abort" },
+      { value: "approved", label: "Approve Once", intent: "allow" },
+      { value: "approved_for_session", label: "Approve Session", intent: "allow" },
+      { value: "denied", label: "Deny", intent: "deny" },
+      { value: "abort", label: "Abort", intent: "cancel" },
     ];
   }
 

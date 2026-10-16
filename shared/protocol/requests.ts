@@ -1,6 +1,8 @@
 import type { ProviderCapabilities } from "./provider_capabilities.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { UserInput } from "./user_input.js";
+import type { ModelCapabilities } from "./model_capabilities.js";
+export type { EffortOption, ModelCapabilities, ModelInputModality } from "./model_capabilities.js";
 
 /** Review thresholds refer to the provider's trust/permission model. No mode promises universal review. */
 export type ApprovalPolicy = "provider_default" | "review_sensitive" | "review_untrusted" | "bypass";
@@ -12,12 +14,9 @@ export type AgentProvider = string;
 export interface CreateThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
-  ephemeral?: boolean;
   effort?: string;
 }
 
@@ -26,8 +25,11 @@ export interface CreateThreadResponse {
   sessionId: string;
 }
 
+/** Strings select opaque provider values; null clears, and mode default selects the model default. */
+export type EffortSelection = string | null | { mode: "default" };
+
 export interface SubmitTurnRequest {
-  effort?: string;
+  effort?: string | null;
   input: UserInput[];
   approvalPolicy?: ApprovalPolicy;
   model?: string;
@@ -62,12 +64,13 @@ export interface ListThreadsResponse {
 
 export interface StoredThreadSummary {
   threadId: string;
+  provider: AgentProvider;
+  canUnarchive: boolean;
   name: string | null;
   preview: string;
   archived: boolean;
   createdAt: number | null;
   updatedAt: number | null;
-  source: string | null;
   cwd: string | null;
 }
 
@@ -82,8 +85,11 @@ export interface ListStoredThreadsRequest {
 }
 
 export interface ListStoredThreadsResponse {
+  /** Partial results omit these unavailable providers until the list is reloaded. */
+  unavailableProviders?: AgentProvider[];
   threads: StoredThreadSummary[];
   nextCursor: string | null;
+  /** Shepherd's own cursor for the previous page; core computes it across every provider. */
   backwardsCursor: string | null;
 }
 
@@ -93,6 +99,7 @@ export interface ListLoadedThreadsRequest {
 }
 
 export interface ListLoadedThreadsResponse {
+  unavailableProviders?: AgentProvider[];
   threadIds: string[];
   nextCursor: string | null;
 }
@@ -118,8 +125,6 @@ export interface ReadThreadResponse {
 export interface ResumeThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -134,8 +139,6 @@ export interface ResumeThreadResponse {
 export interface ForkThreadRequest {
   provider?: AgentProvider;
   approvalPolicy?: ApprovalPolicy;
-  baseInstructions?: string;
-  developerInstructions?: string;
   cwd?: string;
   sandbox?: SandboxMode;
   model?: string;
@@ -175,13 +178,13 @@ export interface RevertThreadResponse {
 
 export interface ThreadRecord {
   id: string;
+  /** Saved model selection, when reported by the provider. */
+  model?: string | null;
   name?: string | null;
   preview?: string;
   createdAt?: number;
   updatedAt?: number;
   cwd?: string;
-  modelProvider?: string;
-  source?: string | null;
   turns?: HistoryTurn[];
 }
 
@@ -195,18 +198,24 @@ export interface ApprovalDecisionApiResponse {
   ok: true;
 }
 
+/**
+ * Token counts. Input includes cache reads and writes; output includes reasoning.
+ * Null means the provider does not report that count, which is different from zero.
+ */
 export interface TokenUsageBreakdown {
-  cachedInputTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  reasoningOutputTokens: number;
-  totalTokens: number;
+  inputTokens: number | null;
+  cacheReadInputTokens: number | null;
+  cacheWriteInputTokens: number | null;
+  outputTokens: number | null;
+  reasoningOutputTokens: number | null;
+  totalTokens: number | null;
 }
 
+/** `last` is the most recent model request, which fills the context window; `total` is cumulative. */
 export interface ThreadTokenUsage {
-  last: TokenUsageBreakdown;
-  total: TokenUsageBreakdown;
-  modelContextWindow?: number | null;
+  last: TokenUsageBreakdown | null;
+  total: TokenUsageBreakdown | null;
+  contextWindow: number | null;
 }
 
 export interface ReadThreadTokenUsageResponse {
@@ -215,21 +224,22 @@ export interface ReadThreadTokenUsageResponse {
 }
 
 export interface ListModelsRequest {
+  /** Scope discovery to a loaded conversation; omitted means provider-wide discovery. */
+  threadId?: string;
   provider?: AgentProvider;
   cursor?: string;
   limit?: number;
+  /** Include models omitted from the normal picker; explicit IDs may still select them. */
   includeHidden?: boolean;
 }
 
-export interface ModelSummary {
+/** A selectable model. `id` is the value passed back as a thread or turn model. */
+export interface ModelSummary extends ModelCapabilities {
   id: string;
-  model: string;
   displayName: string;
   description: string;
   hidden: boolean;
   isDefault: boolean;
-  supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }>;
-  defaultReasoningEffort?: string | null;
 }
 
 export interface ListModelsResponse {
@@ -239,49 +249,26 @@ export interface ListModelsResponse {
 
 export interface ThreadModelState {
   threadId: string;
+  provider: AgentProvider;
   currentModel: string | null;
-  modelProvider: string | null;
   pendingModel: string | null;
 }
 
-export type SkillScope = "user" | "repo" | "system" | "admin";
+/** Where a skill was discovered, as reported by the provider (for example user, repo, or system). */
+export type SkillScope = string;
 
 export interface SkillsListRequest {
-  cwds?: string[];
-  forceReload?: boolean;
+  /** Ask the provider to refresh discovery rather than use cached results. */
+  refresh?: boolean;
 }
 
-export interface SkillToolDependency {
-  type: string;
-  value: string;
-  command?: string | null;
-  description?: string | null;
-  transport?: string | null;
-  url?: string | null;
-}
-
-export interface SkillDependencies {
-  tools: SkillToolDependency[];
-}
-
-export interface SkillInterface {
-  brandColor?: string | null;
-  defaultPrompt?: string | null;
-  displayName?: string | null;
-  iconLarge?: string | null;
-  iconSmall?: string | null;
-  shortDescription?: string | null;
-}
-
+/** A skill available to a conversation's workspace. */
 export interface SkillMetadata {
-  dependencies?: SkillDependencies | null;
-  description: string;
-  enabled: boolean;
-  interface?: SkillInterface | null;
   name: string;
+  description: string;
   path: string;
   scope: SkillScope;
-  shortDescription?: string | null;
+  enabled: boolean;
 }
 
 export interface SkillErrorInfo {
@@ -289,14 +276,15 @@ export interface SkillErrorInfo {
   path: string;
 }
 
-export interface SkillsListEntry {
-  cwd: string;
-  errors: SkillErrorInfo[];
+/** Skills a provider discovered for one workspace, and the skill files it could not load. */
+export interface SkillsListing {
   skills: SkillMetadata[];
+  errors: SkillErrorInfo[];
 }
 
-export interface SkillsListResponse {
-  data: SkillsListEntry[];
+/** Skills available to a conversation, discovered in its effective workspace. */
+export interface SkillsListResponse extends SkillsListing {
+  workspacePath: string;
 }
 
 export interface SkillsConfigWriteRequest {
@@ -304,48 +292,84 @@ export interface SkillsConfigWriteRequest {
   path: string;
 }
 
+/** The skill's resulting state. Provider configuration policy can keep it from matching the request. */
 export interface SkillsConfigWriteResponse {
-  effectiveEnabled: boolean;
+  enabled: boolean;
 }
 
-export interface ThreadEffortState {
+export interface ThreadEffortState extends ModelCapabilities {
+  /** False means effort options are unknown, rather than an empty supported set. */
+  effortOptionsKnown?: boolean;
   threadId: string;
-  model: string;
+  model: string | null;
   currentEffort: string | null;
   pendingEffort: string | null;
-  defaultEffort: string | null;
-  supportedEfforts: Array<{ reasoningEffort: string; description: string }>;
+  /** True means the next turn explicitly clears effort; null alone means unchanged. */
+  pendingEffortClear?: boolean;
 }
+
+/** How much of each turn's item list a history page includes. `summary` is a provider-chosen
+ * display summary, such as the user messages and final answer; `full` is every recorded item. */
+export type HistoryItemsView = "none" | "summary" | "full";
+export type TurnStatus = "completed" | "interrupted" | "failed" | "in_progress";
 
 export interface ListThreadTurnsRequest {
   cursor?: string;
   limit?: number;
   sortDirection?: SortDirection;
-  itemsView?: "notLoaded" | "summary" | "full";
+  itemsView?: HistoryItemsView;
 }
 
-export interface HistoryItem {
-  id: string;
-  type: string;
-  text?: string;
-  phase?: import("./events.js").MessagePhase;
-  content?: Array<{ type: string; text?: string; url?: string; path?: string; name?: string }>;
-  summary?: string[];
-  activity?: import("./events.js").TurnActivityEvent["payload"];
-  image?: { itemId: string; turnId: string | null; path: string; revisedPrompt?: string | null; kind: "generated" | "viewed" };
+/** User message content as recorded in history. Media URLs are absent when withheld or unavailable.
+ * Every UserInput kind has a counterpart; `attachment` covers provider content with none. */
+export type HistoryContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; url?: string }
+  | { type: "image_file"; path: string }
+  | { type: "audio"; url?: string }
+  | { type: "audio_file"; path: string }
+  | { type: "skill"; name: string; path: string }
+  | { type: "attachment"; name: string | null; path: string | null };
+
+export interface HistoryImage {
+  itemId: string;
+  turnId: string | null;
+  path: string;
+  /** The prompt the image was generated from, when the provider reports it. */
+  prompt?: string | null;
+  kind: "generated" | "viewed";
 }
+
+type HistoryActivity = import("./events.js").TurnActivityEvent["payload"];
+
+/** Application history records. Item IDs are unique within a turn, not across the thread.
+ * Adapters decode native transcripts into these before they leave the provider. */
+export type HistoryItem =
+  | { id: string; type: "user_message"; content: HistoryContentPart[] }
+  | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }
+  | { id: string; type: "plan"; text: string }
+  | { id: string; type: "reasoning"; summary: string[] }
+  | { id: string; type: "activity"; activity: HistoryActivity; output?: string }
+  | { id: string; type: "image"; image: HistoryImage; activity?: HistoryActivity }
+  | { id: string; type: "other" };
+
+export type HistoryItemType = HistoryItem["type"];
 
 export interface HistoryTurn {
   id: string;
   items: HistoryItem[];
-  itemsView: "notLoaded" | "summary" | "full";
-  status: "completed" | "interrupted" | "failed" | "inProgress";
+  itemsView: HistoryItemsView;
+  status: TurnStatus;
   error: { message: string } | null;
   startedAt: number | null;
   completedAt: number | null;
   durationMs: number | null;
 }
 
+/** Opaque provider cursors. `nextCursor` continues in the requested direction and is required
+ * for every page but the last. `backwardsCursor` is optional support: when a provider offers it,
+ * passing it as `cursor` with the opposite `sortDirection` pages back; null means the provider
+ * cannot reverse a page, so clients page back by revisiting earlier forward cursors. */
 export interface ListThreadTurnsResponse {
   data: HistoryTurn[];
   nextCursor: string | null;
@@ -359,6 +383,7 @@ export interface ListThreadItemsRequest {
   sortDirection?: SortDirection;
 }
 
+/** Cursor semantics match ListThreadTurnsResponse. */
 export interface ListThreadItemsResponse {
   data: Array<{ turnId: string; item: HistoryItem }>;
   nextCursor: string | null;

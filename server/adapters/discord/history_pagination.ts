@@ -5,7 +5,7 @@ import {
   initialHistoryPage, loadHistoryPage as loadHistoryPageData, openHistoryTurn, returnToHistoryTurns,
   type HistoryPage, type HistoryPageRequest, type HistoryPageSource,
 } from "../../core/history_page_service.js";
-import type { HistoryItem } from "../../../shared/protocol/requests.js";
+import type { HistoryContentPart, HistoryItem } from "../../../shared/protocol/requests.js";
 import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.js";
 import { DISCORD_LIST_PAGE_SIZE, navigationRow } from "./list_pagination.js";
 import { formatActivityLine } from "./message_renderer.js";
@@ -51,26 +51,36 @@ function excerpt(value: string, limit = 260): string {
 
 function itemLabel(item: HistoryItem): string {
   switch (item.type) {
-    case "userMessage": return "User message";
-    case "agentMessage": return "Assistant message";
+    case "user_message": return "User message";
+    case "assistant_message": return "Assistant message";
     case "plan": return "Plan";
     case "reasoning": return "Reasoning summary";
-    default: return item.activity?.label ?? "Activity";
+    case "activity": return item.activity.label;
+    case "image": return item.activity?.label ?? "Image";
+    default: return "Activity";
+  }
+}
+
+function contentLabel(part: HistoryContentPart): string {
+  switch (part.type) {
+    case "text": return part.text;
+    case "image": case "image_file": return "[image]";
+    case "audio": case "audio_file": return "[audio]";
+    case "skill": return `[skill: ${part.name}]`;
+    case "attachment": return "[attachment]";
   }
 }
 
 function itemText(item: HistoryItem): string {
-  if (item.type === "userMessage") {
-    const content = Array.isArray(item.content) ? item.content : [];
-    return content.map((value) => {
-      const input = value as Record<string, unknown>;
-      return typeof input.text === "string" ? input.text : `[${input.type ?? "attachment"}]`;
-    }).join(" ");
+  switch (item.type) {
+    case "user_message": return item.content.map(contentLabel).join(" ");
+    case "assistant_message":
+    case "plan": return item.text;
+    case "reasoning": return item.summary.join(" ");
+    case "activity": return formatActivityLine(item.activity);
+    case "image": return item.activity ? formatActivityLine(item.activity) : item.image.path;
+    default: return item.type;
   }
-  if (item.type === "agentMessage" || item.type === "plan") return String(item.text ?? "");
-  if (item.type === "reasoning") return Array.isArray(item.summary) ? item.summary.join(" ") : "";
-  const activity = item.activity;
-  return activity ? formatActivityLine(activity) : item.type;
 }
 
 export function initialHistoryRequest(threadId: string, requesterId: string, turnId?: string): HistoryRequest {
@@ -121,10 +131,10 @@ export function buildHistoryPage(page: HistoryPage, requesterId: string): Discor
       detailButtons.push(new ButtonBuilder()
         .setCustomId(encode({ ...openHistoryTurn(page.request, turn.id), requesterId }))
         .setLabel(`Items ${number}`).setStyle(ButtonStyle.Secondary));
-      const preview = turn.items.find((item) => item.type === "userMessage")
-        ?? turn.items.find((item) => item.type === "agentMessage");
+      const preview = turn.items.find((item) => item.type === "user_message")
+        ?? turn.items.find((item) => item.type === "assistant_message");
       const when = turn.startedAt ? ` · <t:${Math.floor(turn.startedAt)}:R>` : "";
-      return `**${number}. ${turn.status === "inProgress" ? "In progress" : turn.status[0]!.toUpperCase() + turn.status.slice(1)}**${when}\n\`${turn.id}\`${preview ? `\n${excerpt(itemText(preview), 180)}` : ""}${turn.error ? `\nError: ${excerpt(turn.error.message, 80)}` : ""}`;
+      return `**${number}. ${turn.status === "in_progress" ? "In progress" : turn.status[0]!.toUpperCase() + turn.status.slice(1)}**${when}\n\`${turn.id}\`${preview ? `\n${excerpt(itemText(preview), 180)}` : ""}${turn.error ? `\nError: ${excerpt(turn.error.message, 80)}` : ""}`;
     }).join("\n\n") || "No turns found.";
   } else {
     const result = page.result;

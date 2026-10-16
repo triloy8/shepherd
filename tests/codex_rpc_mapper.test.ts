@@ -125,7 +125,7 @@ describe("Codex RPC activity mapping", () => {
       ),
     ).toEqual({
       itemId: "message-1",
-      phase: "final_answer",
+      phase: "final",
       text: "Canonical final answer",
       turnId: "turn-1",
     });
@@ -148,7 +148,7 @@ describe("Codex RPC activity mapping", () => {
       itemId: "image-1",
       turnId: "turn-1",
       path: "/tmp/generated-unicorn.png",
-      revisedPrompt: "A pastel unicorn",
+      prompt: "A pastel unicorn",
     });
     expect(
       extractGeneratedImageArtifact(

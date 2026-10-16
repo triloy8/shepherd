@@ -49,6 +49,20 @@ function assertProviderBoundary(session: ProviderSession, delta: TurnStreamDelta
 void assertProviderBoundary;
 
 import type { CreateThreadRequest, ListStoredThreadsRequest, ApprovalPolicy, SandboxMode } from "../shared/protocol/requests.js";
+import type { ProviderSkillsRequest } from "../server/ports/provider_session.js";
+import type { SkillsListRequest } from "../shared/protocol/requests.js";
+
+function assertDiscoveryAndResetContracts(skills: SkillsListRequest, discovery: ProviderSkillsRequest, account: ProviderAccountLimits) {
+  // @ts-expect-error Surfaces cannot redirect discovery into arbitrary directories.
+  skills.workspacePath;
+  // @ts-expect-error Native multi-directory discovery does not cross the port.
+  discovery.cwds;
+  // @ts-expect-error Native reload flags remain adapter-owned.
+  discovery.forceReload;
+  // @ts-expect-error Reset operation support comes only from provider capabilities.
+  account.resets.supported;
+}
+void assertDiscoveryAndResetContracts;
 function assertNeutralConfiguration(create: CreateThreadRequest, list: ListStoredThreadsRequest) {
   // @ts-expect-error Raw SDK configuration belongs inside the adapter.
   create.config;
@@ -65,6 +79,30 @@ function assertNeutralConfiguration(create: CreateThreadRequest, list: ListStore
   void approval; void sandbox;
 }
 void assertNeutralConfiguration;
+
+import type { ThreadRecord, ThreadModelState, ModelSummary, HistoryItem } from "../shared/protocol/requests.js";
+import type { UserInput } from "../shared/protocol/user_input.js";
+import type { DynamicToolCallOutputContentItem } from "../shared/protocol/dynamic_tools.js";
+function assertNeutralRecords(thread: ThreadRecord, model: ThreadModelState, summary: ModelSummary) {
+  // @ts-expect-error Native model backends are not thread metadata.
+  thread.modelProvider;
+  // @ts-expect-error Native session origins are not thread metadata.
+  thread.source;
+  // @ts-expect-error Thread model state names the owning agent, not a native backend.
+  model.modelProvider;
+  // @ts-expect-error A model is selected by its application ID.
+  summary.model;
+  // @ts-expect-error Effort options use neutral names.
+  summary.supportedReasoningEfforts;
+  // @ts-expect-error Native thread item names do not cross the boundary.
+  const item: HistoryItem = { id: "item", type: "agentMessage", text: "native" };
+  // @ts-expect-error Native local-file input names do not cross the boundary.
+  const input: UserInput = { type: "localImage", path: "/tmp/image.png" };
+  // @ts-expect-error Native dynamic-tool content names do not cross the boundary.
+  const output: DynamicToolCallOutputContentItem = { type: "inputText", text: "native" };
+  void item; void input; void output;
+}
+void assertNeutralRecords;
 
 
 import { bridgeEvent, type BridgeEvent } from "../shared/protocol/events.js";
@@ -83,3 +121,28 @@ function assertEventPayloads(session: ProviderSession, event: BridgeEvent) {
   }
 }
 void assertEventPayloads;
+
+import type { ThreadBootstrapInfo } from "../server/ports/provider_session.js";
+function assertWorkspaceContract() {
+  const complete: ThreadBootstrapInfo = { threadId: "thread", cwd: "/workspace", model: null, effort: null };
+  // @ts-expect-error A live provider thread must expose its effective workspace.
+  const incomplete: ThreadBootstrapInfo = { threadId: "thread", model: null, effort: null };
+  return [complete, incomplete];
+}
+void assertWorkspaceContract;
+
+import type { WebEffortRequest } from "../shared/protocol/web.js";
+function assertEffortRequestContract() {
+  const selections: WebEffortRequest[] = [{ effort: "default" }, { effort: null }, { effort: { mode: "default" } }];
+  // @ts-expect-error Clearing is null, not another object mode.
+  const invalid: WebEffortRequest = { effort: { mode: "clear" } };
+  return [selections, invalid];
+}
+void assertEffortRequestContract;
+
+import type { ThreadTokenUsage } from "../shared/protocol/requests.js";
+import type { ProviderAccountLimits } from "../shared/protocol/account_limits.js";
+
+const partialUsage: ThreadTokenUsage = { last: null, total: { inputTokens: null, outputTokens: null, totalTokens: 42, cacheReadInputTokens: null, cacheWriteInputTokens: null, reasoningOutputTokens: null }, contextWindow: null };
+const unknownLogin: ProviderAccountLimits["account"] = { plan: null, authentication: "unknown", signedIn: null };
+void partialUsage; void unknownLogin;

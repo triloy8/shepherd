@@ -3,10 +3,11 @@ import type { StoredThreadPage } from "../ports/provider_session.js";
 import type { ThreadProviderDirectory } from "../ports/provider_services.js";
 
 const prefix = "shepherd-providers:";
-type Position = { cursor?: string; skip: number; done: boolean; size?: number };
+type Position = { cursor?: string; skip: number; done: boolean; unavailable?: boolean; size?: number };
 type Sources = {
   providers: readonly AgentProvider[];
   hasStoredThreads(provider: AgentProvider, request: ListStoredThreadsRequest): boolean;
+  canUnarchive?(provider: AgentProvider): boolean;
   listPage(provider: AgentProvider, request: ListStoredThreadsRequest): Promise<StoredThreadPage>;
   directory: ThreadProviderDirectory;
 };
@@ -15,7 +16,7 @@ export function threadSummary(thread: ThreadRecord, archived: boolean) {
   const string = (value: unknown): string | null => typeof value === "string" && value.trim() ? value : null;
   const number = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
   return { threadId: thread.id, name: string(thread.name), preview: string(thread.preview) ?? "", archived,
-    createdAt: number(thread.createdAt), updatedAt: number(thread.updatedAt), source: string(thread.source), cwd: string(thread.cwd) };
+    createdAt: number(thread.createdAt), updatedAt: number(thread.updatedAt), cwd: string(thread.cwd) };
 }
 
 /** Merge sorted provider pages. Refill a depleted source before selecting the next row. */
@@ -35,17 +36,19 @@ export async function listProviderThreads(sources: Sources, request: ListStoredT
         if (!snapshot || Object.keys(snapshot).sort().join("\0") !== [...sources.providers].sort().join("\0")) throw new Error();
         for (const provider of sources.providers) {
           const position = snapshot[provider];
-          if (!position || !Number.isSafeInteger(position.skip) || position.skip < 0 || typeof position.done !== "boolean" || (position.cursor !== undefined && typeof position.cursor !== "string") || (position.size !== undefined && (!Number.isSafeInteger(position.size) || position.size < 1))) throw new Error();
+          if (!position || !Number.isSafeInteger(position.skip) || position.skip < 0 || typeof position.done !== "boolean" || (position.unavailable !== undefined && typeof position.unavailable !== "boolean") || (position.cursor !== undefined && typeof position.cursor !== "string") || (position.size !== undefined && (!Number.isSafeInteger(position.size) || position.size < 1))) throw new Error();
         }
       }
     } catch { throw new Error("Invalid provider thread cursor."); }
   }
+  const unavailable = new Set(sources.providers.filter(provider => positions[provider].unavailable));
   const start = structuredClone(positions);
   const encode = (positions: Record<AgentProvider, Position>, previous: Array<Record<AgentProvider, Position>>) => prefix + Buffer.from(JSON.stringify({ query, positions, previous })).toString("base64url");
   const pages = new Map<AgentProvider, StoredThreadPage>();
   const visited = new Map<AgentProvider, Set<string>>();
   async function head(provider: AgentProvider): Promise<ThreadRecord | null> {
     const position = positions[provider];
+    if (!sources.hasStoredThreads(provider, request)) { position.done = true; return null; }
     while (!position.done) {
       let page = pages.get(provider);
       if (!page) {
@@ -53,7 +56,11 @@ export async function listProviderThreads(sources: Sources, request: ListStoredT
         const cursor = position.cursor ?? "";
         if (seen.has(cursor)) throw new Error("Provider returned a repeated thread cursor.");
         seen.add(cursor); position.size ??= limit;
-        page = await sources.listPage(provider, { ...request, sortKey: request.sortKey ?? "updated_at", sortDirection: request.sortDirection ?? "desc", cursor: position.cursor, limit: position.size });
+        try {
+          page = await sources.listPage(provider, { ...request, sortKey: request.sortKey ?? "updated_at", sortDirection: request.sortDirection ?? "desc", cursor: position.cursor, limit: position.size });
+        } catch {
+          unavailable.add(provider); position.done = true; position.unavailable = true; return null;
+        }
         pages.set(provider, page);
         if (position.skip > page.data.length) throw new Error("Provider thread page changed; reload the conversation list.");
       }
@@ -70,7 +77,7 @@ export async function listProviderThreads(sources: Sources, request: ListStoredT
     if (!candidates.length) break;
     candidates.sort((a, b) => (request.sortDirection === "asc" ? 1 : -1) * ((a.thread[key] ?? 0) - (b.thread[key] ?? 0)) || a.provider.localeCompare(b.provider) || a.thread.id.localeCompare(b.thread.id));
     const { provider, thread } = candidates[0]!;
-    sources.directory.bind(thread.id, provider); selected.push(threadSummary(thread, request.archived === true)); positions[provider].skip++;
+    sources.directory.bind(thread.id, provider); selected.push({ ...threadSummary(thread, request.archived === true), provider, canUnarchive: sources.canUnarchive?.(provider) ?? false }); positions[provider].skip++;
   }
   // Normalize consumed pages without fetching a page the caller has not requested.
   for (const [provider, page] of pages) {
@@ -79,5 +86,5 @@ export async function listProviderThreads(sources: Sources, request: ListStoredT
       position.cursor = page.nextCursor ?? undefined; position.skip = 0; position.done = page.nextCursor == null; delete position.size;
     }
   }
-  return { threads: selected, nextCursor: sources.providers.some(provider => !positions[provider].done) ? encode(positions, [...previous, start]) : null, backwardsCursor: previous.length ? encode(previous.at(-1)!, previous.slice(0, -1)) : null };
+  return { ...(unavailable.size ? { unavailableProviders: [...unavailable].sort() } : {}), threads: selected, nextCursor: sources.providers.some(provider => !positions[provider].done) ? encode(positions, [...previous, start]) : null, backwardsCursor: previous.length ? encode(previous.at(-1)!, previous.slice(0, -1)) : null };
 }

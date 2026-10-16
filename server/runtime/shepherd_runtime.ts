@@ -11,6 +11,7 @@ type ShutdownHook = () => void | Promise<void>;
 export type ShepherdRuntimeOptions = {
   approvalPolicy: ApprovalPolicy;
   defaultSandbox?: SandboxMode;
+  defaultProvider?: string;
   deployment: RuntimeDeploymentPort;
   runningCommit?: Promise<string | null>;
   restartDelayMs?: number;
@@ -32,12 +33,14 @@ export class ShepherdRuntime {
     this.restartDelayMs = options.restartDelayMs ?? 250;
     this.exitProcess = options.exitProcess ?? ((code) => process.exit(code));
     this.conversation = new ConversationService({
-      providers: createProviderServices(),
+      providers: createProviderServices(options.defaultProvider),
       routing: {
         autoCreateIfMissing: true,
-        defaultApprovalPolicy: options.approvalPolicy,
-        defaultSandbox: options.defaultSandbox,
         exclusiveThreadBinding: true,
+      },
+      threadDefaults: {
+        approvalPolicy: options.approvalPolicy,
+        ...(options.defaultSandbox ? { sandbox: options.defaultSandbox } : {}),
       },
     });
     this.lifecycle = new RuntimeLifecycleOrchestrator({

@@ -14,7 +14,7 @@ function source() {
       return {
         data: [{
           id: "turn", status: "completed", itemsView: "summary", startedAt: 1, completedAt: 2, durationMs: 1000, error: null,
-          items: [{ id: "user", type: "userMessage", content: [{ type: "text", text: "original".repeat(500) }] }],
+          items: [{ id: "user", type: "user_message", content: [{ type: "text", text: "original".repeat(500) }] }],
         }],
         nextCursor: request.cursor ? null : cursor, backwardsCursor: "inclusive-anchor",
       };
@@ -22,7 +22,7 @@ function source() {
     async listThreadItems(threadId, request) {
       calls.push({ threadId, request });
       return {
-        data: [{ turnId: "turn", item: { id: "item", type: "agentMessage", text: "complete".repeat(500), extra: { preserved: true } } }],
+        data: [{ turnId: "turn", item: { id: "item", type: "assistant_message", text: "complete".repeat(500), extra: { preserved: true } } }],
         nextCursor: request.cursor ? null : cursor, backwardsCursor: "item-anchor",
       };
     },

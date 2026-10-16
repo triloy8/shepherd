@@ -76,12 +76,12 @@ test("approval choices are validated without consuming invalid requests; duplica
   const h = webHarness();
   try {
     const c = await h.create(); const path = `/conversations/${c.id}/approvals`;
-    h.approvals.create({ approvalId: "approval:1", kind: "permission", prompt: "Allow?", choices: [{ value: "accept", label: "Accept", intent: "allow" }], detail: null }, { threadId: c.threadId, sessionId: "session" });
+    const approval = h.approvals.create({ approvalId: "approval:1", kind: "permission", prompt: "Allow?", choices: [{ value: "accept", label: "Accept", intent: "allow" }], detail: null }, { threadId: c.threadId, sessionId: "session" });
     expect((await (await h.request(path)).json()).approvals[0].status).toBe("pending");
-    expect((await h.request(`${path}/approval%3A1`, "POST", { decision: "bogus" })).status).toBe(400);
+    expect((await h.request(`${path}/${approval.approvalId}`, "POST", { decision: "bogus" })).status).toBe(400);
     expect(h.approvals.listByThread(c.threadId)[0]!.status).toBe("pending");
-    expect((await h.request(`${path}/approval%3A1`, "POST", { decision: "accept" })).status).toBe(200);
-    expect((await h.request(`${path}/approval%3A1`, "POST", { decision: "accept" })).status).toBe(409);
+    expect((await h.request(`${path}/${approval.approvalId}`, "POST", { decision: "accept" })).status).toBe(200);
+    expect((await h.request(`${path}/${approval.approvalId}`, "POST", { decision: "accept" })).status).toBe(409);
     expect((await h.request(`${path}/unknown`, "POST", { decision: "accept" })).status).toBe(404);
   } finally { h.api.dispose(); }
 });
@@ -89,7 +89,7 @@ test("approval choices are validated without consuming invalid requests; duplica
 test("malformed requests and oversized bodies never invoke conversation creation", async () => {
   const h = webHarness();
   try {
-    for (const data of [null, [], {}, { project: "" }, { project: "~", sandbox: "unrestricted" }, { project: "~", threadId: "../../escape" }]) {
+    for (const data of [null, [], {}, { project: "" }, { project: "~", sandbox: "unrestricted" }, { project: "~", threadId: " stored " }, { threadId: "stored\u0000" }]) {
       expect((await h.request("/conversations", "POST", data)).status).toBe(400);
     }
     expect((await h.request("/conversations", "POST", { project: "~" }, { "content-type": "text/plain" })).status).toBe(415);

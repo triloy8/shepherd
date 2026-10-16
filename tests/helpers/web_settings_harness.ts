@@ -1,32 +1,33 @@
 import { account } from "./account";
 import { ApplicationActionError } from "../../server/core/action_error";
-import type { ThreadModelState, ThreadEffortState, ModelSummary } from "../../shared/protocol/requests";
+import type { ThreadModelState, ThreadEffortState, ModelSummary, EffortSelection } from "../../shared/protocol/requests";
 import type { webHarness } from "./web_harness";
 
 export function installWebSettings(h: ReturnType<typeof webHarness>) {
-  const models: ModelSummary[] = ["small", "large"].map((model) => ({ id: model, model, displayName: model === "small" ? "Small model" : "Large model", description: "Fixture model", hidden: false, isDefault: model === "small", defaultReasoningEffort: "low", supportedReasoningEfforts: (model === "small" ? ["low"] : ["low", "high"]).map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })) }));
+  const models: ModelSummary[] = ["small", "large"].map((model) => ({ id: model, displayName: model === "small" ? "Small model" : "Large model", description: "Fixture model", hidden: false, isDefault: model === "small", inputModalities: ["text", "image"] as const, defaultEffort: "low", supportedEfforts: (model === "small" ? ["low"] : ["low", "high"]).map((value) => ({ value, description: value })) }));
   const states = new Map<string, ThreadModelState>();
-  const efforts = new Map<string, string>();
+  const efforts = new Map<string, string | null>();
   const getThreadModel = (threadId: string) => {
     let state = states.get(threadId);
-    if (!state) { state = { threadId, currentModel: "small", pendingModel: null, modelProvider: "fixture" }; states.set(threadId, state); }
+    if (!state) { state = { threadId, currentModel: "small", pendingModel: null, provider: "fixture" }; states.set(threadId, state); }
     return state;
   };
-  const getThreadEffort = async (threadId: string): Promise<ThreadEffortState> => {
+  const getThreadEffort = async (threadId: string, requestedModel?: string): Promise<ThreadEffortState> => {
     const state = getThreadModel(threadId);
-    const model = models.find((m) => m.model === (state.pendingModel ?? state.currentModel))!;
-    return { threadId, model: model.model, currentEffort: "low", pendingEffort: efforts.get(threadId) ?? null, defaultEffort: model.defaultReasoningEffort!, supportedEfforts: model.supportedReasoningEfforts! };
+    const model = models.find((m) => m.id === (requestedModel ?? state.pendingModel ?? state.currentModel))!;
+    return { threadId, model: model.id, currentEffort: "low", pendingEffort: efforts.get(threadId) ?? null, pendingEffortClear: efforts.has(threadId) && efforts.get(threadId) === null, inputModalities: ["text", "image"] as const, defaultEffort: model.defaultEffort!, supportedEfforts: model.supportedEfforts };
   };
   Object.assign(h.application, { getSurfaceThreadId: (id: string) => h.bindings.get(id) ?? null });
   const controls = {
+    getThreadState: h.context.ingress.getThreadState,
     getThreadModel,
     setThreadModel(threadId: string, model: string) { const state = { ...getThreadModel(threadId), pendingModel: model }; states.set(threadId, state); return state; },
     getThreadEffort,
-    async setThreadEffort(threadId: string, requested: string) {
+    async setThreadEffort(threadId: string, requested: EffortSelection) {
       const state = await getThreadEffort(threadId);
-      const effort = requested === "default" ? state.defaultEffort! : requested;
-      if (!state.supportedEfforts.some((option) => option.reasoningEffort === effort)) throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested, available: state.supportedEfforts.map((x) => x.reasoningEffort) });
-      efforts.set(threadId, effort); return { ...state, pendingEffort: effort };
+      const effort = requested === null ? null : typeof requested === "string" ? requested : state.defaultEffort;
+      if (effort !== null && !state.supportedEfforts.some((option) => option.value === effort)) throw new ApplicationActionError({ code: "unsupported_effort", model: state.model, requested: typeof requested === "string" ? requested : "default", available: state.supportedEfforts.map((x) => x.value) });
+      efforts.set(threadId, effort); return { ...state, pendingEffort: effort, pendingEffortClear: effort === null };
     },
     async listModels({ cursor }: { cursor?: string }) { return { data: [models[cursor ? 1 : 0]!], nextCursor: cursor ? null : "next" }; },
     async readThreadTokenUsage(threadId: string) { return { threadId, tokenUsage: null }; },

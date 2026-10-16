@@ -1,4 +1,4 @@
-import { historyItem } from "../server/providers/history_mapper";
+import { historyItem } from "../server/providers/codex/history";
 import { expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -72,7 +72,7 @@ test("live viewed image events replace activity and survive replay without dupli
     expect(html).not.toContain('<img');
     expect(html).toContain("viewed-image-disclosure");
     expect(html).not.toContain(" open=");
-    state = reduceBridge(state, { ...viewed, id: "answer", type: "turn.message.completed", payload: { itemId: "answer", turnId: "turn", phase: "final_answer", text: `Here is your screenshot:\n\n![Desktop view](${viewed.payload.path})` } });
+    state = reduceBridge(state, { ...viewed, id: "answer", type: "turn.message.completed", payload: { itemId: "answer", turnId: "turn", phase: "final", text: `Here is your screenshot:\n\n![Desktop view](${viewed.payload.path})` } });
     const answerHtml = renderToStaticMarkup(createElement(Timeline, { chat: state }));
     expect(answerHtml).toContain('alt="Desktop view"');
     expect(answerHtml).toContain(`src="${event.payload.url}"`);
@@ -127,9 +127,9 @@ test("live image events receive a scoped asset URL before entering the event fee
   const reader = response.body!.getReader();
   try {
     await reader.read(); // connection comment
-    h.publish(conversation.id, { id: "image-event", type: "turn.image.generated", threadId: conversation.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { itemId: "image", turnId: "turn", path: "/missing.png", revisedPrompt: "Image" } });
+    h.publish(conversation.id, { id: "image-event", type: "turn.image.generated", threadId: conversation.threadId, sessionId: "session", ts: new Date().toISOString(), payload: { itemId: "image", turnId: "turn", path: "/missing.png", prompt: "Image" } });
     const chunk = new TextDecoder().decode((await reader.read()).value);
     expect(chunk).toContain(`/api/conversations/${conversation.id}/images/`);
-    expect(chunk).toContain('"revisedPrompt":"Image"');
+    expect(chunk).toContain('"prompt":"Image"');
   } finally { await reader.cancel(); h.api.dispose(); }
 });

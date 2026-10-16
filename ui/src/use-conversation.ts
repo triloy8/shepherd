@@ -1,4 +1,5 @@
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities";
+import type { WebSettingsResponse } from "../../shared/protocol/web";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import { startTransition, useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
@@ -20,6 +21,7 @@ export function useConversation(conversation: WebConversation | null) {
   const chatRef = useRef(chat);
   chatRef.current = chat;
   const [capabilities, setCapabilities] = useState<ProviderCapabilities | null>(null);
+  const [modelCapabilities, setModelCapabilities] = useState<WebSettingsResponse["modelCapabilities"] | null>(null);
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function useConversation(conversation: WebConversation | null) {
     actionEpoch.current++;
     setStateId(conversation?.id);
     historyEpoch.current++; historyRevision.current = null;
-    setChat(emptyChat()); setCapabilities(null); setApprovals([]); setError(null); setHistoryCursor(null);
+    setChat(emptyChat()); setCapabilities(null); setModelCapabilities(null); setApprovals([]); setError(null); setHistoryCursor(null);
     setConnection("connecting"); setBusy(false); actionRef.current = false;
     setLoadingHistory(false); historyExpanded.current = false;
     if (!conversation) { refreshRef.current = async () => false; return; }
@@ -58,6 +60,7 @@ export function useConversation(conversation: WebConversation | null) {
     let snapshot: Promise<boolean> | null = null;
     let refreshAgain = false;
     let turnRevision = 0;
+    let modelMetadataRevision = 0;
     let scheduled: ReturnType<typeof setTimeout> | undefined;
     const missing = (error: unknown) => {
       if (!current()) return false;
@@ -83,6 +86,11 @@ export function useConversation(conversation: WebConversation | null) {
               if (current() && revision === turnRevision) setChat((chat) => current() && revision === turnRevision && epoch === historyEpoch.current ? ({ ...chat, activeTurnId: state.state.activeTurnId }) : chat);
               return state;
             });
+            // Model metadata is optional for rendering and must not block stream recovery.
+            const metadataRevision = ++modelMetadataRevision;
+            void stateRequest.then(state => state.state.capabilities?.modelCatalog ? api.settings(id, abort.signal) : null).then(settings => {
+              if (current() && revision === turnRevision && metadataRevision === modelMetadataRevision) setModelCapabilities(settings?.modelCapabilities ?? null);
+            }).catch(() => { if (current() && revision === turnRevision && metadataRevision === modelMetadataRevision) setModelCapabilities(null); });
             const historyRequest = api.history(id, undefined, abort.signal).then((history) => {
               if (!current() || epoch !== historyEpoch.current) return history;
               const replaced = historyRevision.current !== null && historyRevision.current !== history.revision;
@@ -221,7 +229,7 @@ export function useConversation(conversation: WebConversation | null) {
   // Selection renders before effect cleanup/reset; never show the previous
   // conversation's messages or enabled controls under the new chat's title.
   const selected = stateId === conversation?.id;
-  return { capabilities: selected ? capabilities : null, chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
+  return { capabilities: selected ? capabilities : null, modelCapabilities: selected ? (chat.activeTurnId ? modelCapabilities?.current : modelCapabilities?.next) ?? null : null, chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
     error: selected ? error : null, busy: selected && busy, historyCursor: selected ? historyCursor : null, loadingHistory: selected && loadingHistory, send, loadOlder,
     interrupt: () => action((id) => api.interrupt(id)),
     decide: (approvalId: string, decision: string, answers?: UserQuestionAnswers) => action((id) => api.decide(id, approvalId, decision, answers)),

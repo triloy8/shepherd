@@ -50,35 +50,32 @@ function makeContext(overrides?: {
 
   const context: ControlActionsContext = {
     conversation: {
+      getThreadState: () => ({ capabilities: { modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, skills: true, skillConfig: true } }) as never,
       async getThreadEffort(threadId) {
-        return { threadId, model: "model", currentEffort: "medium", pendingEffort: null, defaultEffort: "medium", supportedEfforts: [] };
+        return { threadId, model: "model", currentEffort: "medium", pendingEffort: null, inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [] };
       },
       async setThreadEffort(threadId, effort) {
-        return { threadId, model: "model", currentEffort: "medium", pendingEffort: effort, defaultEffort: "medium", supportedEfforts: [] };
+        return { threadId, model: "model", currentEffort: "medium", pendingEffort: effort, inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [] };
       },
       async listSkills() {
         if (overrides?.listSkills) return overrides.listSkills();
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "repo",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "repo",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
             },
           ],
         };
       },
       async writeSkillConfig(threadId, request) {
         skillWrites.push({ threadId, path: request.path, enabled: request.enabled });
-        return { effectiveEnabled: request.enabled };
+        return { enabled: request.enabled };
       },
       async listModels(request) {
         if (overrides?.listModels) return overrides.listModels(request);
@@ -97,7 +94,7 @@ function makeContext(overrides?: {
         };
       },
       getThreadProvider: () => "fixture",
-      listProviders: () => [{ id: "fixture", displayName: "Fixture", capabilities: { questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "localImage"], textAnnotations: false, imageDetail: false, ephemeralThreads: false, resets: false } }],
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, sandboxModes: [], approvalModes: ["provider_default", "review_sensitive", "bypass"], inputKinds: ["text", "image", "image_file"], imageDetail: false, accountReset: false } }],
       async readAccount() { return account("fixture", "pro"); },
       async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
@@ -108,7 +105,7 @@ function makeContext(overrides?: {
         return {
           threadId,
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: null,
         };
       },
@@ -117,7 +114,7 @@ function makeContext(overrides?: {
         return {
           threadId,
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: model,
         };
       },
@@ -261,8 +258,8 @@ describe("ControlActionsService", () => {
       requestedModel: "later-model",
     })).resolves.toMatchObject({ ok: true, model: "later-model" });
     expect(requests).toEqual([
-      { cursor: undefined, limit: 100, includeHidden: true, provider: "fixture" },
-      { cursor: "models-page-2", limit: 100, includeHidden: true, provider: "fixture" },
+      { cursor: undefined, limit: 100, includeHidden: true, provider: "fixture", threadId: "thread-1" },
+      { cursor: "models-page-2", limit: 100, includeHidden: true, provider: "fixture", threadId: "thread-1" },
     ]);
     expect(modelWrites).toEqual([{ threadId: "thread-1", model: "later-model" }]);
   });
@@ -296,7 +293,7 @@ describe("ControlActionsService", () => {
       ok: true,
       requestedSkill: "github",
       enabled: false,
-      effectiveEnabled: false,
+      appliedEnabled: false,
     });
     expect(skillWrites).toEqual([
       {
@@ -311,26 +308,22 @@ describe("ControlActionsService", () => {
     const { context } = makeContext({
       async listSkills() {
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "repo",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-                {
-                  name: "github",
-                  scope: "user",
-                  path: "/home/tadhiel/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "repo",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
+            },
+            {
+              name: "github",
+              scope: "user",
+              path: "/home/tadhiel/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
             },
           ],
         };
@@ -578,4 +571,13 @@ test("effort action preserves structured failures and propagates infrastructure 
     .toMatchObject({ ok: false, error: { code: "unsupported_effort", available: ["low"] } });
   context.conversation.getThreadEffort = async () => { throw new Error("connection closed"); };
   await expect(executeControlAction(context, { type: "effort.get", surfaceId: "terminal" })).rejects.toThrow("connection closed");
+});
+
+test("an extensionless catalog path takes precedence over a different skill with that name", async () => {
+  const { context, skillWrites } = makeContext({ listSkills: async () => ({ workspacePath: "/workspace", errors: [], skills: [
+    { name: "build", path: "instructions", scope: "repo", description: "", enabled: true },
+    { name: "instructions", path: "/other/SKILL.md", scope: "user", description: "", enabled: true },
+  ] }) });
+  expect(await executeControlAction(context, { type: "skill.set-enabled", surfaceId: "chan-1", requestedSkill: "instructions", enabled: false })).toMatchObject({ ok: true });
+  expect(skillWrites).toEqual([{ threadId: "thread-1", path: "instructions", enabled: false }]);
 });

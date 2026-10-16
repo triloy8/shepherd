@@ -8,7 +8,7 @@ the UI uses only that API. Differences from Discord are in the
 
 ## Transcript, work, and images
 
-Assistant answers appear in the transcript. Tool calls, commentary, and other work
+Assistant answers appear in the transcript. Tool calls, interim progress messages, and other work
 appear in a work timeline between the request and the answer, and fold when the
 turn completes.
 
@@ -46,16 +46,18 @@ per-conversation budgets. Use **Refresh usage** to fetch fresh allowances.
 
 Allowance labels and optional subtitles come from the provider adapter.
 
-Each available, unexpired, supported Codex reset has a **Use this reset** button.
-If details are count-only or capped, **Use next available reset** lets Codex choose
-from its available inventory; the UI does not assume an expiry ordering. The UI
-keeps the request key and selected credit ID in session storage, so a reload in the
-same tab can retry an attempt whose outcome is unknown; until then, only that retry
+For providers that support resets, each available, unexpired, supported credit has a
+**Use reset** button. **Use available reset** lets the provider choose from its inventory;
+the UI does not assume an expiry ordering. The UI keeps the provider-scoped request key
+and selected credit ID in session storage, so a reload in the same tab can check an
+attempt whose outcome is unknown. Until it resolves, only **Check unresolved reset request**
 is allowed. Reset controls work without a selected conversation.
 
-The Claude tab shows reported allowance windows, reset times, plan, and extra usage
-status, with stale labels when values are old or a refresh failed. It offers an
-external usage link and no reset or billing controls.
+The same panel shows every agent's allowance windows, reset times, plan, and extra usage.
+Claude has no reset controls. A failed refresh keeps the selected account's last values
+visible with **Last known data** and an error. Switching agents clears those values;
+an initial failed load never substitutes another account's data. Closing the panel aborts
+pending reads.
 
 Conversation settings show context telemetry, which can be empty before the first
 turn.

@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isClaudeEffort, type ClaudeThread, type ClaudeThreadRepository, type ClaudeThreadSummary } from "../ports/claude_thread_store.js";
+import { isClaudeEffort, type ClaudeThread, type ClaudeThreadRepository, type ClaudeThreadSummary } from "./thread_store.js";
+import { storedTokenUsage, storedTurn, storedTurnStatuses } from "./history.js";
+import { isClaudeStoredApprovalMode } from "./permissions.js";
 
 const threadFile = /^(claude-[0-9a-f-]{36})\.json$/;
 
@@ -16,7 +18,9 @@ export class ClaudeThreadStore implements ClaudeThreadRepository {
     if (!/^claude-[0-9a-f-]{36}$/.test(id)) throw new Error("Invalid Claude thread id.");
     const value = JSON.parse(readFileSync(join(this.directory, `${id}.json`), "utf8")) as ClaudeThread;
     validateSnapshot(value, id);
-    return value;
+    const { tokenUsage: savedUsage, ...thread } = value;
+    const tokenUsage = storedTokenUsage(savedUsage);
+    return { ...thread, turns: value.turns.map(storedTurn), ...(tokenUsage ? { tokenUsage } : {}) };
   }
   write(thread: ClaudeThread): void {
     validateSnapshot(thread, thread.id);
@@ -35,6 +39,7 @@ export class ClaudeThreadStore implements ClaudeThreadRepository {
     return rows;
   }
   hasThreads(): boolean { return this.ids().length > 0; }
+  has(id: string): boolean { return threadFile.test(`${id}.json`) && existsSync(join(this.directory, `${id}.json`)); }
   private ids(): string[] {
     let files: string[];
     try { files = readdirSync(this.directory); }
@@ -78,17 +83,17 @@ function validateSummary(value: ClaudeThreadSummary, id: string): void {
   if (!value || value.id !== id || !id.startsWith("claude-") || !uuid.test(id.slice(7)) || !uuid.test(value.nativeId) ||
       typeof value.materialized !== "boolean" || typeof value.archived !== "boolean" ||
       typeof value.cwd !== "string" || !value.cwd || typeof value.model !== "string" || !value.model ||
-      (value.name !== null && typeof value.name !== "string") || typeof value.preview !== "string" || typeof value.instructions !== "string" ||
+      (value.name !== null && typeof value.name !== "string") || typeof value.preview !== "string" || (value.instructions !== undefined && typeof value.instructions !== "string") ||
       !Number.isFinite(value.createdAt) || !Number.isFinite(value.updatedAt) ||
       (value.effort !== undefined && !isClaudeEffort(value.effort)) ||
-      (value.approvalMode !== undefined && !["provider_default", "review_sensitive", "bypass"].includes(value.approvalMode))) {
+      (value.approvalMode !== undefined && !isClaudeStoredApprovalMode(value.approvalMode))) {
     throw new InvalidSnapshotError();
   }
 }
 
 function validateSnapshot(value: ClaudeThread, id: string): void {
   validateSummary(value, id);
-  if (!Array.isArray(value.turns) || value.turns.some(turn => !turn || typeof turn.id !== "string" || !["completed", "interrupted", "failed", "inProgress"].includes(turn.status) || !Array.isArray(turn.items) || turn.items.some(item => !item || typeof item.id !== "string" || typeof item.type !== "string"))) {
+  if (!Array.isArray(value.turns) || value.turns.some(turn => !turn || typeof turn.id !== "string" || !storedTurnStatuses.includes(turn.status) || !Array.isArray(turn.items) || turn.items.some(item => !item || typeof item.id !== "string" || typeof item.type !== "string"))) {
     throw new InvalidSnapshotError();
   }
 }

@@ -86,7 +86,7 @@ describe("CodexSession app-server contract", () => {
       session.initialize = async () => {};
       internals(session).sendRequest = async (_method, params) => {
         requests.push(params);
-        return { thread: { id: "thread-defaults" } };
+        return { thread: { id: "thread-defaults", cwd: "/repo" } };
       };
       await session.startThread({});
       await session.startThread({ model: "custom-model", effort: "high" });
@@ -118,12 +118,16 @@ describe("CodexSession app-server contract", () => {
     session.initialize = async () => {};
     internals(session).sendRequest = async (method, params) => {
       requests.push({ method, params });
-      return { thread: { id: "thread-1", modelProvider: "openai" } };
+      return { thread: { id: "thread-1", cwd: "/repo", modelProvider: "openai" } };
     };
 
     await session.startThread({ cwd: "/workspace" });
 
     expect(requests[0]?.method).toBe("thread/start");
+    // Codex's configured instructions stay in effect: Shepherd sends neither instruction field.
+    expect(requests[0]?.params).not.toHaveProperty("baseInstructions");
+    expect(requests[0]?.params).not.toHaveProperty("developerInstructions");
+    expect(requests[0]?.params).not.toHaveProperty("ephemeral");
     expect(requests[0]?.params).toMatchObject({
       cwd: "/workspace",
       dynamicTools: [{
@@ -151,7 +155,7 @@ describe("CodexSession app-server contract", () => {
       inputSchema: { type: "object" },
       async execute(params) {
         calls.push(params);
-        return { success: true, contentItems: [{ type: "inputText", text: "ready" }] };
+        return { success: true, contentItems: [{ type: "text", text: "ready" }] };
       },
     });
     const session = new CodexSession("review_sensitive", tools);
@@ -226,7 +230,7 @@ describe("CodexSession app-server contract", () => {
     };
 
     await session.readAccountRateLimits();
-    await session.listSkills({ cwds: ["/workspace"], forceReload: true });
+    await session.listSkills({ workspacePath: "/workspace", refresh: true });
 
     expect(requests).toEqual([
       { method: "account/rateLimits/read", params: undefined },
@@ -238,7 +242,7 @@ describe("CodexSession app-server contract", () => {
     const session = new CodexSession("review_sensitive");
     session.initialize = async () => {};
     internals(session).sendRequest = async () => ({
-      thread: { id: "thread-1", modelProvider: "openai" },
+      thread: { id: "thread-1", cwd: "/repo", modelProvider: "openai" },
       model: "gpt-5.6-sol",
       approvalPolicy: {
         granular: {
@@ -442,7 +446,7 @@ describe("CodexSession app-server contract", () => {
     });
     expect(events.find((event) => event.type === "turn.message.completed")?.payload).toEqual({
       itemId: "final-1",
-      phase: "final_answer",
+      phase: "final",
       text: "Complete answer",
       turnId: "turn-1",
     });
@@ -450,7 +454,7 @@ describe("CodexSession app-server contract", () => {
       itemId: "image-1",
       turnId: "turn-1",
       path: "/tmp/generated-unicorn.png",
-      revisedPrompt: "A pastel unicorn",
+      prompt: "A pastel unicorn",
     });
   });
 
@@ -483,7 +487,7 @@ describe("CodexSession app-server contract", () => {
       kind: "assistant_text",
       textDelta: "Checking now.",
       itemId: "comment-1",
-      phase: "commentary",
+      phase: "interim",
       turnId: "turn-1",
     });
   });

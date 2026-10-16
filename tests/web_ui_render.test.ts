@@ -110,7 +110,7 @@ test("footnotes have distinct targets and accessible labels in every message", (
 test("assistant Markdown embeds and links only known image artifacts", () => {
   const image: WebImage = { url: "/api/conversations/abc/images/def", path: "/tmp/desktop screenshot.png", name: "desktop screenshot.png", prompt: null };
   const render = (text: string, images = [image]) => renderToStaticMarkup(createElement(Message, { images, message: {
-    id: "answer", turnId: "turn", role: "assistant", complete: true, phase: "final_answer", text,
+    id: "answer", turnId: "turn", role: "assistant", complete: true, phase: "final", text,
   } }));
   const html = render("Here is the desktop view.\n\n![Desktop view](/tmp/desktop%20screenshot.png)\n\n[Open original](/tmp/desktop%20screenshot.png)");
   expect(html).toContain(`src="${image.url}"`);
@@ -148,7 +148,7 @@ test("persisted user messages put revert beside copy; optimistic and assistant m
   expect(html.indexOf("Revert this turn")).toBeLessThan(html.indexOf("Copy message"));
   expect(html.indexOf("Copy message")).toBeLessThan(html.indexOf("Revert from here"));
   expect(render({}, true)).toContain('disabled=""');
-  for (const changes of [{ id: "local:optimistic" }, { turnId: "" }, { complete: false }, { role: "assistant" }]) expect(render(changes)).not.toContain("Revert from here");
+  for (const changes of [{ id: "local:optimistic", optimistic: true }, { turnId: "" }, { complete: false }, { role: "assistant" }]) expect(render(changes)).not.toContain("Revert from here");
   const image = render({ text: "", attachments: ["data:image/png;base64,aGVsbG8="] });
   expect(image).toContain("Revert from here");
   expect(image).not.toContain("Copy message");

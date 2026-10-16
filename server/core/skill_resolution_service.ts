@@ -1,5 +1,5 @@
 import type { ActionFailure } from "./action_error.js";
-import type { SkillMetadata, SkillsListResponse } from "../../shared/protocol/requests.js";
+import type { SkillsListing } from "../../shared/protocol/requests.js";
 
 export type ResolvedSkillPath =
   | { path: string }
@@ -9,18 +9,8 @@ function normalizeValue(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function parseSkillLookups(value: SkillsListResponse): SkillMetadata[] {
-  const lookups: SkillMetadata[] = [];
-  for (const entry of value.data) {
-    for (const skill of entry.skills) {
-      lookups.push(skill);
-    }
-  }
-  return lookups;
-}
-
 export function resolveSkillPathFromList(
-  listed: SkillsListResponse,
+  listed: SkillsListing,
   rawValue: string,
 ): ResolvedSkillPath {
   const value = rawValue.trim();
@@ -28,11 +18,14 @@ export function resolveSkillPathFromList(
     return { error: { code: "invalid_skill" } };
   }
 
-  if (value.includes("/") || value.endsWith(".md")) {
+  if (value.includes("/") || value.includes("\\") || value.endsWith(".md")) {
     return { path: value };
   }
 
-  const skills = parseSkillLookups(listed);
+  const skills = listed.skills;
+  // A catalog path is an identity even when it has no separator or extension.
+  const exactPath = skills.find(skill => skill.path === value);
+  if (exactPath) return { path: exactPath.path };
   const normalized = normalizeValue(value);
 
   const exactNameMatches = skills.filter((skill) => normalizeValue(skill.name) === normalized);

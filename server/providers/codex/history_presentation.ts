@@ -1,4 +1,4 @@
-import type { TurnActivityEvent, TurnActivityKind, TurnActivityStatus } from "../../shared/protocol/events.js";
+import type { TurnActivityEvent, TurnActivityKind, TurnActivityStatus } from "../../../shared/protocol/events.js";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
 function asString(value: unknown): string | null { return typeof value === "string" && value.trim() ? value : null; }
@@ -8,7 +8,7 @@ export type GeneratedImageArtifact = {
   itemId: string;
   turnId: string | null;
   path: string;
-  revisedPrompt: string | null;
+  prompt: string | null;
 };
 export type ViewedImageArtifact = Pick<GeneratedImageArtifact, "itemId" | "turnId" | "path">;
 
@@ -36,7 +36,7 @@ export function extractGeneratedImageArtifact(params: unknown): GeneratedImageAr
     itemId,
     turnId: extractTurnId(params),
     path: savedPath,
-    revisedPrompt: asString(item.revisedPrompt),
+    prompt: asString(item.revisedPrompt),
   };
 }
 

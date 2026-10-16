@@ -6,16 +6,16 @@ import { handleMessage } from "../server/adapters/discord/commands.js";
 async function setup() {
   const starts: unknown[][] = [];
   const session = new CodexSession("review_sensitive");
-  session.startThread = async () => ({ threadId: "thread-1", model: "test-model", modelProvider: null, reasoningEffort: "low" });
+  session.startThread = async () => ({ threadId: "thread-1", cwd: "/repo", model: "test-model", effort: "low" });
   session.startTurn = async (...args) => { starts.push(args); return "turn-1"; };
   const manager = new SessionManager(undefined, () => session);
   const model = {
-    id: "test-model", model: "test-model", displayName: "Test", description: "",
+    id: "test-model", displayName: "Test", description: "",
     hidden: false, isDefault: true,
-    defaultReasoningEffort: "low",
-    supportedReasoningEfforts: ["low", "high"].map((reasoningEffort) => ({ reasoningEffort, description: "" })),
+    inputModalities: ["text", "image"] as const, defaultEffort: "low",
+    supportedEfforts: ["low", "high"].map((value) => ({ value, description: "" })),
   };
-  manager.listModels = async () => ({ data: [model], nextCursor: null });
+  session.listModels = async () => ({ data: [model], nextCursor: null });
   await manager.createThread({ cwd: "/repo" });
   return { manager, session, starts, model };
 }
@@ -30,7 +30,7 @@ test("effort applies on the next new turn and subsequent turns inherit it", asyn
   expect(await manager.getThreadEffort("thread-1")).toMatchObject({ currentEffort: "high", pendingEffort: null });
   await manager.submitTurn("thread-1", { input: [] });
   expect(starts[1]?.[4]).toBeUndefined();
-  expect((await manager.setThreadEffort("thread-1", "default")).pendingEffort).toBe("low");
+  expect((await manager.setThreadEffort("thread-1", { mode: "default" })).pendingEffort).toBe("low");
   await expect(manager.setThreadEffort("thread-1", "ultra")).rejects.toMatchObject({ failure: { code: "unsupported_effort", available: ["low", "high"] } });
 });
 
@@ -49,13 +49,46 @@ test("failed turn starts retain pending effort, and new selections survive an in
 });
 
 test("effort resolves the pending model across catalog pages", async () => {
-  const { manager, model } = await setup();
+  const { manager, session, model } = await setup();
   manager.setThreadModel("thread-1", "other");
-  manager.listModels = async (request) => request.cursor
-    ? { data: [{ ...model, model: "other", supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "" }] }], nextCursor: null }
+  session.listModels = async (request) => request.cursor
+    ? { data: [{ ...model, id: "other", supportedEfforts: [{ value: "medium", description: "" }] }], nextCursor: null }
     : { data: [model], nextCursor: "next" };
   expect((await manager.setThreadEffort("thread-1", "medium")).model).toBe("other");
   await expect(manager.setThreadEffort("thread-1", "high")).rejects.toMatchObject({ failure: { code: "unsupported_effort", available: ["medium"] } });
+});
+
+test("a model switch rejects incompatible pending effort before execution and keeps it retryable", async () => {
+  const { manager, session, starts, model } = await setup();
+  session.listModels = async () => ({ data: [model, {
+    ...model, id: "other", inputModalities: ["text", "image"] as const, defaultEffort: "medium", supportedEfforts: [{ value: "medium", description: "" }],
+  }], nextCursor: null });
+  await manager.setThreadEffort("thread-1", "high");
+  manager.setThreadModel("thread-1", "other");
+  await expect(manager.submitTurn("thread-1", { input: [] })).rejects.toMatchObject({
+    failure: { code: "unsupported_effort", model: "other", requested: "high", available: ["medium"] },
+  });
+  expect(starts).toHaveLength(0);
+  expect(manager.getThreadModel("thread-1").pendingModel).toBe("other");
+  expect((await manager.getThreadEffort("thread-1")).pendingEffort).toBe("high");
+  await manager.setThreadEffort("thread-1", { mode: "default" });
+  await manager.submitTurn("thread-1", { input: [] });
+  expect(starts[0]?.[2]).toBe("other");
+  expect(starts[0]?.[4]).toBe("medium");
+});
+
+test("direct turn model and effort overrides are validated against the requested model", async () => {
+  const { manager, session, starts, model } = await setup();
+  session.listModels = async request => request.cursor
+    ? { data: [{ ...model, id: "other", supportedEfforts: [{ value: "medium", description: "" }] }], nextCursor: null }
+    : { data: [model], nextCursor: "next" };
+  await expect(manager.submitTurn("thread-1", { input: [], model: "other", effort: "high" })).rejects.toMatchObject({
+    failure: { code: "unsupported_effort", model: "other" },
+  });
+  expect(starts).toHaveLength(0);
+  await manager.submitTurn("thread-1", { input: [], model: "other", effort: "medium" });
+  expect(starts[0]?.[2]).toBe("other");
+  expect(starts[0]?.[4]).toBe("medium");
 });
 
 test("Codex turn/start forwards effort and resume exposes the effective effort", async () => {
@@ -64,9 +97,9 @@ test("Codex turn/start forwards effort and resume exposes the effective effort",
   session.initialize = async () => {};
   (session as any).sendRequest = async (method: string, params: unknown) => {
     requests.push({ method, params });
-    return { thread: { id: "thread-1" }, turn: { id: "turn-1" }, reasoningEffort: "medium" };
+    return { thread: { id: "thread-1", cwd: "/repo" }, turn: { id: "turn-1" }, reasoningEffort: "medium" };
   };
-  expect(await session.resumeThread("thread-1", {})).toMatchObject({ reasoningEffort: "medium" });
+  expect(await session.resumeThread("thread-1", {})).toMatchObject({ effort: "medium" });
   await session.startTurn([], undefined, undefined, "/repo", "high");
   expect(requests.at(-1)).toMatchObject({ method: "turn/start", params: { threadId: "thread-1", effort: "high" } });
 });

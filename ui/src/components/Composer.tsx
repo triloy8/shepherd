@@ -2,11 +2,11 @@ import type { DraftImage } from "../image-input";
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from "react";
 import { Icon } from "./Icon";
 
-export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, reading, imageError, addFiles: readFiles, clearImageError, send, disabled, busy, active, interrupt, imageSupported = true }: {
+export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, reading, imageError, addFiles: readFiles, clearImageError, send, disabled, busy, active, interrupt, imageSupported = true, steerSupported = true, interruptSupported = true }: {
   draft: string; draftRevision: number; onDraft: (value: string) => void; clearDraft: (revision: number) => void;
   images: DraftImage[]; onImages: (update: (current: DraftImage[]) => DraftImage[]) => void; send: (text: string, images: string[]) => Promise<boolean>;
   reading: boolean; imageError: string | null; addFiles: (files: File[]) => Promise<void>; clearImageError: () => void;
-  imageSupported?: boolean;
+  imageSupported?: boolean; steerSupported?: boolean; interruptSupported?: boolean;
   disabled: boolean; busy: boolean; active: boolean; interrupt: () => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
@@ -57,7 +57,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
     void addFiles(files);
   }
   async function submit() {
-    if ((!draft.trim() && !images.length) || disabled || busy || sendingRef.current || reading || readingRef.current) return;
+    if ((images.length > 0 && !imageSupported) || (!draft.trim() && !images.length) || disabled || (active && !steerSupported) || busy || sendingRef.current || reading || readingRef.current) return;
     const value = draft;
     const revision = draftRevision;
     sendingRef.current = true; setSending(true);
@@ -74,6 +74,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
   return <form className="composer" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={(event) => { const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); void addFiles(files); } }} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <input ref={picker} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp" aria-label="Choose images" className="sr-only" disabled={!imageSupported || sending || reading} onChange={(event) => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
     {images.length > 0 && <div className="flex flex-wrap gap-3 p-3" aria-label="Attached images">{images.map((image) => <figure key={image.id} className="w-24"><img src={image.url} alt={image.name} className="h-20 w-24 rounded-lg border border-line object-contain" /><figcaption className="truncate text-xs text-muted">{image.name}</figcaption><button type="button" className="text-xs underline" aria-label={`Remove ${image.name}`} disabled={sending || reading} onClick={() => onImages((current) => current.filter((item) => item.id !== image.id))}>Remove</button></figure>)}</div>}
+    {images.length > 0 && !imageSupported && <p role="alert" className="notice m-3">The selected model cannot accept these images. Remove them or choose a model that supports images.</p>}
     {imageError && <p role="alert" className="notice m-3">{imageError}</p>}
     {reading && <p role="status" className="px-3 text-xs text-muted">Reading images…</p>}
     <div className={`composer-input${expanded || images.length || imageError || reading ? " composer-expanded" : ""}`}>
@@ -88,7 +89,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
         }} />
       <span id="composer-help" className="sr-only">Enter to send on a keyboard. Shift + Enter for a new line. Follow-ups steer the active turn.</span>
       <button type={stop ? "button" : "submit"} className={`send-button${stop ? " stop-button" : ""}`} aria-label={actionLabel} title={actionLabel}
-        disabled={disabled || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : "arrow"} className="size-5!" /></button>
+        disabled={disabled || (!stop && images.length > 0 && !imageSupported) || (stop ? !interruptSupported : active && !steerSupported) || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : "arrow"} className="size-5!" /></button>
     </div>
     {disabled && <p role="status" className="px-4 pb-2 text-xs text-dim">Waiting for connection</p>}
   </form>;

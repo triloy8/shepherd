@@ -1,4 +1,4 @@
-import { historyTurn } from "../history_mapper.js";
+import { historyTurn } from "./history.js";
 import type {  ReadThreadResponse, RevertThreadResponse, ThreadRecord, ListModelsResponse } from "../../../shared/protocol/requests.js";
 import type { AccountRateLimitsResponse } from "./account_types.js";
 import type { StoredThreadPage, LoadedThreadPage } from "../../ports/provider_session.js";
@@ -13,9 +13,8 @@ function thread(value: unknown): ThreadRecord {
   return { id, name: asString(record.name), preview: asString(record.preview) ?? "",
     ...(typeof record.createdAt === "number" ? { createdAt: record.createdAt } : {}),
     ...(typeof record.updatedAt === "number" ? { updatedAt: record.updatedAt } : {}),
+    ...(Object.hasOwn(record, "model") ? { model: asString(record.model) } : {}),
     ...(asString(record.cwd) ? { cwd: String(record.cwd) } : {}),
-    ...(asString(record.modelProvider) ? { modelProvider: String(record.modelProvider) } : {}),
-    source: asString(record.source) ?? asString(asRecord(record.source).kind),
     ...(Array.isArray(record.turns) ? { turns: record.turns.map(historyTurn) } : {}) };
 }
 export function readResponse(value: unknown): ReadThreadResponse { return { thread: thread(asRecord(value).thread) }; }
@@ -43,20 +42,25 @@ export function modelsResponse(value: unknown): ListModelsResponse {
     return {
       data: items.map((item) => {
         const record = asRecord(item);
+        // Turns and threads select Codex models by slug; the catalog preset ID is not an application value.
+        const id = asString(record.model) ?? asString(record.id) ?? "unknown";
         return {
-          id: asString(record.id) ?? asString(record.model) ?? "unknown",
-          model: asString(record.model) ?? "unknown",
-          displayName: asString(record.displayName) ?? asString(record.model) ?? "unknown",
+          id,
+          displayName: asString(record.displayName) ?? id,
           description: asString(record.description) ?? "",
           hidden: record.hidden === true,
           isDefault: record.isDefault === true,
-          defaultReasoningEffort: asString(record.defaultReasoningEffort),
-          supportedReasoningEfforts: (Array.isArray(record.supportedReasoningEfforts) ? record.supportedReasoningEfforts : [])
-            .map((value) => {
+          // Older Codex catalogs document text/image as their compatibility default.
+          inputModalities: record.inputModalities === undefined ? ["text", "image"] as const
+            : Array.isArray(record.inputModalities) ? record.inputModalities.filter((value): value is "text" | "image" | "audio" => value === "text" || value === "image" || value === "audio") : null,
+          defaultEffort: asString(record.defaultReasoningEffort),
+          // A missing list is unreported, not an empty supported set.
+          supportedEfforts: Array.isArray(record.supportedReasoningEfforts)
+            ? record.supportedReasoningEfforts.map((value) => {
               const option = asRecord(value);
-              return { reasoningEffort: asString(option.reasoningEffort) ?? "", description: asString(option.description) ?? "" };
-            }).filter((option) => option.reasoningEffort),
-
+              return { value: asString(option.reasoningEffort) ?? "", description: asString(option.description) ?? "" };
+            }).filter((option) => option.value)
+            : null,
         };
       }),
       nextCursor: asString(raw.nextCursor),

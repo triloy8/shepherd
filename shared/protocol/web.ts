@@ -18,7 +18,10 @@ export type WebConversationsResponse = { conversations: WebConversation[] };
 export type WebApprovalsResponse = { approvals: ApprovalRecord[] };
 export type WebThreadsResponse = ListStoredThreadsResponse;
 export type WebImage = { url: string; prompt: string | null; name?: string; path?: string; kind?: "generated" | "viewed" };
-export type WebHistoryItem = HistoryItem & { webActivity?: TurnActivityEvent["payload"]; webImage?: WebImage };
+/** History as presented to the browser. Images become server URLs; text and summaries remain intact. */
+export type WebHistoryItem =
+  | Extract<HistoryItem, { type: "user_message" | "assistant_message" | "plan" | "reasoning" }>
+  | { id: string; type: "activity" | "image" | "other"; webActivity?: TurnActivityEvent["payload"]; webImage?: WebImage };
 export type WebHistoryTurn = Omit<HistoryTurn, "items"> & { items: WebHistoryItem[] };
 export type WebHistoryResponse = Omit<ListThreadTurnsResponse, "data"> & { data: WebHistoryTurn[]; revision: number };
 export type WebGeneratedImagePayload = TurnImageGeneratedEvent["payload"] & { url: string };
@@ -30,14 +33,22 @@ export type WebEventData = {
   reset: { reason: "event_too_large" | "history_changed" };
 };
 
-export type WebSettingsResponse = { model: ThreadModelState; effort: ThreadEffortState };
+export type WebSettingsResponse = {
+  model: ThreadModelState;
+  effort: ThreadEffortState;
+  modelCapabilities: {
+    current: import("./model_capabilities.js").ModelCapabilities;
+    next: import("./model_capabilities.js").ModelCapabilities;
+  };
+};
 export type WebModelsResponse = ListModelsResponse;
 export type WebContextResponse = ReadThreadTokenUsageResponse;
 export type WebLimitsResponse = import("./account_limits.js").ProviderAccountLimits;
 export type WebResetRequest = import("./account_limits.js").AccountResetRequest;
 export type WebResetResponse = import("./account_limits.js").AccountResetResponse;
 export type WebModelRequest = { model: string };
-export type WebEffortRequest = { effort: string };
+/** Strings select opaque values; null clears the override; mode default selects the model default. */
+export type WebEffortRequest = { effort: import("./requests.js").EffortSelection };
 
 export type WebRenameRequest = { name: string };
 

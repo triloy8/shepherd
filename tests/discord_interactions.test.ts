@@ -34,7 +34,7 @@ describe("Discord interactions", () => {
     };
 
     const conversation = {
-      listApprovals: () => [{ approvalId: "approval-1", status: "pending", choices: [{ value: "approve", label: "Approved" }] }],
+      listApprovals: () => [{ approvalId: "approval-1", status: "pending", choices: [{ value: "approve", label: "Approved", intent: "allow" }] }],
       async applyApprovalDecision(
         threadId: string,
         approvalId: string,
@@ -281,7 +281,7 @@ describe("Discord interactions", () => {
         };
       },
       getThreadModel(threadId: string) {
-        return { threadId, currentModel: "model-6", modelProvider: "openai", pendingModel: null };
+        return { threadId, currentModel: "model-6", provider: "fixture", pendingModel: null };
       },
     };
 
@@ -337,7 +337,7 @@ test("model pagination uses explicit conversation provider for opaque IDs", asyn
   const conversation = {
     getThreadProvider(id: string) { expect(id).toBe("opaque-native-id"); return "claude"; },
     async listModels(request: unknown) { requests.push(request); return { data: [], nextCursor: null }; },
-    getThreadModel(threadId: string) { return { threadId, currentModel: "sonnet", pendingModel: null, modelProvider: "anthropic" }; },
+    getThreadModel(threadId: string) { return { threadId, currentModel: "sonnet", pendingModel: null, provider: "fixture" }; },
   };
   await handleInteraction(interaction as never, conversation as never, { getSurfaceThreadId: () => "opaque-native-id" });
   expect(requests).toEqual([{ cursor: "2", limit: 5, provider: "claude" }]);

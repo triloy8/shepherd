@@ -8,7 +8,12 @@ export type AccumulatedMessage = {
 export type ResponseStreamState = {
   turnId: string | null;
   finalMessages: AccumulatedMessage[];
-  activeCommentary: AccumulatedMessage | null;
+  /** Without explicit final metadata, the last unphased message is the answer, as in application history. */
+  unphasedMessages?: AccumulatedMessage[];
+  activeInterim: AccumulatedMessage | null;
+  /** Phase knowledge outlives completion and is scoped to this turn. */
+  messagePhases?: ReadonlyMap<string, MessagePhase>;
+  pendingItemId?: string | null;
 };
 
 export type ResponseStreamReduction =
@@ -16,34 +21,35 @@ export type ResponseStreamReduction =
   | { type: "reset"; state: ResponseStreamState }
   | {
       type: "updated";
-      phase: MessagePhase;
+      phase: MessagePhase | null;
       state: ResponseStreamState;
-      completedCommentary: AccumulatedMessage | null;
+      completedInterim: AccumulatedMessage | null;
     }
   | {
       type: "message-completed";
       phase: MessagePhase | null;
       state: ResponseStreamState;
-      completedCommentary: AccumulatedMessage | null;
+      completedInterim: AccumulatedMessage | null;
     }
   | {
       type: "finish";
       failed: boolean;
       state: ResponseStreamState | null;
-      completedCommentary: AccumulatedMessage | null;
+      completedInterim: AccumulatedMessage | null;
     };
 
 export function createResponseStreamState(turnId: string | null = null): ResponseStreamState {
   return {
     turnId,
     finalMessages: [],
-    activeCommentary: null,
+    activeInterim: null,
   };
 }
 
 export function getFinalResponseText(state: ResponseStreamState | null): string {
   if (!state) return "";
-  return state.finalMessages
+  const messages = state.finalMessages.length ? state.finalMessages : state.unphasedMessages?.slice(-1) ?? [];
+  return messages
     .map((message) => message.text)
     .filter((text) => Boolean(text.trim()))
     .join("\n\n");
@@ -54,32 +60,45 @@ function upsertMessage(
   itemId: string | null,
   update: (text: string) => string,
 ): AccumulatedMessage[] {
-  const index = itemId ? messages.findIndex((message) => message.itemId === itemId) : messages.length - 1;
+  let index = messages.findIndex(message => message.itemId === itemId);
+  if (index < 0 && itemId && messages.at(-1)?.itemId === null) index = messages.length - 1;
   if (index >= 0) {
     return messages.map((message, messageIndex) =>
-      messageIndex === index ? { ...message, text: update(message.text) } : message,
+      messageIndex === index ? { ...message, itemId: itemId ?? message.itemId, text: update(message.text) } : message,
     );
   }
   return [...messages, { itemId, text: update("") }];
 }
 
-function completeCommentary(
+function completeInterim(
   state: ResponseStreamState,
-): { state: ResponseStreamState; completedCommentary: AccumulatedMessage | null } {
-  if (!state.activeCommentary?.text.trim()) {
+): { state: ResponseStreamState; completedInterim: AccumulatedMessage | null } {
+  if (!state.activeInterim?.text.trim()) {
     return {
-      state: state.activeCommentary ? { ...state, activeCommentary: null } : state,
-      completedCommentary: null,
+      state: state.activeInterim ? { ...state, activeInterim: null } : state,
+      completedInterim: null,
     };
   }
   return {
-    state: { ...state, activeCommentary: null },
-    completedCommentary: state.activeCommentary,
+    state: { ...state, activeInterim: null },
+    completedInterim: state.activeInterim,
   };
 }
 
 function sameTurn(state: ResponseStreamState | null, turnId: string | null | undefined): boolean {
   return !state?.turnId || !turnId || state.turnId === turnId;
+}
+
+function knownPhase(state: ResponseStreamState | null, itemId: string | null | undefined): MessagePhase | null {
+  if (itemId && state?.messagePhases?.has(itemId)) return state.messagePhases.get(itemId)!;
+  if (state?.finalMessages.some(message => message.itemId === itemId)) return "final";
+  if (state?.activeInterim && (state.activeInterim.itemId === itemId || state.activeInterim.itemId === null)) return "interim";
+  return state?.finalMessages.at(-1)?.itemId === null ? "final" : null;
+}
+
+function rememberPhase(state: ResponseStreamState, itemId: string | null, phase: MessagePhase | null): ResponseStreamState {
+  if (!itemId || !phase || state.messagePhases?.get(itemId) === phase) return state;
+  return { ...state, messagePhases: new Map([...state.messagePhases ?? [], [itemId, phase]]) };
 }
 
 export function reduceResponseStream(
@@ -102,39 +121,45 @@ export function reduceResponseStream(
       itemId?: string | null;
       turnId?: string | null;
     };
-    const phase = payload.phase;
+    const itemId = payload.itemId ?? state?.pendingItemId ?? null;
+    const phase = payload.phase ?? knownPhase(state, itemId);
     const delta = payload.textDelta ?? "";
     if (
       payload.kind !== "assistant_text" ||
       !delta ||
-      (phase !== "commentary" && phase !== "final_answer") ||
       !sameTurn(state, payload.turnId)
     ) {
       return { type: "none", state };
     }
 
     let next = state ? { ...state } : createResponseStreamState(payload.turnId ?? null);
-    const itemId = payload.itemId ?? null;
-    let completedCommentary: AccumulatedMessage | null = null;
+    next.pendingItemId = itemId;
+    next = rememberPhase(next, itemId, phase);
+    const unphased = next.unphasedMessages?.find(message => message.itemId === itemId) ?? (next.unphasedMessages?.at(-1)?.itemId === null ? next.unphasedMessages.at(-1) : undefined);
+    const unphasedText = unphased?.text ?? "";
+    if (phase !== null && unphased) next.unphasedMessages = next.unphasedMessages?.filter(message => message !== unphased);
+    let completedInterim: AccumulatedMessage | null = null;
 
-    if (phase === "commentary") {
-      if (next.activeCommentary && next.activeCommentary.itemId !== itemId) {
-        const completed = completeCommentary(next);
+    if (phase === "interim") {
+      if (next.activeInterim && next.activeInterim.itemId !== null && next.activeInterim.itemId !== itemId) {
+        const completed = completeInterim(next);
         next = completed.state;
-        completedCommentary = completed.completedCommentary;
+        completedInterim = completed.completedInterim;
       }
-      next.activeCommentary = {
+      next.activeInterim = {
         itemId,
-        text: `${next.activeCommentary?.text ?? ""}${delta}`,
+        text: `${next.activeInterim?.text ?? unphasedText}${delta}`,
       };
-    } else {
-      const completed = completeCommentary(next);
+    } else if (phase === "final") {
+      const completed = completeInterim(next);
       next = completed.state;
-      completedCommentary = completed.completedCommentary;
-      next.finalMessages = upsertMessage(next.finalMessages, itemId, (text) => `${text}${delta}`);
+      completedInterim = completed.completedInterim;
+      next.finalMessages = upsertMessage(next.finalMessages, itemId, (text) => `${text || unphasedText}${delta}`);
+    } else {
+      next.unphasedMessages = upsertMessage(next.unphasedMessages ?? [], itemId, (text) => `${text}${delta}`);
     }
 
-    return { type: "updated", phase, state: next, completedCommentary };
+    return { type: "updated", phase, state: next, completedInterim };
   }
 
   if (event.type === "turn.message.completed") {
@@ -144,42 +169,47 @@ export function reduceResponseStream(
       text?: string;
       turnId?: string | null;
     };
-    if (!state || !payload.itemId || !sameTurn(state, payload.turnId)) {
+    if (!payload.itemId || !sameTurn(state, payload.turnId)) {
       return { type: "none", state };
     }
+    state ??= createResponseStreamState(payload.turnId ?? null);
 
-    const phase = payload.phase ?? null;
+    const phase = payload.phase ?? knownPhase(state, payload.itemId);
+    state = rememberPhase(state, payload.itemId, phase);
+    if (state.pendingItemId === null || state.pendingItemId === payload.itemId) state = { ...state, pendingItemId: undefined };
     const text = payload.text ?? "";
-    if (phase === "commentary") {
-      const active =
-        state.activeCommentary?.itemId === payload.itemId
-          ? { itemId: payload.itemId, text: text || state.activeCommentary.text }
-          : { itemId: payload.itemId, text };
+    const unphased = state.unphasedMessages?.find(message => message.itemId === payload.itemId) ?? (state.unphasedMessages?.at(-1)?.itemId === null ? state.unphasedMessages.at(-1) : undefined);
+    if (phase !== null && unphased) state = { ...state, unphasedMessages: state.unphasedMessages?.filter(message => message !== unphased) };
+    if (phase === "interim") {
+      const active = { itemId: payload.itemId, text };
       return {
         type: "message-completed",
         phase,
-        state: { ...state, activeCommentary: null },
-        completedCommentary: active.text.trim() ? active : null,
+        state: { ...state, activeInterim: null },
+        completedInterim: active.text.trim() ? active : null,
       };
     }
 
-    if (phase === "final_answer") {
+    if (phase === "final") {
       return {
         type: "message-completed",
         phase,
         state: {
           ...state,
-          finalMessages: upsertMessage(state.finalMessages, payload.itemId, (current) => text || current),
+          finalMessages: upsertMessage(state.finalMessages, payload.itemId, () => text),
         },
-        completedCommentary: null,
+        completedInterim: null,
       };
     }
 
     return {
       type: "message-completed",
       phase,
-      state,
-      completedCommentary: null,
+      state: {
+        ...state,
+        unphasedMessages: upsertMessage(state.unphasedMessages ?? [], payload.itemId, () => text),
+      },
+      completedInterim: null,
     };
   }
 
@@ -193,15 +223,15 @@ export function reduceResponseStream(
         type: "finish",
         failed: event.type === "turn.failed",
         state: null,
-        completedCommentary: null,
+        completedInterim: null,
       };
     }
-    const completed = completeCommentary(state);
+    const completed = completeInterim(state);
     return {
       type: "finish",
       failed: event.type === "turn.failed",
       state: completed.state,
-      completedCommentary: completed.completedCommentary,
+      completedInterim: completed.completedInterim,
     };
   }
 

@@ -40,7 +40,7 @@ export const api = {
   models: (id: string, cursor?: string, signal?: AbortSignal) => request<WebModelsResponse>(`${conversationPath(id)}/models${page(cursor)}`, "GET", undefined, signal),
   context: (id: string, signal?: AbortSignal) => request<WebContextResponse>(`${conversationPath(id)}/context`, "GET", undefined, signal),
   setModel: (id: string, model: string) => request(`${conversationPath(id)}/model`, "POST", { model }),
-  setEffort: (id: string, effort: string) => request(`${conversationPath(id)}/effort`, "POST", { effort }),
+  setEffort: (id: string, effort: import("../../shared/protocol/requests").EffortSelection) => request(`${conversationPath(id)}/effort`, "POST", { effort }),
   conversations: (signal?: AbortSignal) => request<WebConversationsResponse>("/conversations", "GET", undefined, signal),
   threads: (cursor?: string, signal?: AbortSignal, archived = false) => request<WebThreadsResponse>(`/threads${page(cursor)}&archived=${archived}`, "GET", undefined, signal),
   create: (input: WebCreateConversation) => request<WebConversation>("/conversations", "POST", input),

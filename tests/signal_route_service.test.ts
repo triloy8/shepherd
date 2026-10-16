@@ -66,7 +66,7 @@ describe("SignalRouteService", () => {
     expect(first.success).toBe(true);
     expect(second.success).toBe(true);
     expect(first.contentItems[0]).not.toEqual(second.contentItems[0]);
-    const text = first.contentItems[0]?.type === "inputText" ? first.contentItems[0].text : "";
+    const text = first.contentItems[0]?.type === "text" ? first.contentItems[0].text : "";
     const url = JSON.parse(text) as { url: string };
     const routeId = url.url.split("/").at(-1) as string;
     expect(url.url).toBe(`http://127.0.0.1:8787/signals/${routeId}`);
@@ -87,7 +87,7 @@ describe("SignalRouteService", () => {
     }))).resolves.toMatchObject({ success: false });
     await expect(harness({ activeTurnId: "turn-2" }).execute(params())).resolves.toEqual({
       success: false,
-      contentItems: [{ type: "inputText", text: "The callback request no longer belongs to the active turn." }],
+      contentItems: [{ type: "text", text: "The callback request no longer belongs to the active turn." }],
     });
     await expect(harness({ surface: false }).execute(params())).resolves.toMatchObject({ success: false });
   });
@@ -97,7 +97,7 @@ describe("SignalRouteService", () => {
     expect((await execute(params())).success).toBe(true);
     expect(await execute(params({ callId: "call-2" }))).toEqual({
       success: false,
-      contentItems: [{ type: "inputText", text: "Shepherd cannot allocate another callback route right now." }],
+      contentItems: [{ type: "text", text: "Shepherd cannot allocate another callback route right now." }],
     });
   });
 });

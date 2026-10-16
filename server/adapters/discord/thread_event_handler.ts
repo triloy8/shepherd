@@ -258,18 +258,18 @@ export function createDiscordThreadEventHandler(
     state.progressDelivery = createDiscordEditableSurfaceState();
   };
 
-  const sendCommentary = (
+  const sendInterim = (
     channelId: string,
     state: DiscordTurnDeliveryState,
-    commentary: AccumulatedMessage | null,
+    interim: AccumulatedMessage | null,
   ): void => {
-    const text = commentary?.text.trim();
+    const text = interim?.text.trim();
     if (!text) return;
     sealProgressSegment(channelId, state);
     enqueue(channelId, state, async (channel) => {
       const result = await sendDiscordMarkdown(channel, text);
       if (!result.success) {
-        onError(new Error(`Commentary delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
+        onError(new Error(`Progress message delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
       }
     });
   };
@@ -284,7 +284,7 @@ export function createDiscordThreadEventHandler(
     if (state.previewTimer) timers.clearTimeout(state.previewTimer);
     state.previewTimer = null;
     const text = getFinalResponseText(state.stream);
-    if (!text) return;
+    if (!text && !state.preview.messageId) return;
     enqueue(channelId, state, async (channel) => {
       const result = await updateDiscordPreview(channel, state.preview, text, {
         replyToMessageId: state.replyToMessageId,
@@ -337,6 +337,10 @@ export function createDiscordThreadEventHandler(
 
     const finalText = getFinalResponseText(state.stream);
     enqueue(channelId, state, async (channel) => {
+      if (!finalText && streaming) {
+        const cleared = await updateDiscordPreview(channel, state.preview, "");
+        if (!cleared.success) onError(new Error(cleared.error ?? "Discord preview clearing failed."));
+      }
       if (failed) {
         if (finalText) {
           const partial = await sendDiscordPages(
@@ -464,7 +468,7 @@ export function createDiscordThreadEventHandler(
       flushProgress(channelId, state);
       enqueue(channelId, state, async (channel) => {
         const result = await sendDiscordGeneratedImage(channel, image.path, {
-          description: image.revisedPrompt,
+          description: image.prompt,
           ...(generatedImageLoader ? { loadAttachment: generatedImageLoader } : {}),
         });
         if (result.success) return;
@@ -487,13 +491,13 @@ export function createDiscordThreadEventHandler(
 
     if (reduction.type === "updated" || reduction.type === "message-completed") {
       state.stream = reduction.state;
-      sendCommentary(channelId, state, reduction.completedCommentary);
-      if (reduction.phase === "final_answer") {
+      sendInterim(channelId, state, reduction.completedInterim);
+      if (reduction.phase !== "interim") {
         schedulePreview(channelId, state);
       }
     } else if (reduction.type === "finish") {
       if (reduction.state) state.stream = reduction.state;
-      sendCommentary(channelId, state, reduction.completedCommentary);
+      sendInterim(channelId, state, reduction.completedInterim);
       finalizeTurn(channelId, state, reduction.failed);
     }
 

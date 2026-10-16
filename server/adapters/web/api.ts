@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
+import { UnsupportedModelInputError } from "../../../shared/protocol/model_capabilities.js";
 import { UnsupportedProviderOperationError } from "../../ports/provider_session.js";
-import type { AgentProvider } from "../../../shared/protocol/requests.js";
+import type { AgentProvider, EffortSelection } from "../../../shared/protocol/requests.js";
 import { presentHistoryItem } from "./history.js";
 import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
 import { WebHostControls } from "./host_controls.js";
@@ -34,6 +35,16 @@ function requiredString(object: Record<string, unknown>, key: string, max = 4096
     throw new WebRequestError(400, "invalid_request", `${key} must be a non-empty string of at most ${max} characters.`);
   }
   return value;
+}
+function effortSelection(object: Record<string, unknown>): EffortSelection {
+  const value = object.effort;
+  if (value === null) return null;
+  if (typeof value === "string") return requiredString(object, "effort", 256);
+  if (value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length === 1 && "mode" in value && value.mode === "default") {
+    return { mode: "default" };
+  }
+  throw new WebRequestError(400, "invalid_request", "Choose an effort value, model default, or null to clear effort.");
 }
 function optionalString(object: Record<string, unknown>, key: string, max = 4096): string | undefined {
   return object[key] === undefined ? undefined : requiredString(object, key, max);
@@ -86,7 +97,7 @@ export class WebSurfaceApi {
       }
       if (event.type === "turn.image.generated" || event.type === "turn.image.viewed") {
         const image = event.payload;
-        const presentation = entry.images.present(image.turnId, image.itemId, image.path, "revisedPrompt" in image ? image.revisedPrompt : null, event.type === "turn.image.viewed" ? "viewed" : undefined);
+        const presentation = entry.images.present(image.turnId, image.itemId, image.path, "prompt" in image ? image.prompt : null, event.type === "turn.image.viewed" ? "viewed" : undefined);
         if (event.type === "turn.image.generated") entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
         else entry.feed.publish("bridge", { ...event, payload: { ...event.payload, ...presentation } });
       } else entry.feed.publish("bridge", event);
@@ -136,16 +147,18 @@ export class WebSurfaceApi {
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/models`) {
         const provider = url.searchParams.get("provider");
         if (url.searchParams.getAll("provider").length > 1 || (provider !== null && !this.application.conversation.listProviders().some(entry => entry.id === provider))) throw new WebRequestError(400, "invalid_query", "Choose a registered provider.");
-        return json(200, await this.application.conversation.listModels({ ...pagination(url, ["provider"]), ...(provider ? { provider } : {}), includeHidden: true }));
+        const hidden = url.searchParams.get("includeHidden");
+        if (url.searchParams.getAll("includeHidden").length > 1 || (hidden !== null && hidden !== "true" && hidden !== "false")) throw new WebRequestError(400, "invalid_query", "includeHidden must be true or false.");
+        return json(200, await this.application.conversation.listModels({ ...pagination(url, ["provider", "includeHidden"]), ...(provider ? { provider } : {}), ...(hidden !== null ? { includeHidden: hidden === "true" } : {}) }));
       }
       if (request.method === "POST" && url.pathname === `${WEB_API_PREFIX}/limits/reset`) {
         const data = await body(request, ["provider", "idempotencyKey", "creditId"]);
         const provider = requiredString(data, "provider", 64);
-        if (!this.application.conversation.listProviders().some(entry => entry.id === provider && entry.capabilities.resets)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
+        if (!this.application.conversation.listProviders().some(entry => entry.id === provider && entry.capabilities.accountReset)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
         return json(200, await this.application.conversation.resetAccount(provider, { idempotencyKey: requiredString(data, "idempotencyKey", 100), ...(data.creditId !== undefined ? { creditId: requiredString(data, "creditId", 256) } : {}) }));
       }
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
-        const provider = url.searchParams.get("provider") ?? this.application.conversation.listProviders()[0]?.id;
+        const provider = url.searchParams.get("provider") ?? this.application.conversation.listProviders().find(entry => entry.isDefault)?.id;
         const refresh = url.searchParams.get("refresh");
         if ([...url.searchParams.keys()].some(key => !["provider", "refresh"].includes(key)) || ["provider", "refresh"].some(key => url.searchParams.getAll(key).length > 1) || (refresh !== null && !["true", "false"].includes(refresh)) || !this.application.conversation.listProviders().some(entry => entry.id === provider)) throw new WebRequestError(400, "invalid_query", "Choose a registered provider and valid refresh option.");
         return json(200, await this.application.conversation.readAccount(provider!, refresh === "true"));
@@ -226,7 +239,7 @@ export class WebSurfaceApi {
       }
       if (action === "skills-reload" && request.method === "POST") {
         await body(request, []);
-        return await this.mutate(entry, async () => json(200, await this.application.conversation.listSkills(threadId, { forceReload: true })));
+        return await this.mutate(entry, async () => json(200, await this.application.conversation.listSkills(threadId, { refresh: true })));
       }
       if (action === "skills" && request.method === "POST") {
         const data = await body(request, ["path", "enabled"]);
@@ -234,16 +247,21 @@ export class WebSurfaceApi {
         if (typeof data.enabled !== "boolean") throw new WebRequestError(400, "invalid_request", "enabled must be a boolean.");
         const enabled = data.enabled;
         return await this.mutate(entry, async () => {
-          const result = await webControl(this.application, { type: "skill.set-enabled", surfaceId: entry.id, requestedSkill: path, enabled });
+          const result = await webControl(this.application, { type: "skill.set-enabled", surfaceId: entry.id, path, enabled });
           if (result.type !== "skill.set-enabled" || !result.ok) throw new Error("Unexpected skill response.");
-          return json(200, { effectiveEnabled: result.effectiveEnabled });
+          return json(200, { enabled: result.appliedEnabled });
         });
       }
       if (action === "settings" && request.method === "GET") {
         const model = this.application.conversation.getThreadModel(threadId);
         const result = await webControl(this.application, { type: "effort.get", surfaceId: entry.id });
         if (result.type !== "effort.get" || !result.ok) throw new Error("Unexpected effort response.");
-        return json(200, { model, effort: result.state });
+        const current = model.currentModel && model.currentModel !== result.state.model
+          ? await this.application.conversation.getThreadEffort(threadId, model.currentModel) : result.state;
+        const capabilities = (state: typeof result.state) => ({
+          inputModalities: state.inputModalities, supportedEfforts: state.supportedEfforts, defaultEffort: state.defaultEffort,
+        });
+        return json(200, { model, effort: result.state, modelCapabilities: { current: capabilities(current), next: capabilities(result.state) } });
       }
       if (action === "models" && request.method === "GET") {
         const result = await webControl(this.application, { type: "models.list", surfaceId: entry.id, ...pagination(url) });
@@ -257,10 +275,10 @@ export class WebSurfaceApi {
       }
       if ((action === "model" || action === "effort") && request.method === "POST") {
         const data = await body(request, [action]);
-        const value = requiredString(data, action, 256);
-        await this.mutate(entry, () => webControl(this.application, action === "model"
-          ? { type: "model.set", surfaceId: entry.id, requestedModel: value }
-          : { type: "effort.set", surfaceId: entry.id, effort: value }));
+        const operation = action === "model"
+          ? { type: "model.set" as const, surfaceId: entry.id, requestedModel: requiredString(data, "model", 256) }
+          : { type: "effort.set" as const, surfaceId: entry.id, effort: effortSelection(data) };
+        await this.mutate(entry, () => webControl(this.application, operation));
         return json(200, { ok: true });
       }
       if (action === "images" && match[3] && request.method === "GET") return await entry.images.response(match[3], headers, request.headers);
@@ -313,6 +331,7 @@ export class WebSurfaceApi {
       }
       return fail(405, "method_not_allowed", "Method is not supported for this route.");
     } catch (error) {
+      if (error instanceof UnsupportedModelInputError) return fail(422, "unsupported_model_input", error.message);
       if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
       if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
       if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");
@@ -352,8 +371,8 @@ export class WebSurfaceApi {
   private async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider): Promise<WebConversation> {
     this.available();
     if (!threadId && !project) throw new WebRequestError(400, "invalid_request", "A project is required for a new conversation.");
-    if (threadId && !/^[A-Za-z0-9_-]+$/.test(threadId)) {
-      throw new WebRequestError(400, "invalid_request", "threadId must be an opaque thread identifier, not a path.");
+    if (threadId && (threadId.trim() !== threadId || /[\u0000-\u001f\u007f]/.test(threadId))) {
+      throw new WebRequestError(400, "invalid_request", "threadId must be an opaque identifier without control characters or surrounding whitespace.");
     }
     if (this.entries.size >= MAX_CONVERSATIONS) throw new WebRequestError(429, "conversation_limit", "Detach an existing conversation before opening another.");
     if (threadId && this.resuming.has(threadId)) throw new WebRequestError(409, "thread_in_use", "Thread resume is already in progress.");

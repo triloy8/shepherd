@@ -19,7 +19,7 @@ import type {
   ThreadSortKey,
   SubmitTurnRequest,
 } from "./requests.js";
-import { toTextUserInput, type UserInput, type UserInputTextElement } from "./user_input.js";
+import { IMAGE_DETAILS, toTextUserInput, type ImageDetail, type UserInput } from "./user_input.js";
 
 const APPROVAL_POLICIES = ["provider_default", "review_untrusted", "review_sensitive", "bypass"] as const;
 const SANDBOX_MODES: SandboxMode[] = ["read_only", "workspace_write", "unrestricted"];
@@ -39,7 +39,6 @@ export function validateCreateThreadRequest(value: unknown): CreateThreadRequest
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
     ...(cwd ? { cwd } : {}),
-    ephemeral: parseOptionalBoolean(value.ephemeral, "ephemeral"),
   };
 }
 
@@ -85,14 +84,12 @@ function assertFields(value: Record<string, unknown>, allowed: readonly string[]
 }
 
 function parseCommonThreadOverrides(value: Record<string, unknown>) {
-  assertFields(value, ["provider", "approvalPolicy", "baseInstructions", "developerInstructions", "cwd", "sandbox", "model", "effort", "ephemeral"]);
+  assertFields(value, ["provider", "approvalPolicy", "cwd", "sandbox", "model", "effort"]);
   return {
     provider: parseOptionalString(value.provider, "provider"),
-    baseInstructions: parseOptionalString(value.baseInstructions, "baseInstructions"),
-    developerInstructions: parseOptionalString(value.developerInstructions, "developerInstructions"),
     sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
-    model: parseOptionalString(value.model, "model"),
-    effort: parseOptionalString(value.effort, "effort"),
+    model: parseOpaqueSelection(value.model, "model"),
+    effort: parseOpaqueSelection(value.effort, "effort"),
   };
 }
 
@@ -133,9 +130,9 @@ function parseUserInput(value: unknown, name: string): UserInput {
   }
 
   const fields: Record<string, readonly string[]> = {
-    text: ["type", "text", "annotations"], image: ["type", "url", "detail"],
-    localImage: ["type", "path", "detail"], audio: ["type", "url"], localAudio: ["type", "path"],
-    skill: ["type", "name", "path"], mention: ["type", "name", "path"],
+    text: ["type", "text"], image: ["type", "url", "detail"],
+    image_file: ["type", "path", "detail"], audio: ["type", "url"], audio_file: ["type", "path"],
+    skill: ["type", "name", "path"],
   };
   const allowed = Object.hasOwn(fields, value.type) ? fields[value.type] : undefined;
   if (!allowed) throw new Error(`Invalid ${name}.`);
@@ -145,14 +142,7 @@ function parseUserInput(value: unknown, name: string): UserInput {
       if (typeof value.text !== "string" || !value.text.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      if (value.annotations !== undefined && !Array.isArray(value.annotations)) {
-        throw new Error(`Invalid ${name}.`);
-      }
-      return {
-        type: "text",
-        text: value.text,
-        ...(Array.isArray(value.annotations) ? { annotations: value.annotations.map((element) => parseTextElement(element, name)) } : {}),
-      };
+      return { type: "text", text: value.text };
     }
     case "image": {
       if (typeof value.url !== "string" || !value.url.trim()) {
@@ -161,64 +151,40 @@ function parseUserInput(value: unknown, name: string): UserInput {
       const detail = parseImageDetail(value.detail, name);
       return { type: "image", url: value.url.trim(), ...(detail ? { detail } : {}) };
     }
-    case "localImage": {
+    case "image_file": {
       if (typeof value.path !== "string" || !value.path.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
       const detail = parseImageDetail(value.detail, name);
-      return { type: "localImage", path: value.path.trim(), ...(detail ? { detail } : {}) };
+      return { type: "image_file", path: value.path.trim(), ...(detail ? { detail } : {}) };
     }
     case "audio":
       if (typeof value.url !== "string" || !value.url.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
       return { type: "audio", url: value.url.trim() };
-    case "localAudio":
+    case "audio_file":
       if (typeof value.path !== "string" || !value.path.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      return { type: "localAudio", path: value.path.trim() };
+      return { type: "audio_file", path: value.path.trim() };
     case "skill":
-    case "mention":
       if (typeof value.name !== "string" || !value.name.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
       if (typeof value.path !== "string" || !value.path.trim()) {
         throw new Error(`Invalid ${name}.`);
       }
-      return { type: value.type, name: value.name.trim(), path: value.path.trim() };
+      return { type: "skill", name: value.name.trim(), path: value.path.trim() };
     default:
       throw new Error(`Invalid ${name}.`);
   }
 }
 
-function parseTextElement(value: unknown, name: string): UserInputTextElement {
-  if (!isRecord(value) || !isRecord(value.byteRange)) {
-    throw new Error(`Invalid ${name}.`);
-  }
-  const start = value.byteRange.start;
-  const end = value.byteRange.end;
-  if (
-    typeof start !== "number" ||
-    !Number.isInteger(start) ||
-    start < 0 ||
-    typeof end !== "number" ||
-    !Number.isInteger(end) ||
-    end < start ||
-    (value.placeholder !== null && typeof value.placeholder !== "string")
-  ) {
-    throw new Error(`Invalid ${name}.`);
-  }
-  return {
-    byteRange: { start, end },
-    placeholder: value.placeholder,
-  };
-}
-
-function parseImageDetail(value: unknown, name: string): "auto" | "low" | "high" | "original" | undefined {
+function parseImageDetail(value: unknown, name: string): ImageDetail | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  if (value === "auto" || value === "low" || value === "high" || value === "original") {
-    return value;
+  if (typeof value === "string" && (IMAGE_DETAILS as readonly string[]).includes(value)) {
+    return value as ImageDetail;
   }
   throw new Error(`Invalid ${name}.`);
 }
@@ -278,7 +244,6 @@ function parseApprovalPolicy(value: unknown): ApprovalPolicy | undefined {
 
 export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid resume payload.");
-  if ("ephemeral" in value) throw new Error("Unsupported request field: ephemeral.");
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
@@ -290,7 +255,6 @@ export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest
 
 export function validateForkThreadRequest(value: unknown): ForkThreadRequest {
   if (!isRecord(value)) throw new Error("Invalid fork payload.");
-  if ("ephemeral" in value) throw new Error("Unsupported request field: ephemeral.");
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
@@ -314,6 +278,12 @@ export function validateRevertThreadRequest(value: unknown): RevertThreadRequest
   return { beforeTurnId: value.beforeTurnId };
 }
 
+function parseOpaqueSelection(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Invalid ${name}.`);
+  return value;
+}
+
 export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
   if (!isRecord(value)) {
     throw new Error("Invalid turn payload.");
@@ -322,8 +292,8 @@ export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
   return {
     input: parseUserInputArray(value.input, "input"),
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
-    model: parseOptionalString(value.model, "model"),
-    effort: parseOptionalString(value.effort, "effort"),
+    model: parseOpaqueSelection(value.model, "model"),
+    effort: value.effort === null ? null : parseOpaqueSelection(value.effort, "effort"),
   };
 }
 
@@ -366,10 +336,9 @@ export function validateApprovalDecisionRequest(value: unknown): ApprovalDecisio
 }
 
 export function validateSkillsListRequest(value: unknown): SkillsListRequest {
-  if (!isRecord(value)) throw new Error("Invalid skills list payload.");
+  if (!isRecord(value) || Object.keys(value).some(key => key !== "refresh")) throw new Error("Invalid skills list payload.");
   return {
-    cwds: parseOptionalStringList(value.cwds, "cwds"),
-    forceReload: parseOptionalBoolean(value.forceReload, "forceReload"),
+    refresh: parseOptionalBoolean(value.refresh, "refresh"),
   };
 }
 

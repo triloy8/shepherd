@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
+import type { ApprovalChoice, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type { BridgeEvent, TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
 
 function formatStatusBlock(title: string, lines: string[]): string {
@@ -98,22 +98,18 @@ export function formatApprovalText(approval: ApprovalRequestPayload): string {
   return lines.join("\n");
 }
 
-export function formatApprovalDecisionLabel(decision: string): string {
-  const normalized = decision.trim().toLowerCase();
-  if (!normalized) return "Submitted";
+const intentLabels: Record<ApprovalChoice["intent"], string> = { allow: "Approved", deny: "Declined", answer: "Answered", cancel: "Cancelled" };
 
-  if (normalized.includes("approve") || normalized.includes("accept")) {
-    return "Approved";
-  }
-  if (normalized.includes("reject") || normalized.includes("deny") || normalized.includes("decline")) {
-    return "Declined";
-  }
-
-  return decision;
+/** The outcome comes from the choice's declared intent; the provider's label adds its wording. */
+export function formatApprovalDecisionLabel(choice: Pick<ApprovalChoice, "label" | "intent"> | undefined): string {
+  if (!choice) return "Submitted";
+  const outcome = intentLabels[choice.intent] ?? "Submitted";
+  const label = choice.label.trim();
+  return label && label.toLowerCase() !== outcome.toLowerCase() ? `${outcome} (${label})` : outcome;
 }
 
-export function formatApprovalDecisionReply(decision: string): string {
-  return `Approval decision recorded: ${formatApprovalDecisionLabel(decision)}`;
+export function formatApprovalDecisionReply(choice: Pick<ApprovalChoice, "label" | "intent"> | undefined): string {
+  return `Approval decision recorded: ${formatApprovalDecisionLabel(choice)}`;
 }
 
 const approvalButtons = new Map<string, { threadId: string; approvalId: string; decision: string; expires: number }>();

@@ -9,7 +9,7 @@ for (const lifecycle of ["create", "resume", "fork"] as const) {
   test(`${lifecycle} validates model and effort before invoking provider lifecycle`, async () => {
     const session = new IndependentSession(); let calls = 0;
     session.listModels = async () => ({ data: [row], nextCursor: null });
-    const start = async () => { calls++; return { threadId: "thread", cwd: "/tmp", model: row.id, effort: "focused" }; };
+    const start = async () => { calls++; return { threadId: "thread", cwd: "/tmp", model: row.id, effort: "focused", approvalPolicy: "provider_default" as const }; };
     Object.assign(session, { startThread: start, resumeThread: start, forkThread: start, capabilities: { ...session.capabilities, fork: true } });
     const manager = new SessionManager(undefined, () => session);
     const run = (request: { model?: string; effort?: string }) => lifecycle === "create" ? manager.createThread(request) : lifecycle === "resume" ? manager.resumeThread("saved", request) : manager.forkThread("saved", request);
@@ -25,7 +25,7 @@ for (const lifecycle of ["create", "resume", "fork"] as const) {
 test("ordinary text submission and steering validate the current model even with a different pending model", async () => {
   const session = new IndependentSession(); let starts = 0, steers = 0;
   session.listModels = async () => ({ data: [{ ...row, inputModalities: [] }, { ...row, id: "next", isDefault: false }], nextCursor: null });
-  session.startTurn = async () => { starts++; return "turn"; };
+  session.onTurn = () => { starts++; };
   session.steerTurn = async () => { steers++; return "turn"; };
   const manager = new SessionManager(undefined, () => session);
   try {
@@ -45,7 +45,7 @@ test("ordinary text submission and steering validate the current model even with
 test("switching to a model without effort clears inherited effort and commits only after a successful turn", async () => {
   const session = new IndependentSession(); const efforts: unknown[] = []; let fail = true;
   session.listModels = async () => ({ data: [row, { ...row, id: "simple", isDefault: false, supportedEfforts: [], defaultEffort: null }], nextCursor: null });
-  Object.assign(session, { startTurn: async (_input: unknown, _policy: unknown, _model: unknown, _cwd: unknown, effort: unknown) => { efforts.push(effort); if (fail) throw new Error("start failed"); return "turn"; } });
+  session.onTurn = (_input, { effort }) => { efforts.push(effort); if (fail) throw new Error("start failed"); };
   const manager = new SessionManager(undefined, () => session);
   try {
     const { threadId } = await manager.createThread({});
@@ -65,7 +65,7 @@ test("Codex sends an explicit null effort instead of omitting the clear", async 
   const session = new CodexSession("provider_default"); session.threadId = "thread";
   let params: unknown;
   (session as unknown as { sendRequest: (method: string, input: unknown) => Promise<unknown> }).sendRequest = async (_method, input) => { params = input; return { turn: { id: "turn" } }; };
-  try { await session.startTurn([], undefined, undefined, undefined, null); expect(params).toMatchObject({ effort: null }); }
+  try { await session.startTurn([], { effort: null }); expect(params).toMatchObject({ effort: null }); }
   finally { session.stop(); }
 });
 

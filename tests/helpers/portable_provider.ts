@@ -1,5 +1,6 @@
 import { EventBus } from "../../server/ports/event_bus.js";
-import type { ProviderSession } from "../../server/ports/provider_session.js";
+import type { ProviderSession, TurnSettings } from "../../server/ports/provider_session.js";
+import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
 import type { CreateThreadRequest, ListModelsRequest, ModelSummary, ResumeThreadRequest } from "../../shared/protocol/requests.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
@@ -26,15 +27,22 @@ export class LocalSession implements ProviderSession {
   decisions: string[] = [];
   readIds: string[] = [];
   selectedModel: string | null = null;
+  effort: string | null = null;
   rows: ModelSummary[] = [];
   constructor(readonly capabilities: ProviderCapabilities) {}
   async initialize() {}
   stop() { this.stopped = true; }
-  async startThread(_request?: CreateThreadRequest) { this.bound = true; return { threadId: "1", cwd: "/tmp", model: this.selectedModel, effort: null }; }
+  async startThread(_request?: CreateThreadRequest) { this.bound = true; return { threadId: "1", cwd: "/tmp", model: this.selectedModel, effort: null, approvalPolicy: this.approvalPolicy }; }
   async resumeThread(id: string, request?: ResumeThreadRequest) { this.readIds.push(id); return this.startThread(request); }
-  async startTurn(_input: UserInput[], _policy?: unknown, selected?: string, _cwd?: string, effort?: string | null) {
-    this.calls.push({ model: selected, effort }); this.activeTurnId = "turn"; return "turn";
+  async startTurn(_input: UserInput[], { model: selected, effort }: TurnSettings = {}) {
+    this.calls.push({ model: selected, effort }); this.activeTurnId = "turn";
+    if (selected) this.selectedModel = selected;
+    if (effort !== undefined) this.effort = effort;
+    this.emit("thread.settings.changed", { model: this.selectedModel, effort: this.effort, cwd: "/tmp", approvalPolicy: this.approvalPolicy });
+    this.emit("turn.started", { turnId: "turn" });
+    return "turn";
   }
+  emit<K extends BridgeEventType>(type: K, payload: BridgeEventPayloads[K]) { this.eventBus.publish(bridgeEvent({ id: crypto.randomUUID(), type, payload, threadId: "1", sessionId: this.sessionId, ts: new Date().toISOString() })); }
   async applyApprovalDecision(id: string) { this.decisions.push(id); return { approvalId: id }; }
   async listStoredThreads() { return { data: [{ id: "1", cwd: "/tmp" }], nextCursor: null }; }
   async readThread(id: string) { this.readIds.push(id); return { thread: { id, cwd: "/tmp", model: this.selectedModel } }; }

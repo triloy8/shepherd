@@ -22,18 +22,19 @@ for (const operation of ["create", "resume", "fork"] as const) {
   });
 }
 
-test("core uses the provider's effective workspace without reading history again", async () => {
+test("core uses the provider's effective workspace without reading history, and turns run in the session's workspace", async () => {
   const session = new IndependentSession();
-  session.startThread = async () => ({ threadId: "thread", cwd: "/effective", model: null, effort: null });
+  session.startThread = async () => ({ threadId: "thread", cwd: "/effective", model: null, effort: null, approvalPolicy: "provider_default" });
   session.readThread = async () => { throw new Error("Should use bootstrapped workspace"); };
-  let usedCwd: string | undefined;
-  Object.assign(session, { startTurn: async (_input: unknown, _policy: unknown, _model: unknown, cwd: string) => { usedCwd = cwd; return "turn"; } });
+  let settings: object | undefined;
+  session.onTurn = (_input, applied) => { settings = applied; };
   const manager = new SessionManager(undefined, () => session);
   try {
     const { threadId } = await manager.createThread({ cwd: "/requested" });
     expect(await manager.resolveThreadCwd(threadId)).toBe("/effective");
     await manager.submitTurn(threadId, { input: [{ type: "text", text: "hello" }] });
-    expect(usedCwd).toBe("/effective");
+    // The workspace is the session's own setting, changed only through setCwd, not a per-turn value.
+    expect(settings).toEqual({});
   } finally { manager.stopAll(); }
 });
 

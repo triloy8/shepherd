@@ -189,11 +189,22 @@ Turn submission validates known selected or explicitly overridden models against
 uses the current model even when another model is pending. Known unsupported text, image and audio inputs
 are rejected before execution. Unsupported explicit/pending effort stays retryable;
 when switching models, incompatible inherited effort uses the new model's advertised
-default. If no supported default exists, the adapter is told to clear effort. The provider
-turn port uses undefined to preserve effort, null to clear it, and strings to select
-a value. Codex forwards the explicit null; Claude reopens its SDK session without
+default. If no supported default exists, the adapter is told to clear effort. A turn starts
+with one `TurnSettings` object (`model`, `effort`, `approvalPolicy`); an omitted field keeps
+the thread's value, `effort: null` clears it, and a string selects one. The workspace is not
+a turn setting: it changes only through `setCwd`, and each adapter runs turns in its own
+current workspace. Codex forwards the explicit null; Claude reopens its SDK session without
 an effort override. Settings expose separate current and next model capabilities,
 and the browser uses the appropriate set to gate image attachments.
+
+Core learns a thread's state from its adapter's events, never by reading adapter fields:
+`turn.started` and `turn.completed`/`turn.failed` give the running turn,
+`thread.status.changed` the background task count, and `thread.settings.changed` the model,
+effort, workspace and approval mode the thread now runs with. Bootstrap reports the
+initial settings; every turn start and workspace change publishes `thread.settings.changed`.
+A pending model or effort selection is settled when the adapter reports applying it, so a
+failed start leaves it pending and retryable, and a selection made while a turn starts
+survives.
 
 Account reporting is optional at registration. Descriptors expose `accountReporting`; the web UI does not query an absent reader, and unsupported API/Discord reads report an unavailable operation rather than fabricated account data. Unknown login state is `signedIn: null`. Every installed account reader returns `ProviderAccountLimits`: account metadata, allowance
 windows, extra usage (both Codex credits and Claude overage), optional reset credits
@@ -330,8 +341,8 @@ not establish successful live-provider sandbox execution or remote deployment he
 Provider sessions represent local coding agents. `ThreadBootstrapInfo.cwd` is
 required for create, resume and fork and contains the adapter's effective local
 workspace, including its resolved defaults or saved workspace. Core rejects missing
-or blank workspaces before registering a session and caches the returned value for
-turns. An omitted request `cwd` asks the adapter to resolve its workspace; it does
+or blank workspaces before registering a session and keeps it current from
+`thread.settings.changed`. An omitted request `cwd` asks the adapter to resolve its workspace; it does
 not request a workspace-free thread. Historical listing metadata may be incomplete,
 but a live bootstrapped thread must satisfy this requirement.
 

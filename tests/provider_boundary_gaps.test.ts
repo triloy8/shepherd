@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
+import { sessionProvider } from "./helpers/session_providers.js";
+import { noProviderTools } from "../server/ports/provider_tools.js";
 import { mkdtempSync, rmSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -22,7 +24,7 @@ afterEach(() => directories.splice(0).forEach(path => rmSync(path, { recursive: 
 function directory() { const path = mkdtempSync(join(tmpdir(), "shepherd-boundary-")); directories.push(path); return path; }
 
 function registration() {
-  return { threadIdentity: "application" as const, id: descriptor.id, displayName: descriptor.displayName, capabilities: descriptor.capabilities, create: () => new IndependentSession(), account: { read: async () => account(descriptor.id) }, hasStoredThreads: () => true };
+  return { threadIdentity: "application" as const, id: descriptor.id, displayName: descriptor.displayName, capabilities: descriptor.capabilities, provider: sessionProvider(() => new IndependentSession(), descriptor.capabilities), account: { read: async () => account(descriptor.id) }, hasStoredThreads: () => true };
 }
 
 test("an unrelated provider creates, survives process restart and resumes through production registration and file storage", async () => {
@@ -104,7 +106,7 @@ test("capabilities reject unsupported settings and media inputs without claiming
 
 test("core rejects unsupported create, submit and steer before provider execution or state changes", async () => {
   const sessions: IndependentSession[] = [];
-  const services = assembleProviderServices([{ ...registration(), create: () => { const session = new IndependentSession(); sessions.push(session); return session; } }], directory(), descriptor.id);
+  const services = assembleProviderServices([{ ...registration(), provider: sessionProvider(() => { const session = new IndependentSession(); sessions.push(session); return session; }, descriptor.capabilities)}], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
     await expect(conversation.createThread({ sandbox: "read_only" })).rejects.toThrow("sandbox mode");
@@ -151,27 +153,27 @@ test("registration rejects conflicting capabilities and missing advertised metho
   for (const capabilities of [{ ...descriptor.capabilities, compact: true }, { ...descriptor.capabilities, inputKinds: ["text"] }]) {
     const session = new IndependentSession(); let initialized = false;
     session.initialize = async () => { initialized = true; };
-    const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory(), descriptor.id);
-    expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
+    const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => session, capabilities)}], directory(), descriptor.id);
+    expect(() => services.provider(descriptor.id).openSession("provider_default", noProviderTools)).toThrow("capability contract mismatch");
     expect(session.stopped).toBe(true); expect(initialized).toBe(false);
   }
   const session = new IndependentSession();
   const capabilities = { ...descriptor.capabilities, fork: true };
   Object.assign(session, { capabilities });
-  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory(), descriptor.id);
-  expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
+  const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => session, capabilities)}], directory(), descriptor.id);
+  expect(() => services.provider(descriptor.id).openSession("provider_default", noProviderTools)).toThrow("capability contract mismatch");
   expect(session.stopped).toBe(true);
-  const equivalent = assembleProviderServices([{ ...registration(), capabilities: { ...descriptor.capabilities, approvalModes: [...descriptor.capabilities.approvalModes].reverse() }, create: () => new IndependentSession() }], directory(), descriptor.id);
-  const accepted = equivalent.createSession("provider_default", undefined as never, descriptor.id); accepted.stop();
+  const equivalent = assembleProviderServices([{ ...registration(), capabilities: { ...descriptor.capabilities, approvalModes: [...descriptor.capabilities.approvalModes].reverse() }, provider: sessionProvider(() => new IndependentSession())}], directory(), descriptor.id);
+  const accepted = equivalent.provider(descriptor.id).openSession("provider_default", noProviderTools); accepted.stop();
 });
 
 test("loaded discovery queries all registered providers including unmanaged threads, pages and persists owners", async () => {
   const queried: string[] = [];
-  const registrations = ["first-adapter", "second-adapter"].map(id => ({ ...registration(), id, create: () => {
+  const registrations = ["first-adapter", "second-adapter"].map(id => ({ ...registration(), id, provider: sessionProvider(() => {
     const session = new IndependentSession();
     session.listLoadedThreads = async (request: { cursor?: string } = {}) => { queried.push(id); return { data: [id + (request.cursor ? "-older" : "-external")], nextCursor: request.cursor ? null : "native-next" }; };
     return session;
-  } }));
+  }, descriptor.capabilities)}));
   const path = directory(), services = assembleProviderServices(registrations, path, "first-adapter");
   const conversation = new ConversationService({ providers: services });
   try {
@@ -190,14 +192,14 @@ test("loaded discovery queries all registered providers including unmanaged thre
 
 test("stored catalogs always use shared cursors and navigate backwards for one or several providers", async () => {
   for (const ids of [["one"], ["one", "two"]]) {
-    const registrations = ids.map((id, index) => ({ ...registration(), id, create: () => {
+    const registrations = ids.map((id, index) => ({ ...registration(), id, provider: sessionProvider(() => {
       const session = new IndependentSession();
       const rows = Array.from({ length: 6 }, (_, n) => ({ id: `${id}-${n}`, updatedAt: 20 - n * 2 - index }));
       session.listStoredThreads = async (request: { cursor?: string; limit?: number } = {}) => {
         const offset = Number(request.cursor ?? 0), limit = request.limit ?? 20;
         return { data: rows.slice(offset, offset + limit), nextCursor: offset + limit < rows.length ? String(offset + limit) : null };
       }; return session;
-    } }));
+    }, descriptor.capabilities)}));
     const conversation = new ConversationService({ providers: assembleProviderServices(registrations, directory(), registrations[0]!.id) });
     try {
       const request = { limit: 2, sortDirection: "desc" as const };
@@ -217,7 +219,7 @@ test("stored catalogs always use shared cursors and navigate backwards for one o
 
 test("the default provider is explicit configuration rather than registration order", async () => {
   const created: string[] = [];
-  const registrations = ["first-adapter", "second-adapter"].map(id => ({ ...registration(), id, create: () => { created.push(id); return new IndependentSession(); } }));
+  const registrations = ["first-adapter", "second-adapter"].map(id => ({ ...registration(), id, provider: sessionProvider(() => { created.push(id); return new IndependentSession(); }, descriptor.capabilities)}));
   expect(() => assembleProviderServices(registrations, directory(), "missing-adapter")).toThrow("not registered");
   const services = assembleProviderServices(registrations, directory(), "second-adapter");
   expect(services.descriptors.map(entry => [entry.id, entry.isDefault])).toEqual([["first-adapter", false], ["second-adapter", true]]);
@@ -245,12 +247,12 @@ test("disabled provider operations are exposed and rejected before adapter calls
     archive: false, unarchive: false, workspaceChange: false, modelCatalog: false,
     modelSelection: false, effortSelection: false };
   const calls: string[] = [];
-  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => {
+  const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => {
     const session = new IndependentSession();
     Object.assign(session, { capabilities });
     for (const [, method] of optionalOperations) Object.assign(session, { [method]: () => { calls.push(method); throw Error("Adapter must not be called"); } });
     return session;
-  } }], directory(), descriptor.id);
+  }, capabilities)}], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
     const { threadId } = await conversation.createThread({});
@@ -279,11 +281,11 @@ test("a provider can omit optional methods and still execute media turns without
   const capabilities = { ...descriptor.capabilities, steer: false, interrupt: false, rename: false,
     archive: false, unarchive: false, workspaceChange: false, modelCatalog: false,
     modelSelection: false, effortSelection: false };
-  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => {
+  const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => {
     const session = new IndependentSession(); Object.assign(session, { capabilities });
     for (const [, method] of optionalOperations) Object.assign(session, { [method]: undefined });
     return session;
-  } }], directory(), descriptor.id);
+  }, capabilities)}], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
     const { threadId } = await conversation.createThread({});
@@ -295,26 +297,33 @@ test("a provider can omit optional methods and still execute media turns without
 });
 
 test("registration validates every advertised optional method and permits selection without discovery", () => {
-  for (const [, method] of optionalOperations) {
+  // History and provider-wide discovery are checked when the provider registers.
+  for (const method of ["setThreadName", "archiveThread", "unarchiveThread", "listModels"] as const) {
+    const provider = sessionProvider(() => new IndependentSession(), descriptor.capabilities);
+    delete (provider as Partial<typeof provider>)[method];
+    expect(() => assembleProviderServices([{ ...registration(), provider }], directory(), descriptor.id)).toThrow("capability contract mismatch");
+  }
+  // Thread operations are checked when the provider opens a session.
+  for (const method of ["steerTurn", "interruptTurn", "setCwd"] as const) {
     const session = new IndependentSession(); Object.assign(session, { [method]: undefined });
-    const services = assembleProviderServices([{ ...registration(), create: () => session }], directory(), descriptor.id);
-    expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).toThrow("capability contract mismatch");
+    const services = assembleProviderServices([{ ...registration(), provider: sessionProvider(() => session, descriptor.capabilities)}], directory(), descriptor.id);
+    expect(() => services.provider(descriptor.id).openSession("provider_default", noProviderTools)).toThrow("capability contract mismatch");
     expect(session.stopped).toBe(true);
   }
   const capabilities = { ...descriptor.capabilities, modelCatalog: false, effortSelection: true };
   const session = new IndependentSession(); Object.assign(session, { capabilities });
-  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => session }], directory(), descriptor.id);
-  expect(() => services.createSession("provider_default", undefined as never, descriptor.id)).not.toThrow();
+  const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => session, capabilities)}], directory(), descriptor.id);
+  expect(() => services.provider(descriptor.id).openSession("provider_default", noProviderTools)).not.toThrow();
 });
 
 test("skill discovery and model catalogs can be read-only", async () => {
   const capabilities = { ...descriptor.capabilities, skills: true, skillConfig: false,
     modelSelection: false, effortSelection: false };
-  const services = assembleProviderServices([{ ...registration(), capabilities, create: () => {
+  const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => {
     const session = new IndependentSession();
     Object.assign(session, { capabilities, listSkills: async () => ({ skills: [], errors: [] }) });
     return session;
-  } }], directory(), descriptor.id);
+  }, capabilities)}], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
     const { threadId } = await conversation.createThread({});
@@ -336,7 +345,7 @@ test("host approval and sandbox defaults never loosen a provider's execution", a
   type Capabilities = typeof descriptor.capabilities;
   const create = (capabilities: Capabilities, threadDefaults: { approvalPolicy?: ApprovalPolicy; sandbox?: SandboxMode }) => new ConversationService({
     threadDefaults,
-    providers: assembleProviderServices([{ ...registration(), capabilities, create: () => { const session = new RecordingSession(); Object.assign(session, { capabilities }); return session; } }], directory(), descriptor.id),
+    providers: assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => { const session = new RecordingSession(); Object.assign(session, { capabilities }); return session; }, capabilities)}], directory(), descriptor.id),
   });
   // descriptor: no sandbox modes; provider_default, review_sensitive and bypass approvals.
   const loosest = create(descriptor.capabilities, { approvalPolicy: "bypass", sandbox: "unrestricted" });
@@ -399,7 +408,7 @@ test("startup rejects host defaults that the default agent would refuse for ever
 
 test("keeping a thread's workspace does not require workspace changes", async () => {
   const capabilities = { ...descriptor.capabilities, workspaceChange: false };
-  const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, create: () => { const session = new IndependentSession(); Object.assign(session, { capabilities }); return session; } }], directory(), descriptor.id) });
+  const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => { const session = new IndependentSession(); Object.assign(session, { capabilities }); return session; }, capabilities)}], directory(), descriptor.id) });
   try {
     const { threadId } = await conversation.createThread({});
     expect(() => conversation.setThreadCwd(threadId, "/tmp")).not.toThrow();
@@ -409,7 +418,8 @@ test("keeping a thread's workspace does not require workspace changes", async ()
 
 test("account reset support is a declared capability that registration checks against the account reader", () => {
   const reset = async () => ({ outcome: "reset" as const });
-  const withReset = { ...registration(), capabilities: { ...descriptor.capabilities, accountReset: true }, account: { read: async () => account(descriptor.id), reset } };
+  const resetCapabilities = { ...descriptor.capabilities, accountReset: true };
+  const withReset = { ...registration(), capabilities: resetCapabilities, provider: sessionProvider(() => new IndependentSession(), resetCapabilities), account: { read: async () => account(descriptor.id), reset } };
   expect(assembleProviderServices([withReset], directory(), descriptor.id).descriptors[0]!.capabilities.accountReset).toBe(true);
   expect(() => assembleProviderServices([{ ...withReset, account: { read: withReset.account.read } }], directory(), descriptor.id)).toThrow("capability contract mismatch");
   expect(() => assembleProviderServices([{ ...registration(), account: withReset.account }], directory(), descriptor.id)).toThrow("capability contract mismatch");
@@ -419,7 +429,7 @@ test("question requests from a provider that does not declare questions are fail
   const capabilities = { ...descriptor.capabilities, questions: false };
   let session!: IndependentSession;
   const decisions: unknown[] = [];
-  const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, create: () => { session = new IndependentSession(); Object.assign(session, { capabilities }); return session; } }], directory(), descriptor.id) });
+  const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => { session = new IndependentSession(); Object.assign(session, { capabilities }); return session; }, capabilities)}], directory(), descriptor.id) });
   try {
     const { threadId } = await conversation.createThread({});
     const events: string[] = [];
@@ -443,11 +453,11 @@ test("invalid question cancellation stops the session instead of leaving a provi
   for (const cancellation of ["missing", "failed"] as const) {
     const capabilities = { ...descriptor.capabilities, questions: false };
     let session!: IndependentSession;
-    const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, create: () => {
+    const conversation = new ConversationService({ providers: assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => {
       session = new IndependentSession(); Object.assign(session, { capabilities });
       session.applyApprovalDecision = async () => { throw new Error("Cannot cancel"); };
       return session;
-    } }], directory(), descriptor.id) });
+    }, capabilities)}], directory(), descriptor.id) });
     try {
       const { threadId } = await conversation.createThread({});
       const threadSession = session;

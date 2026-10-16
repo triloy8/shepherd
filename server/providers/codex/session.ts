@@ -48,7 +48,7 @@ import {
   UnknownDynamicToolError,
   type ProviderTools,
 } from "../../ports/provider_tools.js";
-import type { ProviderSession, ThreadBootstrapInfo, TurnSettings } from "../../ports/provider_session.js";
+import type { ThreadSession, ThreadBootstrapInfo, TurnSettings } from "../../ports/provider_session.js";
 import { EventBus } from "../event_bus.js";
 import {
   deltaChannel,
@@ -218,7 +218,7 @@ function isApprovalServerRequest(method: string): boolean {
   );
 }
 
-export class CodexSession implements ProviderSession {
+export class CodexSession implements ThreadSession {
   readonly capabilities = codexCapabilities;
   readonly sessionId = randomUUID();
   readonly createdAt = new Date().toISOString();
@@ -243,6 +243,8 @@ export class CodexSession implements ProviderSession {
   constructor(
     approvalPolicy: ApprovalPolicy,
     private readonly dynamicTools: ProviderTools = noProviderTools,
+    /** The provider's running sessions by thread, so it reaches a live thread through its session. */
+    private readonly liveSessions = new Map<string, CodexSession>(),
   ) {
     this.approvalPolicy = approvalPolicy;
   }
@@ -574,6 +576,7 @@ export class CodexSession implements ProviderSession {
   }
 
   stop(): void {
+    if (this.threadId && this.liveSessions.get(this.threadId) === this) this.liveSessions.delete(this.threadId);
     this.stopped = true;
     this.cleanup();
   }
@@ -583,7 +586,9 @@ export class CodexSession implements ProviderSession {
     if (!threadId) {
       throw new Error(`${method} returned an invalid thread id.`);
     }
+    if (this.threadId && this.liveSessions.get(this.threadId) === this) this.liveSessions.delete(this.threadId);
     this.threadId = threadId;
+    this.liveSessions.set(threadId, this);
     return threadId;
   }
 

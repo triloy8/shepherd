@@ -1,3 +1,4 @@
+import { CodexProvider } from "../server/providers/codex/provider.js";
 import { expect, spyOn, test } from "bun:test";
 import { initialHistoryRequest, loadHistoryPage } from "../server/adapters/discord/history_pagination.js";
 import { handleInteraction } from "../server/adapters/discord/interactions.js";
@@ -148,8 +149,9 @@ test("history APIs preserve filters and both cursors without resuming a stored t
   (session as any).sendRequest = async (method: string, params: unknown) => {
     requests.push({ method, params }); return response;
   };
-  const manager = new SessionManager();
-  (manager as any).getControlSession = async () => session;
+  // A stored thread is read through the provider's history client, never by resuming it.
+  const provider = new CodexProvider(() => session);
+  const manager = new SessionManager(undefined, () => provider);
   expect(await manager.listThreadTurns("stored", { cursor: "cursor", limit: 5, sortDirection: "desc", itemsView: "summary" })).toEqual(response);
   expect(await manager.listThreadItems("stored", { turnId: "turn", cursor: "item-cursor", limit: 5, sortDirection: "asc" })).toEqual(response);
   expect(requests).toEqual([

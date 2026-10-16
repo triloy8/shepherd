@@ -1,8 +1,8 @@
-import type { AgentProvider, ApprovalPolicy, ListStoredThreadsRequest } from "../../shared/protocol/requests.js";
-import type { ProviderSession } from "./provider_session.js";
-import type { ProviderTools } from "./provider_tools.js";
+import type { AgentProvider, ListStoredThreadsRequest } from "../../shared/protocol/requests.js";
+import type { Provider } from "./provider_session.js";
 
-export type ProviderSessionFactory = (policy: ApprovalPolicy, tools: ProviderTools, provider: AgentProvider) => ProviderSession;
+/** The installed provider for an ID. */
+export type ProviderLookup = (provider: AgentProvider) => Provider;
 
 /** Identity is supplied by composition; application code never inspects native IDs. */
 export interface ThreadProviderDirectory {
@@ -21,7 +21,7 @@ export interface ProviderServices {
   providers: readonly AgentProvider[];
   /** Used when a request names no provider. Always one of `providers`. */
   defaultProvider: AgentProvider;
-  createSession: ProviderSessionFactory;
+  provider: ProviderLookup;
   hasStoredThreads: (provider: AgentProvider, request: ListStoredThreadsRequest) => boolean;
   directory: ThreadProviderDirectory;
 }

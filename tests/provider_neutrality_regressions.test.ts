@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { sessionProviders } from "./helpers/session_providers.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -19,7 +20,7 @@ function harness() {
   session.listModels = async () => ({ data: [row, { ...row, id: "simple", isDefault: false, defaultEffort: null, supportedEfforts: [] }], nextCursor: null });
   const calls: Array<string | null | undefined> = [];
   session.onTurn = (_input, settings) => { calls.push(settings.effort); };
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   return { manager, session, calls };
 }
 

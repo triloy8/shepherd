@@ -7,7 +7,12 @@ there is no parallel provider API, compatibility facade, or alternative transcri
 
 ## Ownership
 
-- `server/ports/provider_session.ts` defines execution, history, and catalog operations.
+- `server/ports/provider_session.ts` defines a `Provider` (one per installed agent: conversation
+  history, provider-wide model discovery, and `openSession`) and the `ThreadSession` it opens to
+  run one thread (execution, events, approvals, and that conversation's compact, revert, catalog
+  and skills). Core never opens a session to read history or list models. A provider reaches a
+  thread one of its sessions is running through that session; Codex serves other history from
+  one app-server process with no thread bound, and Claude reads Claude's sessions directly.
 - `server/ports/provider_services.ts` defines registration, account reporting, optional resets,
   session creation, and persisted thread ownership.
 - `shared/protocol/` defines application input, messages, activities, images, questions,
@@ -19,7 +24,7 @@ there is no parallel provider API, compatibility facade, or alternative transcri
 - `server/runtime/provider_services.ts` assembles registrations and persistence. This is
   where installed providers are named; clients discover them through descriptors.
 
-To add another provider, implement the session port, supply its capabilities, optionally supply an account
+To add another provider, implement the provider and thread session ports, supply its capabilities, optionally supply an account
 reader, and register its factory and ownership resolver at composition. Core and
 surface code do not need another provider branch. Provider IDs and model IDs are opaque strings. Discord uses `!providers` for discovery,
 with optional provider IDs on `!newthread` and `!limits`; omitted IDs use the configured
@@ -160,7 +165,7 @@ execute an action.
 Core checks flags before execution and pending-state changes. Clients use them to
 disable unavailable actions; server validation remains authoritative. A catalog can be read-only when selection flags are false. Without a catalog,
 model metadata stays unknown
-and adapter input checks still apply. When discovery is available, model and effort options come from the attached conversation's session catalog. Provider-wide discovery uses a separate control session. Without discovery, selection controls accept opaque values and the adapter validates them; unsupported native selections remain retryable. An unreported current/default model does not block ordinary turns or settings reads. `supportedEfforts: null` means unreported, while an empty array means no supported levels. Hidden models are excluded from normal catalogs unless explicitly requested; hidden entries remain available for explicit-ID validation. Provider effort strings are case-sensitive and preserved unchanged.
+and adapter input checks still apply. When discovery is available, model and effort options come from the attached conversation's session catalog. Provider-wide discovery comes from the provider. Without discovery, selection controls accept opaque values and the adapter validates them; unsupported native selections remain retryable. An unreported current/default model does not block ordinary turns or settings reads. `supportedEfforts: null` means unreported, while an empty array means no supported levels. Hidden models are excluded from normal catalogs unless explicitly requested; hidden entries remain available for explicit-ID validation. Provider effort strings are case-sensitive and preserved unchanged.
 
 `shared/protocol/model_capabilities.ts` defines model input modalities and effort
 options. Every model catalog row implements this contract; provider capabilities
@@ -276,11 +281,11 @@ calls. Claude currently accepts plain text and URL/base64 image inputs; it does 
 local-file, audio, skill-reference, or image-detail support. Model/effort
 options are discovered where available; otherwise the adapter validates opaque selections. Thread state includes its provider
 and capabilities, so surfaces do not guess support from identity. When a registered
-provider creates a session, composition rejects it if its capabilities differ from the
-descriptor or an advertised operation has no implementation, and stops it before
-initialization. Methods exist only on sessions, so this runs at session creation, not when
-the provider is registered; registration itself checks only `accountReset` against the
-account reader. Shared events form a
+provider is registered, composition rejects it if its capabilities differ from the
+descriptor or an advertised history or provider-wide discovery operation has no
+implementation, and checks `accountReset` against the account reader. When the provider
+opens a session, composition rejects the session the same way for its thread operations
+and stops it before initialization. Shared events form a
 discriminated union: each event name requires its application payload at the session port
 and adapter emitter. Raw native envelopes cannot be published through that contract.
 

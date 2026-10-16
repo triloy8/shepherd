@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { sessionProviders } from "./helpers/session_providers.js";
 import { SessionManager } from "../server/core/session_manager.js";
 import { CodexSession } from "../server/providers/codex/session.js";
 import { handleMessage } from "../server/adapters/discord/commands.js";
@@ -18,7 +19,7 @@ async function setup() {
   const applied = { model: "test-model" as string | null, effort: "low" as string | null };
   session.startThread = async () => ({ threadId: "thread-1", cwd: "/repo", ...applied, approvalPolicy: "review_sensitive" });
   session.startTurn = async (_input, settings = {}) => { starts.push(settings); reportSettings(session, applied, settings); return "turn-1"; };
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   const model = {
     id: "test-model", displayName: "Test", description: "",
     hidden: false, isDefault: true,

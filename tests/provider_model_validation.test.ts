@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { sessionProviders } from "./helpers/session_providers.js";
 import { SessionManager } from "../server/core/session_manager.js";
 import { IndependentSession } from "./helpers/independent_provider.js";
 import { CodexSession } from "../server/providers/codex/session.js";
@@ -11,7 +12,7 @@ for (const lifecycle of ["create", "resume", "fork"] as const) {
     session.listModels = async () => ({ data: [row], nextCursor: null });
     const start = async () => { calls++; return { threadId: "thread", cwd: "/tmp", model: row.id, effort: "focused", approvalPolicy: "provider_default" as const }; };
     Object.assign(session, { startThread: start, resumeThread: start, forkThread: start, capabilities: { ...session.capabilities, fork: true } });
-    const manager = new SessionManager(undefined, () => session);
+    const manager = new SessionManager(undefined, sessionProviders(() => session));
     const run = (request: { model?: string; effort?: string }) => lifecycle === "create" ? manager.createThread(request) : lifecycle === "resume" ? manager.resumeThread("saved", request) : manager.forkThread("saved", request);
     try {
       await expect(run({ model: "missing" })).rejects.toMatchObject({ failure: { code: "model_unavailable" } });
@@ -27,7 +28,7 @@ test("ordinary text submission and steering validate the current model even with
   session.listModels = async () => ({ data: [{ ...row, inputModalities: [] }, { ...row, id: "next", isDefault: false }], nextCursor: null });
   session.onTurn = () => { starts++; };
   session.steerTurn = async () => { steers++; return "turn"; };
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   try {
     const { threadId } = await manager.createThread({});
     const input = [{ type: "text" as const, text: "hello" }];
@@ -46,7 +47,7 @@ test("switching to a model without effort clears inherited effort and commits on
   const session = new IndependentSession(); const efforts: unknown[] = []; let fail = true;
   session.listModels = async () => ({ data: [row, { ...row, id: "simple", isDefault: false, supportedEfforts: [], defaultEffort: null }], nextCursor: null });
   session.onTurn = (_input, { effort }) => { efforts.push(effort); if (fail) throw new Error("start failed"); };
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   try {
     const { threadId } = await manager.createThread({});
     manager.setThreadModel(threadId, "simple");
@@ -76,7 +77,7 @@ for (const lifecycle of ["resume", "fork"] as const) {
     session.listModels = async () => ({ data: [row, { ...row, id: "saved-model", isDefault: false, defaultEffort: "slow", supportedEfforts: [{ value: "slow", description: "" }] }], nextCursor: null });
     let calls = 0;
     Object.assign(session, { capabilities: { ...session.capabilities, fork: true }, resumeThread: async () => { calls++; return { threadId: "saved", cwd: "/tmp", model: "saved-model", effort: "slow" }; }, forkThread: async () => { calls++; return { threadId: "fork", cwd: "/tmp", model: "saved-model", effort: "slow" }; } });
-    const manager = new SessionManager(undefined, () => session);
+    const manager = new SessionManager(undefined, sessionProviders(() => session));
     try {
       const run = (effort: string) => lifecycle === "resume" ? manager.resumeThread("saved", { effort }) : manager.forkThread("saved", { effort });
       await expect(run("focused")).rejects.toMatchObject({ failure: { code: "unsupported_effort", model: "saved-model" } });

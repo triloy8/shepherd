@@ -1,3 +1,4 @@
+import { sessionProviders } from "./helpers/session_providers.js";
 import { expect, test } from "bun:test";
 import { ConversationService } from "../server/core/conversation_service";
 import { memoryProviderDirectory } from "../server/core/provider_directory";
@@ -23,7 +24,7 @@ import { descriptor, IndependentSession } from "./helpers/independent_provider.j
 
 test("an independent provider uses production orchestration, settings, events, history and ownership without native shims", async () => {
   const sessions: IndependentSession[] = [];
-  const services: ProviderServices = { descriptors: [descriptor], providers: [descriptor.id], accounts: new Map([[descriptor.id, { read: async () => account(descriptor.id) }]]), directory: memoryProviderDirectory(descriptor.id), hasStoredThreads: () => true, createSession: (_policy, _tools, provider) => { expect(provider).toBe(descriptor.id); const session = new IndependentSession(); sessions.push(session); return session; } };
+  const services: ProviderServices = { descriptors: [descriptor], providers: [descriptor.id], accounts: new Map([[descriptor.id, { read: async () => account(descriptor.id) }]]), directory: memoryProviderDirectory(descriptor.id), hasStoredThreads: () => true, provider: sessionProviders((_policy, _tools, provider) => { expect(provider).toBe(descriptor.id); const session = new IndependentSession(); sessions.push(session); return session; }) };
   const conversation = new ConversationService({ providers: services });
   try {
     const { threadId } = await conversation.createThread({ cwd: "/tmp" });
@@ -68,7 +69,7 @@ test("account reset calls preserve adapter method ownership and decode native ou
   const seen: unknown[] = [];
   Object.assign(session, { sendRequest: async (method: string, params: unknown) => { seen.push({ method, params }); return { outcome: "alreadyRedeemed" }; } });
   const reader = new CodexAccount(() => session);
-  const services = { descriptors: [], providers: [], accounts: new Map([["anything", reader]]), createSession: () => session, hasStoredThreads: () => false, directory: memoryProviderDirectory() } satisfies ProviderServices;
+  const services = { descriptors: [], providers: [], accounts: new Map([["anything", reader]]), provider: sessionProviders(() => session), hasStoredThreads: () => false, directory: memoryProviderDirectory() } satisfies ProviderServices;
   const conversation = new ConversationService({ providers: services });
   try {
     expect(await conversation.resetAccount("anything", { idempotencyKey: "stable-key" })).toEqual({ outcome: "already_redeemed" });

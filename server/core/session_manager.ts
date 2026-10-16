@@ -59,9 +59,9 @@ import type {
   UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
-import { UnsupportedProviderOperationError, type ProviderSession, type LoadedThreadPage } from "../ports/provider_session.js";
-import type { ThreadProviderDirectory, ProviderSessionFactory } from "../ports/provider_services.js";
-import { missingSessionFactory, memoryProviderDirectory } from "./provider_directory.js";
+import { UnsupportedProviderOperationError, type Provider, type ThreadSession as ProviderSession, type LoadedThreadPage } from "../ports/provider_session.js";
+import type { ThreadProviderDirectory, ProviderLookup } from "../ports/provider_services.js";
+import { missingProviders, memoryProviderDirectory } from "./provider_directory.js";
 import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
 import { EventBus } from "../ports/event_bus.js";
 
@@ -100,8 +100,6 @@ export class SessionManager {
   private runtimeByThread = new Map<string, ThreadRuntime>();
   /** The turn each session is running, for requests that arrive without naming one. */
   private readonly sessionTurns = new Map<ProviderSession, string | null>();
-  private controlSessions = new Map<AgentProvider, ProviderSession>();
-  private controlSessionStarting = new Map<AgentProvider, Promise<ProviderSession>>();
   private readonly providerCapabilities = new Map<AgentProvider, ProviderCapabilities>();
   private readonly ownedSessions = new Set<ProviderSession>();
   private readonly sessionSubscriptions = new Map<ProviderSession, () => void>();
@@ -111,7 +109,7 @@ export class SessionManager {
 
   constructor(
     private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
-    private readonly sessionFactory: ProviderSessionFactory = missingSessionFactory,
+    private readonly providerFor: ProviderLookup = missingProviders,
     private readonly providerHasStoredThreads = (_provider: AgentProvider, _request: ListStoredThreadsRequest) => true,
     private readonly providerDirectory: ThreadProviderDirectory = memoryProviderDirectory(),
     private readonly providers: readonly AgentProvider[] = ["default"],
@@ -164,7 +162,7 @@ export class SessionManager {
       const preBootstrapCatalog = session.capabilities.modelCatalogScope === "provider";
       if (session.capabilities.modelCatalog && preBootstrapCatalog && (request.model || request.effort)) {
         const savedModel = !request.model && sourceThreadId
-          ? asString((await session.readThread(sourceThreadId, false)).thread.model) : null;
+          ? asString((await this.provider(request.provider ?? this.defaultProvider()).readThread(sourceThreadId, false)).thread.model) : null;
         const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? savedModel, session, !!request.model && session.capabilities.modelCatalogAuthoritative === true);
         if (selected) this.assertModelEffort(selected, request.effort);
       }
@@ -230,7 +228,7 @@ export class SessionManager {
       providers: this.providers, directory: this.providerDirectory,
       hasStoredThreads: this.providerHasStoredThreads,
       canUnarchive: provider => this.providerCapabilities.get(provider)?.unarchive ?? false,
-      listPage: async (provider, page) => (await this.getControlSession(provider)).listStoredThreads(page),
+      listPage: (provider, page) => this.provider(provider).listStoredThreads(page),
     }, request);
     this.assertRunning();
     return result;
@@ -246,9 +244,7 @@ export class SessionManager {
     const unavailableProviders: AgentProvider[] = [];
     const ids = new Set(this.sessionsByThread.keys());
     await Promise.all(this.providers.map(async provider => {
-      let session: ProviderSession;
-      try { session = await this.getControlSession(provider); }
-      catch { this.assertRunning(); unavailableProviders.push(provider); return; }
+      const session = this.provider(provider);
       if (!session.listLoadedThreads) return;
       let cursor: string | undefined;
       const seen = new Set<string>();
@@ -281,41 +277,43 @@ export class SessionManager {
   }
 
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
-    return session.listThreadTurns(threadId, request);
+    this.assertRunning();
+    return this.provider(this.threadProvider(threadId)).listThreadTurns(threadId, request);
   }
 
   async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
-    return session.listThreadItems(threadId, request);
+    this.assertRunning();
+    return this.provider(this.threadProvider(threadId)).listThreadItems(threadId, request);
   }
 
   async readThread(threadId: string, request: ReadThreadRequest): Promise<ReadThreadResponse> {
-    const session = this.mustGet(threadId).session;
-    return session.readThread(threadId, request.includeTurns ?? false);
+    this.mustGet(threadId);
+    return this.provider(this.threadProvider(threadId)).readThread(threadId, request.includeTurns ?? false);
   }
 
   async setThreadName(threadId: string, request: SetThreadNameRequest): Promise<{ ok: true }> {
-    const session = this.mustGet(threadId).session;
-    assertProviderOperation(this.threadProvider(threadId), session.capabilities, "rename");
-    if (!session.setThreadName) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "rename");
-    await session.setThreadName(threadId, request.name);
+    this.mustGet(threadId);
+    const provider = this.provider(this.threadProvider(threadId));
+    assertProviderOperation(this.threadProvider(threadId), provider.capabilities, "rename");
+    if (!provider.setThreadName) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "rename");
+    await provider.setThreadName(threadId, request.name);
     return { ok: true };
   }
 
   async archiveThread(threadId: string): Promise<ArchiveThreadResponse> {
-    const session = this.mustGet(threadId).session;
-    assertProviderOperation(this.threadProvider(threadId), session.capabilities, "archive");
-    if (!session.archiveThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "archive");
-    await session.archiveThread(threadId);
+    this.mustGet(threadId);
+    const provider = this.provider(this.threadProvider(threadId));
+    assertProviderOperation(this.threadProvider(threadId), provider.capabilities, "archive");
+    if (!provider.archiveThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "archive");
+    await provider.archiveThread(threadId);
     return { ok: true };
   }
 
   async unarchiveThread(threadId: string): Promise<UnarchiveThreadResponse> {
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
-    assertProviderOperation(this.threadProvider(threadId), session.capabilities, "unarchive");
-    if (!session.unarchiveThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "unarchive");
-    await session.unarchiveThread(threadId);
+    const provider = this.provider(this.threadProvider(threadId));
+    assertProviderOperation(this.threadProvider(threadId), provider.capabilities, "unarchive");
+    if (!provider.unarchiveThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "unarchive");
+    await provider.unarchiveThread(threadId);
     return { ok: true };
   }
 
@@ -338,10 +336,12 @@ export class SessionManager {
 
   async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
     const provider = request.threadId ? this.threadProvider(request.threadId, request.provider) : request.provider ?? this.defaultProvider();
-    const session = request.threadId ? this.mustGet(request.threadId).session : await this.getControlSession(provider);
-    assertProviderOperation(provider, session.capabilities, "modelCatalog");
-    if (!session.listModels) throw new UnsupportedProviderOperationError(provider, "modelCatalog");
-    return session.listModels(request);
+    // A conversation's catalog comes from its session when it has one; otherwise discovery is provider-wide.
+    const session = request.threadId ? this.mustGet(request.threadId).session : undefined;
+    const catalog = session?.listModels ? session : this.provider(provider);
+    assertProviderOperation(provider, catalog.capabilities, "modelCatalog");
+    if (!catalog.listModels) throw new UnsupportedProviderOperationError(provider, "modelCatalog");
+    return catalog.listModels(request);
   }
 
   getThreadModel(threadId: string): ThreadModelState {
@@ -585,7 +585,6 @@ export class SessionManager {
     this.modelStateByThread.clear();
     this.effortStateByThread.clear();
     this.runtimeByThread.clear();
-    this.controlSessions.clear();
   }
 
   private assertRunning(): void {
@@ -599,7 +598,7 @@ export class SessionManager {
 
   private allocateSession(approvalPolicy: ApprovalPolicy, provider: AgentProvider = this.defaultProvider()): ProviderSession {
     this.assertRunning();
-    const session = this.sessionFactory(approvalPolicy, this.dynamicTools, provider);
+    const session = this.provider(provider).openSession(approvalPolicy, this.dynamicTools);
     this.providerCapabilities.set(provider, session.capabilities);
     this.ownedSessions.add(session);
     this.attachSessionSubscriptions(session);
@@ -757,27 +756,9 @@ export class SessionManager {
     return provider;
   }
 
-  private async getControlSession(provider: AgentProvider = this.defaultProvider()): Promise<ProviderSession> {
+  private provider(provider: AgentProvider): Provider {
     this.assertRunning();
-    const existing = this.controlSessions.get(provider);
-    if (existing) return existing;
-    const pending = this.controlSessionStarting.get(provider);
-    if (pending) return pending;
-    const session = this.allocateSession("provider_default", provider);
-    const starting = (async () => {
-      try {
-        await session.initialize();
-        this.assertRunning();
-        this.controlSessions.set(provider, session);
-        return session;
-      } catch (error) {
-        this.releaseSession(session);
-        throw error;
-      }
-    })();
-    this.controlSessionStarting.set(provider, starting);
-    try { return await starting; }
-    finally { this.controlSessionStarting.delete(provider); }
+    return this.providerFor(provider);
   }
 
   private requireCapability(threadId: string, operation: ProviderOperation): void {
@@ -797,8 +778,7 @@ export class SessionManager {
     const cached = this.cwdByThread.get(threadId);
     if (cached) return cached;
 
-    const session = this.sessionsByThread.get(threadId)?.session ?? await this.getControlSession(this.threadProvider(threadId));
-    const raw = await session.readThread(threadId, false);
+    const raw = await this.provider(this.threadProvider(threadId)).readThread(threadId, false);
     const thread = raw.thread;
     const cwd = asString(thread.cwd);
     if (!cwd) {

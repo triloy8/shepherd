@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { sessionProvider } from "./helpers/session_providers.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ConversationService } from "../server/core/conversation_service.js";
@@ -40,14 +41,14 @@ test("web reopens registered native identities after detach and restart without 
   const nativeId = "native/path:α"; const id = scopedThreadId("third", nativeId);
   const services = () => assembleProviderServices([{
     id: "third", displayName: "Third", capabilities, hasStoredThreads: () => true, ownsStoredThread: value => value === nativeId,
-    create: () => {
+    provider: sessionProvider(() => {
       const s = new LocalSession(capabilities);
       s.startThread = async () => ({ threadId: nativeId, cwd: root, model: null, effort: null, approvalPolicy: "provider_default" });
       s.resumeThread = async value => { s.readIds.push(value); return s.startThread(); };
       s.readThread = async value => { s.readIds.push(value); return { thread: { id: value, cwd: root } }; };
       s.listStoredThreads = async () => ({ data: [{ id: nativeId, cwd: root }], nextCursor: null });
       sessions.push(s); return s;
-    },
+    }, capabilities),
   }], join(root, "state"), "third");
   let conversation = new ConversationService({ providers: services() }); let h = webRuntime(conversation, root);
   try {
@@ -75,7 +76,7 @@ test("web sees terminal approval expiry through SSE and null context telemetry t
   const root = mkdtempSync("/tmp/shepherd-web-events-"); let native!: LocalSession;
   const conversation = new ConversationService({ providers: assembleProviderServices([{
     id: "third", displayName: "Third", capabilities, hasStoredThreads: () => false,
-    create: () => { native = new LocalSession(capabilities); return native; },
+    provider: sessionProvider(() => { native = new LocalSession(capabilities); return native; }, capabilities),
   }], join(root, "state"), "third") });
   const h = webRuntime(conversation, root);
   try {
@@ -108,12 +109,12 @@ test("web writes explicit skill paths without discovery and rejects unavailable 
     const flags = { ...capabilities, skillConfig: configSupported };
     return new ConversationService({ providers: assembleProviderServices([{
       id: "skills", displayName: "Skills", capabilities: flags, hasStoredThreads: () => false,
-      create: () => {
+      provider: sessionProvider(() => {
         const s = new LocalSession(flags);
         Object.assign(s, { writeSkillConfig: async (request: { path: string; enabled: boolean }) => { writes.push(request); return { enabled: request.enabled }; },
           listSkills: async () => { listings++; throw new Error("Discovery unavailable"); } });
         return s;
-      },
+      }, flags),
     }], join(root, String(configSupported)), "skills") });
   };
   try {
@@ -135,7 +136,7 @@ test("web writes explicit skill paths without discovery and rejects unavailable 
 
 test("HTTP stale approval handles and native IDs cannot authorize a reused permission", async () => {
   const root = mkdtempSync("/tmp/shepherd-http-approval-"); let native!: LocalSession;
-  const conversation = new ConversationService({ providers: assembleProviderServices([{ id: "neutral", displayName: "Neutral", capabilities, hasStoredThreads: () => false, create: () => native = new LocalSession(capabilities) }], join(root, "state"), "neutral") });
+  const conversation = new ConversationService({ providers: assembleProviderServices([{ id: "neutral", displayName: "Neutral", capabilities, hasStoredThreads: () => false, provider: sessionProvider(() => native = new LocalSession(capabilities), capabilities)}], join(root, "state"), "neutral") });
   const h = webRuntime(conversation, root);
   try {
     const c = await h.create({ project: "fixture" }); const path = `/conversations/${c.id}/approvals`;

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { sessionProviders } from "./helpers/session_providers.js";
 import { CodexSession } from "../server/providers/codex/session.js";
 import { SessionManager } from "../server/core/session_manager.js";
 import type { ThreadBootstrapInfo } from "../server/ports/provider_session.js";
@@ -10,7 +11,7 @@ for (const operation of ["create", "resume", "fork"] as const) {
       const session = new IndependentSession();
       const bootstrap = async () => ({ threadId: "new-thread", cwd, model: null, effort: null } as unknown as ThreadBootstrapInfo);
       Object.assign(session, { startThread: bootstrap, resumeThread: bootstrap, forkThread: bootstrap, capabilities: { ...session.capabilities, fork: true } });
-      const manager = new SessionManager(undefined, () => session);
+      const manager = new SessionManager(undefined, sessionProviders(() => session));
       try {
         const pending = operation === "create" ? manager.createThread({ cwd: "/requested" })
           : operation === "resume" ? manager.resumeThread("stored", {}) : manager.forkThread("stored", {});
@@ -28,7 +29,7 @@ test("core uses the provider's effective workspace without reading history, and 
   session.readThread = async () => { throw new Error("Should use bootstrapped workspace"); };
   let settings: object | undefined;
   session.onTurn = (_input, applied) => { settings = applied; };
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   try {
     const { threadId } = await manager.createThread({ cwd: "/requested" });
     expect(await manager.resolveThreadCwd(threadId)).toBe("/effective");

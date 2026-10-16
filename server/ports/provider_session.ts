@@ -57,6 +57,8 @@ export interface ProviderExecution {
 export interface StoredThreadPage { data: Protocol.ThreadRecord[]; nextCursor: string | null; backwardsCursor?: string | null; }
 export interface LoadedThreadPage { data: string[]; nextCursor: string | null; }
 
+/** A provider's conversation history. Providers answer for every thread, including threads one
+ * of their sessions is running; how they reach a running thread is theirs to decide. */
 export interface ProviderHistory {
   listStoredThreads(request: Protocol.ListStoredThreadsRequest): Promise<StoredThreadPage>;
   /** Optional: threads the provider keeps loaded outside Shepherd's own sessions, which core already lists. */
@@ -68,19 +70,29 @@ export interface ProviderHistory {
   setThreadName?(threadId: string, name: string): Promise<void>;
   archiveThread?(threadId: string): Promise<void>;
   unarchiveThread?(threadId: string): Promise<void>;
-  compactThread?(threadId: string): Promise<void>;
-  revertThread?(threadId: string, beforeTurnId: string): Promise<Protocol.RevertThreadResponse>;
 }
 
 /** Discovery is scoped to the effective workspace of the requesting conversation. */
 export type ProviderSkillsRequest = Protocol.SkillsListRequest & { workspacePath: string };
 
-export interface ProviderCatalog {
+/** One installed agent: provider-wide history and model discovery, and a session per running
+ * thread. Core never creates a session to read history or list models. */
+export interface Provider extends ProviderHistory {
+  readonly capabilities: ProviderCapabilities;
+  openSession(policy: Protocol.ApprovalPolicy, tools: import("./provider_tools.js").ProviderTools): ThreadSession;
+  /** Provider-wide model discovery (`modelCatalogScope: "provider"`). */
+  listModels?(request: Protocol.ListModelsRequest): Promise<Protocol.ListModelsResponse>;
+  stop?(): void;
+}
+
+/** One running thread: execution, events, approvals, and operations on that conversation. */
+export interface ThreadSession extends ProviderExecution {
+  compactThread?(threadId: string): Promise<void>;
+  revertThread?(threadId: string, beforeTurnId: string): Promise<Protocol.RevertThreadResponse>;
+  /** The conversation's model catalog (`modelCatalogScope: "conversation"`). */
   listModels?(request: Protocol.ListModelsRequest): Promise<Protocol.ListModelsResponse>;
   listSkills?(request: ProviderSkillsRequest): Promise<Protocol.SkillsListing>;
   writeSkillConfig?(request: Protocol.SkillsConfigWriteRequest): Promise<Protocol.SkillsConfigWriteResponse>;
 }
-
-export interface ProviderSession extends ProviderExecution, ProviderHistory, ProviderCatalog {}
 
 export { UnsupportedProviderOperationError } from "../../shared/protocol/provider_support.js";

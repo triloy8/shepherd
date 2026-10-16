@@ -1,6 +1,7 @@
 import { bridgeEvent, type BridgeEventType, type BridgeEventPayloads } from "../../shared/protocol/events.js";
 import { EventBus } from "../../server/providers/event_bus.js";
-import type { ProviderSession, TurnSettings } from "../../server/ports/provider_session.js";
+import type { TurnSettings } from "../../server/ports/provider_session.js";
+import type { TestSession as ProviderSession } from "./session_providers.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import type { HistoryTurn } from "../../shared/protocol/requests.js";

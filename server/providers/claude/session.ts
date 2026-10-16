@@ -1,6 +1,7 @@
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { approvalChoices } from "../approval_choices.js";
-import { ClaudeTranscript, decodeTranscript, promptContent, textItemId, type TranscriptEntry } from "./transcript.js";
+import { ClaudeTranscript, decodeTranscript, promptContent, textItemId } from "./transcript.js";
+import { itemPage, paginate, sessionInfo, storedTurns, threadRecord, turnPage } from "./history.js";
 import { claudeDefaults, claudeEffortLevels, isClaudeEffort, type ClaudeEffort } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
@@ -19,19 +20,12 @@ import type * as P from "../../../shared/protocol/requests.js";
 import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../../shared/protocol/events.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
-import { UnsupportedProviderOperationError, type ProviderSession, type ThreadBootstrapInfo, type TurnSettings } from "../../ports/provider_session.js";
+import { UnsupportedProviderOperationError, type ThreadSession, type ThreadBootstrapInfo, type TurnSettings } from "../../ports/provider_session.js";
 import { noProviderTools, type ProviderTools } from "../../ports/provider_tools.js";
 import { claudeExecutablePath } from "./claude_executable.js";
 import { claudeAuthenticationOptions } from "./authentication.js";
 import type { ClaudeLimitsObserver } from "./account_limits.js";
 import { EventBus } from "../event_bus.js";
-
-function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) {
-  const offset = request.cursor ? Number(request.cursor) : 0;
-  const limit = request.limit ?? 20;
-  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid Claude pagination.");
-  return { data: values.slice(offset, offset + limit), nextCursor: offset + limit < values.length ? String(offset + limit) : null, backwardsCursor: null };
-}
 
 type RequestUsage = { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
 
@@ -46,21 +40,6 @@ function requestBreakdown(usage: RequestUsage): P.TokenUsageBreakdown {
   return { inputTokens, cacheReadInputTokens: cacheRead, cacheWriteInputTokens: cacheWrite, outputTokens, reasoningOutputTokens: null, totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null };
 }
 
-/** A turn's display summary: what the user sent and the answer, falling back to the last reply. */
-function summaryItems(items: P.HistoryItem[]): P.HistoryItem[] {
-  const replies = items.filter((item): item is Extract<P.HistoryItem, { type: "assistant_message" }> => item.type === "assistant_message");
-  const answers = replies.some((item) => item.phase === "final") ? replies.filter((item) => item.phase === "final") : replies.slice(-1);
-  return items.filter((item) => item.type === "user_message" || (item.type === "assistant_message" && answers.includes(item)));
-}
-
-function threadRecord(info: SDKSessionInfo, includeTurns: P.HistoryTurn[] | null, model: string | null = null): P.ThreadRecord {
-  return {
-    id: info.sessionId, model, name: info.customTitle ?? null, preview: info.firstPrompt ?? info.summary,
-    createdAt: (info.createdAt ?? info.lastModified) / 1000, updatedAt: info.lastModified / 1000,
-    ...(info.cwd ? { cwd: info.cwd } : {}), ...(includeTurns ? { turns: includeTurns } : {}),
-  };
-}
-
 /** The conversation this session runs. Claude's session is the record; these are this process's
  * working settings, and changes requested before the session exists natively. */
 type ClaudeThread = {
@@ -68,7 +47,27 @@ type ClaudeThread = {
   createdAt: number; pending: { name?: string; archived?: boolean };
 };
 
-export class ClaudeSession implements ProviderSession {
+/** Native discovery options for reading the model list. */
+export function catalogQueryOptions(cwd?: string, model?: string): Options {
+  return { cwd: cwd ?? process.cwd(), model: model ?? claudeDefaults().model, ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" };
+}
+
+/** Claude's model list can only be read through a CLI process; the cache shares one copy per login. */
+export function claudeSupportedModels(cache: ClaudeModelCache, open: (input: InputQueue<SDKUserMessage>) => Query, close: (running: Query) => void): Promise<ModelInfo[]> {
+  return cache.get(async () => {
+    const running = open(new InputQueue<SDKUserMessage>());
+    try { return await running.supportedModels(); }
+    finally { close(running); }
+  });
+}
+
+export function claudeModelPage(models: ModelInfo[], request: P.ListModelsRequest): P.ListModelsResponse {
+  const catalog = claudeModelCatalog(models, claudeDefaults()).filter(model => request.includeHidden || !model.hidden);
+  const page = paginate(catalog, request);
+  return { data: page.data, nextCursor: page.nextCursor };
+}
+
+export class ClaudeSession implements ThreadSession {
   readonly capabilities = claudeCapabilities;
   readonly sessionId = randomUUID();
   readonly eventBus = new EventBus();
@@ -94,6 +93,8 @@ export class ClaudeSession implements ProviderSession {
     private readonly sdk: ClaudeNative = claudeNative,
     private readonly accountLimits?: ClaudeLimitsObserver,
     private readonly modelCache = new ClaudeModelCache(),
+    /** The provider's running sessions by thread, so it reaches a live thread through its session. */
+    private readonly liveSessions = new Map<string, ClaudeSession>(),
   ) {}
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
   private newTranscript(): ClaudeTranscript {
@@ -116,7 +117,7 @@ export class ClaudeSession implements ProviderSession {
    * uses the requested settings or the host defaults, and the model it last used. */
   async resumeThread(id: string, request: P.ResumeThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize(); this.validateOverrides(request);
-    const info = await this.sessionInfo(id);
+    const info = await sessionInfo(this.sdk, id);
     const { model, usage } = decodeTranscript(await this.sdk.getSessionMessages(id));
     const defaults = claudeDefaults();
     this.bind({ id, materialized: true, cwd: request.cwd ?? info.cwd ?? process.cwd(), model: request.model ?? model ?? defaults.model, effort: request.effort as ClaudeEffort | undefined ?? defaults.effort, createdAt: (info.createdAt ?? info.lastModified) / 1000, pending: {} });
@@ -139,11 +140,10 @@ export class ClaudeSession implements ProviderSession {
     this.approvalPolicy = policy;
     return this.bootstrap();
   }
-  private bind(thread: ClaudeThread): void { this.thread = thread; this.transcript = this.newTranscript(); }
-  private async sessionInfo(id: string): Promise<SDKSessionInfo> {
-    const info = await this.sdk.getSessionInfo(id);
-    if (!info) throw new Error(`Unknown Claude session ${id}.`);
-    return info;
+  private bind(thread: ClaudeThread): void {
+    if (this.thread && this.liveSessions.get(this.thread.id) === this) this.liveSessions.delete(this.thread.id);
+    this.thread = thread; this.transcript = this.newTranscript();
+    this.liveSessions.set(thread.id, this);
   }
   private validateOverrides(request: P.CreateThreadRequest | P.ResumeThreadRequest) {
     assertThreadSupport("Claude", this.capabilities, request);
@@ -389,7 +389,7 @@ export class ClaudeSession implements ProviderSession {
   private async turns(id: string): Promise<P.HistoryTurn[]> {
     if (this.unmaterialized(id)) return this.transcript.snapshot();
     const live = this.thread?.id === id;
-    const { turns } = decodeTranscript(await this.sdk.getSessionMessages(id) as TranscriptEntry[], live ? this.activeTurnId : null);
+    const turns = await storedTurns(this.sdk, id, live ? this.activeTurnId : null);
     const current = live ? this.transcript.snapshot().at(-1) : undefined;
     if (current?.status === "in_progress" && !turns.some(turn => turn.id === current.id)) return [...turns, current];
     return turns;
@@ -397,31 +397,13 @@ export class ClaudeSession implements ProviderSession {
   async readThread(id: string, includeTurns: boolean) {
     const thread = this.unmaterialized(id);
     if (thread) return { thread: { id, model: thread.model, name: thread.pending.name ?? null, preview: "", createdAt: thread.createdAt, updatedAt: thread.createdAt, cwd: thread.cwd, ...(includeTurns ? { turns: this.transcript.snapshot() } : {}) } };
-    const info = await this.sessionInfo(id);
+    const info = await sessionInfo(this.sdk, id);
     const live = this.thread?.id === id ? this.thread : null;
     const record = threadRecord(info, includeTurns ? await this.turns(id) : null, live?.model ?? null);
     return { thread: live ? { ...record, cwd: live.cwd } : record };
   }
-  async listStoredThreads(request: P.ListStoredThreadsRequest) {
-    const archived = request.archived ?? false;
-    const threads = (await this.sdk.listSessions()).filter((info) => (info.tag === archivedTag) === archived
-      && (!request.searchTerm || `${info.customTitle ?? ""} ${info.firstPrompt ?? info.summary}`.toLowerCase().includes(request.searchTerm.toLowerCase()))
-      && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(info.cwd ?? "") : request.cwd === info.cwd)));
-    const key = (info: SDKSessionInfo) => request.sortKey === "created_at" ? info.createdAt ?? info.lastModified : info.lastModified;
-    threads.sort((a, b) => (request.sortDirection === "asc" ? 1 : -1) * (key(a) - key(b)));
-    return paginate(threads.map((info) => threadRecord(info, null)), request);
-  }
-  async listThreadTurns(id: string, request: P.ListThreadTurnsRequest) {
-    const turns = await this.turns(id); if (request.sortDirection !== "asc") turns.reverse();
-    return paginate(turns.map((turn) => {
-      const items = request.itemsView === "none" ? [] : turn.items;
-      return { ...turn, itemsView: request.itemsView ?? "full", items: request.itemsView === "summary" ? summaryItems(items) : items };
-    }), request);
-  }
-  async listThreadItems(id: string, request: P.ListThreadItemsRequest) {
-    const items = (await this.turns(id)).filter((t) => !request.turnId || t.id === request.turnId).flatMap((t) => t.items.map((item) => ({ turnId: t.id, item })));
-    if (request.sortDirection === "desc") items.reverse(); return paginate(items, request);
-  }
+  async listThreadTurns(id: string, request: P.ListThreadTurnsRequest) { return turnPage(await this.turns(id), request); }
+  async listThreadItems(id: string, request: P.ListThreadItemsRequest) { return itemPage(await this.turns(id), request); }
   async setThreadName(id: string, name: string) {
     const thread = this.unmaterialized(id);
     if (thread) thread.pending.name = name; else await this.sdk.renameSession(id, name);
@@ -447,20 +429,14 @@ export class ClaudeSession implements ProviderSession {
   }
   async listModels(request: P.ListModelsRequest): Promise<P.ListModelsResponse> {
     await this.initialize();
-    const defaults = claudeDefaults();
-    const catalog = claudeModelCatalog(await this.supportedModels(), defaults).filter(model => request.includeHidden || !model.hidden);
-    const page = paginate(catalog, request);
-    return { data: page.data, nextCursor: page.nextCursor };
+    return claudeModelPage(await this.supportedModels(), request);
   }
   /** Model and effort controls look up the catalog often; each uncached lookup starts a CLI process. */
   private supportedModels(): Promise<ModelInfo[]> {
-    return this.modelCache.get(async () => {
-      const running = this.openQuery(new InputQueue<SDKUserMessage>(), { cwd: this.thread?.cwd ?? process.cwd(), model: this.thread?.model ?? claudeDefaults().model, ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}), permissionMode: "dontAsk" });
-      try { return await running.supportedModels(); }
-      finally { this.closeQuery(running); }
-    });
+    return claudeSupportedModels(this.modelCache, input => this.openQuery(input, catalogQueryOptions(this.thread?.cwd, this.thread?.model)), running => this.closeQuery(running));
   }
   stop(): void {
+    if (this.thread && this.liveSessions.get(this.thread.id) === this) this.liveSessions.delete(this.thread.id);
     this.stopped = true; this.interrupted = true;
     for (const running of this.ownedQueries.keys()) this.closeQuery(running);
     this.denyPendingApprovals(); this.finishTurn("interrupted"); this.backgroundTasks.reset();

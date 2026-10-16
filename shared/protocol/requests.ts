@@ -340,8 +340,6 @@ export interface HistoryImage {
   kind: "generated" | "viewed";
 }
 
-type HistoryActivity = import("./events.js").TurnActivityEvent["payload"];
-
 /** Application history records. Item IDs are unique within a turn, not across the thread.
  * Adapters decode native transcripts into these before they leave the provider. */
 export type HistoryItem =
@@ -349,8 +347,8 @@ export type HistoryItem =
   | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }
   | { id: string; type: "plan"; text: string }
   | { id: string; type: "reasoning"; summary: string[] }
-  | { id: string; type: "activity"; activity: HistoryActivity }
-  | { id: string; type: "image"; image: HistoryImage; activity?: HistoryActivity }
+  | { id: string; type: "activity"; status: import("./activity.js").ActivityStatus; activity: import("./activity.js").Activity }
+  | { id: string; type: "image"; image: HistoryImage }
   | { id: string; type: "other" };
 
 export type HistoryItemType = HistoryItem["type"];

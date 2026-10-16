@@ -113,19 +113,13 @@ export function reduceResponseStream(
     };
   }
 
-  if (event.type === "turn.stream.delta") {
-    const payload = event.payload as {
-      textDelta?: string;
-      kind?: "assistant_text" | "other";
-      phase?: MessagePhase | null;
-      itemId?: string | null;
-      turnId?: string | null;
-    };
+  if (event.type === "item.delta") {
+    const payload = event.payload;
     const itemId = payload.itemId ?? state?.pendingItemId ?? null;
     const phase = payload.phase ?? knownPhase(state, itemId);
-    const delta = payload.textDelta ?? "";
+    const delta = payload.delta;
     if (
-      payload.kind !== "assistant_text" ||
+      payload.channel !== "message" ||
       !delta ||
       !sameTurn(state, payload.turnId)
     ) {
@@ -162,13 +156,9 @@ export function reduceResponseStream(
     return { type: "updated", phase, state: next, completedInterim };
   }
 
-  if (event.type === "turn.message.completed") {
-    const payload = event.payload as {
-      itemId?: string;
-      phase?: MessagePhase | null;
-      text?: string;
-      turnId?: string | null;
-    };
+  if (event.type === "item.completed" && event.payload.item.type === "assistant_message") {
+    const { item, turnId } = event.payload;
+    const payload = { itemId: item.id, phase: item.phase ?? null, text: item.text, turnId };
     if (!payload.itemId || !sameTurn(state, payload.turnId)) {
       return { type: "none", state };
     }

@@ -1,8 +1,5 @@
-export { codexApprovalActivity, extractGeneratedImageArtifact, extractViewedImageArtifact, mapTurnActivity } from "./history_presentation.js";
-import { codexPhase } from "./history.js";
-import type {
-  MessagePhase,
-} from "../../../shared/protocol/events.js";
+export { codexApprovalActivity, extractGeneratedImageArtifact, extractViewedImageArtifact } from "./history_presentation.js";
+import type { ItemDeltaChannel } from "../../../shared/protocol/events.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -34,31 +31,24 @@ export function extractTurnId(result: unknown): string | null {
   );
 }
 
-export function extractTextDelta(method: string, params: unknown): string {
-  const lower = method.toLowerCase();
-  if (!lower.includes("delta")) {
-    return "";
+/** Which part of an item a native delta extends. Other native deltas, such as raw reasoning
+ * text, stay private. */
+export function deltaChannel(method: string): ItemDeltaChannel | null {
+  switch (method) {
+    case "item/agentMessage/delta": return "message";
+    case "item/plan/delta": return "plan";
+    case "item/reasoning/summaryTextDelta": return "reasoning";
+    case "item/commandExecution/outputDelta": case "item/fileChange/outputDelta": return "output";
+    default: return null;
   }
+}
 
+export function extractTextDelta(params: unknown): string {
   const record = asRecord(params);
   const msg = asRecord(record.msg);
-  const candidates = [
-    record.delta,
-    record.text,
-    record.chunk,
-    record.outputDelta,
-    record.textDelta,
-    msg.delta,
-    msg.text,
-    msg.chunk,
-    msg.outputDelta,
-    msg.textDelta,
-  ];
-
+  const candidates = [record.delta, record.text, record.chunk, record.outputDelta, record.textDelta, msg.delta, msg.text, msg.chunk, msg.outputDelta, msg.textDelta];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.length > 0) {
-      return candidate;
-    }
+    if (typeof candidate === "string" && candidate.length > 0) return candidate;
   }
   return "";
 }
@@ -74,31 +64,6 @@ export function extractItemId(params: unknown): string | null {
     asString(msg.itemId) ||
     asString(msg.item_id)
   );
-}
-
-export type CompletedAgentMessage = {
-  itemId: string;
-  phase: MessagePhase | null;
-  text: string;
-  turnId: string | null;
-};
-
-export function extractCompletedAgentMessage(params: unknown): CompletedAgentMessage | null {
-  const record = asRecord(params);
-  const item = asRecord(record.item);
-  if (asString(item.type)?.toLowerCase() !== "agentmessage") {
-    return null;
-  }
-
-  const itemId = asString(item.id);
-  if (!itemId) return null;
-
-  return {
-    itemId,
-    phase: codexPhase(item.phase),
-    text: typeof item.text === "string" ? item.text : "",
-    turnId: extractTurnId(params),
-  };
 }
 
 export function mapApprovalChoices(method: string): Array<{ value: string; label: string; intent: "allow" | "deny" | "cancel" }> {

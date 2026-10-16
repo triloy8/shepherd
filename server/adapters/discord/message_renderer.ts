@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ApprovalChoice, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
-import type { BridgeEvent, TurnActivityEvent } from "../../../shared/protocol/events.js";
+import type { BridgeEvent } from "../../../shared/protocol/events.js";
+import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import { describeActivity, describePermission, type Activity } from "../../../shared/protocol/activity.js";
 
 function formatStatusBlock(title: string, lines: string[]): string {
@@ -77,7 +78,7 @@ function truncateActivityDetail(value: string, maxLength = 160): string {
   return `${points.slice(0, maxLength - 1).join("")}…`;
 }
 
-export function formatActivityLine(payload: Pick<TurnActivityEvent["payload"], "activity" | "status">): string {
+export function formatActivityLine(payload: Pick<Extract<HistoryItem, { type: "activity" }>, "activity" | "status">): string {
   const icon = payload.status === "failed" ? "⚠️" : activityIcon(payload.activity);
   const { title, detail } = describeActivity(payload.activity);
   const shown = detail ? truncateActivityDetail(detail) : "";

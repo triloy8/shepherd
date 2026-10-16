@@ -1,12 +1,11 @@
 import { memo, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type { WebImage } from "../../../shared/protocol/web";
 import { RevertDialog } from "./RevertDialog";
-import { messageKey, type ChatMessage, type ChatState } from "../chat-state";
+import { messageKey, type ActivityStep as Step, type ChatMessage, type ChatState } from "../chat-state";
 import { timelineGroups, type TimelineGroup } from "../timeline";
 import { ImageArtifact } from "./ImageArtifact";
 import { Message } from "./Message";
 import { describeActivity } from "../../../shared/protocol/activity";
-import type { TurnActivityEvent } from "../../../shared/protocol/events";
 
 export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true, onRevert, onReload }: { chat: ChatState; waitingForAnswer?: boolean; revertDisabled?: boolean; onRevert?: (turnId: string) => Promise<void>; onReload?: () => Promise<void> }) {
   const [target, setTarget] = useState<ChatMessage | null>(null);
@@ -55,7 +54,7 @@ function DeferredDetails({ summary, children, className = "progress-disclosure" 
   </details>;
 }
 
-function ActivityStep({ step, turnStatus }: { step: TurnActivityEvent["payload"]; turnStatus?: string }) {
+function ActivityStep({ step, turnStatus }: { step: Step; turnStatus?: string }) {
   const { title, detail } = describeActivity(step.activity);
   const state = step.status === "started" && turnStatus && turnStatus !== "in_progress" ? "Stopped" : step.status === "started" ? "Running" : step.status === "failed" ? "Failed" : "Done";
   return <details className={step.status === "failed" ? "notice" : "text-xs text-muted"}>

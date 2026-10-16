@@ -27,14 +27,17 @@ describe("CodexSession app-server contract", () => {
     const events: BridgeEvent[] = [];
     session.eventBus.subscribe((event) => events.push(event), { replay: false });
     const params = { threadId: "thread-1", turnId: "turn-1", item: { type: "imageView", id: "exec-screenshot", path: "/tmp/desktop-conversation.png" } };
+    const images = () => events.flatMap((event) => event.type === "item.completed" && event.payload.item.type === "image" ? [event.payload] : []);
     internals(session).onNotification("item/started", params);
-    expect(events.some((event) => event.type === "turn.image.viewed")).toBe(false);
+    // Until the image exists, viewing it is an activity.
+    expect(events.at(-1)?.payload).toMatchObject({ item: { type: "activity", status: "started", activity: { kind: "image", action: "view" } } });
+    expect(images()).toEqual([]);
     internals(session).onNotification("item/completed", params);
-    expect(events.filter((event) => event.type === "turn.image.viewed").map((event) => event.payload)).toEqual([
-      { itemId: params.item.id, turnId: "turn-1", path: params.item.path },
+    expect(images()).toEqual([
+      { turnId: "turn-1", item: { id: params.item.id, type: "image", image: { itemId: params.item.id, turnId: "turn-1", path: params.item.path, kind: "viewed" } } },
     ]);
     internals(session).onNotification("item/completed", { ...params, item: { ...params.item, status: "failed" } });
-    expect(events.filter((event) => event.type === "turn.image.viewed")).toHaveLength(1);
+    expect(images()).toHaveLength(1);
   });
   test("uses the generated initialize and initialized envelope shapes", async () => {
     const session = new CodexSession("review_sensitive");
@@ -437,24 +440,27 @@ describe("CodexSession app-server contract", () => {
       },
     });
 
-    expect(events.find((event) => event.type === "turn.activity")?.payload).toMatchObject({
-      itemId: "command-1",
-      turnId: "turn-1",
-      activity: { kind: "command", command: "bun test" },
-      status: "started",
-    });
-    expect(events.find((event) => event.type === "turn.message.completed")?.payload).toEqual({
-      itemId: "final-1",
-      phase: "final",
-      text: "Complete answer",
-      turnId: "turn-1",
-    });
-    expect(events.find((event) => event.type === "turn.image.generated")?.payload).toEqual({
-      itemId: "image-1",
-      turnId: "turn-1",
-      path: "/tmp/generated-unicorn.png",
-      prompt: "A pastel unicorn",
-    });
+    // Live items are the records history returns for the same native items.
+    expect(events.map((event) => [event.type, event.payload])).toEqual([
+      ["item.started", { turnId: "turn-1", item: { id: "command-1", type: "activity", status: "started", activity: { kind: "command", command: "bun test", cwd: null } } }],
+      ["item.completed", { turnId: "turn-1", item: { id: "image-1", type: "image", image: { itemId: "image-1", turnId: "turn-1", path: "/tmp/generated-unicorn.png", prompt: "A pastel unicorn", kind: "generated" } } }],
+      ["item.completed", { turnId: "turn-1", item: { id: "final-1", type: "assistant_message", text: "Complete answer", phase: "final" } }],
+    ]);
+  });
+
+  test("streams plan, reasoning summary and command output deltas on their own channels", () => {
+    const session = new CodexSession("review_sensitive");
+    const events: BridgeEvent[] = [];
+    session.threadId = "thread-1";
+    session.activeTurnId = "turn-1";
+    session.eventBus.subscribe((event) => events.push(event), { replay: false });
+    for (const [method, itemId] of [["item/plan/delta", "plan-1"], ["item/reasoning/summaryTextDelta", "reason-1"], ["item/commandExecution/outputDelta", "command-1"], ["item/reasoning/textDelta", "reason-1"]] as const) {
+      internals(session).onNotification(method, { threadId: "thread-1", turnId: "turn-1", itemId, delta: "text" });
+    }
+    // Raw reasoning text stays private; summaries are what history keeps.
+    expect(events.map((event) => event.type === "item.delta" ? [event.payload.channel, event.payload.itemId] : event.type)).toEqual([
+      ["plan", "plan-1"], ["reasoning", "reason-1"], ["output", "command-1"],
+    ]);
   });
 
   test("attaches turn and captured phase metadata to agent deltas", () => {
@@ -481,13 +487,12 @@ describe("CodexSession app-server contract", () => {
       delta: "Checking now.",
     });
 
-    expect(events.find((event) => event.type === "turn.stream.delta")?.payload).toEqual({
-      kind: "assistant_text",
-      kind: "assistant_text",
-      textDelta: "Checking now.",
-      itemId: "comment-1",
-      phase: "interim",
+    expect(events.find((event) => event.type === "item.delta")?.payload).toEqual({
       turnId: "turn-1",
+      itemId: "comment-1",
+      channel: "message",
+      delta: "Checking now.",
+      phase: "interim",
     });
   });
 });

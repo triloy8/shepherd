@@ -255,11 +255,13 @@ History items have an application `type`: `user_message` (with `content` parts `
 `image`, `image_file`, or `attachment`), `assistant_message` (with `text` and an optional
 `phase` of `interim` or `final`), `plan`, `reasoning`, `activity`, `image`, or `other`.
 Turn `status` is `completed`, `interrupted`, `failed`, or `in_progress`.
-Non-message items may include `webActivity` (the shared normalized activity payload)
-or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
-(`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
-as `payload.url` and the file basename as `payload.name`. The browser uses these
-fields for the work timeline and image previews; it does not request files by
+Activity items carry `status` (`started`, `completed` or `failed`) and a typed `activity`.
+Image items carry `webImage: { url, prompt, name, path, kind }` instead of a server path.
+Live turns stream the same items over SSE: `item.started` for items that take time,
+`item.delta` for streamed text (`channel` is `message`, `plan`, `reasoning` or `output`), and
+`item.completed` with the canonical item. Live items are presented exactly as history presents
+them, including the scoped image URL, so a reload shows what the live view showed. The browser
+uses these fields for the work timeline and image previews; it does not request files by
 filesystem path.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a

@@ -3,11 +3,16 @@ import { describe, expect, test } from "bun:test";
 import { describeActivity } from "../shared/protocol/activity.js";
 import {
   codexApprovalActivity,
-  extractCompletedAgentMessage,
   extractGeneratedImageArtifact,
   extractViewedImageArtifact,
-  mapTurnActivity,
 } from "../server/providers/codex/rpc_mapper.js";
+import { historyItem } from "../server/providers/codex/history.js";
+
+/** Live notifications and history share one decoder; activities are its activity items. */
+function mapTurnActivity(params: { turnId: string; item: Record<string, unknown> }, lifecycle: "started" | "completed") {
+  const item = historyItem(params.item, params.turnId, lifecycle);
+  return item.type === "activity" ? item : null;
+}
 
 function params(item: Record<string, unknown>) {
   return {
@@ -33,8 +38,8 @@ describe("Codex RPC activity mapping", () => {
         "started",
       ),
     ).toEqual({
-      itemId: "command-1",
-      turnId: "turn-1",
+      id: "command-1",
+      type: "activity",
       status: "started",
       activity: { kind: "command", command: "bun test", cwd: "/repo" },
     });
@@ -109,23 +114,17 @@ describe("Codex RPC activity mapping", () => {
     ).toMatchObject({ status: "failed" });
   });
 
-  test("extracts canonical completed agent messages", () => {
-    expect(
-      extractCompletedAgentMessage(
-        params({
-          type: "agentMessage",
-          id: "message-1",
-          phase: "final_answer",
-          text: "Canonical final answer",
-        }),
-      ),
-    ).toEqual({
-      itemId: "message-1",
-      phase: "final",
-      text: "Canonical final answer",
-      turnId: "turn-1",
-    });
-    expect(extractCompletedAgentMessage(params({ type: "reasoning", id: "reason-1" }))).toBeNull();
+  test("decodes canonical agent messages with application phases", () => {
+    expect(historyItem({ type: "agentMessage", id: "message-1", phase: "final_answer", text: "Canonical final answer" }, "turn-1", "completed"))
+      .toEqual({ id: "message-1", type: "assistant_message", text: "Canonical final answer", phase: "final" });
+    expect(historyItem({ type: "reasoning", id: "reason-1", summary: ["Checked"] }, "turn-1", "completed"))
+      .toEqual({ id: "reason-1", type: "reasoning", summary: ["Checked"] });
+  });
+
+  test("an image is an activity until it exists", () => {
+    const generation = { type: "imageGeneration", id: "image-1", revisedPrompt: "A unicorn", savedPath: "/tmp/u.png" };
+    expect(historyItem({ ...generation, status: "inProgress" }, "turn-1", "started")).toMatchObject({ type: "activity", status: "started", activity: { kind: "image", action: "generate" } });
+    expect(historyItem({ ...generation, status: "completed" }, "turn-1", "completed")).toEqual({ id: "image-1", type: "image", image: { itemId: "image-1", turnId: "turn-1", path: "/tmp/u.png", prompt: "A unicorn", kind: "generated" } });
   });
 
   test("extracts successful generated image artifacts with saved paths", () => {

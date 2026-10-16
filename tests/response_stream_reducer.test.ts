@@ -24,13 +24,7 @@ function delta(
   itemId: string,
   turnId = "turn-1",
 ): BridgeEvent {
-  return makeEvent("turn.stream.delta", {
-    kind: "assistant_text",
-    textDelta,
-    itemId,
-    phase,
-    turnId,
-  });
+  return makeEvent("item.delta", { turnId: turnId, itemId: itemId, channel: "message", delta: textDelta, phase: phase });
 }
 
 describe("ResponseStreamReducer", () => {
@@ -82,12 +76,7 @@ describe("ResponseStreamReducer", () => {
 
     const completed = reduceResponseStream(
       partial.state,
-      makeEvent("turn.message.completed", {
-        itemId: "final-1",
-        phase: "final",
-        text: "complete final text",
-        turnId: "turn-1",
-      }),
+      makeEvent("item.completed", { turnId: "turn-1", item: { id: "final-1", type: "assistant_message", text: "complete final text", phase: "final" } }),
     );
     expect(completed.type).toBe("message-completed");
     expect(getFinalResponseText(completed.state)).toBe("complete final text");
@@ -107,13 +96,7 @@ describe("ResponseStreamReducer", () => {
     expect(
       reduceResponseStream(
         initial,
-        makeEvent("turn.stream.delta", {
-          kind: "other",
-          textDelta: "ignored",
-          itemId: "item-1",
-          phase: "interim",
-          turnId: "turn-1",
-        }),
+        makeEvent("item.delta", { turnId: "turn-1", itemId: "item-1", channel: "reasoning", delta: "ignored", phase: "interim" }),
       ),
     ).toEqual({ type: "none", state: initial });
     expect(reduceResponseStream(initial, delta("late", "final", "final-old", "turn-old"))).toEqual({
@@ -144,9 +127,9 @@ describe("ResponseStreamReducer", () => {
 
 test("unphased messages use canonical text and the last answer unless an explicit final is reported", () => {
   let state = createResponseStreamState("turn-1");
-  const unknown = (itemId: string, textDelta: string) => makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId, textDelta, turnId: "turn-1" });
+  const unknown = (itemId: string, textDelta: string) => makeEvent("item.delta", { turnId: "turn-1", itemId: itemId, channel: "message", delta: textDelta, phase: null });
   for (const event of [unknown("work", "Thinking"), unknown("answer", "Partial"),
-    makeEvent("turn.message.completed", { itemId: "answer", phase: null, text: "Canonical answer", turnId: "turn-1" })]) state = reduceResponseStream(state, event).state!;
+    makeEvent("item.completed", { turnId: "turn-1", item: { id: "answer", type: "assistant_message", text: "Canonical answer" } })]) state = reduceResponseStream(state, event).state!;
   expect(getFinalResponseText(state)).toBe("Canonical answer");
   state = reduceResponseStream(state, delta("Explicit answer", "final", "explicit")).state!;
   state = reduceResponseStream(state, unknown("trailing", "Unclassified activity")).state!;
@@ -154,36 +137,36 @@ test("unphased messages use canonical text and the last answer unless an explici
   const finish = reduceResponseStream(state, makeEvent("turn.completed", { turnId: "turn-1" }));
   expect(getFinalResponseText(finish.state)).toBe("Explicit answer");
   expect(reduceResponseStream(state, unknown("answer", "late")).type).toBe("updated");
-  expect(reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "late", phase: null, text: "Wrong turn", turnId: "other" })).type).toBe("none");
+  expect(reduceResponseStream(state, makeEvent("item.completed", { turnId: "other", item: { id: "late", type: "assistant_message", text: "Wrong turn" } })).type).toBe("none");
 });
 
 test("completed-only unphased providers do not need a delta or a turn-start event", () => {
-  const reduction = reduceResponseStream(null, makeEvent("turn.message.completed", { itemId: "answer", phase: null, text: "Hello", turnId: "turn-1" }));
+  const reduction = reduceResponseStream(null, makeEvent("item.completed", { turnId: "turn-1", item: { id: "answer", type: "assistant_message", text: "Hello" } }));
   expect(getFinalResponseText(reduction.state)).toBe("Hello");
   const cleared = reduceResponseStream(reduction.state, makeEvent("turn.started", { turnId: "turn-2" }));
   expect(getFinalResponseText(cleared.state)).toBe("");
 });
 
 test("known phases survive missing metadata and late classification preserves earlier deltas", () => {
-  let state = reduceResponseStream(null, makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId: "work", textDelta: "Unclassified ", turnId: "turn-1" })).state!;
+  let state = reduceResponseStream(null, makeEvent("item.delta", { turnId: "turn-1", itemId: "work", channel: "message", delta: "Unclassified ", phase: null })).state!;
   state = reduceResponseStream(state, delta("progress", "interim", "work")).state!;
-  const progress = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "work", phase: null, text: "Canonical progress", turnId: "turn-1" }));
+  const progress = reduceResponseStream(state, makeEvent("item.completed", { turnId: "turn-1", item: { id: "work", type: "assistant_message", text: "Canonical progress" } }));
   expect(progress.type).toBe("message-completed");
   if (progress.type !== "message-completed") throw new Error("Expected completion");
   expect(progress.phase).toBe("interim"); expect(progress.completedInterim?.text).toBe("Canonical progress");
   expect(getFinalResponseText(progress.state)).toBe("");
-  state = reduceResponseStream(progress.state, makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId: "answer", textDelta: "First ", turnId: "turn-1" })).state!;
+  state = reduceResponseStream(progress.state, makeEvent("item.delta", { turnId: "turn-1", itemId: "answer", channel: "message", delta: "First ", phase: null })).state!;
   state = reduceResponseStream(state, delta("second", "final", "answer")).state!;
-  state = reduceResponseStream(state, makeEvent("turn.stream.delta", { kind: "assistant_text", phase: null, itemId: "answer", textDelta: " third", turnId: "turn-1" })).state!;
+  state = reduceResponseStream(state, makeEvent("item.delta", { turnId: "turn-1", itemId: "answer", channel: "message", delta: " third", phase: null })).state!;
   expect(getFinalResponseText(state)).toBe("First second third");
-  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "answer", phase: null, text: "Canonical final", turnId: "turn-1" })).state!;
+  state = reduceResponseStream(state, makeEvent("item.completed", { turnId: "turn-1", item: { id: "answer", type: "assistant_message", text: "Canonical final" } })).state!;
   expect(getFinalResponseText(state)).toBe("Canonical final");
 });
 
 for (const reportedPhase of ["final", "interim", null] as const) test(`anonymous deltas reconcile canonical completion with phase ${reportedPhase}`, () => {
   let state = createResponseStreamState("turn-1");
-  for (const textDelta of ["Hello", " world"]) state = reduceResponseStream(state, makeEvent("turn.stream.delta", { kind: "assistant_text", itemId: null, turnId: null, phase: reportedPhase, textDelta })).state!;
-  const completed = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "canonical", turnId: null, phase: null, text: "Canonical answer" }));
+  for (const textDelta of ["Hello", " world"]) state = reduceResponseStream(state, makeEvent("item.delta", { turnId: null, itemId: null, channel: "message", delta: textDelta, phase: reportedPhase })).state!;
+  const completed = reduceResponseStream(state, makeEvent("item.completed", { turnId: null, item: { id: "canonical", type: "assistant_message", text: "Canonical answer" } }));
   expect(getFinalResponseText(completed.state)).toBe(reportedPhase === "interim" ? "" : "Canonical answer");
   if (completed.type !== "message-completed") throw new Error("Expected completion");
   expect(completed.completedInterim?.text).toBe(reportedPhase === "interim" ? "Canonical answer" : undefined);
@@ -191,36 +174,36 @@ for (const reportedPhase of ["final", "interim", null] as const) test(`anonymous
 
 test("anonymous and identified stream chunks form one final message and separate subsequent messages", () => {
   let state = createResponseStreamState("turn-1");
-  for (const [index, itemId] of [null, "canonical", null, "canonical"].entries()) state = reduceResponseStream(state, makeEvent("turn.stream.delta", { kind: "assistant_text", itemId, turnId: "turn-1", phase: "final", textDelta: String(index) })).state!;
-  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "canonical", turnId: "turn-1", phase: null, text: "First answer" })).state!;
-  state = reduceResponseStream(state, makeEvent("turn.stream.delta", { kind: "assistant_text", itemId: null, turnId: "turn-1", phase: "final", textDelta: "Second partial" })).state!;
-  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "second", turnId: "turn-1", phase: null, text: "Second answer" })).state!;
+  for (const [index, itemId] of [null, "canonical", null, "canonical"].entries()) state = reduceResponseStream(state, makeEvent("item.delta", { turnId: "turn-1", itemId: itemId, channel: "message", delta: String(index), phase: "final" })).state!;
+  state = reduceResponseStream(state, makeEvent("item.completed", { turnId: "turn-1", item: { id: "canonical", type: "assistant_message", text: "First answer" } })).state!;
+  state = reduceResponseStream(state, makeEvent("item.delta", { turnId: "turn-1", itemId: null, channel: "message", delta: "Second partial", phase: "final" })).state!;
+  state = reduceResponseStream(state, makeEvent("item.completed", { turnId: "turn-1", item: { id: "second", type: "assistant_message", text: "Second answer" } })).state!;
   expect(getFinalResponseText(state)).toBe("First answer\n\nSecond answer");
 });
 
 test("completed interim phases survive canonical updates and reset only with a new turn", () => {
   let state = reduceResponseStream(null, delta("Working", "interim", "item")).state!;
-  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "item", turnId: "turn-1", phase: "interim", text: "Working" })).state!;
-  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "item", turnId: "turn-1", phase: null, text: "Updated progress" })).state!;
+  state = reduceResponseStream(state, makeEvent("item.completed", { turnId: "turn-1", item: { id: "item", type: "assistant_message", text: "Working", phase: "interim" } })).state!;
+  state = reduceResponseStream(state, makeEvent("item.completed", { turnId: "turn-1", item: { id: "item", type: "assistant_message", text: "Updated progress" } })).state!;
   expect(getFinalResponseText(state)).toBe("");
   state = reduceResponseStream(state, makeEvent("turn.started", { turnId: "turn-2" })).state!;
-  state = reduceResponseStream(state, makeEvent("turn.message.completed", { itemId: "item", turnId: "turn-2", phase: null, text: "New answer" })).state!;
+  state = reduceResponseStream(state, makeEvent("item.completed", { turnId: "turn-2", item: { id: "item", type: "assistant_message", text: "New answer" } })).state!;
   expect(getFinalResponseText(state)).toBe("New answer");
 });
 
 for (const phase of ["final", "interim", null] as const) test(`empty canonical ${phase} completion clears provisional text`, () => {
-  const partial = reduceResponseStream(null, makeEvent("turn.stream.delta", { kind: "assistant_text", textDelta: "Discard this", itemId: null, phase, turnId: "turn" }));
-  const completed = reduceResponseStream(partial.state, makeEvent("turn.message.completed", { itemId: "a", text: "", phase, turnId: "turn" }));
+  const partial = reduceResponseStream(null, makeEvent("item.delta", { turnId: "turn", itemId: null, channel: "message", delta: "Discard this", phase: phase }));
+  const completed = reduceResponseStream(partial.state, makeEvent("item.completed", { turnId: "turn", item: { id: "a", type: "assistant_message", text: "", ...(phase ? { phase: phase } : {}) } }));
   expect(getFinalResponseText(completed.state)).toBe("");
   expect(completed.type === "message-completed" && completed.completedInterim).toBeNull();
 });
 
 for (const phase of ["interim", null] as const) test(`identifying anonymous interim text with phase ${phase} does not finish its prefix`, () => {
-  const first = reduceResponseStream(null, makeEvent("turn.stream.delta", { turnId: "t", itemId: null, phase: "interim", kind: "assistant_text", textDelta: "I am " }));
-  const identified = reduceResponseStream(first.state, makeEvent("turn.stream.delta", { turnId: "t", itemId: "a", phase, kind: "assistant_text", textDelta: "working" }));
+  const first = reduceResponseStream(null, makeEvent("item.delta", { turnId: "t", itemId: null, channel: "message", delta: "I am ", phase: "interim" }));
+  const identified = reduceResponseStream(first.state, makeEvent("item.delta", { turnId: "t", itemId: "a", channel: "message", delta: "working", phase: phase }));
   expect(identified.type).toBe("updated");
   expect(identified.type === "updated" && identified.completedInterim).toBeNull();
   expect(identified.state?.activeInterim).toEqual({ itemId: "a", text: "I am working" });
-  const completed = reduceResponseStream(identified.state, makeEvent("turn.message.completed", { turnId: "t", itemId: "a", phase: null, text: "I am working" }));
+  const completed = reduceResponseStream(identified.state, makeEvent("item.completed", { turnId: "t", item: { id: "a", type: "assistant_message", text: "I am working" } }));
   expect(completed.type === "message-completed" && completed.completedInterim?.text).toBe("I am working");
 });

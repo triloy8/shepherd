@@ -26,7 +26,7 @@ export class IndependentSession implements ProviderSession {
     this.inputs = structuredClone(input); this.activeTurnId = "opaque-turn";
     this.turns.push({ id: this.activeTurnId, items: [{ id: "reply", type: "assistant_message", text: "Third provider answer", phase: "final" }], itemsView: "full", status: "in_progress", error: null, startedAt: 1, completedAt: null, durationMs: null });
     this.emit("turn.started", { turnId: this.activeTurnId });
-    this.emit("turn.stream.delta", { kind: "assistant_text", turnId: this.activeTurnId, itemId: "reply", textDelta: "Third provider answer", phase: "final" });
+    this.emit("item.delta", { turnId: this.activeTurnId, itemId: "reply", channel: "message", delta: "Third provider answer", phase: "final" });
     return this.activeTurnId;
   }
   async steerTurn(input: UserInput[]) { this.inputs.push(...input); return this.activeTurnId; }

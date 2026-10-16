@@ -156,7 +156,8 @@ export function reduceResponseStream(
     return { type: "updated", phase, state: next, completedInterim };
   }
 
-  if (event.type === "item.completed" && event.payload.item.type === "assistant_message") {
+  // A subagent's text is its own progress inside a delegation, never the conversation's answer.
+  if (event.type === "item.completed" && event.payload.item.type === "assistant_message" && !event.payload.item.parentItemId) {
     const { item, turnId } = event.payload;
     const payload = { itemId: item.id, phase: item.phase ?? null, text: item.text, turnId };
     if (!payload.itemId || !sameTurn(state, payload.turnId)) {

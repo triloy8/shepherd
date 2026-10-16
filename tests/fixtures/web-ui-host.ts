@@ -176,6 +176,14 @@ h.context.ingress.submitTurn = async (threadId, request) => {
       complete(threadId, turn, { id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, prompt: image.prompt, kind: "generated" } });
       complete(threadId, turn, { id: `final-${sequence}`, type: "assistant_message", phase: "final", text: "Second final answer part." });
     }
+    if (text.includes("subagent")) {
+      // A background subagent reports inside its delegation, including after the turn ends.
+      const parentItemId = `agent-${sequence}`;
+      complete(threadId, turn, { id: parentItemId, type: "activity", status: "completed", activity: { kind: "delegation", description: "Survey the repo" } });
+      complete(threadId, turn, { id: `sub-text-${sequence}`, type: "assistant_message", phase: "interim", text: "Subagent is looking around.", parentItemId });
+      complete(threadId, turn, { id: `sub-tool-${sequence}`, type: "activity", status: "completed", activity: { kind: "command", command: "ls subagent", cwd: null }, parentItemId });
+      later(400, () => complete(threadId, turn, { id: `sub-late-${sequence}`, type: "assistant_message", phase: "interim", text: "Subagent finished late.", parentItemId }));
+    }
     if (text.includes("approval")) {
       const approval = { approvalId: `approval-${sequence}`, kind: "permission", activity: { kind: "command", command: "bun test", cwd: "~/project" }, reason: "Shepherd wants to run the project’s test suite.", choices: [{ value: crypto.randomUUID(), label: "Allow once", intent: "allow" }, { value: crypto.randomUUID(), label: "Decline", intent: "deny" }] } as const;
       const record = h.approvals.create(approval, { threadId, sessionId: "fixture" });

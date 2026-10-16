@@ -14,6 +14,7 @@ import { CodexSession } from "../server/providers/codex/session.js";
 import { DynamicToolRegistry } from "../server/core/dynamic_tool_registry.js";
 import { toTextUserInput } from "../shared/protocol/user_input.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
+import type { HistoryItem } from "../shared/protocol/requests.js";
 import { validateCreateThreadRequest } from "../shared/protocol/validation.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -28,6 +29,8 @@ type Entry = TranscriptEntry & { session_id: string };
 function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) => AsyncGenerator<SDKMessage>) {
   const calls: Array<{ options: Options; input: AsyncIterable<SDKUserMessage> }> = [];
   const sessions = new Map<string, { info: SDKSessionInfo; entries: Entry[] }>();
+  // Claude Code stores each subagent's transcript apart from its session's.
+  const subagents = new Map<string, Map<string, Entry[]>>();
   let closed = 0;
   let interruptions = 0;
   let interrupt = () => {};
@@ -65,6 +68,12 @@ function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) =>
         if ((message.type === "assistant" || (message.type === "user" && Array.isArray(message.message.content))) && !message.parent_tool_use_id) {
           record(sessionId, options!.cwd, { type: message.type, uuid: randomUUID(), message: message.message, parent_tool_use_id: null });
         }
+        const agentId = (message as { agent_id?: string }).agent_id;
+        if ((message.type === "assistant" || message.type === "user") && message.parent_tool_use_id && agentId) {
+          const agents = subagents.get(sessionId) ?? new Map<string, Entry[]>(); subagents.set(sessionId, agents);
+          clock += 1000;
+          agents.set(agentId, [...agents.get(agentId) ?? [], { type: message.type, uuid: randomUUID(), message: message.message, parent_tool_use_id: message.parent_tool_use_id, session_id: sessionId, timestamp: new Date(clock).toISOString() }]);
+        }
         if (message.type === "result") busy = false;
         yield message;
       }
@@ -84,6 +93,8 @@ function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) =>
     listSessions: async () => [...sessions.values()].map(session => session.info),
     getSessionInfo: async (id: string) => sessions.get(id)?.info,
     getSessionMessages: async (id: string) => sessions.get(id)?.entries ?? [],
+    listSubagents: async (id: string) => [...subagents.get(id)?.keys() ?? []],
+    getSubagentMessages: async (id: string, agentId: string) => subagents.get(id)?.get(agentId) ?? [],
     renameSession: async (id: string, title: string) => { sessions.get(id)!.info.customTitle = title; },
     tagSession: async (id: string, tag: string | null) => { sessions.get(id)!.info.tag = tag ?? undefined; },
   } as unknown as ClaudeNative;
@@ -620,6 +631,55 @@ test("per-block assistant messages mark text before tools as interim and the las
   session.stop();
 });
 
+test("subagent work joins its delegation live and in history, including a background subagent that finishes after the turn", async () => {
+  const assistant = (id: string, block: unknown, parent: string | null = null) => ({ type: "assistant", parent_tool_use_id: parent, ...(parent ? { agent_id: "agent-1" } : {}), message: { id, content: [block] } }) as SDKMessage;
+  const toolResult = (id: string, parent: string | null = null) => ({ type: "user", parent_tool_use_id: parent, ...(parent ? { agent_id: "agent-1" } : {}), message: { content: [{ type: "tool_result", tool_use_id: id, content: "ok", is_error: false }] } }) as SDKMessage;
+  const { InputQueue } = await import("../server/providers/claude/input_queue.js");
+  const later = new InputQueue<SDKMessage>();
+  const fake = sdk(async function* (input) {
+    for await (const _ of input) break;
+    yield assistant("main", { type: "tool_use", id: "agent-call", name: "Agent", input: { description: "Survey", prompt: "Look around", subagent_type: "Explore", run_in_background: true } });
+    yield assistant("sub-1", { type: "text", text: "Looking at the repo." }, "agent-call");
+    yield assistant("sub-1", { type: "tool_use", id: "sub-tool", name: "Bash", input: { command: "ls" } }, "agent-call");
+    yield toolResult("agent-call");
+    yield assistant("answer", { type: "text", text: "Started a survey." });
+    yield result;
+    for await (const event of later) yield event;
+  });
+  const session = new ClaudeSession(undefined, fake);
+  const { threadId } = await session.startThread({});
+  const events: BridgeEvent[] = []; session.eventBus.subscribe(event => events.push(event), { replay: false });
+  await session.startTurn([toTextUserInput("survey")]); await done(session);
+  // The background subagent keeps working after its turn's result.
+  const finished = new Promise<void>(resolve => { const off = session.eventBus.subscribe(event => { if (event.type === "item.completed" && event.payload.item.id === "sub-2") { off(); resolve(); } }, { replay: false }); });
+  later.push(toolResult("sub-tool", "agent-call"));
+  later.push(assistant("sub-2", { type: "text", text: "The repo has tests." }, "agent-call"));
+  await finished;
+  const live = events.flatMap(event => event.type === "item.completed" ? [event.payload.item] : []);
+  expect(live.filter(item => item.parentItemId).map(item => [item.id, item.type, item.type === "assistant_message" ? item.phase : null])).toEqual([
+    ["sub-1", "assistant_message", "interim"], ["sub-tool", "activity", null], ["sub-2", "assistant_message", "interim"],
+  ]);
+  expect(live.every(item => !item.parentItemId || item.parentItemId === "agent-call")).toBe(true);
+  // The stored session and subagent transcripts decode to what was delivered live. Transcripts
+  // record no results, so the conversation's own items and its subagents' are each in order, but
+  // their interleaving is by time.
+  session.stop(); later.close();
+  const reader = new ClaudeSession(undefined, fake);
+  const history = (await reader.listThreadTurns(threadId, {})).data;
+  expect(history).toHaveLength(1);
+  const own = (items: HistoryItem[]) => items.filter(item => !item.parentItemId && item.type !== "user_message");
+  const children = (items: HistoryItem[]) => items.filter(item => item.parentItemId);
+  expect(own(history[0]!.items).map(item => item.id)).toEqual(["agent-call", "answer"]);
+  expect(own(history[0]!.items)).toEqual(own(live));
+  expect(children(history[0]!.items)).toEqual(children(live));
+  // A subagent's text is never the answer, and its rows nest under the delegation.
+  const chat = events.reduce(reduceBridge, emptyChat());
+  expect(timelineGroups(chat).flatMap(group => group.finalIds)).toEqual(["answer"]);
+  expect(chat.messages.filter(message => message.parentId === "agent-call").map(message => message.id)).toEqual(["sub-1", "sub-tool", "sub-2"]);
+  expect(timelineGroups(chat).flatMap(group => group.messages.map(message => message.id))).not.toContain("sub-2");
+  reader.stop();
+});
+
 test("per-request cache counts the SDK omits are unreported, not zero", async () => {
   const fake = sdk(async function* () {
     yield { type: "assistant", parent_tool_use_id: null, message: { id: "m", usage: { input_tokens: 7, output_tokens: 2 }, content: [{ type: "text", text: "Done" }] } } as SDKMessage;
@@ -731,7 +791,7 @@ test("stored transcripts decode prompts, steering, interruptions and background 
     entry("assistant", { id: "m1", content: [{ type: "text", text: "Looking." }] }),
     entry("assistant", { id: "m1", content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "bun run build" } }] }),
     entry("user", { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "error", is_error: true }] }),
-    // Subagent work belongs to its delegation, not the main conversation.
+    // Subagent work joins its delegation as interim progress, never the answer.
     entry("assistant", { id: "sub", content: [{ type: "text", text: "Subagent detail" }] }, { parent_tool_use_id: "t1" }),
     entry("assistant", { id: "m2", content: [{ type: "text", text: "Fixed it." }], usage: { input_tokens: 5, output_tokens: 2, cache_read_input_tokens: 1, cache_creation_input_tokens: 0 } }),
     entry("user", { role: "user", content: [{ type: "text", text: "Also run tests" }] }, { uuid: "steer-1", isQueuedCommand: true }),
@@ -746,7 +806,7 @@ test("stored transcripts decode prompts, steering, interruptions and background 
   expect(usage).toMatchObject({ input_tokens: 5 });
   expect(turns.map(turn => [turn.id, turn.status])).toEqual([["prompt-1", "completed"], ["prompt-2", "interrupted"], ["wake-1", "completed"]]);
   expect(turns[0]!.items.map(item => [item.id, item.type, item.type === "assistant_message" ? item.phase : item.type === "activity" ? item.status : null])).toEqual([
-    ["prompt-1", "user_message", null], ["m1:thinking:0", "reasoning", null], ["m1", "assistant_message", "interim"], ["t1", "activity", "failed"],
+    ["prompt-1", "user_message", null], ["m1:thinking:0", "reasoning", null], ["m1", "assistant_message", "interim"], ["t1", "activity", "failed"], ["sub", "assistant_message", "interim"],
     // Steering is recorded once the response before it has finished, so that response's text answered it.
     ["m2", "assistant_message", "final"], ["steer-1", "user_message", null], ["m3", "assistant_message", "final"],
   ]);

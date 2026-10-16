@@ -167,7 +167,8 @@ export class ClaudeSession implements ThreadSession {
       cwd: thread.cwd, model: model ?? thread.model, effort: effort === null ? undefined : (effort as ClaudeEffort | undefined) ?? thread.effort,
       ...(thread.materialized ? { resume: thread.id } : { sessionId: thread.id }),
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
-      includePartialMessages: true, settingSources: ["user", "project", "local"],
+      // Subagents' text and thinking are forwarded so their work appears inside the delegation.
+      includePartialMessages: true, forwardSubagentText: true, settingSources: ["user", "project", "local"],
       systemPrompt: { type: "preset", preset: "claude_code" },
       ...claudePermissionOptions(this.profile),
       canUseTool: (name, args, context) => this.requestApproval(name, args, context),
@@ -239,6 +240,7 @@ export class ClaudeSession implements ThreadSession {
           this.transcript.assistant(message.message);
         }
         if (message.type === "user" && !message.parent_tool_use_id) this.transcript.toolResults(message.message.content);
+        if ((message.type === "assistant" || message.type === "user") && message.parent_tool_use_id) this.transcript.subagent(message.parent_tool_use_id, message.type, message.message);
         if (message.type === "result") {
           // A result ends the response to the queued input, so its last text is an answer.
           this.transcript.answered();

@@ -34,9 +34,12 @@ export async function sessionInfo(sdk: ClaudeNative, id: string): Promise<SDKSes
   return info;
 }
 
-/** A stored conversation's turns. `activeTurnId` names a turn this process is still running. */
+/** A stored conversation's turns, with its subagents' work. `activeTurnId` names a turn this
+ * process is still running. */
 export async function storedTurns(sdk: ClaudeNative, id: string, activeTurnId: string | null = null): Promise<P.HistoryTurn[]> {
-  return decodeTranscript(await sdk.getSessionMessages(id) as TranscriptEntry[], activeTurnId).turns;
+  const [entries, agents] = await Promise.all([sdk.getSessionMessages(id), sdk.listSubagents(id)]);
+  const subagents = (await Promise.all(agents.map(agent => sdk.getSubagentMessages(id, agent)))).flat();
+  return decodeTranscript(entries as TranscriptEntry[], activeTurnId, subagents as TranscriptEntry[]).turns;
 }
 
 export async function readStoredThread(sdk: ClaudeNative, id: string, includeTurns: boolean): Promise<P.ReadThreadResponse> {

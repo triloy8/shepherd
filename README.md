@@ -134,15 +134,15 @@ Optional shared environment settings are:
 ```env
 CLAUDE_MODEL=claude-opus-5-5
 CLAUDE_EFFORT=medium
-# Shepherd metadata and UI history; SDK transcripts stay in Claude's own storage.
-SHEPHERD_CLAUDE_STATE_DIR=/absolute/path/to/claude-state
 # Optional override of the SDK's bundled executable:
 # CLAUDE_EXECUTABLE=/absolute/path/to/claude
 ```
 
-Use an absolute path for `SHEPHERD_CLAUDE_STATE_DIR` in an environment file; its
-default is `.shepherd/claude` under the current user's home directory. Preserve
-both that directory and Claude's transcript storage to resume after restarting.
+Claude conversations are Claude Code sessions: Shepherd lists, reads, renames and archives
+them through the Agent SDK and keeps no copy. Preserve Claude's own storage (`CLAUDE_CONFIG_DIR`,
+`~/.claude` by default) to resume after restarting. Sessions started in Claude Code appear in
+Shepherd's conversation list too. `SHEPHERD_CLAUDE_STATE_DIR` is no longer read; conversations
+saved only in Shepherd's former copy, which never reached Claude, are not migrated.
 The compiled Shepherd binary includes the SDK executable for the build host.
 
 Shepherd application tools return media as `{ type: "image" | "audio", data, mimeType }`,

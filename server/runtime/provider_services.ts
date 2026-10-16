@@ -8,7 +8,7 @@ import { ClaudeSession } from "../providers/claude/session.js";
 import { codexCapabilities } from "../providers/codex/capabilities.js";
 import { claudeCapabilities } from "../providers/claude/capabilities.js";
 import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
-import { ClaudeThreadStore } from "../providers/claude/file_thread_store.js";
+import { claudeHasSessions, claudeNative, claudeSessionExists } from "../providers/claude/native_sessions.js";
 import { ClaudeModelCache } from "../providers/claude/model_cache.js";
 import { assembleProviderServices, describeThreadDefaults, type ProviderRegistration } from "./provider_registration.js";
 import { resolveThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
@@ -31,14 +31,13 @@ const installedDefinitions = [
   {
     id: "claude", displayName: "Claude", capabilities: claudeCapabilities,
     register() {
-      const store = new ClaudeThreadStore();
       const limits = new ClaudeAccountLimits();
       const models = new ClaudeModelCache();
       return {
-        create: (policy, tools) => new ClaudeSession(policy, tools, store, undefined, limits, models),
+        create: (policy, tools) => new ClaudeSession(policy, tools, claudeNative, limits, models),
         account: { read: refresh => limits.readAccount(refresh) },
-        hasStoredThreads: () => store.hasThreads(),
-        ownsStoredThread: id => store.has(id),
+        hasStoredThreads: () => claudeHasSessions(),
+        ownsStoredThread: id => claudeSessionExists(id),
         shutdown: () => limits.stop(),
       } satisfies Omit<ProviderRegistration, "id" | "displayName" | "capabilities">;
     },

@@ -1,5 +1,5 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
-import type { ApprovalPolicy, HistoryItem, ThreadTokenUsage } from "./requests.js";
+import type { HistoryItem, ThreadTokenUsage } from "./requests.js";
 
 /** Interim text reports progress during a turn; final text answers it. */
 export type MessagePhase = "interim" | "final";
@@ -17,10 +17,11 @@ export interface BridgeEventPayloads {
   "session.started": { model: string };
   "session.error": { message: string };
   "session.limit.context": { message: string };
-  "thread.started": { approvalPolicy: ApprovalPolicy };
+  "thread.started": Record<string, never>;
   "thread.status.changed": { status: { state: "active" | "idle" | "error"; backgroundTaskCount: number } };
   /** The settings the thread now runs with, as the adapter applied them. */
-  "thread.settings.changed": { model: string | null; effort: string | null; cwd: string; approvalPolicy: ApprovalPolicy };
+  /** `profile` is one of the provider's policy profiles, or null for the agent's own defaults. */
+  "thread.settings.changed": { model: string | null; effort: string | null; cwd: string; profile: string | null };
   "thread.name.updated": { threadName: string | null };
   "thread.archived": Record<string, never>;
   "thread.reverted": Record<string, never>;

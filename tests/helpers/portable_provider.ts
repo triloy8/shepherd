@@ -1,16 +1,16 @@
 import { EventBus } from "../../server/ports/event_bus.js";
-import type { TurnSettings } from "../../server/ports/provider_session.js";
+import type { ProviderThreadRequest, TurnSettings } from "../../server/ports/provider_session.js";
 import type { TestSession as ProviderSession } from "./session_providers.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
-import type { CreateThreadRequest, ListModelsRequest, ModelSummary, ResumeThreadRequest } from "../../shared/protocol/requests.js";
+import type { ListModelsRequest, ModelSummary } from "../../shared/protocol/requests.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
 
 export const capabilities: ProviderCapabilities = {
   steer: false, interrupt: false, rename: false, archive: false, unarchive: false,
   workspaceChange: false, modelCatalog: false, modelSelection: false, effortSelection: false,
   skillConfig: false, questions: false, skills: false, compact: false, revert: false, fork: false,
-  accountReset: false, sandboxModes: [], approvalModes: ["provider_default"], inputKinds: ["text"],
+  accountReset: false, policyProfiles: [], inputKinds: ["text"],
   imageDetail: false,
 };
 export const model = (id: string, isDefault = false): ModelSummary => ({ id, isDefault, displayName: id,
@@ -21,7 +21,7 @@ export class LocalSession implements ProviderSession {
   readonly sessionId = crypto.randomUUID();
   readonly eventBus = new EventBus();
   activeTurnId: string | null = null;
-  approvalPolicy = "provider_default" as const;
+  profile: string | null = null;
   bound = false;
   stopped = false;
   calls: Array<{ model?: string; effort?: string | null }> = [];
@@ -33,13 +33,13 @@ export class LocalSession implements ProviderSession {
   constructor(readonly capabilities: ProviderCapabilities) {}
   async initialize() {}
   stop() { this.stopped = true; }
-  async startThread(_request?: CreateThreadRequest) { this.bound = true; return { threadId: "1", cwd: "/tmp", model: this.selectedModel, effort: null, approvalPolicy: this.approvalPolicy }; }
-  async resumeThread(id: string, request?: ResumeThreadRequest) { this.readIds.push(id); return this.startThread(request); }
+  async startThread(request?: ProviderThreadRequest) { this.bound = true; this.profile = request?.profile ?? null; return { threadId: "1", cwd: "/tmp", model: this.selectedModel, effort: null, profile: this.profile }; }
+  async resumeThread(id: string, request?: ProviderThreadRequest) { this.readIds.push(id); return this.startThread(request); }
   async startTurn(_input: UserInput[], { model: selected, effort }: TurnSettings = {}) {
     this.calls.push({ model: selected, effort }); this.activeTurnId = "turn";
     if (selected) this.selectedModel = selected;
     if (effort !== undefined) this.effort = effort;
-    this.emit("thread.settings.changed", { model: this.selectedModel, effort: this.effort, cwd: "/tmp", approvalPolicy: this.approvalPolicy });
+    this.emit("thread.settings.changed", { model: this.selectedModel, effort: this.effort, cwd: "/tmp", profile: this.profile });
     this.emit("turn.started", { turnId: "turn" });
     return "turn";
   }

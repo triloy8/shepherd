@@ -202,10 +202,10 @@ test("identity translation covers tools, nested question targets, loaded discove
   const native = new LocalSession(flags);
   Object.assign(native, { listLoadedThreads: async () => ({ data: ["1"], nextCursor: null }) });
   const entry: ProviderRegistration = { id: "tool-provider", displayName: "Tools", capabilities: flags,
-    provider: sessionProvider((_policy, tools) => { nativeTools = tools; return native; }, flags), hasStoredThreads: () => true };
+    provider: sessionProvider((tools) => { nativeTools = tools; return native; }, flags), hasStoredThreads: () => true };
   const services = assembleProviderServices([entry], directory(), entry.id);
   const calls: string[] = [];
-  const session = services.provider(entry.id).openSession("provider_default", { ...noProviderTools, execute: async request => { calls.push(request.threadId); return { contentItems: [], success: true }; } });
+  const session = services.provider(entry.id).openSession({ ...noProviderTools, execute: async request => { calls.push(request.threadId); return { contentItems: [], success: true }; } });
   try {
     const { threadId } = await session.startThread({});
     await nativeTools.execute({ threadId: "1", turnId: "turn", callId: "call", namespace: null, tool: "probe", arguments: null });
@@ -384,7 +384,7 @@ for (const explicitDefaults of [true, false]) test(`registration normalizes opti
   const defaults = { ...base, modelCatalogScope: "conversation" as const, modelCatalogAuthoritative: false };
   const entry = registration("catalog-defaults", () => {}, explicitDefaults ? defaults : base);
   const create = entry.entry.create;
-  entry.entry.create = (policy, tools, provider) => { const session = create(policy, tools, provider); return Object.assign(session, { capabilities: explicitDefaults ? base : defaults }); };
+  entry.entry.create = (tools, provider) => { const session = create(policy, tools, provider); return Object.assign(session, { capabilities: explicitDefaults ? base : defaults }); };
   const conversation = new ConversationService({ providers: assembleProviderServices([entry.entry], directory(), entry.entry.id) });
   try { const { threadId } = await conversation.createThread({}); expect(conversation.getThreadProvider(threadId)).toBe(entry.entry.id); }
   finally { conversation.stopAll(); }

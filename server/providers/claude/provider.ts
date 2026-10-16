@@ -20,8 +20,8 @@ export class ClaudeProvider implements Provider {
     private readonly limits?: ClaudeLimitsObserver,
     private readonly models = new ClaudeModelCache(),
   ) {}
-  openSession(policy: P.ApprovalPolicy, tools: ProviderTools): ClaudeSession {
-    return new ClaudeSession(policy, tools, this.sdk, this.limits, this.models, this.running);
+  openSession(tools: ProviderTools): ClaudeSession {
+    return new ClaudeSession(tools, this.sdk, this.limits, this.models, this.running);
   }
   listStoredThreads(request: P.ListStoredThreadsRequest) { return listClaudeThreads(this.sdk, request); }
   readThread(id: string, includeTurns: boolean) { return this.running.get(id)?.readThread(id, includeTurns) ?? readStoredThread(this.sdk, id, includeTurns); }

@@ -1,4 +1,3 @@
-import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { SurfaceApplicationContext } from "../core/surface_application_context.js";
 import type { ApprovalConversation, InteractionConversation } from "../core/conversation_ports.js";
@@ -13,7 +12,6 @@ export type SurfaceHealth = {
 /** Surface-scoped capabilities. No process ownership or raw runtime access. */
 export type SurfaceAdapterContext = {
   signal: AbortSignal;
-  approvalPolicy: ApprovalPolicy;
   ingress: TurnRoutingConversation;
   interactions: InteractionConversation;
   approvals: ApprovalConversation;

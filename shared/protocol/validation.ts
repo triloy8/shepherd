@@ -1,7 +1,6 @@
 import type { UserQuestionAnswers } from "./user_questions.js";
 import type {
   ApprovalDecisionApiRequest,
-  ApprovalPolicy,
   CreateThreadRequest,
   ForkThreadRequest,
   ListLoadedThreadsRequest,
@@ -9,7 +8,6 @@ import type {
   ReadThreadRequest,
   ResumeThreadRequest,
   RevertThreadRequest,
-  SandboxMode,
   SortDirection,
   SteerTurnRequest,
   SetThreadNameRequest,
@@ -20,9 +18,8 @@ import type {
   SubmitTurnRequest,
 } from "./requests.js";
 import { IMAGE_DETAILS, toTextUserInput, type ImageDetail, type UserInput } from "./user_input.js";
+import { isExecutionPolicy, type ExecutionPolicy } from "./execution_policy.js";
 
-const APPROVAL_POLICIES = ["provider_default", "review_untrusted", "review_sensitive", "bypass"] as const;
-const SANDBOX_MODES: SandboxMode[] = ["read_only", "workspace_write", "unrestricted"];
 const THREAD_SORT_KEYS: ThreadSortKey[] = ["created_at", "updated_at"];
 const SORT_DIRECTIONS: SortDirection[] = ["asc", "desc"];
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,7 +33,6 @@ export function validateCreateThreadRequest(value: unknown): CreateThreadRequest
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
-    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
     ...(cwd ? { cwd } : {}),
   };
@@ -84,10 +80,10 @@ function assertFields(value: Record<string, unknown>, allowed: readonly string[]
 }
 
 function parseCommonThreadOverrides(value: Record<string, unknown>) {
-  assertFields(value, ["provider", "approvalPolicy", "cwd", "sandbox", "model", "effort"]);
+  assertFields(value, ["provider", "policy", "cwd", "model", "effort"]);
   return {
     provider: parseOptionalString(value.provider, "provider"),
-    sandbox: parseOptionalEnum(value.sandbox, "sandbox", SANDBOX_MODES),
+    ...(value.policy === undefined ? {} : { policy: parseExecutionPolicy(value.policy) }),
     model: parseOpaqueSelection(value.model, "model"),
     effort: parseOpaqueSelection(value.effort, "effort"),
   };
@@ -234,12 +230,9 @@ export function validateReadThreadRequest(value: unknown): ReadThreadRequest {
   };
 }
 
-function parseApprovalPolicy(value: unknown): ApprovalPolicy | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  if (typeof value === "string" && APPROVAL_POLICIES.includes(value as (typeof APPROVAL_POLICIES)[number])) {
-    return value as ApprovalPolicy;
-  }
-  throw new Error("Invalid approval policy.");
+function parseExecutionPolicy(value: unknown): ExecutionPolicy {
+  if (!isExecutionPolicy(value)) throw new Error("Invalid execution policy: expected writes (none, workspace, any), network (none, any) and review (risky, none).");
+  return { writes: value.writes, network: value.network, review: value.review };
 }
 
 export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest {
@@ -247,7 +240,6 @@ export function validateResumeThreadRequest(value: unknown): ResumeThreadRequest
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
-    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
     ...(cwd ? { cwd } : {}),
   };
@@ -258,7 +250,6 @@ export function validateForkThreadRequest(value: unknown): ForkThreadRequest {
   const overrides = parseCommonThreadOverrides(value);
   const cwd = parseOptionalString(value.cwd, "cwd");
   return {
-    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     ...overrides,
     ...(cwd ? { cwd } : {}),
   };
@@ -288,10 +279,9 @@ export function validateSubmitTurnRequest(value: unknown): SubmitTurnRequest {
   if (!isRecord(value)) {
     throw new Error("Invalid turn payload.");
   }
-  assertFields(value, ["input", "approvalPolicy", "model", "effort"]);
+  assertFields(value, ["input", "model", "effort"]);
   return {
     input: parseUserInputArray(value.input, "input"),
-    approvalPolicy: parseApprovalPolicy(value.approvalPolicy),
     model: parseOpaqueSelection(value.model, "model"),
     effort: value.effort === null ? null : parseOpaqueSelection(value.effort, "effort"),
   };

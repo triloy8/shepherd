@@ -1,5 +1,5 @@
-import { codexApproval, applicationApproval, codexSandbox, type NativeApprovalPolicy } from "./policy.js";
-import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
+import { codexProfileFromNative, codexProfileSettings, type NativeApprovalPolicy } from "./policy.js";
+import { assertThreadSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { codexInput } from "./input.js";
 import type { NativeInput } from "./input.js";
 import { approvalChoices, type NativeApprovalChoice } from "../approval_choices.js";
@@ -23,10 +23,6 @@ import { codexTokenUsage } from "./token_usage.js";
 import { codexSkillConfig, codexSkills } from "./skills.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType, type MessagePhase } from "../../../shared/protocol/events.js";
 import type {
-
-  ApprovalPolicy,
-  CreateThreadRequest,
-  ForkThreadRequest,
   ListLoadedThreadsRequest,
   ListModelsRequest,
   ListThreadTurnsRequest,
@@ -35,7 +31,6 @@ import type {
   ListThreadItemsResponse,
   ListModelsResponse,
   ListStoredThreadsRequest,
-  ResumeThreadRequest,
   SkillsConfigWriteRequest,
   SkillsConfigWriteResponse,
   SkillsListing,
@@ -48,7 +43,7 @@ import {
   UnknownDynamicToolError,
   type ProviderTools,
 } from "../../ports/provider_tools.js";
-import type { ThreadSession, ThreadBootstrapInfo, TurnSettings } from "../../ports/provider_session.js";
+import type { ProviderThreadRequest, ThreadSession, ThreadBootstrapInfo, TurnSettings } from "../../ports/provider_session.js";
 import { EventBus } from "../event_bus.js";
 import {
   deltaChannel,
@@ -225,7 +220,8 @@ export class CodexSession implements ThreadSession {
 
   threadId: string | null = null;
   activeTurnId: string | null = null;
-  approvalPolicy: ApprovalPolicy;
+  /** The policy profile the thread runs with, or null for Codex's own configuration. */
+  profile: string | null = null;
   readonly eventBus = new EventBus();
 
   private child: ChildProcessWithoutNullStreams | null = null;
@@ -241,13 +237,10 @@ export class CodexSession implements ThreadSession {
   private endedTurns = new Set<string>();
 
   constructor(
-    approvalPolicy: ApprovalPolicy,
     private readonly dynamicTools: ProviderTools = noProviderTools,
     /** The provider's running sessions by thread, so it reaches a live thread through its session. */
     private readonly liveSessions = new Map<string, CodexSession>(),
-  ) {
-    this.approvalPolicy = approvalPolicy;
-  }
+  ) {}
 
   private stopped = false;
   private cwd = process.cwd();
@@ -314,58 +307,49 @@ export class CodexSession implements ThreadSession {
     throw new Error("No active thread bound to this session.");
   }
 
-  async startThread(request: CreateThreadRequest): Promise<ThreadBootstrapInfo> {
+  async startThread(request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
     assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
-    this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
     const dynamicTools = codexToolSpecs(this.dynamicTools.specifications());
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
-      ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
+      ...codexProfileSettings(request.profile ?? null),
       config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
     });
 
-    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/start");
-    this.approvalPolicy = bootstrap.approvalPolicy;
-    this.publish("thread.started", bootstrap.threadId, { approvalPolicy: this.approvalPolicy });
+    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/start", request.profile ?? null);
+    this.publish("thread.started", bootstrap.threadId, {});
     return bootstrap;
   }
 
-  async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ThreadBootstrapInfo> {
+  async resumeThread(threadId: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
     assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     const result = await this.sendRequest("thread/resume", {
       threadId,
-      ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
+      ...codexProfileSettings(request.profile ?? null),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(request.model ? { model: request.model } : {}),
     });
 
-    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/resume");
-    this.approvalPolicy = bootstrap.approvalPolicy;
-    return bootstrap;
+    return this.extractThreadBootstrapInfo(result, "thread/resume", request.profile ?? null);
   }
 
-  async forkThread(threadId: string, request: ForkThreadRequest): Promise<ThreadBootstrapInfo> {
+  async forkThread(threadId: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
     assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     const result = await this.sendRequest("thread/fork", {
       threadId,
-      ...(request.approvalPolicy && codexApproval(request.approvalPolicy) ? { approvalPolicy: codexApproval(request.approvalPolicy) } : {}),
+      ...codexProfileSettings(request.profile ?? null),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.sandbox ? { sandbox: codexSandbox(request.sandbox) } : {}),
       ...(request.model ? { model: request.model } : {}),
     });
 
-    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/fork");
-    this.approvalPolicy = bootstrap.approvalPolicy;
-    return bootstrap;
+    return this.extractThreadBootstrapInfo(result, "thread/fork", request.profile ?? null);
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -483,19 +467,14 @@ export class CodexSession implements ThreadSession {
     }));
   }
 
-  async startTurn(input: UserInput[], { model, effort, approvalPolicy }: TurnSettings = {}): Promise<string | null> {
-    assertApprovalSupport("Codex", this.capabilities, approvalPolicy ?? this.approvalPolicy);
+  async startTurn(input: UserInput[], { model, effort }: TurnSettings = {}): Promise<string | null> {
     assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
-    if (approvalPolicy && approvalPolicy !== "provider_default") {
-      this.approvalPolicy = approvalPolicy;
-    }
     this.messagePhaseByItemId.clear();
 
     // Codex keeps a thread's workspace per turn; send the current one, which setCwd may have changed.
     const result = await this.sendRequest("turn/start", {
       threadId,
-      ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
       input: codexInput(input),
       ...(model ? { model } : {}),
       cwd: this.cwd,
@@ -512,7 +491,7 @@ export class CodexSession implements ThreadSession {
   }
 
   private publishSettings(threadId: string): void {
-    this.publish("thread.settings.changed", threadId, { model: this.model, effort: this.effort, cwd: this.cwd, approvalPolicy: this.approvalPolicy });
+    this.publish("thread.settings.changed", threadId, { model: this.model, effort: this.effort, cwd: this.cwd, profile: this.profile });
   }
 
   async interruptTurn(turnId?: string): Promise<void> {
@@ -592,7 +571,9 @@ export class CodexSession implements ThreadSession {
     return threadId;
   }
 
-  private extractThreadBootstrapInfo(result: unknown, method: string): ThreadBootstrapInfo & { approvalPolicy: ApprovalPolicy } {
+  /** The thread's settings as Codex reports them; the profile is read back from its sandbox and
+   * approval settings when Codex reports them. */
+  private extractThreadBootstrapInfo(result: unknown, method: string, requested: string | null): ThreadBootstrapInfo {
     const threadId = this.mustSetThreadIdFromResult(result, method);
     const record = asRecord(result);
     const cwd = asString(record.cwd) ?? asString(asRecord(record.thread).cwd);
@@ -605,7 +586,8 @@ export class CodexSession implements ThreadSession {
       cwd,
       model: this.model,
       effort: this.effort,
-      approvalPolicy: Object.hasOwn(record, "approvalPolicy") ? applicationApproval(record.approvalPolicy) ?? "provider_default" : this.approvalPolicy,
+      profile: this.profile = Object.hasOwn(record, "approvalPolicy") || Object.hasOwn(record, "sandbox")
+        ? codexProfileFromNative(record.approvalPolicy, record.sandbox) : requested,
     };
   }
 

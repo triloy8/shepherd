@@ -33,7 +33,7 @@ test("question providers can omit answer masking and explicitly opt into it", ()
   expect(() => parseUserQuestionRequest({ ...request, questions: [{ ...question, isSecret: "true" }] })).toThrow("Invalid user question");
 });
 function sessionHarness() {
-  const session = new CodexSession("bypass");
+  const session = new CodexSession();
   session.threadId = input.threadId; session.activeTurnId = input.turnId;
   const raw = session as unknown as {
     writeLine: (payload: unknown) => void;
@@ -181,18 +181,18 @@ test("SessionManager expires pending questions when the turn ends or the session
   const { SessionManager } = await import("../server/core/session_manager");
   for (const end of ["turn", "stop"] as const) {
     let raw!: ReturnType<typeof sessionHarness>["raw"];
-    const manager = new SessionManager(undefined, sessionProviders(policy => {
-      const session = new CodexSession(policy);
+    const manager = new SessionManager(undefined, sessionProviders(() => {
+      const session = new CodexSession();
       session.initialize = async () => {};
       session.threadId = input.threadId;
       session.activeTurnId = input.turnId;
       raw = session as unknown as typeof raw;
       raw.writeLine = () => {};
-      session.startThread = async () => ({ threadId: input.threadId, cwd: "/tmp", effort: null, model: "test", approvalPolicy: policy });
+      session.startThread = async () => ({ threadId: input.threadId, cwd: "/tmp", effort: null, model: "test", profile: null });
       return session;
     }));
     try {
-      await manager.createThread({ approvalPolicy: "bypass" });
+      await manager.createThread({});
       raw.onNotification("turn/started", { threadId: input.threadId, turn: { id: input.turnId } });
       raw.onServerRequest({ id: 7, method: "item/tool/requestUserInput", params: input });
       expect(manager.listApprovals(input.threadId)[0]?.status).toBe("pending");

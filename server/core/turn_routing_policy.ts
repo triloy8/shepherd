@@ -1,4 +1,3 @@
-import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
 import type { UserInput } from "../../shared/protocol/user_input.js";
 
 export type NormalizedSurfaceInput = {
@@ -22,12 +21,11 @@ export type TurnRoutingInput = {
   threadId: string | null;
   input: UserInput[] | null;
   activeTurnId: string | null;
-  approvalPolicy?: ApprovalPolicy;
 };
 
 export type TurnRoutingDecision =
   | { type: "ignore" }
-  | { type: "submit"; threadId: string; input: UserInput[]; approvalPolicy?: ApprovalPolicy }
+  | { type: "submit"; threadId: string; input: UserInput[] }
   | { type: "steer"; threadId: string; input: UserInput[]; turnId: string };
 
 export function classifySurfaceInput(
@@ -69,6 +67,5 @@ export function decideTurnRouting(input: TurnRoutingInput): TurnRoutingDecision 
     type: "submit",
     threadId: input.threadId,
     input: input.input,
-    approvalPolicy: input.approvalPolicy,
   };
 }

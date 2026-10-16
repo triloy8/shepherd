@@ -71,7 +71,7 @@ export function scopedProvider(provider: string, native: Provider): Provider {
   const inward = (id: string) => nativeThreadId(provider, id);
   const record = (thread: ThreadRecord): ThreadRecord => ({ ...thread, id: outward(thread.id) });
   const methods: Partial<Provider> = {
-    openSession: (policy, tools) => scopedThreadSession(provider, native.openSession(policy, tools)),
+    openSession: tools => scopedThreadSession(provider, native.openSession(tools)),
     readThread: async (id, turns) => { const result = await native.readThread(inward(id), turns); return { ...result, thread: record(result.thread) }; },
     listStoredThreads: async request => { const result = await native.listStoredThreads(request); return { ...result, data: result.data.map(record) }; },
     listThreadTurns: (id, request) => native.listThreadTurns(inward(id), request),

@@ -4,18 +4,21 @@ import type { UserInput } from "./user_input.js";
 import type { ModelCapabilities } from "./model_capabilities.js";
 export type { EffortOption, ModelCapabilities, ModelInputModality } from "./model_capabilities.js";
 
-/** Review thresholds refer to the provider's trust/permission model. No mode promises universal review. */
-export type ApprovalPolicy = "provider_default" | "review_sensitive" | "review_untrusted" | "bypass";
-export type SandboxMode = "read_only" | "workspace_write" | "unrestricted";
+import type { ExecutionPolicy } from "./execution_policy.js";
+export type { ExecutionPolicy, PolicyProfile } from "./execution_policy.js";
+
+/** The execution mode a thread runs with: one of its provider's profiles and the restrictions it
+ * guarantees, or null when the agent uses its own configured defaults. */
+export type ThreadPolicy = { profile: string; policy: ExecutionPolicy } | null;
 export type ThreadSortKey = "created_at" | "updated_at";
 export type SortDirection = "asc" | "desc";
 export type AgentProvider = string;
 
 export interface CreateThreadRequest {
   provider?: AgentProvider;
-  approvalPolicy?: ApprovalPolicy;
+  /** Restrictions the thread must stay within; omitted uses the host policy. */
+  policy?: ExecutionPolicy;
   cwd?: string;
-  sandbox?: SandboxMode;
   model?: string;
   effort?: string;
 }
@@ -31,7 +34,6 @@ export type EffortSelection = string | null | { mode: "default" };
 export interface SubmitTurnRequest {
   effort?: string | null;
   input: UserInput[];
-  approvalPolicy?: ApprovalPolicy;
   model?: string;
 }
 
@@ -111,7 +113,7 @@ export interface GetThreadStateResponse {
   threadId: string;
   sessionId: string;
   activeTurnId: string | null;
-  approvalPolicy: ApprovalPolicy;
+  policy: ThreadPolicy;
 }
 
 export interface ReadThreadRequest {
@@ -124,9 +126,9 @@ export interface ReadThreadResponse {
 
 export interface ResumeThreadRequest {
   provider?: AgentProvider;
-  approvalPolicy?: ApprovalPolicy;
+  /** Restrictions the thread must stay within; omitted uses the host policy. */
+  policy?: ExecutionPolicy;
   cwd?: string;
-  sandbox?: SandboxMode;
   model?: string;
   effort?: string;
 }
@@ -138,9 +140,9 @@ export interface ResumeThreadResponse {
 
 export interface ForkThreadRequest {
   provider?: AgentProvider;
-  approvalPolicy?: ApprovalPolicy;
+  /** Restrictions the thread must stay within; omitted uses the host policy. */
+  policy?: ExecutionPolicy;
   cwd?: string;
-  sandbox?: SandboxMode;
   model?: string;
   effort?: string;
 }

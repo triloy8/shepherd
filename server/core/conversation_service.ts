@@ -6,7 +6,6 @@ import type {
 
 
 
-  ApprovalPolicy,
   CreateThreadRequest,
   CreateThreadResponse,
   ForkThreadRequest,
@@ -197,12 +196,11 @@ export class ConversationService {
   }
 
   async submitSurfaceInput(
-    input: ResolveRouteInput & { input: UserInput[]; approvalPolicy?: ApprovalPolicy },
+    input: ResolveRouteInput & { input: UserInput[] },
   ): Promise<{ threadId: string; turn: SubmitTurnResponse; route: ResolveRouteResult }> {
     const route = await this.resolveSurfaceThread(input);
     const turn = await this.manager.submitTurn(route.threadId, {
       input: input.input,
-      approvalPolicy: input.approvalPolicy,
     });
     return { threadId: route.threadId, turn, route };
   }

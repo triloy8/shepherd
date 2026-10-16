@@ -1,4 +1,3 @@
-import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
 import type { Provider, ProviderHistory, ThreadSession } from "../../server/ports/provider_session.js";
 import type { ProviderLookup } from "../../server/ports/provider_services.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
@@ -6,7 +5,7 @@ import { noProviderTools, type ProviderTools } from "../../server/ports/provider
 
 /** A test fake that runs a thread and also answers history, as one object. */
 export type TestSession = ThreadSession & ProviderHistory;
-export type TestSessionFactory = (policy: ApprovalPolicy, tools: ProviderTools, provider: string) => TestSession;
+export type TestSessionFactory = (tools: ProviderTools, provider: string) => TestSession;
 
 /** A provider built from session fakes. Like the installed adapters, it serves a running thread
  * through its session and everything else through one reader session opened on first use. */
@@ -14,11 +13,11 @@ export function sessionProvider(open: TestSessionFactory, capabilities?: Provide
   const live = new Map<string, TestSession>();
   let reader: Promise<TestSession> | undefined;
   let first: TestSession | undefined;
-  const opened = (policy: ApprovalPolicy, tools: ProviderTools) => { const session = open(policy, tools, id); first ??= session; return session; };
+  const opened = (tools: ProviderTools) => { const session = open(tools, id); first ??= session; return session; };
   const target = async (threadId?: string): Promise<TestSession> => {
     const running = threadId ? live.get(threadId) : undefined;
     if (running) return running;
-    reader ??= (async () => { const session = opened("provider_default", noProviderTools); await session.initialize(); return session; })();
+    reader ??= (async () => { const session = opened(noProviderTools); await session.initialize(); return session; })();
     return reader;
   };
   const track = (session: TestSession): TestSession => {
@@ -39,8 +38,8 @@ export function sessionProvider(open: TestSessionFactory, capabilities?: Provide
     return session[method]!(...args);
   };
   return {
-    get capabilities() { return capabilities ?? (first ??= open("provider_default", noProviderTools, id)).capabilities; },
-    openSession: (policy, tools) => track(opened(policy, tools)),
+    get capabilities() { return capabilities ?? (first ??= open(noProviderTools, id)).capabilities; },
+    openSession: tools => track(opened(tools)),
     listStoredThreads: delegate("listStoredThreads", false) as Provider["listStoredThreads"],
     listLoadedThreads: (async request => {
       const session = await target();

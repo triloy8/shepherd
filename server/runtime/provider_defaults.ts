@@ -1,21 +1,21 @@
-import type { ApprovalPolicy as ApprovalMode, SandboxMode } from "../../shared/protocol/requests.js";
+import { POLICY_PRESETS, type ExecutionPolicy, type PolicyPreset } from "../../shared/protocol/execution_policy.js";
 
-/** Host configuration is independent of any installed provider. */
+const presets = [...Object.keys(POLICY_PRESETS), "provider_default"] as PolicyPreset[];
+
+/** Host configuration is independent of any installed provider. `policy: null` leaves each agent's
+ * own configured defaults. */
 export function readProviderDefaults(env: Readonly<Record<string, string | undefined>>): {
-  approvalMode?: ApprovalMode; sandboxMode?: SandboxMode; defaultProvider?: string;
+  policy: ExecutionPolicy | null; defaultProvider?: string;
 } {
-  const defaultProvider = env.SHEPHERD_DEFAULT_PROVIDER?.trim();
   // Provider identities are opaque; composition validates that the selected identity is installed.
-  const approval = env.SHEPHERD_APPROVAL_MODE?.trim();
-  const sandbox = env.SHEPHERD_SANDBOX_MODE?.trim();
-  if (approval === "review_all") throw new Error("SHEPHERD_APPROVAL_MODE=review_all was misleading; use review_untrusted for provider trust-based review. No adapter promises review of every action.");
-  const approvals: ApprovalMode[] = ["provider_default", "review_sensitive", "review_untrusted", "bypass"];
-  const sandboxes: SandboxMode[] = ["read_only", "workspace_write", "unrestricted"];
-  if (approval && !approvals.includes(approval as ApprovalMode)) throw new Error("Invalid SHEPHERD_APPROVAL_MODE.");
-  if (sandbox && !sandboxes.includes(sandbox as SandboxMode)) throw new Error("Invalid SHEPHERD_SANDBOX_MODE.");
+  const defaultProvider = env.SHEPHERD_DEFAULT_PROVIDER?.trim();
+  for (const removed of ["SHEPHERD_APPROVAL_MODE", "SHEPHERD_SANDBOX_MODE"]) {
+    if (env[removed]?.trim()) throw new Error(`${removed} was replaced by SHEPHERD_POLICY (${presets.join(", ")}); remove it and set SHEPHERD_POLICY instead.`);
+  }
+  const preset = (env.SHEPHERD_POLICY?.trim() || "provider_default") as PolicyPreset;
+  if (!presets.includes(preset)) throw new Error(`SHEPHERD_POLICY must be one of ${presets.join(", ")}.`);
   return {
-    ...(approval ? { approvalMode: approval as ApprovalMode } : {}),
-    ...(sandbox ? { sandboxMode: sandbox as SandboxMode } : {}),
+    policy: preset === "provider_default" ? null : { ...POLICY_PRESETS[preset] },
     ...(defaultProvider ? { defaultProvider } : {}),
   };
 }

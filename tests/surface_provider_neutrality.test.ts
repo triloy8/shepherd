@@ -84,7 +84,7 @@ for (const adapter of ["web", "discord"]) test(`${adapter} creates, forks and re
     const threadId = await surface.createAndBindSurfaceThread("surface", () => {});
     const cwd = await conversation.resolveThreadCwd(threadId);
     expect(cwd.startsWith(h.projectRoot)).toBe(true);
-    expect(h.requests.at(-1)!.request).toEqual({ cwd });
+    expect(h.requests.at(-1)!.request).toEqual({ cwd, profile: null });
     expect((await conversation.listLoadedThreads({})).threadIds).toEqual([threadId]);
     const forkId = await surface.forkSurfaceThread("surface", threadId, () => {});
     expect(await conversation.resolveThreadCwd(forkId)).not.toBe(cwd);
@@ -93,7 +93,7 @@ for (const adapter of ["web", "discord"]) test(`${adapter} creates, forks and re
     expect(await surface.resumeSurfaceThread("surface", threadId, () => {})).toBe(threadId);
     expect(await conversation.resolveThreadCwd(threadId)).toBe(cwd);
     expect(surface.getSurfaceThread("surface")).toBe(threadId);
-    expect(h.requests.at(-1)).toEqual({ operation: "resume", request: { cwd, provider: descriptor.id } });
+    expect(h.requests.at(-1)).toEqual({ operation: "resume", request: { cwd, profile: null } });
   } finally { conversation.stopAll(); }
 });
 

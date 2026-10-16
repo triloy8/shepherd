@@ -48,7 +48,7 @@ function assertProviderBoundary(session: ProviderSession, delta: ItemDeltaEvent,
 }
 void assertProviderBoundary;
 
-import type { CreateThreadRequest, ListStoredThreadsRequest, ApprovalPolicy, SandboxMode } from "../shared/protocol/requests.js";
+import type { CreateThreadRequest, ListStoredThreadsRequest, ExecutionPolicy, SubmitTurnRequest } from "../shared/protocol/requests.js";
 import type { ProviderSkillsRequest } from "../server/ports/provider_session.js";
 import type { SkillsListRequest } from "../shared/protocol/requests.js";
 
@@ -72,12 +72,21 @@ function assertNeutralConfiguration(create: CreateThreadRequest, list: ListStore
   list.sourceKinds;
   // @ts-expect-error Native storage implementation choices stay private.
   list.useStateDbOnly;
-  // @ts-expect-error Native approval labels are not application modes.
-  const approval: ApprovalPolicy = "untrusted";
-  // @ts-expect-error Native sandbox labels are not application modes.
-  const sandbox: SandboxMode = "danger-full-access";
-  void approval; void sandbox;
+  // @ts-expect-error Native sandbox labels are not policy restrictions.
+  const writes: ExecutionPolicy["writes"] = "danger-full-access";
+  // @ts-expect-error Native approval labels are not policy restrictions.
+  const review: ExecutionPolicy["review"] = "untrusted";
+  // @ts-expect-error Threads take one policy, not separate approval and sandbox modes.
+  create.approvalPolicy;
+  // @ts-expect-error Threads take one policy, not separate approval and sandbox modes.
+  create.sandbox;
+  void writes; void review;
 }
+function assertNoPerTurnPolicy(submit: SubmitTurnRequest) {
+  // @ts-expect-error A thread's policy is fixed when it starts; turns do not override it.
+  submit.approvalPolicy;
+}
+void assertNoPerTurnPolicy;
 void assertNeutralConfiguration;
 
 import type { ThreadRecord, ThreadModelState, ModelSummary, HistoryItem } from "../shared/protocol/requests.js";
@@ -124,10 +133,10 @@ void assertEventPayloads;
 
 import type { ThreadBootstrapInfo } from "../server/ports/provider_session.js";
 function assertWorkspaceContract() {
-  const complete: ThreadBootstrapInfo = { threadId: "thread", cwd: "/workspace", model: null, effort: null, approvalPolicy: "provider_default" };
+  const complete: ThreadBootstrapInfo = { threadId: "thread", cwd: "/workspace", model: null, effort: null, profile: null };
   // @ts-expect-error A live provider thread must expose its effective workspace.
-  const incomplete: ThreadBootstrapInfo = { threadId: "thread", model: null, effort: null, approvalPolicy: "provider_default" };
-  // @ts-expect-error Bootstrap reports the approval mode the thread runs with.
+  const incomplete: ThreadBootstrapInfo = { threadId: "thread", model: null, effort: null, profile: null };
+  // @ts-expect-error Bootstrap reports the policy profile the thread runs with.
   const unreported: ThreadBootstrapInfo = { threadId: "thread", cwd: "/workspace", model: null, effort: null };
   return [complete, incomplete, unreported];
 }
@@ -200,6 +209,6 @@ function assertProviderSplit(provider: Provider, session: ProviderSession) {
   void session.readThread("thread", false);
   // @ts-expect-error A provider does not run turns; its sessions do.
   void provider.startTurn([], {});
-  void provider.openSession("provider_default", { hasTools: () => false, specifications: () => [], execute: async () => ({ contentItems: [], success: true }) });
+  void provider.openSession({ hasTools: () => false, specifications: () => [], execute: async () => ({ contentItems: [], success: true }) });
 }
 void assertProviderSplit;

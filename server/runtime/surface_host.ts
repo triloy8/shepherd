@@ -62,7 +62,6 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
         report(prepared.id, { state: "starting" });
         const adapter = prepared.create({
           signal: abort.signal,
-          approvalPolicy: config.approvalPolicy,
           ingress: createIngressConversation(shepherd.conversation),
           interactions: createInteractionConversation(shepherd.conversation),
           approvals: createApprovalConversation(shepherd.conversation),

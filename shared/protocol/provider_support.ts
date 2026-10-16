@@ -1,56 +1,35 @@
 import type { ProviderCapabilities, ProviderOperation } from "./provider_capabilities.js";
-import type { ApprovalPolicy, CreateThreadRequest, SandboxMode } from "./requests.js";
+import type { CreateThreadRequest, ThreadPolicy } from "./requests.js";
+import { resolveProfile, type ExecutionPolicy } from "./execution_policy.js";
 import type { UserInput } from "./user_input.js";
 
 export class UnsupportedProviderOperationError extends Error {
   constructor(provider: string, operation: string) { super(`${provider} provider does not support ${operation}.`); }
 }
 
-/** Host-wide preferences. Unlike request values, they apply only where the thread's provider supports them. */
-export type ThreadDefaults = { approvalPolicy?: ApprovalPolicy; sandbox?: SandboxMode };
+/** Host-wide preferences. `policy: null` leaves each agent's own configured defaults. */
+export type ThreadDefaults = { policy?: ExecutionPolicy | null };
 
-/** Most restrictive first. `provider_default` has no known position, so it is never substituted. */
-const approvalStrictness: readonly ApprovalPolicy[] = ["review_untrusted", "review_sensitive", "bypass"];
-const sandboxStrictness: readonly SandboxMode[] = ["read_only", "workspace_write", "unrestricted"];
-
-/** How a provider honors one host default: the configured mode, a stricter supported mode,
- * its own default (only when the configured mode is the least restrictive), or refusal. */
-export type ThreadDefaultResolution<T> =
-  | { outcome: "apply"; value: T }
-  | { outcome: "stricter"; value: T }
-  | { outcome: "provider_default" }
-  | { outcome: "refuse" };
-
-function resolveDefault<T>(configured: T, supported: readonly T[], strictness: readonly T[]): ThreadDefaultResolution<T> {
-  if (supported.includes(configured)) return { outcome: "apply", value: configured };
-  const rank = strictness.indexOf(configured);
-  if (rank < 0) return { outcome: "provider_default" };
-  // Prefer the least restrictive mode that is still no looser than the configured one.
-  const stricter = strictness.slice(0, rank).reverse().find(mode => supported.includes(mode));
-  if (stricter !== undefined) return { outcome: "stricter", value: stricter };
-  // The provider's own default cannot be looser than the least restrictive mode.
-  return rank === strictness.length - 1 ? { outcome: "provider_default" } : { outcome: "refuse" };
+/** The profile a thread runs with: the least restrictive one within the requested policy, or the
+ * host policy when none is requested. Policy never loosens, so a provider without a profile within
+ * it is refused. Null means no policy applies and the agent uses its own defaults. */
+export function resolveThreadProfile(provider: string, capabilities: ProviderCapabilities, requested: ExecutionPolicy | undefined, hostPolicy: ExecutionPolicy | null | undefined): string | null {
+  const limit = requested ?? hostPolicy ?? null;
+  if (!limit) return null;
+  const profile = resolveProfile(capabilities.policyProfiles, limit);
+  if (!profile) throw new UnsupportedProviderOperationError(provider, `execution policy writes=${limit.writes}, network=${limit.network}, review=${limit.review} or a stricter one`);
+  return profile.id;
 }
 
-/** Host defaults never loosen execution. Configured defaults resolve per provider. */
-export function resolveThreadDefaults(defaults: ThreadDefaults, capabilities: ProviderCapabilities): {
-  approvalPolicy?: ThreadDefaultResolution<ApprovalPolicy>; sandbox?: ThreadDefaultResolution<SandboxMode>;
-} {
-  return {
-    ...(defaults.approvalPolicy ? { approvalPolicy: resolveDefault(defaults.approvalPolicy, capabilities.approvalModes, approvalStrictness) } : {}),
-    ...(defaults.sandbox ? { sandbox: resolveDefault(defaults.sandbox, capabilities.sandboxModes, sandboxStrictness) } : {}),
-  };
+/** A profile and the restrictions it guarantees, as thread state reports them. */
+export function threadPolicy(capabilities: ProviderCapabilities, profile: string | null): ThreadPolicy {
+  const declared = profile === null ? undefined : capabilities.policyProfiles.find(entry => entry.id === profile);
+  return declared ? { profile: declared.id, policy: { ...declared.policy } } : null;
 }
 
-export function assertApprovalSupport(provider: string, capabilities: ProviderCapabilities, policy: ApprovalPolicy): void {
-  if (!capabilities.approvalModes.includes(policy)) throw new UnsupportedProviderOperationError(provider, `approval mode ${policy}`);
-}
-
-export function assertThreadSupport(provider: string, capabilities: ProviderCapabilities, request: Pick<CreateThreadRequest, "approvalPolicy" | "sandbox" | "model" | "effort">): void {
+export function assertThreadSupport(provider: string, capabilities: ProviderCapabilities, request: Pick<CreateThreadRequest, "model" | "effort">): void {
   if (request.model) assertProviderOperation(provider, capabilities, "modelSelection");
   if (request.effort) assertProviderOperation(provider, capabilities, "effortSelection");
-  if (request.approvalPolicy) assertApprovalSupport(provider, capabilities, request.approvalPolicy);
-  if (request.sandbox && !capabilities.sandboxModes.includes(request.sandbox)) throw new UnsupportedProviderOperationError(provider, `sandbox mode ${request.sandbox}`);
 }
 
 export function assertInputSupport(provider: string, capabilities: ProviderCapabilities, input: readonly UserInput[]): void {

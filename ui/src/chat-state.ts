@@ -2,13 +2,18 @@ import { imageDataParts, WEB_IMAGE_MAX_COUNT } from "../../shared/protocol/image
 import { describeActivity } from "../../shared/protocol/activity";
 import type { WebBridgeEvent, WebHistoryItem, WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryItem, HistoryTurn } from "../../shared/protocol/requests";
+import { appendOutput, streamedItem, type StreamedItem } from "../../shared/protocol/item_stream";
 
 /** A progress row: a tool call, or a plan or reasoning summary shown like one. */
 export type ActivityStep = Pick<Extract<HistoryItem, { type: "activity" }>, "status" | "activity">;
 
 export type ChatMessage = { optimistic?: boolean; anonymous?: boolean; anonymousBaseline?: string[]; localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: ActivityStep; phase?: "interim" | "final";
   /** The delegation step whose subagent produced this row; such rows render inside that step. */
-  parentId?: string; streamText?: string; snapshotText?: string };
+  parentId?: string; streamText?: string; snapshotText?: string;
+  /** A plan or reasoning item as streamed so far, until its canonical item completes. */
+  streamed?: StreamedItem;
+  /** The latest output of a running step. History records no output, so it shows only while the step runs. */
+  output?: string };
 export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
 export type ChatState = { endedTurns: string[]; turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
 export const emptyChat = (): ChatState => ({ endedTurns: [], turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
@@ -116,6 +121,8 @@ export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = 
     if (previous?.activity && previous.activity.status !== "started" && message.activity?.status === "started") {
       existing.set(messageKey(message), previous); continue;
     }
+    // A running step keeps what streamed live: a snapshot has no output and may trail the stream.
+    if (message.activity?.status === "started" && (previous?.streamed || previous?.output)) { existing.set(messageKey(message), previous); continue; }
     // History may be ahead of a queued delta. Keep its text separate from the
     // accumulated stream so reconnect replay cannot append the same text twice.
     existing.set(messageKey(message), message.complete ? message : {
@@ -172,6 +179,22 @@ export function reduceBridge(state: ChatState, event: WebBridgeEvent): ChatState
     if (previous?.activity && previous.activity.status !== "started" && message.activity?.status === "started") return next;
     const messages = previous ? state.messages.map((m) => m === previous ? message : m) : [...state.messages, message];
     return message.activity && !message.parentId ? { ...next, messages, activity: message.activity.status === "started" ? describeActivity(message.activity.activity).title : "Thinking" } : { ...next, messages };
+  }
+  if (event.type === "item.delta" && event.payload.channel !== "message") {
+    const { itemId } = event.payload;
+    // Plans, reasoning and output extend a known item; without an ID there is nothing to extend.
+    if (!itemId) return next;
+    const previous = state.messages.find((m) => m.id === itemId && m.turnId === turnId);
+    if (previous?.complete) return next;
+    if (event.payload.channel === "output") {
+      if (previous?.activity?.status !== "started") return next;
+      return { ...next, messages: state.messages.map((m) => m === previous ? { ...m, output: appendOutput(m.output, event.payload.delta) } : m) };
+    }
+    const streamed = streamedItem(previous?.streamed, itemId, event.payload);
+    const message = streamed && itemMessage(streamed, turnId, "started");
+    if (!message) return next;
+    const row = { ...message, streamed, ...(previous?.parentId ? { parentId: previous.parentId } : {}) };
+    return { ...next, messages: previous ? state.messages.map((m) => m === previous ? row : m) : [...state.messages, row] };
   }
   const assistant = item?.type === "assistant_message" && event.type === "item.completed" ? item : null;
   const delta = event.type === "item.delta" && event.payload.channel === "message" ? event.payload : null;

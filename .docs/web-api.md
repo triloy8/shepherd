@@ -260,11 +260,14 @@ Turn `status` is `completed`, `interrupted`, `failed`, or `in_progress`.
 Activity items carry `status` (`started`, `completed` or `failed`) and a typed `activity`.
 Image items carry `webImage: { url, prompt, name, path, kind }` instead of a server path.
 Live turns stream the same items over SSE: `item.started` for items that take time,
-`item.delta` for streamed text (`channel` is `message`, `plan`, `reasoning` or `output`), and
+`item.delta` for streamed text (`channel` is `message`, `plan`, `reasoning` or `output`; a
+reasoning delta may name its summary `part`), and
 `item.completed` with the canonical item. Live items are presented exactly as history presents
 them, including the scoped image URL, so a reload shows what the live view showed. The browser
 uses these fields for the work timeline and image previews; it does not request files by
-filesystem path.
+filesystem path. Plan and reasoning deltas show as running steps until their item completes;
+`output` shows the latest output of a running step and is not kept once the step completes,
+because history records none.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a
 provider image event or that conversation's stored history. IDs are opaque and

@@ -38,7 +38,7 @@ const TimelineGroupView = memo(function TimelineGroupView({ group, subagentRows,
     const updates = <div className="space-y-4 border-l border-line pl-4 text-muted">{progress.map((message) => message.image ? <DeferredDetails key={message.id} className="viewed-image-disclosure text-xs text-muted"
       summary={<>Viewed image{message.image.name ? ` · ${message.image.name}` : ""}</>}>
       <ImageArtifact image={message.image} eager />
-    </DeferredDetails> : message.activity ? <ActivityStep key={message.id} step={message.activity} turnStatus={turnStatus}>
+    </DeferredDetails> : message.activity ? <ActivityStep key={message.id} step={message.activity} output={message.output} turnStatus={turnStatus}>
       {subagentRows.some((row) => row.parentId === message.id && row.turnId === message.turnId) && <SubagentRows rows={subagentRows.filter((row) => row.parentId === message.id && row.turnId === message.turnId)} images={images} turnStatus={turnStatus} />}
     </ActivityStep> : <Message key={message.id} message={message} images={images} writingPaused={waiting} progress showCopy={false} />)}</div>;
     return <section className="timeline-entry space-y-5" aria-label="Assistant turn">
@@ -69,17 +69,18 @@ function DeferredDetails({ summary, children, className = "progress-disclosure" 
 function SubagentRows({ rows, images, turnStatus }: { rows: readonly ChatMessage[]; images: readonly WebImage[]; turnStatus?: string }) {
   return <div className="subagent-rows mt-3 space-y-3 border-l border-line pl-4" aria-label="Subagent work">
     {rows.map((message) => message.image ? <ImageArtifact key={message.id} image={message.image} eager /> :
-      message.activity ? <ActivityStep key={message.id} step={message.activity} turnStatus={turnStatus} /> :
+      message.activity ? <ActivityStep key={message.id} step={message.activity} output={message.output} turnStatus={turnStatus} /> :
       <Message key={message.id} message={message} images={images} progress showCopy={false} />)}
   </div>;
 }
 
-function ActivityStep({ step, turnStatus, children }: { step: Step; turnStatus?: string; children?: ReactNode }) {
+function ActivityStep({ step, output, turnStatus, children }: { step: Step; output?: string; turnStatus?: string; children?: ReactNode }) {
   const { title, detail } = describeActivity(step.activity);
   const state = step.status === "started" && turnStatus && turnStatus !== "in_progress" ? "Stopped" : step.status === "started" ? "Running" : step.status === "failed" ? "Failed" : "Done";
   return <details className={step.status === "failed" ? "notice" : "text-xs text-muted"}>
     <summary className="cursor-pointer">{title} · {state}</summary>
     {detail && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{detail.slice(0, 16384)}</pre>}
+    {output && step.status === "started" && <pre className="step-output mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words" aria-label="Output so far">{output}</pre>}
     {children}
   </details>;
 }

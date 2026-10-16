@@ -33,7 +33,8 @@ export interface BridgeEventPayloads {
   /** An item that takes time has begun; it is the same record history returns, in its current state. */
   "item.started": { turnId: string | null; item: HistoryItem };
   /** Streamed text for an item. Only `message` text is part of an assistant message. */
-  "item.delta": { turnId: string | null; itemId: string | null; channel: ItemDeltaChannel; delta: string; phase: MessagePhase | null };
+  /** `part` names the reasoning summary part a delta extends, when the provider has several. */
+  "item.delta": { turnId: string | null; itemId: string | null; channel: ItemDeltaChannel; delta: string; phase: MessagePhase | null; part?: number };
   /** The canonical item, equal to what history returns for it. */
   "item.completed": { turnId: string | null; item: HistoryItem };
   "approval.requested": ApprovalRequestPayload;

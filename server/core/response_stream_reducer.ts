@@ -1,4 +1,5 @@
 import type { BridgeEvent, MessagePhase } from "../../shared/protocol/events.js";
+import { answerMessages } from "../../shared/protocol/item_stream.js";
 
 export type AccumulatedMessage = {
   itemId: string | null;
@@ -48,7 +49,7 @@ export function createResponseStreamState(turnId: string | null = null): Respons
 
 export function getFinalResponseText(state: ResponseStreamState | null): string {
   if (!state) return "";
-  const messages = state.finalMessages.length ? state.finalMessages : state.unphasedMessages?.slice(-1) ?? [];
+  const messages = answerMessages([...state.finalMessages.map(message => ({ ...message, phase: "final" as const })), ...(state.unphasedMessages ?? []).map(message => ({ ...message, phase: null }))]);
   return messages
     .map((message) => message.text)
     .filter((text) => Boolean(text.trim()))

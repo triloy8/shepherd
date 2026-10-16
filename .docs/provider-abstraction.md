@@ -41,7 +41,10 @@ time (a running tool, an image being generated), `item.delta` for streamed text,
 decoder, so the item completed live equals the item history later returns; tests check this for
 both adapters. Deltas name their `channel` (`message`, `plan`, `reasoning`, `output`); only
 `message` text is part of an assistant message, and core and UI never infer meaning from an SDK
-method. Codex keeps raw reasoning text private and streams only reasoning summaries.
+method. `shared/protocol/item_stream.ts` holds the rules every surface shares: how plan and
+reasoning deltas build their item until the canonical item replaces it, and which messages answer
+a turn (those marked final, or else the last unphased one). Output deltas are a running step's
+latest output; history keeps none, so surfaces drop it when the step completes. Codex keeps raw reasoning text private and streams only reasoning summaries.
 Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
 Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
 An item a subagent produced names its delegation activity in `parentItemId`. It belongs to the

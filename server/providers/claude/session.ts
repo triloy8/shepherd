@@ -204,6 +204,9 @@ export class ClaudeSession implements ThreadSession {
     let streamItemId: string | null = null;
     let streamMessageId: string | null = null;
     let streamTextBlocks = 0;
+    // Thinking streams as reasoning. History records only thinking with text, so an item ID is
+    // assigned, in the decoder's order, once a block's text is more than whitespace.
+    let streamThinkingBlocks = 0, thinking: { itemId: string | null; text: string } | null = null;
     const scope = this.accountLimits?.scope();
     const account = this.accountLimits && typeof running.accountInfo === "function"
       ? running.accountInfo().catch(() => null) : Promise.resolve(null);
@@ -226,10 +229,17 @@ export class ClaudeSession implements ThreadSession {
         if (message.type === "stream_event" && !message.parent_tool_use_id) {
           const event = message.event;
           if (event.type === "message_start") {
-            streamMessageId = streamItemId = event.message.id; streamTextBlocks = 0;
+            streamMessageId = streamItemId = event.message.id; streamTextBlocks = 0; streamThinkingBlocks = 0;
             this.requestUsage = { ...event.message.usage };
           }
           if (event.type === "content_block_start" && event.content_block.type === "text" && streamMessageId) streamItemId = textItemId(streamMessageId, streamTextBlocks++);
+          if (event.type === "content_block_start") thinking = event.content_block.type === "thinking" ? { itemId: null, text: "" } : null;
+          if (turn && thinking && streamMessageId && event.type === "content_block_delta" && event.delta.type === "thinking_delta") {
+            thinking.text += event.delta.thinking;
+            const first = !thinking.itemId && !!thinking.text.trim();
+            if (first) thinking.itemId = `${streamMessageId}:thinking:${streamThinkingBlocks++}`;
+            if (thinking.itemId) this.publish("item.delta", { turnId: turn.id, itemId: thinking.itemId, channel: "reasoning", delta: first ? thinking.text : event.delta.thinking, phase: null });
+          }
           if (event.type === "message_delta" && this.requestUsage) {
             for (const [key, value] of Object.entries(event.usage ?? {})) if (typeof value === "number") (this.requestUsage as Record<string, number>)[key] = value;
           }

@@ -64,12 +64,10 @@ Adapters decode stored history before returning it. History records are a discri
 union of application item types (`user_message`, `assistant_message`, `plan`, `reasoning`,
 `activity`, `image`, `other`) with `in_progress`/`completed`/`interrupted`/`failed` turn
 status; web/Discord do not decode native tool records. Codex decodes its thread items in
-its adapter. Claude saves snapshots in its own record types (`ClaudeStored*` in
-`server/providers/claude/history.ts`), normalizes snapshots written with earlier names when
-reading them, and converts saved records into application items only when presenting
-history, so shared contract changes do not change the saved format. Saved tool calls keep the
-tool name and the bounded arguments an activity is described from; activities saved before
-that format have nothing to present and read as `other`. User message history has a
+its adapter. Provider transcripts are authoritative: Shepherd keeps no copy of a conversation.
+Claude history is read from its session transcript through the SDK and decoded by
+`server/providers/claude/transcript.ts`, the same decoder the live stream uses. Activities
+are described from a bounded subset of tool arguments; tool results are not part of history. User message history has a
 content part for every application input kind (`text`, `image`, `image_file`, `audio`, `audio_file`,
 `skill`); `attachment` is only for provider content with no application counterpart, such as
 Codex connector mentions, and keeps an indicator and available name/path in the web UI. The web
@@ -254,8 +252,7 @@ Shared thread requests offer model, effort, workspace, sandbox, and approval mod
 carry no instructions and no ephemeral lifetime: no surface sent either, Codex's
 `developerInstructions` may replace configured developer instructions rather than add to
 them, and ephemeral threads are Codex-only. Each agent keeps its own configured
-instructions. Claude snapshots written with instructions by earlier versions still append
-them to the preset system prompt. Raw SDK `config`, backend overrides, deprecated
+instructions. Raw SDK `config`, backend overrides, deprecated
 personality selectors, analytics service names, and native database/source filters are
 not public fields. Their native configuration remains provider-owned. Unknown request
 fields are rejected, not ignored. Model backend configuration belongs in the provider's
@@ -306,9 +303,9 @@ uncorrelated follow-ups are ignored; host decisions complete their captured appl
 For an unbound stored conversation, registered adapters identify ownership from native
 records; exactly one match is required and the binding is then persisted. Unknown or
 ambiguous identities fail rather than guessing a default provider or inspecting an ID
-prefix in shared code. Existing bindings remain immutable. Claude snapshots retain the approval mode, as
-an adapter-owned value translated to and from the common mode, across resume/fork/restart. Older snapshots without this optional field use the provider
-default unless a mode is explicitly supplied. Provider-native transcripts remain adapter-owned. Web navigation
+prefix in shared code. Existing bindings remain immutable. Claude's session does not record
+Shepherd's approval mode, so resume and fork use the requested mode or the host's configured
+mode. Provider-native transcripts remain adapter-owned. Web navigation
 handles and SSE replay are volatile; persisted history is the recovery source. Reconnecting
 never automatically resends a prompt.
 

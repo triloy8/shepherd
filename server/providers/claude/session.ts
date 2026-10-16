@@ -1,20 +1,20 @@
 import { assertThreadSupport, assertApprovalSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { approvalChoices } from "../approval_choices.js";
-import { historyItem, historyTurn, storedContent, threadTokenUsage, type ClaudeStoredItem, type ClaudeStoredTurn, type ClaudeStoredUsage, type ClaudeStoredTokenUsage } from "./history.js";
-import { claudeDefaults } from "./defaults.js";
+import { ClaudeTranscript, decodeTranscript, promptContent, textItemId, type TranscriptEntry } from "./transcript.js";
+import { claudeDefaults, claudeEffortLevels, isClaudeEffort, type ClaudeEffort } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
 import { claudeActivity, claudeActivityFields } from "./activity.js";
-import { approvalPolicyFromStored, claudePermissionOptions, storedApprovalMode } from "./permissions.js";
+import { claudePermissionOptions } from "./permissions.js";
 import { claudeQuestions, claudeQuestionAnswers } from "./questions.js";
 import type { UserQuestionRequest } from "../../../shared/protocol/user_questions.js";
 import { claudeCapabilities } from "./capabilities.js";
-import { claudeEffortLevels, isClaudeEffort, type ClaudeThreadRepository, type ClaudeThread, type ClaudeThreadSummary } from "./thread_store.js";
 import { InputQueue } from "./input_queue.js";
 import { ClaudeModelCache } from "./model_cache.js";
+import { archivedTag, claudeNative, type ClaudeNative } from "./native_sessions.js";
 import { randomUUID } from "node:crypto";
-import { query, forkSession, type ModelInfo, type ModelUsage, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
+import type { ModelInfo, ModelUsage, Options, Query, SDKMessage, SDKSessionInfo, SDKUserMessage, PermissionResult, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type * as P from "../../../shared/protocol/requests.js";
 import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../../shared/protocol/events.js";
@@ -33,16 +33,10 @@ function paginate<T>(values: T[], request: { cursor?: string; limit?: number }) 
   return { data: values.slice(offset, offset + limit), nextCursor: offset + limit < values.length ? String(offset + limit) : null, backwardsCursor: null };
 }
 
-const persistDelayMs = 1_000;
-const storedResultChars = 8_000;
-
 type RequestUsage = { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
 
-/** The CLI emits one assistant message per content block. Later text blocks of one API message need distinct item IDs. */
-function textItemId(messageId: string, index: number): string { return index === 0 ? messageId : `${messageId}:${index}`; }
-
 /** Context fill of one model request, not the turn aggregate on the result message. */
-function requestBreakdown(usage: RequestUsage): ClaudeStoredUsage {
+function requestBreakdown(usage: RequestUsage): P.TokenUsageBreakdown {
   // Aggregate input includes cache reads/writes; absent components cannot be counted as zero.
   const cacheRead = usage.cache_read_input_tokens ?? null, cacheWrite = usage.cache_creation_input_tokens ?? null;
   const inputTokens = usage.input_tokens == null || cacheRead === null || cacheWrite === null
@@ -59,10 +53,20 @@ function summaryItems(items: P.HistoryItem[]): P.HistoryItem[] {
   return items.filter((item) => item.type === "user_message" || (item.type === "assistant_message" && answers.includes(item)));
 }
 
-/** The SDK transcript keeps full text. Shepherd history keeps a bounded preview. */
-function boundedText(value: string): string {
-  return value.length > storedResultChars ? `${value.slice(0, storedResultChars)}\n[${value.length - storedResultChars} characters omitted]` : value;
+function threadRecord(info: SDKSessionInfo, includeTurns: P.HistoryTurn[] | null, model: string | null = null): P.ThreadRecord {
+  return {
+    id: info.sessionId, model, name: info.customTitle ?? null, preview: info.firstPrompt ?? info.summary,
+    createdAt: (info.createdAt ?? info.lastModified) / 1000, updatedAt: info.lastModified / 1000,
+    ...(info.cwd ? { cwd: info.cwd } : {}), ...(includeTurns ? { turns: includeTurns } : {}),
+  };
 }
+
+/** The conversation this session runs. Claude's session is the record; these are this process's
+ * working settings, and changes requested before the session exists natively. */
+type ClaudeThread = {
+  id: string; cwd: string; model: string; effort: ClaudeEffort | undefined; materialized: boolean;
+  createdAt: number; pending: { name?: string; archived?: boolean };
+};
 
 export class ClaudeSession implements ProviderSession {
   readonly capabilities = claudeCapabilities;
@@ -71,8 +75,9 @@ export class ClaudeSession implements ProviderSession {
   activeTurnId: string | null = null;
   private readonly backgroundTasks = new BackgroundTasks();
   get backgroundTaskCount() { return this.backgroundTasks.count; }
-  private currentTurn: ClaudeStoredTurn | null = null;
   private thread: ClaudeThread | null = null;
+  /** This process's turns, decoded with the same decoder as stored sessions. */
+  private transcript = this.newTranscript();
   private running: Query | null = null;
   private readonly ownedQueries = new Map<Query, InputQueue<SDKUserMessage>>();
   private input: InputQueue<SDKUserMessage> | null = null;
@@ -80,21 +85,20 @@ export class ClaudeSession implements ProviderSession {
   private counter = 0;
   private interrupted = false;
   private steeredMessages = 0;
-  private pendingText: Array<{ itemId: string; text: string; turn: ClaudeStoredTurn }> = [];
-  private readonly textBlocks = new Map<string, number>();
   private requestUsage: RequestUsage | null = null;
   private runningTools: string | null = null;
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private approvals = new Map<string, { resolve: (result: PermissionResult) => void; input: Record<string, unknown>; suggestions: Parameters<CanUseTool>[2]["suggestions"]; questions?: UserQuestionRequest; replies: Map<string, unknown> }>();
   constructor(
     public approvalPolicy: P.ApprovalPolicy = "provider_default",
     private readonly dynamicTools: ProviderTools = noProviderTools,
-    private readonly store: ClaudeThreadRepository,
-    private readonly sdk = { query, forkSession },
+    private readonly sdk: ClaudeNative = claudeNative,
     private readonly accountLimits?: ClaudeLimitsObserver,
     private readonly modelCache = new ClaudeModelCache(),
   ) {}
   async initialize(): Promise<void> { if (this.stopped) throw new Error("Session is stopped."); }
+  private newTranscript(): ClaudeTranscript {
+    return new ClaudeTranscript((stage, turnId, item) => { if (!this.stopped) this.publish(stage === "started" ? "item.started" : "item.completed", { turnId, item }); });
+  }
   private bootstrap(): ThreadBootstrapInfo {
     const thread = this.requireThread();
     return { threadId: thread.id, cwd: thread.cwd, model: thread.model, effort: thread.effort ?? null, approvalPolicy: this.approvalPolicy };
@@ -102,43 +106,44 @@ export class ClaudeSession implements ProviderSession {
   async startThread(request: P.CreateThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
     this.validateOverrides(request);
-    const nativeId = randomUUID();
     const defaults = claudeDefaults();
-    this.thread = { id: `claude-${nativeId}`, nativeId, materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeThread["effort"] ?? defaults.effort, name: null, preview: "", archived: false, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, turns: [] };
+    this.bind({ id: randomUUID(), materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeEffort | undefined ?? defaults.effort, createdAt: Date.now() / 1000, pending: {} });
     this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
-    this.persist();
     this.publish("thread.started", { approvalPolicy: this.approvalPolicy });
     return this.bootstrap();
   }
+  /** Claude's session records the conversation, not Shepherd's settings: a resumed conversation
+   * uses the requested settings or the host defaults, and the model it last used. */
   async resumeThread(id: string, request: P.ResumeThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize(); this.validateOverrides(request);
-    this.thread = this.store.read(id);
-    // A process crash leaves the last turn incomplete; retain it as interrupted.
-    for (const turn of this.thread.turns) if (turn.status === "in_progress") turn.status = "interrupted";
-    if (request.cwd) this.thread.cwd = request.cwd;
-    if (request.model) this.thread.model = request.model;
-    if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
-    this.approvalPolicy = (request.approvalPolicy === "provider_default" ? undefined : request.approvalPolicy) ?? this.savedApprovalPolicy(this.thread) ?? this.approvalPolicy;
+    const info = await this.sessionInfo(id);
+    const { model, usage } = decodeTranscript(await this.sdk.getSessionMessages(id));
+    const defaults = claudeDefaults();
+    this.bind({ id, materialized: true, cwd: request.cwd ?? info.cwd ?? process.cwd(), model: request.model ?? model ?? defaults.model, effort: request.effort as ClaudeEffort | undefined ?? defaults.effort, createdAt: (info.createdAt ?? info.lastModified) / 1000, pending: {} });
+    this.approvalPolicy = request.approvalPolicy && request.approvalPolicy !== "provider_default" ? request.approvalPolicy : this.approvalPolicy;
     assertApprovalSupport("Claude", this.capabilities, this.approvalPolicy);
-    this.persist();
-    if (this.thread.tokenUsage) this.publish("thread.tokenUsage.updated", { turnId: null, tokenUsage: threadTokenUsage(this.thread.tokenUsage) });
+    if (usage) this.publish("thread.tokenUsage.updated", { turnId: null, tokenUsage: { last: requestBreakdown(usage as RequestUsage), total: null, contextWindow: null } });
     return this.bootstrap();
   }
   async forkThread(id: string, request: P.ForkThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize(); this.validateOverrides(request);
-    const source = this.store.read(id);
-    const policy = (request.approvalPolicy === "provider_default" ? undefined : request.approvalPolicy) ?? this.savedApprovalPolicy(source) ?? this.approvalPolicy;
+    const info = await this.sdk.getSessionInfo(id);
+    const policy = request.approvalPolicy && request.approvalPolicy !== "provider_default" ? request.approvalPolicy : this.approvalPolicy;
     assertApprovalSupport("Claude", this.capabilities, policy);
-    if (source.turns.some(turn => turn.status === "in_progress")) throw new Error("Cannot fork an active Claude thread.");
     // The transcript stays in the project directory where it began. A thread's cwd can
     // later move to another workspace, so let the SDK search every project directory.
-    const nativeId = source.materialized ? (await this.sdk.forkSession(source.nativeId)).sessionId : randomUUID();
-    this.thread = { ...source, id: `claude-${nativeId}`, nativeId, name: null, archived: false, createdAt: Date.now() / 1000, turns: structuredClone(source.turns) };
-    if (request.cwd) this.thread.cwd = request.cwd;
-    if (request.model) this.thread.model = request.model;
-    if (request.effort) this.thread.effort = request.effort as ClaudeThread["effort"];
+    const native = info ? (await this.sdk.forkSession(id)).sessionId : randomUUID();
+    const { model } = info ? decodeTranscript(await this.sdk.getSessionMessages(native)) : { model: null };
+    const defaults = claudeDefaults();
+    this.bind({ id: native, materialized: !!info, cwd: request.cwd ?? info?.cwd ?? process.cwd(), model: request.model ?? model ?? defaults.model, effort: request.effort as ClaudeEffort | undefined ?? defaults.effort, createdAt: Date.now() / 1000, pending: {} });
     this.approvalPolicy = policy;
-    this.persist(); return this.bootstrap();
+    return this.bootstrap();
+  }
+  private bind(thread: ClaudeThread): void { this.thread = thread; this.transcript = this.newTranscript(); }
+  private async sessionInfo(id: string): Promise<SDKSessionInfo> {
+    const info = await this.sdk.getSessionInfo(id);
+    if (!info) throw new Error(`Unknown Claude session ${id}.`);
+    return info;
   }
   private validateOverrides(request: P.CreateThreadRequest | P.ResumeThreadRequest) {
     assertThreadSupport("Claude", this.capabilities, request);
@@ -165,11 +170,11 @@ export class ClaudeSession implements ProviderSession {
     }
     this.approvalPolicy = nextPolicy;
     const options: Options = {
-      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: effort === null ? undefined : (effort as ClaudeThread["effort"]) ?? thread.effort,
-      ...(thread.materialized ? { resume: thread.nativeId } : { sessionId: thread.nativeId }),
+      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: effort === null ? undefined : (effort as ClaudeEffort | undefined) ?? thread.effort,
+      ...(thread.materialized ? { resume: thread.id } : { sessionId: thread.id }),
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
       includePartialMessages: true, settingSources: ["user", "project", "local"],
-      systemPrompt: { type: "preset", preset: "claude_code", append: thread.instructions || undefined },
+      systemPrompt: { type: "preset", preset: "claude_code" },
       ...claudePermissionOptions(this.approvalPolicy),
       canUseTool: (name, args, context) => this.requestApproval(name, args, context),
       mcpServers: shepherdMcpServers(this.dynamicTools, () => this.activeTurnId ? { threadId: thread.id, turnId: this.activeTurnId } : null),
@@ -178,15 +183,9 @@ export class ClaudeSession implements ProviderSession {
     const queue = this.input ?? new InputQueue<SDKUserMessage>();
     const running = existing ?? this.openQuery(queue, options);
     thread.cwd = options.cwd!; thread.model = options.model!; thread.effort = options.effort;
-    const turn: ClaudeStoredTurn = { id: randomUUID(), status: "in_progress", items: [{ id: message.uuid!, type: "user_message", content: storedContent(input) }], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
-    thread.turns.push(turn); thread.preview ||= input.filter((part) => part.type === "text").map((part) => part.text).join("\n").slice(0, 200);
-    this.input = queue; this.running = running; this.activeTurnId = turn.id; this.currentTurn = turn; this.interrupted = false; this.steeredMessages = 0;
-    try { this.persist(); }
-    catch (error) {
-      this.closeQuery(running); thread.turns.pop(); this.backgroundTasks.reset();
-      this.input = null; this.running = null; this.activeTurnId = null; this.currentTurn = null;
-      throw error;
-    }
+    // The prompt's ID is recorded in Claude's transcript, so the turn has the same ID after a reload.
+    const turn = this.transcript.beginTurn(message.uuid!, Date.now() / 1000, promptContent(message.message.content));
+    this.input = queue; this.running = running; this.activeTurnId = turn.id; this.interrupted = false; this.steeredMessages = 0;
     this.publish("turn.started", { turnId: turn.id });
     queue.push(message);
     if (!existing) { this.runningTools = tools; this.backgroundTasks.reset(); void this.consume(running, queue); }
@@ -203,7 +202,7 @@ export class ClaudeSession implements ProviderSession {
       throw new UnsupportedProviderOperationError("Claude", `input type ${part.type}`);
     });
     if (!content.length) throw new Error("Claude turn input is empty.");
-    return { type: "user", uuid: randomUUID(), session_id: this.requireThread().nativeId, message: { role: "user", content }, parent_tool_use_id: null };
+    return { type: "user", uuid: randomUUID(), session_id: this.requireThread().id, message: { role: "user", content }, parent_tool_use_id: null };
   }
   private async consume(running: Query, queue: InputQueue<SDKUserMessage>) {
     let streamItemId: string | null = null;
@@ -223,13 +222,11 @@ export class ClaudeSession implements ProviderSession {
           continue;
         }
         if (this.backgroundTasks.accept(message)) this.publish("thread.status.changed", { status: { state: this.activeTurnId ? "active" : "idle", backgroundTaskCount: this.backgroundTaskCount } });
-        if (!this.currentTurn && ((message.type === "stream_event" && !message.parent_tool_use_id && message.event.type === "message_start") || (message.type === "assistant" && !message.parent_tool_use_id))) {
+        if (!this.transcript.current && ((message.type === "stream_event" && !message.parent_tool_use_id && message.event.type === "message_start") || (message.type === "assistant" && !message.parent_tool_use_id))) {
           this.beginWakeTurn();
         }
-        const turn = this.currentTurn;
-        if (message.type === "system" && message.subtype === "init") {
-          this.requireThread().nativeId = message.session_id; this.requireThread().materialized = true; this.persist();
-        }
+        const turn = this.transcript.current;
+        if (message.type === "system" && message.subtype === "init") this.materialize(message.session_id);
         if (message.type === "stream_event" && !message.parent_tool_use_id) {
           const event = message.event;
           if (event.type === "message_start") {
@@ -240,51 +237,41 @@ export class ClaudeSession implements ProviderSession {
           if (event.type === "message_delta" && this.requestUsage) {
             for (const [key, value] of Object.entries(event.usage ?? {})) if (typeof value === "number") (this.requestUsage as Record<string, number>)[key] = value;
           }
+          if (turn && event.type === "content_block_delta" && event.delta.type === "text_delta") this.publish("item.delta", { turnId: turn.id, itemId: streamItemId, channel: "message", delta: event.delta.text, phase: null });
         }
-        if (message.type === "stream_event" && !message.parent_tool_use_id && turn) {
-          if (message.event.type === "content_block_delta" && message.event.delta.type === "text_delta") this.publish("item.delta", { turnId: turn.id, itemId: streamItemId, channel: "message", delta: message.event.delta.text, phase: null });
+        if (message.type === "assistant" && !message.parent_tool_use_id) {
+          if (!this.requestUsage && message.message.usage) this.requestUsage = { ...message.message.usage };
+          this.transcript.assistant(message.message);
         }
-        if (message.type === "assistant" && !message.parent_tool_use_id && turn) this.assistantMessage(message, turn);
-        if (message.type === "user" && !message.parent_tool_use_id && turn && Array.isArray(message.message.content)) {
-          for (const block of message.message.content) if (block.type === "tool_result") {
-            const item = turn.items.find((item) => item.id === block.tool_use_id);
-            if (item?.type === "activity") {
-              item.activity.status = block.is_error ? "failed" : "completed";
-              this.publish("item.completed", { turnId: turn.id, item: historyItem(item, turn.id) });
-            }
-          }
-          this.persistSoon();
-        }
+        if (message.type === "user" && !message.parent_tool_use_id) this.transcript.toolResults(message.message.content);
         if (message.type === "result") {
           // A result ends the response to the queued input, so its last text is an answer.
-          this.flushText("final");
+          this.transcript.answered();
           const last = this.requestUsage ? requestBreakdown(this.requestUsage) : null;
           this.requestUsage = null;
           const rows = Object.values(message.modelUsage);
           const sum = (pick: (usage: ModelUsage) => number) => rows.length && rows.every(usage => Number.isFinite(pick(usage)))
             ? rows.reduce((acc, usage) => acc + pick(usage), 0) : null;
           const inputTokens = sum(usage => usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens), outputTokens = sum(usage => usage.outputTokens);
-          const total: ClaudeStoredUsage = rows.length ? {
+          const total: P.TokenUsageBreakdown = rows.length ? {
             inputTokens, cacheReadInputTokens: sum(usage => usage.cacheReadInputTokens), cacheWriteInputTokens: sum(usage => usage.cacheCreationInputTokens), outputTokens,
             // Thinking counts are optional per model; report them only when every row has one.
             reasoningOutputTokens: rows.length && rows.every(usage => typeof usage.thinkingTokens === "number") ? sum(usage => usage.thinkingTokens ?? 0) : null,
             totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null,
           } : requestBreakdown(message.usage);
-          const tokenUsage: ClaudeStoredTokenUsage = { last, total, contextWindow: this.contextWindow(message.modelUsage) };
-          this.requireThread().tokenUsage = tokenUsage;
-          this.publish("thread.tokenUsage.updated", { turnId: turn?.id ?? null, tokenUsage: threadTokenUsage(tokenUsage) });
+          this.publish("thread.tokenUsage.updated", { turnId: turn?.id ?? null, tokenUsage: { last, total, contextWindow: this.contextWindow(message.modelUsage) } });
           if (message.is_error) throw new Error(message.subtype === "success" ? message.result : message.errors.join("\n"));
           if ((message.queued_turn_count ?? 0) === 0 && turn) this.finishTurn(this.interrupted ? "interrupted" : "completed");
         }
       }
-      if (this.running === running && this.currentTurn && !this.interrupted && !this.stopped) throw new Error("Claude stream ended before a turn result.");
+      if (this.running === running && this.transcript.current && !this.interrupted && !this.stopped) throw new Error("Claude stream ended before a turn result.");
     } catch (error) {
-      if (this.running === running && this.currentTurn) this.finishTurn(this.interrupted || this.stopped ? "interrupted" : "failed", error);
+      if (this.running === running && this.transcript.current) this.finishTurn(this.interrupted || this.stopped ? "interrupted" : "failed", error);
       else if (!this.stopped && this.running === running) this.publish("session.error", { message: String(error) });
     } finally {
       this.closeQuery(running);
       if (this.running === running) {
-        if (this.currentTurn) this.finishTurn("interrupted");
+        if (this.transcript.current) this.finishTurn("interrupted");
         this.running = null; this.input = null;
         const hadBackgroundTasks = this.backgroundTaskCount > 0;
         this.backgroundTasks.reset();
@@ -292,59 +279,35 @@ export class ClaudeSession implements ProviderSession {
       }
     }
   }
+  /** The SDK created the session; apply what was requested before it existed. */
+  private materialize(nativeId: string): void {
+    const thread = this.requireThread();
+    if (thread.materialized) return;
+    // Claude keeps the session ID Shepherd chose, which is already the conversation's identity.
+    if (nativeId !== thread.id) this.publish("session.error", { message: `Claude started session ${nativeId} instead of ${thread.id}; its history may be unavailable.` });
+    thread.materialized = true;
+    const { name, archived } = thread.pending; thread.pending = {};
+    if (name !== undefined) void this.sdk.renameSession(nativeId, name).catch(error => this.publish("session.error", { message: `Could not rename the Claude session: ${String(error)}` }));
+    if (archived) void this.sdk.tagSession(nativeId, archivedTag).catch(error => this.publish("session.error", { message: `Could not archive the Claude session: ${String(error)}` }));
+  }
+  /** Background work can wake the session without a prompt. The transcript records the task
+   * notification that caused it, whose ID this process does not see, so after a reload the turn
+   * has that notification's ID. */
   private beginWakeTurn(): void {
-    if (this.currentTurn) return;
-    this.currentTurn = { id: randomUUID(), status: "in_progress", items: [], error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null };
-    this.requireThread().turns.push(this.currentTurn); this.activeTurnId = this.currentTurn.id; this.interrupted = false;
-    this.persist(); this.publish("turn.started", { turnId: this.currentTurn.id });
+    if (this.transcript.current) return;
+    const turn = this.transcript.beginTurn(randomUUID(), Date.now() / 1000, null);
+    this.activeTurnId = turn.id; this.interrupted = false;
+    this.publish("turn.started", { turnId: turn.id });
   }
   private finishTurn(status: "completed" | "interrupted" | "failed", error?: unknown): void {
-    const turn = this.currentTurn;
-    if (!turn) return;
-    this.flushText(status === "completed" ? "final" : "interim"); this.textBlocks.clear(); this.requestUsage = null;
-    this.currentTurn = null; this.activeTurnId = null; this.denyPendingApprovals();
-    turn.status = status;
-    if (error && status === "failed") turn.error = { message: error instanceof Error ? error.message : String(error) };
-    turn.completedAt = Date.now() / 1000; turn.durationMs = (turn.completedAt - turn.startedAt!) * 1000;
-    try { this.persist(); } catch (error) { turn.status = "failed"; turn.error = { message: String(error) }; }
+    if (!this.transcript.current) return;
+    this.requestUsage = null; this.activeTurnId = null; this.denyPendingApprovals();
+    const message = error && status === "failed" ? (error instanceof Error ? error.message : String(error)) : undefined;
+    const turn = this.transcript.finish(status, Date.now() / 1000, message)!;
     if (!this.stopped) {
       if (turn.status === "failed") this.publish("turn.failed", { turnId: turn.id, message: turn.error?.message ?? "Turn failed." });
       else this.publish("turn.completed", { turnId: turn.id });
     }
-  }
-  /** Text is interim when a tool call follows it and an answer when the response ends. */
-  private assistantMessage(message: Extract<SDKMessage, { type: "assistant" }>, turn: ClaudeStoredTurn) {
-    if (!this.requestUsage && message.message.usage) this.requestUsage = { ...message.message.usage };
-    for (const block of message.message.content) {
-      if (block.type === "text") {
-        const index = this.textBlocks.get(message.message.id) ?? 0;
-        this.textBlocks.set(message.message.id, index + 1);
-        if (block.text) this.pendingText.push({ itemId: textItemId(message.message.id, index), text: block.text, turn });
-      }
-      // Thinking precedes more work in the response, so text before it is interim. Redacted thinking has no text.
-      if (block.type === "thinking" && block.thinking.trim()) {
-        this.flushText("interim");
-        this.completeItem(turn, { id: `${message.message.id}:thinking:${turn.items.length}`, type: "reasoning", summary: [boundedText(block.thinking)] });
-      }
-      if (block.type === "tool_use") {
-        this.flushText("interim");
-        // A plan proposed for approval is the turn's plan, as well as a tool call.
-        const plan = block.name === "ExitPlanMode" && typeof (block.input as { plan?: unknown })?.plan === "string" ? (block.input as { plan: string }).plan : null;
-        if (plan?.trim()) this.completeItem(turn, { id: `${block.id}:plan`, type: "plan", text: plan });
-        const item: ClaudeStoredItem = { id: block.id, type: "activity", activity: { tool: block.name, fields: claudeActivityFields(block.input), status: "started" } };
-        turn.items.push(item);
-        this.publish("item.started", { turnId: turn.id, item: historyItem(item, turn.id) });
-      }
-    }
-    this.persistSoon();
-  }
-  private flushText(phase: "interim" | "final"): void {
-    for (const pending of this.pendingText.splice(0)) this.completeItem(pending.turn, { id: pending.itemId, type: "assistant_message", text: pending.text, phase });
-  }
-  /** Save a finished item and deliver it as history will present it. */
-  private completeItem(turn: ClaudeStoredTurn, item: ClaudeStoredItem): void {
-    turn.items.push(item);
-    if (!this.stopped) this.publish("item.completed", { turnId: turn.id, item: historyItem(item, turn.id) });
   }
   private contextWindow(usage: Record<string, ModelUsage>): number | null {
     const model = this.requireThread().model;
@@ -398,8 +361,8 @@ export class ClaudeSession implements ProviderSession {
     if (!this.input || !this.activeTurnId || (turnId && turnId !== this.activeTurnId)) throw new Error("No matching active Claude turn.");
     const message = this.userMessage(input);
     this.input.push(message); this.steeredMessages++;
-    this.requireThread().turns.at(-1)!.items.push({ id: message.uuid!, type: "user_message", content: storedContent(input) });
-    this.persist(); return this.activeTurnId;
+    this.transcript.steer(message.uuid!, promptContent(message.message.content));
+    return this.activeTurnId;
   }
   async interruptTurn(turnId?: string): Promise<void> {
     if (!this.running || !this.activeTurnId || (turnId && turnId !== this.activeTurnId)) throw new Error("No matching active Claude turn.");
@@ -416,39 +379,66 @@ export class ClaudeSession implements ProviderSession {
       }
     }
   }
-  async readThread(id: string, includeTurns: boolean) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); return { thread: this.record(thread, includeTurns) }; }
-  private record(thread: ClaudeThreadSummary & { turns?: ClaudeStoredTurn[] }, includeTurns = false): P.ThreadRecord { return { id: thread.id, model: thread.model, name: thread.name, preview: thread.preview, createdAt: thread.createdAt, updatedAt: thread.updatedAt, cwd: thread.cwd, ...(includeTurns ? { turns: (thread.turns ?? []).map(historyTurn) } : {}) }; }
+  /** Whether `id` is this session's conversation before Claude has created its session. */
+  private unmaterialized(id: string): ClaudeThread | null {
+    return this.thread?.id === id && !this.thread.materialized ? this.thread : null;
+  }
+  /** A conversation's turns, from Claude's transcript. Turns this process is running stay in
+   * progress, including any the transcript has not recorded yet. */
+  private async turns(id: string): Promise<P.HistoryTurn[]> {
+    if (this.unmaterialized(id)) return this.transcript.snapshot();
+    const live = this.thread?.id === id;
+    const { turns } = decodeTranscript(await this.sdk.getSessionMessages(id) as TranscriptEntry[], live ? this.activeTurnId : null);
+    const current = live ? this.transcript.snapshot().at(-1) : undefined;
+    if (current?.status === "in_progress" && !turns.some(turn => turn.id === current.id)) return [...turns, current];
+    return turns;
+  }
+  async readThread(id: string, includeTurns: boolean) {
+    const thread = this.unmaterialized(id);
+    if (thread) return { thread: { id, model: thread.model, name: thread.pending.name ?? null, preview: "", createdAt: thread.createdAt, updatedAt: thread.createdAt, cwd: thread.cwd, ...(includeTurns ? { turns: this.transcript.snapshot() } : {}) } };
+    const info = await this.sessionInfo(id);
+    const live = this.thread?.id === id ? this.thread : null;
+    const record = threadRecord(info, includeTurns ? await this.turns(id) : null, live?.model ?? null);
+    return { thread: live ? { ...record, cwd: live.cwd } : record };
+  }
   async listStoredThreads(request: P.ListStoredThreadsRequest) {
-    const threads = this.store.list().filter((t) => t.archived === (request.archived ?? false) && (!request.searchTerm || `${t.name ?? ""} ${t.preview}`.toLowerCase().includes(request.searchTerm.toLowerCase())) && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(t.cwd) : request.cwd === t.cwd)));
-    const key = request.sortKey === "created_at" ? "createdAt" : "updatedAt";
-    threads.sort((a, b) => (request.sortDirection === "asc" ? 1 : -1) * (a[key] - b[key]));
-    return paginate(threads.map((t) => this.record(t)), request);
+    const archived = request.archived ?? false;
+    const threads = (await this.sdk.listSessions()).filter((info) => (info.tag === archivedTag) === archived
+      && (!request.searchTerm || `${info.customTitle ?? ""} ${info.firstPrompt ?? info.summary}`.toLowerCase().includes(request.searchTerm.toLowerCase()))
+      && (!request.cwd || (Array.isArray(request.cwd) ? request.cwd.includes(info.cwd ?? "") : request.cwd === info.cwd)));
+    const key = (info: SDKSessionInfo) => request.sortKey === "created_at" ? info.createdAt ?? info.lastModified : info.lastModified;
+    threads.sort((a, b) => (request.sortDirection === "asc" ? 1 : -1) * (key(a) - key(b)));
+    return paginate(threads.map((info) => threadRecord(info, null)), request);
   }
   async listThreadTurns(id: string, request: P.ListThreadTurnsRequest) {
-    const thread = this.thread?.id === id ? this.thread : this.store.read(id);
-    const turns = [...thread.turns]; if (request.sortDirection !== "asc") turns.reverse();
+    const turns = await this.turns(id); if (request.sortDirection !== "asc") turns.reverse();
     return paginate(turns.map((turn) => {
-      const presented = historyTurn(turn);
-      const items = request.itemsView === "none" ? [] : presented.items;
-      return { ...presented, itemsView: request.itemsView ?? "full", items: request.itemsView === "summary" ? summaryItems(items) : items };
+      const items = request.itemsView === "none" ? [] : turn.items;
+      return { ...turn, itemsView: request.itemsView ?? "full", items: request.itemsView === "summary" ? summaryItems(items) : items };
     }), request);
   }
   async listThreadItems(id: string, request: P.ListThreadItemsRequest) {
-    const thread = this.thread?.id === id ? this.thread : this.store.read(id);
-    const items = thread.turns.filter((t) => !request.turnId || t.id === request.turnId).flatMap((t) => t.items.map((item) => ({ turnId: t.id, item: historyItem(item, t.id) })));
+    const items = (await this.turns(id)).filter((t) => !request.turnId || t.id === request.turnId).flatMap((t) => t.items.map((item) => ({ turnId: t.id, item })));
     if (request.sortDirection === "desc") items.reverse(); return paginate(items, request);
   }
-  async setThreadName(id: string, name: string) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); thread.name = name; this.saveMutation(thread); this.publish("thread.name.updated", { threadName: name }, id); }
-  async archiveThread(id: string) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); thread.archived = true; this.saveMutation(thread); this.publish("thread.archived", {}, id); }
-  async unarchiveThread(id: string) { const thread = this.thread?.id === id ? this.thread : this.store.read(id); thread.archived = false; this.saveMutation(thread); this.publish("thread.unarchived", {}, id); }
+  async setThreadName(id: string, name: string) {
+    const thread = this.unmaterialized(id);
+    if (thread) thread.pending.name = name; else await this.sdk.renameSession(id, name);
+    this.publish("thread.name.updated", { threadName: name }, id);
+  }
+  async archiveThread(id: string) { await this.setArchived(id, true); this.publish("thread.archived", {}, id); }
+  async unarchiveThread(id: string) { await this.setArchived(id, false); this.publish("thread.unarchived", {}, id); }
+  private async setArchived(id: string, archived: boolean) {
+    const thread = this.unmaterialized(id);
+    if (thread) thread.pending.archived = archived; else await this.sdk.tagSession(id, archived ? archivedTag : null);
+  }
   setCwd(cwd: string): void {
     const thread = this.requireThread();
     if (thread.cwd === cwd) return;
     if (this.activeTurnId || this.backgroundTaskCount) throw new Error("Wait for Claude work to finish before changing the working directory.");
     if (this.running) { this.closeQuery(this.running); this.running = null; this.input = null; }
-    thread.cwd = cwd; this.persist();
+    thread.cwd = cwd;
   }
-  private saveMutation(thread: ClaudeThread) { thread.updatedAt = Date.now() / 1000; this.store.write(thread); }
   async listModels(request: P.ListModelsRequest): Promise<P.ListModelsResponse> {
     await this.initialize();
     const defaults = claudeDefaults();
@@ -468,7 +458,6 @@ export class ClaudeSession implements ProviderSession {
     this.stopped = true; this.interrupted = true;
     for (const running of this.ownedQueries.keys()) this.closeQuery(running);
     this.denyPendingApprovals(); this.finishTurn("interrupted"); this.backgroundTasks.reset();
-    if (this.persistTimer) { try { this.persist(); } catch { /* Shutdown continues; the SDK transcript is authoritative. */ } }
   }
   private openQuery(input: InputQueue<SDKUserMessage>, options: Options): Query {
     const running = this.sdk.query({ prompt: input, options: { ...options, ...claudeAuthenticationOptions() } });
@@ -481,20 +470,6 @@ export class ClaudeSession implements ProviderSession {
     this.ownedQueries.delete(running); input.close(); running.close();
   }
   private denyPendingApprovals() { for (const [approvalId, pending] of this.approvals) { pending.resolve({ behavior: "deny", message: "Turn ended." }); this.publish("approval.expired", { approvalId }); } this.approvals.clear(); }
-  private savedApprovalPolicy(thread: ClaudeThread): P.ApprovalPolicy | undefined { return thread.approvalMode && approvalPolicyFromStored(thread.approvalMode); }
   private requireThread(): ClaudeThread { if (!this.thread) throw new Error("Claude thread is not bound."); return this.thread; }
-  private persist() {
-    if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
-    const thread = this.requireThread(); thread.approvalMode = storedApprovalMode(this.approvalPolicy); thread.updatedAt = Date.now() / 1000; this.store.write(thread);
-  }
-  /** Streamed blocks arrive quickly; coalesce their snapshot writes. Turn boundaries persist immediately. */
-  private persistSoon() {
-    if (this.persistTimer) return;
-    this.persistTimer = setTimeout(() => {
-      this.persistTimer = null;
-      try { this.persist(); } catch (error) { if (!this.stopped) this.publish("session.error", { message: `Could not save Claude history: ${String(error)}` }); }
-    }, persistDelayMs);
-    this.persistTimer.unref?.();
-  }
   private publish<K extends BridgeEventType>(type: K, payload: BridgeEventPayloads[K], id = this.requireThread().id) { this.eventBus.publish(bridgeEvent({ id: `${this.sessionId}:${++this.counter}`, type, payload, threadId: id, sessionId: this.sessionId, ts: new Date().toISOString() })); }
 }

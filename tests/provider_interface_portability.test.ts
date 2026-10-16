@@ -9,7 +9,6 @@ import { scopedThreadId } from "../server/runtime/provider_thread_identity.js";
 import { LocalSession, capabilities, model } from "./helpers/portable_provider.js";
 import { noProviderTools } from "../server/ports/provider_tools.js";
 import { codexTokenUsage } from "../server/providers/codex/token_usage.js";
-import { storedTokenUsage } from "../server/providers/claude/history.js";
 import { claudeModelCatalog } from "../server/providers/claude/model_catalog.js";
 import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
 import type { ProviderCapabilities } from "../shared/protocol/provider_capabilities.js";
@@ -223,11 +222,10 @@ test("identity translation covers tools, nested question targets, loaded discove
   } finally { session.stop(); }
 });
 
-test("native and stored usage codecs preserve total-only reports without fabricated counts", () => {
+test("native usage codecs preserve total-only reports without fabricated counts", () => {
   const expected = { last: null, total: { inputTokens: null, outputTokens: null, totalTokens: 42, cacheReadInputTokens: null,
     cacheWriteInputTokens: null, reasoningOutputTokens: null }, contextWindow: null };
   expect(codexTokenUsage({ total: { totalTokens: 42 } })).toEqual(expected);
-  expect(storedTokenUsage({ total: { totalTokens: 42 } })).toEqual(expected);
 });
 
 test("opaque application IDs use bounded workspace names while deployed UUID paths stay unchanged", async () => {

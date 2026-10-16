@@ -132,18 +132,19 @@ test("production Claude listings settle when Codex cannot be spawned", async () 
     const code = `const {createProviderServices}=await import('./server/runtime/provider_services.ts'); const {ConversationService}=await import('./server/core/conversation_service.ts'); const c=new ConversationService({providers:createProviderServices('claude')}); try {console.log(JSON.stringify({stored:await c.listStoredThreads({}),loaded:await c.listLoadedThreads({})}));} finally {c.stopAll();}`;
     const { stdout } = await promisify(execFile)(process.execPath, ["-e", code], {
       cwd: join(import.meta.dir, ".."), timeout: 5_000,
-      env: { ...process.env, PATH: directory, SHEPHERD_PROVIDER_STATE_DIR: join(directory, "providers"), SHEPHERD_CLAUDE_STATE_DIR: join(directory, "claude") },
+      env: { ...process.env, PATH: directory, SHEPHERD_PROVIDER_STATE_DIR: join(directory, "providers"), CLAUDE_CONFIG_DIR: join(directory, "claude") },
     });
     expect(JSON.parse(stdout)).toMatchObject({ stored: { threads: [], unavailableProviders: ["codex"] }, loaded: { threadIds: [], unavailableProviders: ["codex"] } });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("Claude snapshots keep audio and skill content instead of generic attachments", async () => {
-  const { storedItem, historyItem } = await import("../server/providers/claude/history.js");
-  const stored = storedItem({ id: "user", type: "user_message", content: [
-    { type: "audio", url: "data:audio/wav;base64,AA" }, { type: "audio_file", path: "/tmp/a.wav" }, { type: "skill", name: "review", path: "/skills/review/SKILL.md" },
-  ] });
-  expect(historyItem(stored, "turn")).toEqual({ id: "user", type: "user_message", content: [
-    { type: "audio", url: "data:audio/wav;base64,AA" }, { type: "audio_file", path: "/tmp/a.wav" }, { type: "skill", name: "review", path: "/skills/review/SKILL.md" },
-  ] });
+test("Claude prompts keep their text and images; content with no application counterpart is an attachment", async () => {
+  const { promptContent } = await import("../server/providers/claude/transcript.js");
+  expect(promptContent([
+    { type: "text", text: "Look" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AA" } },
+    { type: "image", source: { type: "url", url: "https://example.test/a.png" } }, { type: "document", source: {} },
+  ])).toEqual([
+    { type: "text", text: "Look" }, { type: "image", url: "data:image/png;base64,AA" }, { type: "image", url: "https://example.test/a.png" }, { type: "attachment", name: null, path: null },
+  ]);
+  expect(promptContent("plain")).toEqual([{ type: "text", text: "plain" }]);
 });

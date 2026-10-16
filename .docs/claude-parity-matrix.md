@@ -59,14 +59,14 @@ login, not a blanket approval for distributing a subscription login product.
 | --- | --- | --- |
 | Select Claude for a new conversation | Implemented | Web Agent picker, Discord `!newthread claude`, and core/API `provider: "claude"`. Codex is the default unless `SHEPHERD_DEFAULT_PROVIDER=claude`. |
 | Preserve provider identity | Implemented | Explicit persistent thread/provider binding; resume and fork retain the provider. No in-place provider migration. |
-| Start a Claude session | Implemented | SDK `query()` with a native session ID. Shepherd records its thread metadata before the native transcript is materialized. |
+| Start a Claude session | Implemented | SDK `query()` with a session ID Shepherd chooses, which is the conversation ID. A rename or archive requested before Claude creates the session is applied once it exists. |
 | Continue across turns | Implemented | Keeps the query/input stream open; resumes the native session when a query must restart. |
-| Resume after process restart | Implemented | Uses saved native ID and cwd. Preserve both Shepherd snapshots/provider bindings and Claude's native transcripts. Interrupted saved turns remain interrupted. |
-| Fork | Implemented | SDK `forkSession()` for materialized sessions, searching every project directory because a thread's workspace can move after its transcript was written; a fresh ID for a thread not yet materialized. Rejects a source with an in-progress turn; overrides do not mutate the source. |
-| Rename, archive, restore | Implemented | Shepherd metadata operations. They do not constitute a wrapper for every native Claude session mutation API. |
-| Stored thread listing/filtering/pagination | Partial | Lists Shepherd-created snapshots, with name/preview search, cwd/archive/provider/source filters and sorting. Does not import arbitrary existing CLI sessions. Listings are live views, not a frozen snapshot. |
+| Resume after process restart | Implemented | Reads the session and its workspace through the SDK (`getSessionInfo`, `getSessionMessages`) and resumes it with the model Claude last used. Preserve Claude's storage and Shepherd's provider bindings. Claude does not record Shepherd's approval mode or effort, so a resumed conversation uses the requested values or the host defaults. |
+| Fork | Implemented | SDK `forkSession()` for materialized sessions, searching every project directory because a thread's workspace can move after its transcript was written; a fresh ID for a thread not yet materialized. Overrides apply to the fork only. |
+| Rename, archive, restore | Implemented | SDK `renameSession()` sets the session title; archiving sets the session tag to `archived` (`tagSession()`), which replaces any other tag on that session. |
+| Stored thread listing/filtering/pagination | Implemented | SDK `listSessions()`: every Claude Code session, including ones started outside Shepherd, with title/prompt search, cwd/archive filters and sorting. |
 | Loaded conversation listing | Implemented | Application-owned loaded sessions; catalog discovery queries are also closed on shutdown. |
-| Read turns/items and replay history | Implemented | Normalized persisted turns/items and pagination. Assistant text before a tool call is interim; text that ends a response is the final answer. Stored tool output is a bounded preview; the native transcript keeps the full output and remains needed for continued model context. Conversation lists read per-thread summaries and skip unreadable snapshots. |
+| Read turns/items and replay history | Implemented | Decoded from Claude's transcript (`getSessionMessages`) with the same decoder as the live stream, so live items equal history items. A turn is a prompt and its responses, identified by the prompt's ID; steered input (`isQueuedCommand`) joins its turn; an interruption marker ends a turn as interrupted; a background-task notification starts a turn without a user message. Assistant text before a tool call is interim; text that ends a response is the final answer. The transcript records no turn failures, so a failed turn reads as completed after a reload. Subagent messages are not shown. |
 | Detach from a surface | Implemented | Releases surface attachment without stopping agent work. |
 | Background work | Partial | Tracks non-ambient background task counts using snapshots or older task edges; retains the query and records later root responses/questions as wake turns. No task-management dashboard. |
 | Change model/cwd/policy/effort | Partial | Restarts/resumes the query when needed. Settings changes wait for background work; cwd changes wait for active work. |
@@ -106,8 +106,8 @@ login, not a blanket approval for distributing a subscription login product.
 | Capability | Status | What Shepherd does / limit |
 | --- | --- | --- |
 | Model discovery and selection | Implemented | SDK `supportedModels()` translated into the shared paginated model catalog; web model picker and routed model controls. New conversations default to explicit `claude-opus-5-5`; `CLAUDE_MODEL` overrides it. Catalog exposes resolved model IDs and retains native aliases as hidden compatibility entries. Reading the native catalog starts a short-lived CLI process, so one runtime-wide copy per Claude login is reused for 10 minutes, then served while it refreshes in the background for up to 24 hours. Only the first lookup after startup, a login change, or expiry waits for the CLI. Lists from running conversations are not reused, because a project folder's `availableModels` setting can narrow them. Actual model availability is plan-dependent. |
-| Reasoning effort | Partial | Passes native effort settings; model catalog supplies supported levels. New conversation metadata defaults to medium; `CLAUDE_EFFORT` overrides it. Saved conversations/forks retain their effort. No global default editor in Shepherd. Not every model supports every level. |
-| Instructions | Native | Shepherd sends no instructions; Claude Code's preset system prompt and configured `CLAUDE.md` files apply. Snapshots saved with instructions by earlier versions still append them. |
+| Reasoning effort | Partial | Passes native effort settings; model catalog supplies supported levels. New conversation metadata defaults to medium; `CLAUDE_EFFORT` overrides it. Claude does not record effort, so resumed conversations and forks use the requested effort or the host default. No global default editor in Shepherd. Not every model supports every level. |
+| Instructions | Native | Shepherd sends no instructions; Claude Code's preset system prompt and configured `CLAUDE.md` files apply. |
 | User/project/local configuration | Native | Conversation queries load `settingSources: ["user", "project", "local"]`. Shepherd supplies its own per-query permission and subscription credential policy. |
 | Native skills, commands, agents, hooks, plugins | Native | Native configuration can make extensions available to Claude. No claim that Shepherd exposes the complete CLI command vocabulary or manages installed extensions. |
 | List/reload/enable/disable skills | Unsupported | Adapter's skill catalog/config methods reject calls; web controls are hidden. Native skill loading is a separate capability. |
@@ -126,7 +126,7 @@ login, not a blanket approval for distributing a subscription login product.
 | --- | --- | --- |
 | Account allowance scope | Native | Shared by the Claude account across its conversations and other Claude surfaces. Provider selection does not create a per-conversation allowance. |
 | Turn token usage | Partial | `last` is the final model request of the turn (from stream usage), so it reflects context fill rather than the turn aggregate. `total` maps SDK model usage. Cache reads and writes are reported separately. Reasoning output is `null` (not reported) for `last`, and for `total` unless every model row reports thinking tokens. These values are not a subscription usage percentage. |
-| Cumulative conversation accounting | Partial | Snapshot stores the latest mapped result; it does not implement a separate durable lifetime-cost ledger across resumed SDK queries. |
+| Cumulative conversation accounting | Partial | Live results report totals for the running query. A resumed conversation reports the last request's usage from its transcript and no total. There is no durable lifetime-cost ledger. |
 | Context-window percentage | Implemented | `contextWindow` comes from the SDK model usage for the conversation model, so the web UI shows the shared context percentage. |
 | Subscription `rate_limit_event` | Implemented | Native adapter forwards allowance events to one host account collector. Maps status, optional utilization/reset times and extra usage flags. Account lookup and observation cannot block or fail a turn. |
 | Five-hour / weekly / model/app-specific allowance display | Implemented | Claude tab in the existing Usage & limits panel displays native allowance rows. Supports canonical server rows and legacy five-hour/weekly/model fields. Missing utilization is “Not reported”; reported zero is retained. |
@@ -175,7 +175,8 @@ Primary implementation sources:
 [MCP bridge](../server/providers/claude/mcp_bridge.ts),
 [background tasks](../server/providers/claude/background_tasks.ts),
 [capabilities](../server/providers/claude/capabilities.ts),
-[snapshot storage](../server/providers/claude/file_thread_store.ts),
+[transcript decoder](../server/providers/claude/transcript.ts),
+[native sessions](../server/providers/claude/native_sessions.ts),
 [provider assembly](../server/runtime/provider_services.ts),
 [SDK overview](https://code.claude.com/docs/en/agent-sdk/overview).
 

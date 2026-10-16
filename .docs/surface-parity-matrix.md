@@ -33,7 +33,7 @@ They must not be read as a promise that every row is available with Claude.
 | Tool approvals | Yes | Yes, native permission mapping differs | Shared decision cards; not identical sandbox/policy semantics |
 | Tool call detail | Command text, file summaries, tool names; no output | Tool name and input detail while running; shared activity detail in history | The web UI retains its main timeline; providers supply shared activity records |
 | Structured questions | Yes | Yes | Web supports multiple selections; Discord redirects Claude multiple-selection questions to web |
-| Stored history and metadata actions | Yes | Yes, Shepherd-created snapshots | Shared navigation, rename, archive, restore, and detach |
+| Stored history and metadata actions | Yes | Yes, from each provider's own sessions | Shared navigation, rename, archive, restore, and detach |
 | Model and effort controls | Yes | Yes, model-dependent | Discovery follows the conversation provider, or the default agent when there is no conversation |
 | Manual compaction | Yes | No | Hidden for Claude in web and Discord `!help`; unsupported calls rejected |
 | Turn-based conversation revert | Yes | No | Hidden for Claude in web; unsupported calls rejected |

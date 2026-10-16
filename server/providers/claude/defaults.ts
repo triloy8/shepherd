@@ -1,4 +1,12 @@
-import { claudeEffortLevels, isClaudeEffort, type ClaudeEffort } from "./thread_store.js";
+import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
+
+export const claudeEffortLevels = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
+export type ClaudeEffort = typeof claudeEffortLevels[number];
+// The catalog reports the SDK's levels; an SDK upgrade that adds one must update this list, or
+// core would accept a catalog effort that this adapter then rejects.
+const sdkEffortsListed: Exclude<EffortLevel, ClaudeEffort> extends never ? true : never = true;
+void sdkEffortsListed;
+export const isClaudeEffort = (value: unknown): value is ClaudeEffort => claudeEffortLevels.includes(value as ClaudeEffort);
 
 /** Defaults for new Shepherd conversations, independent of Codex configuration. */
 export function claudeDefaults(environment: Record<string, string | undefined> = process.env): { model: string; effort: ClaudeEffort } {

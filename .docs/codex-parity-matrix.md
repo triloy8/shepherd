@@ -40,7 +40,7 @@ Legacy note:
 
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
-| `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools |
+| `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools. One process serves every thread, history read and account request; notifications and server requests are routed by `threadId`, notifications without one reach every session, and requests for a thread no session runs are refused. If the process exits, every session reports it and the next use starts a new process |
 | `thread/start` | Partial | Core | Adapter encodes shared model, effort, workspace, approval mode, sandbox, and registered dynamic tools. `developerInstructions`, `baseInstructions`, and `ephemeral` are not exposed, so configured instructions apply. Raw SDK config/backend/style/analytics selectors are private native settings; no public pass-through. Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
 | `thread/resume` | Partial | Core | Shared typed overrides only; effort maps to native configuration privately. Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns` |
 | `thread/fork` | Partial | Core | Shared typed overrides only; native fields are not exposed wholesale. Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns` |
@@ -71,7 +71,7 @@ Legacy note:
 | `thread/turns/list` | Implemented | Core | Wrapped with cursors, direction, and items view; Discord `!history` uses five-turn summary pages |
 | `thread/items/list` | Partial | Core | Wrapped with string cursors, direction, and optional turn filter; the new object item-anchor cursor is not exposed; Discord history Items buttons and `!history items` show paginated excerpts with Read buttons for message text/activity summaries |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
-| `thread/unsubscribe` | Missing | Maybe Later | Useful for lifecycle cleanup/stream controls; not required for current correctness |
+| `thread/unsubscribe` | Implemented | Core | A stopped session releases its thread so the shared process stops sending its notifications |
 | `hooks/list` | Missing | Maybe Later | Useful for admin diagnostics, but hook management is not part of the current Discord surface |
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |

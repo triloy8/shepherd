@@ -11,8 +11,9 @@ there is no parallel provider API, compatibility facade, or alternative transcri
   history, provider-wide model discovery, and `openSession`) and the `ThreadSession` it opens to
   run one thread (execution, events, approvals, and that conversation's compact, revert, catalog
   and skills). Core never opens a session to read history or list models. A provider reaches a
-  thread one of its sessions is running through that session; Codex serves other history from
-  one app-server process with no thread bound, and Claude reads Claude's sessions directly.
+  thread one of its sessions is running through that session. Codex runs one app-server process
+  for every thread, history read and account request, and routes each thread's notifications and
+  requests to the session running it; Claude reads Claude's sessions directly.
 - `server/ports/provider_services.ts` defines registration, account reporting, optional resets,
   session creation, and persisted thread ownership.
 - `shared/protocol/` defines application input, messages, activities, images, questions,

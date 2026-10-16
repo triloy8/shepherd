@@ -4,13 +4,11 @@ import type { BridgeEvent } from "../shared/protocol/events.js";
 import { CodexSession } from "../server/providers/codex/session.js";
 import { DynamicToolRegistry } from "../server/core/dynamic_tool_registry.js";
 import { extractThreadSummary } from "../server/core/session_manager.js";
+import { fakeAppServer } from "./helpers/fake_app_server.js";
 
 type SessionInternals = {
-  start: () => Promise<void>;
   sendRequest: (method: string, params?: unknown) => Promise<unknown>;
-  sendNotification: (method: string) => void;
   writeLine: (payload: unknown) => void;
-  onServerStderr: (chunk: Buffer) => void;
   onNotification: (method: string, params: unknown) => void;
   onServerRequest: (request: { id: string | number; method: string; params: unknown }) => void;
 };
@@ -40,29 +38,23 @@ describe("CodexSession app-server contract", () => {
     expect(images()).toHaveLength(1);
   });
   test("uses the generated initialize and initialized envelope shapes", async () => {
-    const session = new CodexSession();
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const notifications: string[] = [];
-    const raw = internals(session);
-    raw.start = async () => {};
-    raw.sendRequest = async (method, params) => {
-      requests.push({ method, params });
-      return {};
-    };
-    raw.sendNotification = (method) => notifications.push(method);
+    const fake = fakeAppServer();
+    const session = new CodexSession(undefined, undefined, fake.server);
 
     await session.initialize();
 
-    expect(requests).toEqual([
+    expect(fake.received()).toEqual([
       {
+        id: 1,
         method: "initialize",
         params: {
           capabilities: { experimentalApi: true },
           clientInfo: { name: "shepherd", title: "Shepherd", version: "1.0.0" },
         },
       },
+      { method: "initialized" },
     ]);
-    expect(notifications).toEqual(["initialized"]);
+    session.stop(); fake.server.stop();
   });
 
   test("reverts with an explicit cutoff and decodes provider history replacement", async () => {
@@ -379,8 +371,10 @@ describe("CodexSession app-server contract", () => {
     expect(session.activeTurnId).toBeNull();
   });
 
-  test("keeps retry diagnostics out of the user-visible event stream", () => {
-    const session = new CodexSession();
+  test("keeps retry diagnostics out of the user-visible event stream", async () => {
+    const fake = fakeAppServer();
+    const session = new CodexSession(undefined, undefined, fake.server);
+    await session.initialize();
     const events: BridgeEvent[] = [];
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     const error = spyOn(console, "error").mockImplementation(() => {});
@@ -392,12 +386,13 @@ describe("CodexSession app-server contract", () => {
       error: { message: "Reconnecting... 2/5" },
       willRetry: true,
     });
-    internals(session).onServerStderr(Buffer.from("Reconnecting... 3/5"));
+    await fake.stderr("Reconnecting... 3/5");
 
     expect(events).toHaveLength(0);
     expect(warn).toHaveBeenCalledWith("codex app-server retrying: Reconnecting... 2/5");
     expect(error).toHaveBeenCalledWith("codex app-server stderr: Reconnecting... 3/5");
 
+    session.stop(); fake.server.stop();
     warn.mockRestore();
     error.mockRestore();
   });

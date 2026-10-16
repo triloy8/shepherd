@@ -1,4 +1,7 @@
 import { CodexAccount } from "../providers/codex/account.js";
+import { CodexAppServer } from "../providers/codex/app_server.js";
+import { CodexSession } from "../providers/codex/session.js";
+import { noProviderTools } from "../ports/provider_tools.js";
 import { codexOwnsStoredThread } from "../providers/codex/thread_ownership.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -20,9 +23,11 @@ const installedDefinitions = [
   {
     id: "codex", displayName: "Codex", capabilities: codexCapabilities,
     register() {
-      const account = new CodexAccount();
+      // Conversations, history and the account share one app-server process.
+      const server = new CodexAppServer();
+      const account = new CodexAccount(() => new CodexSession(noProviderTools, undefined, server));
       return {
-        provider: new CodexProvider(),
+        provider: new CodexProvider(undefined, server),
         account, hasStoredThreads: () => true,
         ownsStoredThread: id => codexOwnsStoredThread(id),
         shutdown: () => account.stop(),

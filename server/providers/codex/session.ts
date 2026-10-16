@@ -9,8 +9,7 @@ import { decodeResetOutcome } from "./account_usage.js";
 import { codexCapabilities } from "./capabilities.js";
 import type { ProviderSkillsRequest } from "../../ports/provider_session.js";
 import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import readline, { type Interface as ReadlineInterface } from "node:readline";
+import { CodexAppServer, type AppServerConnection, type RawServerRequest } from "./app_server.js";
 import { randomUUID } from "node:crypto";
 
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
@@ -59,16 +58,6 @@ function getDefaultModel(): string {
   return process.env.CODEX_MODEL ?? "gpt-6.1-sol";
 }
 
-type PendingRequest = {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-};
-
-type RawServerRequest = {
-  id: string | number;
-  method: string;
-  params: unknown;
-};
 
 type AppServerRequestParams = {
   initialize: {
@@ -224,12 +213,9 @@ export class CodexSession implements ThreadSession {
   profile: string | null = null;
   readonly eventBus = new EventBus();
 
-  private child: ChildProcessWithoutNullStreams | null = null;
-  private lineReader: ReadlineInterface | null = null;
-  private initialized = false;
-  private initPromise: Promise<void> | null = null;
-  private nextRequestId = 1;
-  private pendingRequests = new Map<number, PendingRequest>();
+  /** This session's share of the app-server process, which receives its thread's traffic. */
+  private connection: AppServerConnection | null = null;
+  private connecting: Promise<void> | null = null;
   private serverRequestsByApprovalId = new Map<string, RawServerRequest>();
   private approvalReplies = new Map<string, Map<string, unknown>>();
   private messagePhaseByItemId = new Map<string, MessagePhase | null>();
@@ -240,7 +226,14 @@ export class CodexSession implements ThreadSession {
     private readonly dynamicTools: ProviderTools = noProviderTools,
     /** The provider's running sessions by thread, so it reaches a live thread through its session. */
     private readonly liveSessions = new Map<string, CodexSession>(),
-  ) {}
+    /** The provider's shared app-server; a session given none runs its own process. */
+    server?: CodexAppServer,
+  ) {
+    this.server = server ?? (this.ownServer = new CodexAppServer());
+  }
+
+  private readonly server: CodexAppServer;
+  private ownServer: CodexAppServer | null = null;
 
   private stopped = false;
   private cwd = process.cwd();
@@ -252,54 +245,20 @@ export class CodexSession implements ThreadSession {
     if (this.threadId) this.publishSettings(this.threadId);
   }
 
-  async start(): Promise<void> {
-    if (this.stopped) throw new Error("Codex session is stopped.");
-    if (this.child) return;
-
-    this.child = spawn("codex", ["app-server"], {
-      cwd: this.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
-    });
-
-    this.lineReader = readline.createInterface({ input: this.child.stdout, crlfDelay: Infinity });
-    this.lineReader.on("line", (line) => this.onServerLine(line));
-
-    this.child.on("error", (error) => {
-      this.publish("session.error", "unbound", { message: `Failed to spawn codex app-server: ${error.message}` });
-      this.cleanup();
-    });
-
-    this.child.on("exit", (code, signal) => {
-      const message = `codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
-      this.publish("session.error", this.threadId ?? "unbound", { message });
-      this.cleanup();
-    });
-
-    this.child.stderr.on("data", (chunk: Buffer) => this.onServerStderr(chunk));
-  }
-
   async initialize(): Promise<void> {
     if (this.stopped) throw new Error("Codex session is stopped.");
-    if (this.initialized) return;
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = (async () => {
-      await this.start();
-      await this.sendRequest("initialize", {
-        capabilities: { experimentalApi: true },
-        clientInfo: { name: "shepherd", title: "Shepherd", version: "1.0.0" },
+    if (this.connection && !this.connection.closed) return;
+    this.connecting ??= (async () => {
+      const connection = await this.server.connect({
+        onNotification: (method, params) => this.onNotification(method, params),
+        onServerRequest: request => this.onServerRequest(request),
+        onClosed: message => { if (this.connection !== connection) return; this.publish("session.error", this.threadId ?? "unbound", { message }); this.cleanup(); },
       });
-      this.sendNotification("initialized");
-      this.initialized = true;
+      if (this.stopped) { connection.close(); throw new Error("Codex session is stopped."); }
+      this.connection = connection;
       this.publish("session.started", this.threadId ?? "unbound", { model: getDefaultModel() });
-    })();
-
-    try {
-      await this.initPromise;
-    } finally {
-      this.initPromise = null;
-    }
+    })().finally(() => { this.connecting = null; });
+    return this.connecting;
   }
 
   async ensureThread(): Promise<string> {
@@ -557,7 +516,12 @@ export class CodexSession implements ThreadSession {
   stop(): void {
     if (this.threadId && this.liveSessions.get(this.threadId) === this) this.liveSessions.delete(this.threadId);
     this.stopped = true;
+    // The process serves other threads; this one is released rather than the process stopped.
+    const connection = this.connection;
+    if (connection && !connection.closed && this.threadId) void connection.request("thread/unsubscribe", { threadId: this.threadId }).catch(() => {});
+    connection?.close();
     this.cleanup();
+    this.ownServer?.stop();
   }
 
   private mustSetThreadIdFromResult(result: unknown, method: string): string {
@@ -566,8 +530,10 @@ export class CodexSession implements ThreadSession {
       throw new Error(`${method} returned an invalid thread id.`);
     }
     if (this.threadId && this.liveSessions.get(this.threadId) === this) this.liveSessions.delete(this.threadId);
+    if (this.threadId && this.threadId !== threadId) this.connection?.unbind(this.threadId);
     this.threadId = threadId;
     this.liveSessions.set(threadId, this);
+    this.connection?.bind(threadId);
     return threadId;
   }
 
@@ -621,25 +587,14 @@ export class CodexSession implements ThreadSession {
     throw new Error(`Unsupported server request method: ${method}`);
   }
 
+  /** Forgets the session's share of the process: requests in flight were rejected with it. */
   private cleanup(): void {
-    this.lineReader?.close();
-    this.lineReader = null;
-
-    if (this.child && !this.child.killed) {
-      this.child.kill("SIGTERM");
-    }
-    this.child = null;
-
-    for (const pending of this.pendingRequests.values()) {
-      pending.reject(new Error("Session terminated."));
-    }
-    this.pendingRequests.clear();
+    this.connection = null;
     for (const [approvalId, request] of this.serverRequestsByApprovalId) {
       if (request.method === "item/tool/requestUserInput") this.publish("approval.expired", asString(asRecord(request.params).threadId) ?? "unbound", { approvalId });
     }
     this.serverRequestsByApprovalId.clear();
     this.approvalReplies.clear();
-    this.initialized = false;
     this.activeTurnId = null;
   }
 
@@ -647,68 +602,13 @@ export class CodexSession implements ThreadSession {
     method: M,
     params: AppServerRequestParams[M],
   ): Promise<unknown> {
-    const id = this.nextRequestId++;
-    this.writeLine({ id, method, params });
-
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
-    });
-  }
-
-  private sendNotification(method: "initialized"): void {
-    this.writeLine({ method });
+    if (!this.connection || this.connection.closed) throw new Error("codex app-server is not running.");
+    return this.connection.request(method, params);
   }
 
   private writeLine(payload: unknown): void {
-    if (!this.child?.stdin) {
-      throw new Error("codex app-server is not running.");
-    }
-    const line = `${JSON.stringify(payload)}\n`;
-    this.child.stdin.write(line, "utf8");
-  }
-
-  private onServerLine(line: string): void {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-
-    let message: unknown;
-    try {
-      message = JSON.parse(trimmed);
-    } catch {
-      this.publish("session.error", this.threadId ?? "unbound", { message: "Invalid JSON from app-server." });
-      return;
-    }
-
-    const record = asRecord(message);
-    const id = record.id;
-    const method = record.method;
-
-    if ((typeof id === "number" || typeof id === "string") && typeof method === "string") {
-      this.onServerRequest({ id, method, params: record.params ?? {} });
-      return;
-    }
-
-    if (typeof id === "number") {
-      const pending = this.pendingRequests.get(id);
-      if (!pending) return;
-      this.pendingRequests.delete(id);
-      if (record.error) {
-        const error = asRecord(record.error);
-        pending.reject(new Error((error.message as string) ?? "App-server request failed."));
-      } else {
-        pending.resolve(record.result);
-      }
-      return;
-    }
-
-    if (typeof method === "string") {
-      this.onNotification(method, record.params ?? {});
-    }
-  }
-
-  private onServerStderr(chunk: Buffer): void {
-    const text = chunk.toString("utf8").trim();
-    if (text) console.error(`codex app-server stderr: ${text}`);
+    if (!this.connection || this.connection.closed) throw new Error("codex app-server is not running.");
+    this.connection.write(payload);
   }
 
   private onServerRequest(request: RawServerRequest): void {

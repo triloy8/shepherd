@@ -1,10 +1,10 @@
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { forkSession, getSessionInfo, getSessionMessages, listSessions, query, renameSession, tagSession } from "@anthropic-ai/claude-agent-sdk";
+import { forkSession, getSessionInfo, getSessionMessages, getSubagentMessages, listSessions, listSubagents, query, renameSession, tagSession } from "@anthropic-ai/claude-agent-sdk";
 
 /** The Claude Agent SDK operations this adapter uses. Claude's sessions are the record. */
-export const claudeNative = { query, forkSession, listSessions, getSessionInfo, getSessionMessages, renameSession, tagSession };
+export const claudeNative = { query, forkSession, listSessions, getSessionInfo, getSessionMessages, listSubagents, getSubagentMessages, renameSession, tagSession };
 export type ClaudeNative = typeof claudeNative;
 
 /** Archived conversations carry this session tag. A session has one tag, so archiving replaces any other. */

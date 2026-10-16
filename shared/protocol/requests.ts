@@ -344,7 +344,13 @@ export interface HistoryImage {
 
 /** Application history records. Item IDs are unique within a turn, not across the thread.
  * Adapters decode native transcripts into these before they leave the provider. */
-export type HistoryItem =
+export type HistoryItem = HistoryItemBody & {
+  /** The delegation activity whose subagent produced this item; absent for the conversation's own
+   * items. A subagent's messages are its own progress, never the conversation's answer. */
+  parentItemId?: string;
+};
+
+type HistoryItemBody =
   | { id: string; type: "user_message"; content: HistoryContentPart[] }
   | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }
   | { id: string; type: "plan"; text: string }

@@ -22,7 +22,7 @@ export type WebImage = { url: string; prompt: string | null; name?: string; path
  * Live items use the same presentation, so a reload shows what the live view showed. */
 export type WebHistoryItem =
   | Exclude<HistoryItem, { type: "image" }>
-  | { id: string; type: "image"; webImage: WebImage };
+  | { id: string; type: "image"; webImage: WebImage; parentItemId?: string };
 export type WebHistoryTurn = Omit<HistoryTurn, "items"> & { items: WebHistoryItem[] };
 export type WebHistoryResponse = Omit<ListThreadTurnsResponse, "data"> & { data: WebHistoryTurn[]; revision: number };
 export type WebError = { error: { code: string; message: string } };

@@ -44,6 +44,10 @@ both adapters. Deltas name their `channel` (`message`, `plan`, `reasoning`, `out
 method. Codex keeps raw reasoning text private and streams only reasoning summaries.
 Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
 Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
+An item a subagent produced names its delegation activity in `parentItemId`. It belongs to the
+turn holding that delegation, even when a background subagent finishes after the turn ends. A
+subagent's text is its own progress and never the conversation's answer: core ignores it for
+replies, web nests it inside the delegation step, and Discord leaves it out of progress lines.
 Native notifications stay private. User-facing failures, items, token usage, and background
 task counts have shared representations. Token counts that a provider does not report are `null`, including input, output and total counts. The most recent request and cumulative breakdowns can each be absent (`last: null` / `total: null`); reporting a cumulative total does not require inventing a last-request measurement.
 

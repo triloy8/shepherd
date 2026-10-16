@@ -50,7 +50,12 @@ function excerpt(value: string, limit = 260): string {
   return shortened.replace(/([\\`*_{}[\]()<>#+.!|~-])/g, "\\$1");
 }
 
+/** A subagent's items are labeled as its work inside the delegation that started it. */
 function itemLabel(item: HistoryItem): string {
+  return item.parentItemId ? `Subagent · ${ownLabel(item)}` : ownLabel(item);
+}
+
+function ownLabel(item: HistoryItem): string {
   switch (item.type) {
     case "user_message": return "User message";
     case "assistant_message": return "Assistant message";

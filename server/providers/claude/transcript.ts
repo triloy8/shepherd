@@ -40,6 +40,8 @@ export class ClaudeTranscript {
   private pendingText: Array<{ id: string; text: string }> = [];
   private readonly textBlocks = new Map<string, number>();
   private readonly thinkingBlocks = new Map<string, number>();
+  /** Block counters for subagent messages, which can outlast the turn that started them. */
+  private readonly subagentBlocks = new Map<string, number>();
   constructor(private readonly listener: ItemListener = () => {}) {}
 
   get current(): HistoryTurn | null {
@@ -98,7 +100,38 @@ export class ClaudeTranscript {
 
   toolResults(content: unknown): void {
     const turn = this.current;
+    if (turn) this.completeTools(turn, content);
+  }
+
+  /** A subagent's message. Its items join the turn holding the delegation that started it, which
+   * may have ended: a background subagent keeps working after its turn. A subagent's text is its
+   * own progress, never the conversation's answer, so it is always interim. */
+  subagent(parentItemId: string, role: "assistant" | "user", message: unknown): void {
+    // Subagents can delegate too; their items name the nested delegation, which is itself an item.
+    const turn = [...this.turns].reverse().find(candidate => candidate.items.some(item => item.id === parentItemId && item.type === "activity"));
     if (!turn) return;
+    const native = record(message);
+    if (role === "user") return this.completeTools(turn, native.content);
+    const messageId = typeof native.id === "string" ? native.id : null;
+    if (!messageId) return;
+    const next = (kind: string) => { const key = `${kind}:${messageId}`; const index = this.subagentBlocks.get(key) ?? 0; this.subagentBlocks.set(key, index + 1); return index; };
+    for (const block of blocks(native.content)) {
+      if (block.type === "text" && typeof block.text === "string") {
+        const index = next("text");
+        if (block.text) this.complete(turn, { id: textItemId(messageId, index), type: "assistant_message", text: block.text, phase: "interim", parentItemId });
+      }
+      if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
+        this.complete(turn, { id: `${messageId}:thinking:${next("thinking")}`, type: "reasoning", summary: [bounded(block.thinking)], parentItemId });
+      }
+      if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+        const item: HistoryItem = { id: block.id, type: "activity", status: "started", activity: claudeActivity(block.name, claudeActivityFields(block.input)), parentItemId };
+        turn.items.push(item);
+        this.listener("started", turn.id, item);
+      }
+    }
+  }
+
+  private completeTools(turn: HistoryTurn, content: unknown): void {
     for (const block of blocks(content)) {
       if (block.type !== "tool_result") continue;
       const index = turn.items.findIndex(item => item.id === block.tool_use_id && item.type === "activity");
@@ -153,13 +186,20 @@ function seconds(value: unknown, fallback: number): number {
 
 /** Decode a stored session. The transcript records no turn results, so a turn ends when the
  * next prompt arrives or the transcript ends; an interruption marker ends it as interrupted.
- * `activeTurnId` names a turn still running in this process, which stays in progress. */
-export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurnId: string | null = null): { turns: HistoryTurn[]; model: string | null; usage: unknown } {
+ * `activeTurnId` names a turn still running in this process, which stays in progress. Subagent
+ * transcripts are stored separately; they are merged in by time, as they streamed live. */
+export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurnId: string | null = null, subagentEntries: readonly TranscriptEntry[] = []): { turns: HistoryTurn[]; model: string | null; usage: unknown } {
   const transcript = new ClaudeTranscript();
   let model: string | null = null, usage: unknown = null, last = 0;
-  for (const entry of entries) {
-    // Subagent work belongs to its delegation activity, not the main conversation.
-    if (entry.parent_tool_use_id) continue;
+  // An entry without a time takes the time before it, so it keeps its place; main entries come first on ties.
+  const timed = (list: readonly TranscriptEntry[], offset: number) => { let at = 0; return list.map((entry, index) => ({ entry, index: offset + index, at: at = seconds(entry.timestamp, at) })); };
+  const ordered = [...timed(entries, 0), ...timed(subagentEntries, entries.length)].sort((a, b) => a.at - b.at || a.index - b.index).map(({ entry }) => entry);
+  for (const entry of ordered) {
+    // Subagent work joins the delegation that started it; the subagent's own prompt is that delegation's input.
+    if (entry.parent_tool_use_id) {
+      if (entry.type === "assistant" || entry.type === "user") transcript.subagent(entry.parent_tool_use_id, entry.type, entry.message);
+      continue;
+    }
     const at = seconds(entry.timestamp, last);
     const message = record(entry.message);
     const content = blocks(message.content);

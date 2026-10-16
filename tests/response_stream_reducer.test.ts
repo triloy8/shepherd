@@ -147,6 +147,13 @@ test("completed-only unphased providers do not need a delta or a turn-start even
   expect(getFinalResponseText(cleared.state)).toBe("");
 });
 
+test("a subagent's text never becomes the conversation's answer", () => {
+  const state = reduceResponseStream(null, makeEvent("item.completed", { turnId: "turn-1", item: { id: "answer", type: "assistant_message", text: "Done", phase: "final" } })).state!;
+  const subagent = reduceResponseStream(state, makeEvent("item.completed", { turnId: "turn-1", item: { id: "sub", type: "assistant_message", text: "Subagent finding", phase: "final", parentItemId: "agent-call" } }));
+  expect(subagent.type).toBe("none");
+  expect(getFinalResponseText(state)).toBe("Done");
+});
+
 test("known phases survive missing metadata and late classification preserves earlier deltas", () => {
   let state = reduceResponseStream(null, makeEvent("item.delta", { turnId: "turn-1", itemId: "work", channel: "message", delta: "Unclassified ", phase: null })).state!;
   state = reduceResponseStream(state, delta("progress", "interim", "work")).state!;

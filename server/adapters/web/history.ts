@@ -3,6 +3,11 @@ import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import type { WebHistoryItem } from "../../../shared/protocol/web.js";
 import type { WebImages } from "./images.js";
 export function presentHistoryItem(item: HistoryItem, turnId: string, images: WebImages): WebHistoryItem {
+  const presented = presentItem(item, turnId, images);
+  return item.parentItemId ? { ...presented, parentItemId: item.parentItemId } : presented;
+}
+
+function presentItem(item: HistoryItem, turnId: string, images: WebImages): WebHistoryItem {
   switch (item.type) {
     case "user_message": {
       // Never turn provider history into arbitrary remote browser fetches.

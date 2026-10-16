@@ -8,7 +8,9 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
   const groups: TimelineGroup[] = [];
   const explicitFinals = new Map<string, Set<string>>();
   const implicitFinals = new Map<string, Set<string>>();
-  for (const message of chat.messages) {
+  // A subagent's rows render inside their delegation step, not as the turn's own progress.
+  const own = chat.messages.filter(message => !message.parentId);
+  for (const message of own) {
     if (message.role !== "assistant" || message.activity || message.image) continue;
     if (message.phase === "final") {
       const ids = explicitFinals.get(message.turnId) ?? new Set<string>();
@@ -19,7 +21,7 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
       implicitFinals.set(message.turnId, new Set([message.id]));
     }
   }
-  for (const message of chat.messages) {
+  for (const message of own) {
     const previous = groups.at(-1);
     const finalTexts = explicitFinals.get(message.turnId) ?? implicitFinals.get(message.turnId);
     const followsFinal = !!previous?.messages.at(-1) && !!finalTexts?.has(previous.messages.at(-1)!.id);

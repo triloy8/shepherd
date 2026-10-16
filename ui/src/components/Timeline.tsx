@@ -11,14 +11,22 @@ export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true
   const [target, setTarget] = useState<ChatMessage | null>(null);
   const images = useMemo(() => chat.messages.flatMap((message) => message.image ? [message.image] : []), [chat.messages]);
   const groups = useMemo(() => timelineGroups(chat), [chat.messages, chat.turns, chat.activeTurnId]);
-  return <><div className="space-y-8">{groups.map((group) => <TimelineGroupView key={messageKey(group.messages[0]!)} group={group} images={images}
+  // Each group gets only its own steps' subagent rows, so a subagent update re-renders one group.
+  const subagentRows = useMemo(() => {
+    const rows = new Map<string, ChatMessage[]>();
+    // Item IDs are unique within a turn, so a parent is its turn and ID together.
+    const key = (turnId: string, id: string) => JSON.stringify([turnId, id]);
+    for (const message of chat.messages) if (message.parentId) rows.set(key(message.turnId, message.parentId), [...rows.get(key(message.turnId, message.parentId)) ?? [], message]);
+    return groups.map((group) => group.messages.flatMap((message) => rows.get(key(message.turnId, message.id)) ?? []));
+  }, [chat.messages, groups]);
+  return <><div className="space-y-8">{groups.map((group, index) => <TimelineGroupView key={messageKey(group.messages[0]!)} group={group} subagentRows={subagentRows[index]!} images={images}
     waiting={waitingForAnswer && group.messages[0]!.turnId === chat.activeTurnId} turnStatus={chat.turns[group.messages[0]!.turnId]?.status} revertDisabled={revertDisabled} canRevert={!!onRevert} setTarget={setTarget} />)}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
     available={!!target && chat.messages.some((message) => message.id === target.id && message.turnId === target.turnId)}
     onClose={() => setTarget(null)} revert={onRevert} reload={onReload} />}</>;
 }
 
-const TimelineGroupView = memo(function TimelineGroupView({ group, images, waiting, turnStatus, revertDisabled, canRevert, setTarget }: {
-  group: TimelineGroup; images: readonly WebImage[]; waiting: boolean; turnStatus?: string; revertDisabled: boolean; canRevert: boolean;
+const TimelineGroupView = memo(function TimelineGroupView({ group, subagentRows, images, waiting, turnStatus, revertDisabled, canRevert, setTarget }: {
+  group: TimelineGroup; subagentRows: readonly ChatMessage[]; images: readonly WebImage[]; waiting: boolean; turnStatus?: string; revertDisabled: boolean; canRevert: boolean;
   setTarget: Dispatch<SetStateAction<ChatMessage | null>>;
 }) {
     if (group.messages[0]!.role === "user") return <Message message={group.messages[0]!} revertDisabled={revertDisabled} onRevert={canRevert ? () => setTarget(group.messages[0]!) : undefined} />;
@@ -30,7 +38,9 @@ const TimelineGroupView = memo(function TimelineGroupView({ group, images, waiti
     const updates = <div className="space-y-4 border-l border-line pl-4 text-muted">{progress.map((message) => message.image ? <DeferredDetails key={message.id} className="viewed-image-disclosure text-xs text-muted"
       summary={<>Viewed image{message.image.name ? ` · ${message.image.name}` : ""}</>}>
       <ImageArtifact image={message.image} eager />
-    </DeferredDetails> : message.activity ? <ActivityStep key={message.id} step={message.activity} turnStatus={turnStatus} /> : <Message key={message.id} message={message} images={images} writingPaused={waiting} progress showCopy={false} />)}</div>;
+    </DeferredDetails> : message.activity ? <ActivityStep key={message.id} step={message.activity} turnStatus={turnStatus}>
+      {subagentRows.some((row) => row.parentId === message.id && row.turnId === message.turnId) && <SubagentRows rows={subagentRows.filter((row) => row.parentId === message.id && row.turnId === message.turnId)} images={images} turnStatus={turnStatus} />}
+    </ActivityStep> : <Message key={message.id} message={message} images={images} writingPaused={waiting} progress showCopy={false} />)}</div>;
     return <section className="timeline-entry space-y-5" aria-label="Assistant turn">
       {progress.length > 0 && (group.settled ?
         <DeferredDetails summary={<>{group.label}{failures > 0 && <span className="text-amber-400"> · {failures} failed {failures === 1 ? "step" : "steps"}</span>}</>} >{updates}</DeferredDetails> :
@@ -44,6 +54,7 @@ const TimelineGroupView = memo(function TimelineGroupView({ group, images, waiti
   previous.group.settled === next.group.settled && previous.group.label === next.group.label &&
   previous.group.finalIds.length === next.group.finalIds.length && previous.group.finalIds.every((id, index) => id === next.group.finalIds[index]) &&
   previous.group.messages.length === next.group.messages.length && previous.group.messages.every((message, index) => message === next.group.messages[index]) &&
+  previous.subagentRows.length === next.subagentRows.length && previous.subagentRows.every((message, index) => message === next.subagentRows[index]) &&
   previous.images.length === next.images.length && previous.images.every((image, index) => image === next.images[index]));
 
 function DeferredDetails({ summary, children, className = "progress-disclosure" }: { summary: ReactNode; children: ReactNode; className?: string }) {
@@ -54,11 +65,21 @@ function DeferredDetails({ summary, children, className = "progress-disclosure" 
   </details>;
 }
 
-function ActivityStep({ step, turnStatus }: { step: Step; turnStatus?: string }) {
+/** A subagent's own work, shown inside the step that delegated it. */
+function SubagentRows({ rows, images, turnStatus }: { rows: readonly ChatMessage[]; images: readonly WebImage[]; turnStatus?: string }) {
+  return <div className="subagent-rows mt-3 space-y-3 border-l border-line pl-4" aria-label="Subagent work">
+    {rows.map((message) => message.image ? <ImageArtifact key={message.id} image={message.image} eager /> :
+      message.activity ? <ActivityStep key={message.id} step={message.activity} turnStatus={turnStatus} /> :
+      <Message key={message.id} message={message} images={images} progress showCopy={false} />)}
+  </div>;
+}
+
+function ActivityStep({ step, turnStatus, children }: { step: Step; turnStatus?: string; children?: ReactNode }) {
   const { title, detail } = describeActivity(step.activity);
   const state = step.status === "started" && turnStatus && turnStatus !== "in_progress" ? "Stopped" : step.status === "started" ? "Running" : step.status === "failed" ? "Failed" : "Done";
   return <details className={step.status === "failed" ? "notice" : "text-xs text-muted"}>
     <summary className="cursor-pointer">{title} · {state}</summary>
     {detail && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{detail.slice(0, 16384)}</pre>}
+    {children}
   </details>;
 }

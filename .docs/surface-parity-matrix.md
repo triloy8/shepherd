@@ -125,6 +125,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Tool activity (application, MCP, built-in) | Yes — progress lines | Yes — expandable activity | Titles written by surfaces from shared activity fields |
 | Web-search activity | Yes | Yes | Shared activity mapping |
 | Agent delegation activity | Yes | Yes | Summaries, not an agent management UI |
+| Subagent work inside a delegation | History only — items labeled `Subagent ·` | Yes — nested inside the delegation step | Live Discord progress lines show only the conversation's own steps |
 | Image-view/generation activity | Yes | Yes | Separate from actual generated image delivery |
 | Wait/sleep activity | Yes | Yes | Shared activity mapping |
 | Per-item completed activity state | Partial — live lines emphasize started/failed | Yes — Running/Done/Failed/Stopped labels | Not identical lifecycle presentation |

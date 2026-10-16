@@ -6,7 +6,9 @@ import type { HistoryItem, HistoryTurn } from "../../shared/protocol/requests";
 /** A progress row: a tool call, or a plan or reasoning summary shown like one. */
 export type ActivityStep = Pick<Extract<HistoryItem, { type: "activity" }>, "status" | "activity">;
 
-export type ChatMessage = { optimistic?: boolean; anonymous?: boolean; anonymousBaseline?: string[]; localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: ActivityStep; phase?: "interim" | "final"; streamText?: string; snapshotText?: string };
+export type ChatMessage = { optimistic?: boolean; anonymous?: boolean; anonymousBaseline?: string[]; localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: ActivityStep; phase?: "interim" | "final";
+  /** The delegation step whose subagent produced this row; such rows render inside that step. */
+  parentId?: string; streamText?: string; snapshotText?: string };
 export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
 export type ChatState = { endedTurns: string[]; turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
 export const emptyChat = (): ChatState => ({ endedTurns: [], turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
@@ -25,6 +27,12 @@ export function historyMessages(turns: WebHistoryTurn[]): ChatMessage[] {
 /** One timeline row for an item, shared by history and live delivery. `stage` is whether the
  * item is still in progress, which decides the status of plans and reasoning. */
 function itemMessage(item: WebHistoryItem, turnId: string, stage: "started" | "completed"): ChatMessage | null {
+  const message = ownItemMessage(item, turnId, stage);
+  // A subagent's text is its progress inside the delegation, never the conversation's answer.
+  return message && item.parentItemId ? { ...message, parentId: item.parentItemId, ...(message.activity || message.image ? {} : { phase: "interim" as const, complete: true }) } : message;
+}
+
+function ownItemMessage(item: WebHistoryItem, turnId: string, stage: "started" | "completed"): ChatMessage | null {
   const complete = stage === "completed";
   switch (item.type) {
     case "user_message": {
@@ -84,7 +92,7 @@ export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = 
   // A history snapshot may identify an anonymous stream before its completion event arrives.
   // Claim only an unambiguous text match, preserving repeated messages as separate occurrences.
   const established = new Set(retained.filter(message => !message.anonymous && !message.optimistic).map(messageKey));
-  const matchesStream = (message: ChatMessage, streamed: ChatMessage) => message.role === "assistant" && !message.activity && !message.image &&
+  const matchesStream = (message: ChatMessage, streamed: ChatMessage) => message.role === "assistant" && !message.activity && !message.image && !message.parentId &&
     message.turnId === streamed.turnId && compatiblePhase(message.phase, streamed.phase) &&
     !!message.text && (message.text.startsWith(streamed.text) || streamed.text.startsWith(message.text));
   for (let index = 0; index < retained.length; index++) {
@@ -147,13 +155,15 @@ export function reduceBridge(state: ChatState, event: WebBridgeEvent): ChatState
   // append post-completion deltas or replace its progress. Late answers and images still land.
   const item = event.type === "item.started" || event.type === "item.completed" ? event.payload.item : null;
   const progress = event.type === "item.started" || event.type === "item.delta" || (item !== null && item.type !== "assistant_message" && item.type !== "image");
-  if ((event.type.startsWith("turn.") || event.type.startsWith("item.")) && ((state.activeTurnId && (turnId !== state.activeTurnId) && event.type !== "turn.started") ||
+  // A background subagent keeps working after its turn ends; its items still belong to their delegation.
+  const subagent = !!item?.parentItemId;
+  if (!subagent && (event.type.startsWith("turn.") || event.type.startsWith("item.")) && ((state.activeTurnId && (turnId !== state.activeTurnId) && event.type !== "turn.started") ||
     (ended && (progress || ["turn.started", "turn.completed", "turn.failed"].includes(event.type))))) return next;
   if (event.type === "turn.started") return { ...next, endedTurns: state.activeTurnId && state.activeTurnId !== turnId ? [...new Set([...state.endedTurns, state.activeTurnId])] : state.endedTurns, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "in_progress", durationMs: null } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
   if (["turn.completed", "turn.failed"].includes(event.type)) return { ...next, endedTurns: turnId ? [...new Set([...state.endedTurns, turnId])] : state.endedTurns, messages: next.messages.map((message) => message.turnId === turnId ? { ...message, complete: true } : message), activeTurnId: null, activity: null, error: event.type === "turn.failed" ? text(payload.message) || "The turn failed." : state.error };
   if (event.type === "session.error" || event.type === "session.limit.context") return { ...next, error: text(payload.message) || "The session needs attention." };
   // Users' own messages arrive through submission and history; deltas extend the messages below.
-  if (item && item.type !== "assistant_message" && item.type !== "user_message") {
+  if (item && (subagent || (item.type !== "assistant_message" && item.type !== "user_message"))) {
     const message = itemMessage(item, turnId, event.type === "item.started" ? "started" : "completed");
     if (!message) return next;
     const previous = state.messages.find((m) => m.id === message.id && m.turnId === turnId);
@@ -161,7 +171,7 @@ export function reduceBridge(state: ChatState, event: WebBridgeEvent): ChatState
     if (previous?.image && !message.image) return next;
     if (previous?.activity && previous.activity.status !== "started" && message.activity?.status === "started") return next;
     const messages = previous ? state.messages.map((m) => m === previous ? message : m) : [...state.messages, message];
-    return message.activity ? { ...next, messages, activity: message.activity.status === "started" ? describeActivity(message.activity.activity).title : "Thinking" } : { ...next, messages };
+    return message.activity && !message.parentId ? { ...next, messages, activity: message.activity.status === "started" ? describeActivity(message.activity.activity).title : "Thinking" } : { ...next, messages };
   }
   const assistant = item?.type === "assistant_message" && event.type === "item.completed" ? item : null;
   const delta = event.type === "item.delta" && event.payload.channel === "message" ? event.payload : null;

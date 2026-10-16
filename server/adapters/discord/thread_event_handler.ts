@@ -446,6 +446,8 @@ export function createDiscordThreadEventHandler(
     }
 
     const item = event.type === "item.started" || event.type === "item.completed" ? event.payload.item : null;
+    // Progress lines follow the conversation's own steps; a subagent's work stays inside its delegation.
+    if (item?.parentItemId) return;
     if (item?.type === "activity") {
       if (item.status === "started" || item.status === "failed") {
         const line = formatActivityLine(item);

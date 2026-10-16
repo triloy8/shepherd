@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { TurnSettings } from "../server/ports/provider_session.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../shared/protocol/model_capabilities.js";
 import type { ModelSummary } from "../shared/protocol/requests.js";
 import { SessionManager } from "../server/core/session_manager.js";
@@ -52,7 +53,7 @@ test("file and URL inputs share modality checks; skill references are not model 
 test("submission uses the next or explicitly requested model; steering keeps the active model", async () => {
   const session = new IndependentSession();
   let starts = 0, steers = 0;
-  session.startTurn = async () => { starts++; return "turn"; };
+  session.onTurn = () => { starts++; };
   session.steerTurn = async () => { steers++; return "turn"; };
   session.listModels = async request => request?.cursor
     ? { data: [model("vision", ["text", "image"])], nextCursor: null }
@@ -77,7 +78,7 @@ test("submission uses the next or explicitly requested model; steering keeps the
 test("model support cannot bypass adapter input restrictions", async () => {
   const session = new IndependentSession();
   session.listModels = async () => ({ data: [model("third-model", ["text", "audio"])], nextCursor: null });
-  session.startTurn = async () => { throw new Error("must not execute"); };
+  session.onTurn = () => { throw new Error("must not execute"); };
   const manager = new SessionManager(undefined, () => session);
   try {
     const { threadId } = await manager.createThread({ cwd: "/tmp" });
@@ -87,15 +88,15 @@ test("model support cannot bypass adapter input restrictions", async () => {
 
 test("a model switch replaces unsupported inherited effort with the new model default", async () => {
   const session = new IndependentSession();
-  const starts: unknown[][] = [];
-  session.startTurn = async (...args) => { starts.push(args); return "turn"; };
+  const starts: TurnSettings[] = [];
+  session.onTurn = (_input, settings) => { starts.push(settings); };
   session.listModels = async () => ({ data: [model("third-model", ["text"]), model("quick-model", ["text"], "quick")], nextCursor: null });
   const manager = new SessionManager(undefined, () => session);
   try {
     const { threadId } = await manager.createThread({ cwd: "/tmp" });
     manager.setThreadModel(threadId, "quick-model");
     await manager.submitTurn(threadId, { input: [{ type: "text", text: "hello" }] });
-    expect(starts[0]?.[4]).toBe("quick");
+    expect(starts[0]?.effort).toBe("quick");
     expect((await manager.getThreadEffort(threadId)).currentEffort).toBe("quick");
   } finally { manager.stopAll(); }
 });

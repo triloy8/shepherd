@@ -111,10 +111,11 @@ test("Claude streams common events and resumes the native session from its trans
     expect(fake.calls[0]!.options.env!.ANTHROPIC_API_KEY).toBe("");
     expect(fake.calls[0]!.options.settings).toMatchObject({ forceLoginMethod: "claudeai", apiKeyHelper: "" });
   }
-  expect(events.map((e) => e.type)).toEqual(["turn.started", "item.delta", "item.completed", "thread.tokenUsage.updated", "turn.completed"]);
+  expect(events.map((e) => e.type)).toEqual(["thread.settings.changed", "turn.started", "item.delta", "item.completed", "thread.tokenUsage.updated", "turn.completed"]);
+  expect(events[0]!.payload).toEqual({ model: "claude-opus-5-5", effort: "medium", cwd: "/project", approvalPolicy: "review_sensitive" });
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(chat.messages.filter((message) => message.role === "assistant")).toMatchObject([{ text: "Hello", complete: true }]);
-  expect(events[1]!.payload).toEqual({ channel: "message", phase: null, itemId: "msg-1", delta: "Hello", turnId });
+  expect(events[2]!.payload).toEqual({ channel: "message", phase: null, itemId: "msg-1", delta: "Hello", turnId });
   expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "user_message" }, { type: "assistant_message", text: "Hello" }] });
   const resumed = new ClaudeSession("review_sensitive", undefined, fake);
   await resumed.resumeThread(created.threadId, {});
@@ -207,7 +208,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
     providers.push(provider);
     if (provider === "claude") return new ClaudeSession(policy, tools, fake);
     const codex = new CodexSession(policy, tools);
-    codex.startThread = async () => ({ threadId: "codex-thread", cwd: "/tmp", model: "codex-model", effort: null });
+    codex.startThread = async () => ({ threadId: "codex-thread", cwd: "/tmp", model: "codex-model", effort: null, approvalPolicy: "provider_default" });
     return codex;
   }, () => false, { resolve: id => id === "codex-thread" ? "codex" : "claude", bind: () => {} }, ["codex", "claude"]);
   await manager.createThread({});
@@ -382,7 +383,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   events.push(result); await first;
   expect(session.activeTurnId).toBeNull(); expect(fake.closed()).toBe(closedBeforeResult);
   expect(manager.getRuntimeActivity().activeTurnThreadIds).toEqual([threadId]);
-  await expect(session.startTurn([toTextUserInput("change")], undefined, "opus")).rejects.toThrow("Wait for background tasks");
+  await expect(session.startTurn([toTextUserInput("change")], { model: "opus" })).rejects.toThrow("Wait for background tasks");
   expect(fake.calls).toHaveLength(callsBeforeResult);
   const started = waitFor("turn.started"); const completed = waitFor("turn.completed");
   events.push({ type: "assistant", parent_tool_use_id: null, message: { id: "wake-message", content: [{ type: "text", text: "Background result" }] } } as SDKMessage);
@@ -431,7 +432,7 @@ test("loaded conversations include every provider and respect page size", async 
   const manager = new SessionManager(undefined, (policy, tools, provider) => {
     if (provider === "claude") return new ClaudeSession(policy, tools, fake);
     const session = new CodexSession(policy, tools); session.initialize = async () => {};
-    session.startThread = async () => ({ threadId: "opaque-codex-id", cwd: "/tmp", model: "codex", effort: null });
+    session.startThread = async () => ({ threadId: "opaque-codex-id", cwd: "/tmp", model: "codex", effort: null, approvalPolicy: "provider_default" });
     session.listLoadedThreads = async () => ({ data: ["opaque-codex-id"], nextCursor: null }); return session;
   }, undefined, undefined, ["codex", "claude"]);
   const codex = await manager.createThread({}); const claude = await manager.createThread({ provider: "claude" });
@@ -828,7 +829,7 @@ test("Claude clears effort by restarting with no SDK effort and keeps it cleared
     const { threadId } = await session.startThread({});
     await session.startTurn([toTextUserInput("first")]); await done(session);
     expect(fake.calls[0]!.options.effort).toBe("medium");
-    await session.startTurn([toTextUserInput("second")], undefined, undefined, undefined, null); await done(session);
+    await session.startTurn([toTextUserInput("second")], { effort: null }); await done(session);
     expect(fake.calls).toHaveLength(2);
     expect(fake.calls[1]!.options.effort).toBeUndefined();
     expect((await session.readThread(threadId, false)).thread.id).toBe(threadId);

@@ -133,11 +133,11 @@ test("Codex maps canonical settings privately through every lifecycle operation 
       expect(requests.at(-1)!.params.approvalPolicy).toBe(native);
       await session.forkThread("thread", { approvalPolicy: policy, sandbox: "read_only" });
       expect(requests.at(-1)!.params).toMatchObject({ approvalPolicy: native, sandbox: "read-only" });
-      await session.startTurn([{ type: "text", text: "hello" }], policy);
+      await session.startTurn([{ type: "text", text: "hello" }], { approvalPolicy: policy });
       expect(requests.at(-1)!.params.approvalPolicy).toBe(native);
     }
     await session.startThread({ approvalPolicy: "bypass" });
-    await session.startTurn([{ type: "text", text: "Continue saved policy" }], "provider_default");
+    await session.startTurn([{ type: "text", text: "Continue saved policy" }], { approvalPolicy: "provider_default" });
     expect(session.approvalPolicy).toBe("bypass");
     expect(requests.at(-1)!.params.approvalPolicy).toBe("never");
     for (const operation of [() => session.startThread({ approvalPolicy: "provider_default" }), () => session.resumeThread("thread", { approvalPolicy: "provider_default" }), () => session.forkThread("thread", { approvalPolicy: "provider_default" }), () => session.startTurn([{ type: "text", text: "hello" }], "provider_default")]) {

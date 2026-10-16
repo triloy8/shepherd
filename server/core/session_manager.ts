@@ -80,6 +80,9 @@ type ManagedModelState = {
   pendingModel: string | null;
 };
 
+/** What core knows about a running thread, learned from its bootstrap and events. */
+type ThreadRuntime = { activeTurnId: string | null; backgroundTaskCount: number; approvalPolicy: ApprovalPolicy };
+
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
@@ -94,6 +97,9 @@ export class SessionManager {
   private cwdByThread = new Map<string, string>();
   private effortStateByThread = new Map<string, { current: string | null; pending: string | null; pendingClear?: boolean }>();
   private modelStateByThread = new Map<string, ManagedModelState>();
+  private runtimeByThread = new Map<string, ThreadRuntime>();
+  /** The turn each session is running, for requests that arrive without naming one. */
+  private readonly sessionTurns = new Map<ProviderSession, string | null>();
   private controlSessions = new Map<AgentProvider, ProviderSession>();
   private controlSessionStarting = new Map<AgentProvider, Promise<ProviderSession>>();
   private readonly providerCapabilities = new Map<AgentProvider, ProviderCapabilities>();
@@ -152,7 +158,7 @@ export class SessionManager {
     try {
       const request = this.withThreadDefaults(requested, session.capabilities, applyApprovalDefault);
       assertThreadSupport(request.provider ?? this.defaultProvider(), session.capabilities, request);
-      assertApprovalSupport(request.provider ?? this.defaultProvider(), session.capabilities, request.approvalPolicy ?? session.approvalPolicy);
+      assertApprovalSupport(request.provider ?? this.defaultProvider(), session.capabilities, request.approvalPolicy ?? "provider_default");
       await session.initialize();
       this.assertRunning();
       const preBootstrapCatalog = session.capabilities.modelCatalogScope === "provider";
@@ -176,6 +182,7 @@ export class SessionManager {
       this.cwdByThread.set(created.threadId, created.cwd);
       this.effortStateByThread.set(created.threadId, { current: created.effort, pending: null });
       this.modelStateByThread.set(created.threadId, { currentModel: created.model, pendingModel: null });
+      this.runtimeByThread.set(created.threadId, { activeTurnId: null, backgroundTaskCount: 0, approvalPolicy: created.approvalPolicy });
       return { threadId: created.threadId, sessionId: session.sessionId };
     } catch (error) {
       this.releaseSession(session);
@@ -211,7 +218,7 @@ export class SessionManager {
   getRuntimeActivity(): RuntimeActivity {
     return {
       activeTurnThreadIds: [...this.sessionsByThread.entries()]
-        .filter(([, managed]) => managed.session.activeTurnId !== null || (managed.session.backgroundTaskCount ?? 0) > 0)
+        .filter(([threadId]) => { const runtime = this.runtimeByThread.get(threadId); return !!runtime && (runtime.activeTurnId !== null || runtime.backgroundTaskCount > 0); })
         .map(([threadId]) => threadId),
       pendingApprovalIds: this.approvals.listPending().map((approval) => approval.approvalId),
     };
@@ -267,9 +274,9 @@ export class SessionManager {
       sessionId: managed.session.sessionId,
       provider: this.threadProvider(threadId),
       capabilities: { ...managed.session.capabilities, modelCatalogAuthoritative: managed.session.capabilities.modelCatalogAuthoritative === true },
-      backgroundTaskCount: managed.session.backgroundTaskCount ?? 0,
-      activeTurnId: managed.session.activeTurnId,
-      approvalPolicy: managed.session.approvalPolicy,
+      backgroundTaskCount: this.runtime(threadId).backgroundTaskCount,
+      activeTurnId: this.runtime(threadId).activeTurnId,
+      approvalPolicy: this.runtime(threadId).approvalPolicy,
     };
   }
 
@@ -472,11 +479,10 @@ export class SessionManager {
 
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     const managed = this.mustGet(threadId);
-    assertApprovalSupport(this.threadProvider(threadId), managed.session.capabilities, request.approvalPolicy ?? managed.session.approvalPolicy);
+    assertApprovalSupport(this.threadProvider(threadId), managed.session.capabilities, request.approvalPolicy ?? this.runtime(threadId).approvalPolicy);
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     const modelState = this.modelStateByThread.get(threadId);
     const model = request.model ?? modelState?.pendingModel ?? undefined;
-    const cwd = await this.resolveThreadCwd(threadId);
     const effortState = this.effortStateByThread.get(threadId);
     let effort: string | null | undefined = request.effort !== undefined ? request.effort : effortState?.pendingClear ? null : effortState?.pending ?? undefined;
     if (model) this.requireCapability(threadId, "modelSelection");
@@ -491,25 +497,11 @@ export class SessionManager {
       }
       if (selected) this.assertModelEffort(selected, effort);
     }
-    const turnId = await managed.session.startTurn(request.input, request.approvalPolicy, model, cwd, effort);
-    if (model && model !== modelState?.currentModel && !managed.session.capabilities.effortSelection) {
-      // The adapter chooses effort with its new model; the previous measurement is no longer known.
-      this.effortStateByThread.set(threadId, { current: null, pending: null });
-    }
-    if (effort !== undefined) {
-      const latest = this.effortStateByThread.get(threadId);
-      this.effortStateByThread.set(threadId, {
-        current: effort,
-        pending: latest?.pending === effort ? null : latest?.pending ?? null,
-        pendingClear: effort === null ? false : latest?.pendingClear ?? false,
-      });
-    }
-    if (model) {
-      this.modelStateByThread.set(threadId, {
-        currentModel: model,
-        pendingModel: this.modelStateByThread.get(threadId)?.pendingModel === model ? null : this.modelStateByThread.get(threadId)?.pendingModel ?? null,
-      });
-    }
+    // The adapter reports the settings it applied with `thread.settings.changed`, which settles
+    // pending selections; a failed start leaves them pending and retryable.
+    const turnId = await managed.session.startTurn(request.input, {
+      ...(model ? { model } : {}), ...(effort !== undefined ? { effort } : {}), ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
+    });
     return { ok: true, turnId };
   }
 
@@ -592,6 +584,7 @@ export class SessionManager {
     this.cwdByThread.clear();
     this.modelStateByThread.clear();
     this.effortStateByThread.clear();
+    this.runtimeByThread.clear();
     this.controlSessions.clear();
   }
 
@@ -620,6 +613,7 @@ export class SessionManager {
         this.sessionSubscriptions.get(session)?.();
         this.sessionSubscriptions.delete(session);
         this.applicationEvents.delete(session);
+        this.sessionTurns.delete(session);
       }
     }
   }
@@ -631,13 +625,14 @@ export class SessionManager {
     const nativeRequests = new Map<string, Array<string | null>>();
     this.applicationEvents.set(session, events);
     this.sessionSubscriptions.set(session, session.eventBus.subscribe((event) => {
+      this.learn(session, event);
       if (event.type !== "approval.requested" && event.type.startsWith("approval.") && "approvalId" in event.payload && rejectedQuestions.has(event.payload.approvalId)) return;
       if (event.type === "approval.requested") {
         const requestKey = JSON.stringify([event.threadId, event.id]);
         if (seenRequests.has(requestKey)) return;
         seenRequests.add(requestKey);
         const nativeKey = JSON.stringify([event.threadId, event.payload.approvalId]);
-        nativeRequests.set(nativeKey, [...nativeRequests.get(nativeKey) ?? [], event.payload.userInput?.turnId ?? session.activeTurnId]);
+        nativeRequests.set(nativeKey, [...nativeRequests.get(nativeKey) ?? [], event.payload.userInput?.turnId ?? this.sessionTurns.get(session) ?? null]);
         rejectedQuestions.delete(event.payload.approvalId);
         if (event.payload.kind === "question" && !session.capabilities.questions) {
           const { approvalId, choices } = event.payload;
@@ -653,7 +648,7 @@ export class SessionManager {
               await session.applyApprovalDecision(approvalId, { decision: cancellation.value, reason: message });
             } catch (error) {
               message += ` The session was stopped because cancellation failed: ${error instanceof Error ? error.message : String(error)}`;
-              const turnId = session.activeTurnId;
+              const turnId = this.sessionTurns.get(session) ?? null;
               if (turnId) events.publish({ ...event, id: `${event.id}:turn-failed`, type: "turn.failed", payload: { turnId, message } });
               events.publish({ ...event, id: `${event.id}:session-error`, type: "session.error", payload: { message } });
               for (const [threadId, managed] of this.sessionsByThread) if (managed.session === session) this.discardThreadSession(threadId);
@@ -668,7 +663,7 @@ export class SessionManager {
           threadId: event.threadId,
           sessionId: session.sessionId,
           requestEventId: event.id,
-          turnId: event.payload.userInput?.turnId ?? session.activeTurnId,
+          turnId: event.payload.userInput?.turnId ?? this.sessionTurns.get(session) ?? null,
         });
         const retired = this.approvals.listByThread(event.threadId).filter(approval => approval.status === "expired" && pendingBefore.some(previous => previous.approvalId === approval.approvalId));
         for (const previous of retired) events.publish({ ...event, id: `${event.id}:expired:${previous.approvalId}`, type: "approval.expired", payload: { approvalId: previous.approvalId } });
@@ -710,6 +705,39 @@ export class SessionManager {
     }, { replay: false }));
   }
 
+  /** Thread state comes from the adapter's events, never from its fields. */
+  private learn(session: ProviderSession, event: BridgeEvent): void {
+    const runtime = this.runtimeByThread.get(event.threadId);
+    if (event.type === "turn.started") {
+      this.sessionTurns.set(session, event.payload.turnId);
+      if (runtime) runtime.activeTurnId = event.payload.turnId;
+    }
+    if (event.type === "turn.completed" || event.type === "turn.failed") {
+      // A delayed end of an earlier turn does not end the current one.
+      if (event.payload.turnId === null || event.payload.turnId === this.sessionTurns.get(session)) this.sessionTurns.set(session, null);
+      if (runtime && (event.payload.turnId === null || event.payload.turnId === runtime.activeTurnId)) runtime.activeTurnId = null;
+    }
+    if (event.type === "thread.status.changed" && runtime) runtime.backgroundTaskCount = event.payload.status.backgroundTaskCount;
+    if (event.type === "thread.settings.changed") {
+      const { model, effort, cwd, approvalPolicy } = event.payload;
+      if (runtime) runtime.approvalPolicy = approvalPolicy;
+      if (this.sessionsByThread.has(event.threadId)) this.cwdByThread.set(event.threadId, cwd);
+      const models = this.modelStateByThread.get(event.threadId);
+      if (models) this.modelStateByThread.set(event.threadId, { currentModel: model, pendingModel: models.pendingModel === model ? null : models.pendingModel });
+      const efforts = this.effortStateByThread.get(event.threadId);
+      if (efforts) this.effortStateByThread.set(event.threadId, {
+        current: effort,
+        pending: efforts.pending !== null && efforts.pending === effort ? null : efforts.pending,
+        pendingClear: efforts.pendingClear && effort !== null,
+      });
+    }
+  }
+
+  private runtime(threadId: string): ThreadRuntime {
+    this.mustGet(threadId);
+    return this.runtimeByThread.get(threadId) ?? { activeTurnId: null, backgroundTaskCount: 0, approvalPolicy: "provider_default" };
+  }
+
   /** Release an unusable session without deleting its provider history or workspace. */
   private discardThreadSession(threadId: string): void {
     this.sessionsByThread.delete(threadId);
@@ -717,6 +745,7 @@ export class SessionManager {
     this.tokenUsageByThread.delete(threadId);
     this.effortStateByThread.delete(threadId);
     this.modelStateByThread.delete(threadId);
+    this.runtimeByThread.delete(threadId);
     for (const approval of this.approvals.listByThread(threadId)) if (approval.status === "pending") this.approvals.markExpired(threadId, approval.approvalId);
   }
 

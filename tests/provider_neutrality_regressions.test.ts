@@ -18,7 +18,7 @@ function harness() {
   const session = new IndependentSession();
   session.listModels = async () => ({ data: [row, { ...row, id: "simple", isDefault: false, defaultEffort: null, supportedEfforts: [] }], nextCursor: null });
   const calls: Array<string | null | undefined> = [];
-  Object.assign(session, { startTurn: async (...args: Parameters<import("../server/ports/provider_session.js").ProviderSession["startTurn"]>) => { calls.push(args[4]); return "turn"; } });
+  session.onTurn = (_input, settings) => { calls.push(settings.effort); };
   const manager = new SessionManager(undefined, () => session);
   return { manager, session, calls };
 }
@@ -52,11 +52,11 @@ test("a pending effort can be cleared on a model without effort controls, includ
     await expect(h.manager.setThreadEffort(threadId, { mode: "default" })).rejects.toMatchObject({ failure: { code: "unsupported_effort" } });
     expect((await h.manager.getThreadEffort(threadId)).pendingEffort).toBe("focused");
     await h.manager.setThreadEffort(threadId, null);
-    const start = h.session.startTurn;
-    h.session.startTurn = async () => { throw new Error("transport failed"); };
+    const start = h.session.onTurn;
+    h.session.onTurn = () => { throw new Error("transport failed"); };
     await expect(h.manager.submitTurn(threadId, { input: [] })).rejects.toThrow("transport failed");
     expect((await h.manager.getThreadEffort(threadId)).pendingEffortClear).toBe(true);
-    h.session.startTurn = start;
+    h.session.onTurn = start;
     await h.manager.submitTurn(threadId, { input: [] });
     expect(h.calls).toEqual([null]);
     expect(h.manager.getThreadModel(threadId)).toMatchObject({ currentModel: "simple", pendingModel: null });
@@ -65,7 +65,7 @@ test("a pending effort can be cleared on a model without effort controls, includ
 
 test("settings queued while a turn starts survive completion of the older selection", async () => {
   const h = harness(); let release!: () => void;
-  h.session.startTurn = async () => { await new Promise<void>(resolve => { release = resolve; }); return "turn"; };
+  h.session.onTurn = () => new Promise<void>(resolve => { release = resolve; });
   try {
     const { threadId } = await h.manager.createThread({});
     h.manager.setThreadModel(threadId, "simple");

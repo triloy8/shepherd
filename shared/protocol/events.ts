@@ -19,6 +19,8 @@ export interface BridgeEventPayloads {
   "session.limit.context": { message: string };
   "thread.started": { approvalPolicy: ApprovalPolicy };
   "thread.status.changed": { status: { state: "active" | "idle" | "error"; backgroundTaskCount: number } };
+  /** The settings the thread now runs with, as the adapter applied them. */
+  "thread.settings.changed": { model: string | null; effort: string | null; cwd: string; approvalPolicy: ApprovalPolicy };
   "thread.name.updated": { threadName: string | null };
   "thread.archived": Record<string, never>;
   "thread.reverted": Record<string, never>;
@@ -57,6 +59,7 @@ export type SessionErrorEvent = BridgeEventOf<"session.error">;
 export type SessionContextLimitEvent = BridgeEventOf<"session.limit.context">;
 export type ThreadStartedEvent = BridgeEventOf<"thread.started">;
 export type ThreadStatusChangedEvent = BridgeEventOf<"thread.status.changed">;
+export type ThreadSettingsChangedEvent = BridgeEventOf<"thread.settings.changed">;
 export type ThreadNameUpdatedEvent = BridgeEventOf<"thread.name.updated">;
 export type ThreadArchivedEvent = BridgeEventOf<"thread.archived">;
 export type ThreadRevertedEvent = BridgeEventOf<"thread.reverted">;

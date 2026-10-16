@@ -48,7 +48,7 @@ import {
   UnknownDynamicToolError,
   type ProviderTools,
 } from "../../ports/provider_tools.js";
-import type { ProviderSession, ThreadBootstrapInfo } from "../../ports/provider_session.js";
+import type { ProviderSession, ThreadBootstrapInfo, TurnSettings } from "../../ports/provider_session.js";
 import { EventBus } from "../event_bus.js";
 import {
   deltaChannel,
@@ -249,7 +249,13 @@ export class CodexSession implements ProviderSession {
 
   private stopped = false;
   private cwd = process.cwd();
-  setCwd(cwd: string): void { this.cwd = cwd; }
+  /** The model and effort turns run with, as last bootstrapped or requested. */
+  private model: string | null = null;
+  private effort: string | null = null;
+  setCwd(cwd: string): void {
+    this.cwd = cwd;
+    if (this.threadId) this.publishSettings(this.threadId);
+  }
 
   async start(): Promise<void> {
     if (this.stopped) throw new Error("Codex session is stopped.");
@@ -475,13 +481,7 @@ export class CodexSession implements ProviderSession {
     }));
   }
 
-  async startTurn(
-    input: UserInput[],
-    approvalPolicy?: ApprovalPolicy,
-    model?: string,
-    cwd?: string,
-    effort?: string | null,
-  ): Promise<string | null> {
+  async startTurn(input: UserInput[], { model, effort, approvalPolicy }: TurnSettings = {}): Promise<string | null> {
     assertApprovalSupport("Codex", this.capabilities, approvalPolicy ?? this.approvalPolicy);
     assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
@@ -490,19 +490,27 @@ export class CodexSession implements ProviderSession {
     }
     this.messagePhaseByItemId.clear();
 
+    // Codex keeps a thread's workspace per turn; send the current one, which setCwd may have changed.
     const result = await this.sendRequest("turn/start", {
       threadId,
       ...(codexApproval(this.approvalPolicy) ? { approvalPolicy: codexApproval(this.approvalPolicy) } : {}),
       input: codexInput(input),
       ...(model ? { model } : {}),
-      ...(cwd ? { cwd } : {}),
+      cwd: this.cwd,
       ...(effort !== undefined ? { effort } : {}),
     });
 
     const turnId = extractTurnId(result);
+    if (model) this.model = model;
+    if (effort !== undefined) this.effort = effort;
     this.activeTurnId = turnId;
+    this.publishSettings(threadId);
     this.publish("turn.started", threadId, { turnId });
     return turnId;
+  }
+
+  private publishSettings(threadId: string): void {
+    this.publish("thread.settings.changed", threadId, { model: this.model, effort: this.effort, cwd: this.cwd, approvalPolicy: this.approvalPolicy });
   }
 
   async interruptTurn(turnId?: string): Promise<void> {
@@ -585,11 +593,13 @@ export class CodexSession implements ProviderSession {
     const cwd = asString(record.cwd) ?? asString(asRecord(record.thread).cwd);
     if (!cwd?.trim()) throw new Error(`${method} returned no workspace.`);
     this.cwd = cwd;
+    this.model = asString(record.model);
+    this.effort = asString(record.reasoningEffort);
     return {
       threadId,
       cwd,
-      model: asString(record.model),
-      effort: asString(record.reasoningEffort),
+      model: this.model,
+      effort: this.effort,
       approvalPolicy: Object.hasOwn(record, "approvalPolicy") ? applicationApproval(record.approvalPolicy) ?? "provider_default" : this.approvalPolicy,
     };
   }

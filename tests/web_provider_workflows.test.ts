@@ -42,7 +42,7 @@ test("web reopens registered native identities after detach and restart without 
     id: "third", displayName: "Third", capabilities, hasStoredThreads: () => true, ownsStoredThread: value => value === nativeId,
     create: () => {
       const s = new LocalSession(capabilities);
-      s.startThread = async () => ({ threadId: nativeId, cwd: root, model: null, effort: null });
+      s.startThread = async () => ({ threadId: nativeId, cwd: root, model: null, effort: null, approvalPolicy: "provider_default" });
       s.resumeThread = async value => { s.readIds.push(value); return s.startThread(); };
       s.readThread = async value => { s.readIds.push(value); return { thread: { id: value, cwd: root } }; };
       s.listStoredThreads = async () => ({ data: [{ id: nativeId, cwd: root }], nextCursor: null });
@@ -82,17 +82,16 @@ test("web sees terminal approval expiry through SSE and null context telemetry t
     const c = await h.create({ project: "fixture" }); const path = `/conversations/${c.id}`;
     const emit = (event: BridgeEvent) => native.eventBus.publish({ ...event, threadId: "1", sessionId: native.sessionId });
     const envelope = { id: "event", threadId: "1", sessionId: native.sessionId, ts: "now" };
-    native.activeTurnId = "turn";
+    native.eventBus.publish({ id: crypto.randomUUID(), type: "turn.started", threadId: "1", sessionId: native.sessionId, ts: "now", payload: { turnId: "turn" } });
     emit({ ...envelope, type: "approval.requested", payload: { approvalId: "permission", kind: "permission", activity: { kind: "command", command: "Run?", cwd: null }, reason: null, choices: [{ value: "allow", intent: "allow", label: "Allow" }] } });
     const approval = (await (await h.request(`${path}/approvals`)).json()).approvals[0];
     expect(approval.status).toBe("pending");
-    native.activeTurnId = null;
     emit({ ...envelope, id: "end", type: "turn.failed", payload: { turnId: "turn", message: "Interrupted" } });
     expect((await (await h.request(`${path}/approvals`)).json()).approvals[0].status).toBe("expired");
     expect((await h.request(`${path}/approvals/${approval.approvalId}`, "POST", { decision: "allow" })).status).toBe(409);
     const stream = await h.request(`${path}/events`); const reader = stream.body!.getReader();
     let replay = "";
-    for (let i = 0; i < 3 && !replay.includes('"type":"approval.expired"'); i++) replay += new TextDecoder().decode((await reader.read()).value);
+    for (let i = 0; i < 6 && !replay.includes('"type":"approval.expired"'); i++) replay += new TextDecoder().decode((await reader.read()).value);
     await reader.cancel(); expect(replay).toContain('"type":"approval.expired"');
     const usage = { last: null, total: { inputTokens: null, outputTokens: null, totalTokens: 42, cacheReadInputTokens: null, cacheWriteInputTokens: null, reasoningOutputTokens: null }, contextWindow: null };
     for (const tokenUsage of [usage, null]) {
@@ -141,7 +140,7 @@ test("HTTP stale approval handles and native IDs cannot authorize a reused permi
   try {
     const c = await h.create({ project: "fixture" }); const path = `/conversations/${c.id}/approvals`;
     const emit = (id: string) => {
-      native.activeTurnId = id;
+      native.eventBus.publish({ id: crypto.randomUUID(), type: "turn.started", threadId: "1", sessionId: native.sessionId, ts: "now", payload: { turnId: id } });
       native.eventBus.publish({ id, threadId: "1", sessionId: native.sessionId, ts: "now", type: "approval.requested", payload: { approvalId: "1", kind: "permission", activity: { kind: "command", command: id, cwd: null }, reason: null, choices: [{ value: "allow", label: "Allow", intent: "allow" }] } });
     };
     emit("old"); const old = (await (await h.request(path)).json()).approvals[0];

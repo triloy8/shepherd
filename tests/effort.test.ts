@@ -2,12 +2,22 @@ import { expect, test } from "bun:test";
 import { SessionManager } from "../server/core/session_manager.js";
 import { CodexSession } from "../server/providers/codex/session.js";
 import { handleMessage } from "../server/adapters/discord/commands.js";
+import { bridgeEvent } from "../shared/protocol/events.js";
+import type { TurnSettings } from "../server/ports/provider_session.js";
+
+/** Report applied settings as an adapter does when a turn starts. */
+function reportSettings(session: CodexSession, applied: { model: string | null; effort: string | null }, settings: TurnSettings) {
+  if (settings.model) applied.model = settings.model;
+  if (settings.effort !== undefined) applied.effort = settings.effort;
+  session.eventBus.publish(bridgeEvent({ id: crypto.randomUUID(), type: "thread.settings.changed", threadId: "thread-1", sessionId: session.sessionId, ts: "now", payload: { ...applied, cwd: "/repo", approvalPolicy: "review_sensitive" } }));
+}
 
 async function setup() {
-  const starts: unknown[][] = [];
+  const starts: TurnSettings[] = [];
   const session = new CodexSession("review_sensitive");
-  session.startThread = async () => ({ threadId: "thread-1", cwd: "/repo", model: "test-model", effort: "low" });
-  session.startTurn = async (...args) => { starts.push(args); return "turn-1"; };
+  const applied = { model: "test-model" as string | null, effort: "low" as string | null };
+  session.startThread = async () => ({ threadId: "thread-1", cwd: "/repo", ...applied, approvalPolicy: "review_sensitive" });
+  session.startTurn = async (_input, settings = {}) => { starts.push(settings); reportSettings(session, applied, settings); return "turn-1"; };
   const manager = new SessionManager(undefined, () => session);
   const model = {
     id: "test-model", displayName: "Test", description: "",
@@ -17,7 +27,7 @@ async function setup() {
   };
   session.listModels = async () => ({ data: [model], nextCursor: null });
   await manager.createThread({ cwd: "/repo" });
-  return { manager, session, starts, model };
+  return { manager, session, starts, model, applied };
 }
 
 test("effort applies on the next new turn and subsequent turns inherit it", async () => {
@@ -26,22 +36,23 @@ test("effort applies on the next new turn and subsequent turns inherit it", asyn
   await manager.setThreadEffort("thread-1", "high");
   expect(starts).toHaveLength(0);
   await manager.submitTurn("thread-1", { input: [] });
-  expect(starts[0]?.[4]).toBe("high");
+  expect(starts[0]?.effort).toBe("high");
   expect(await manager.getThreadEffort("thread-1")).toMatchObject({ currentEffort: "high", pendingEffort: null });
   await manager.submitTurn("thread-1", { input: [] });
-  expect(starts[1]?.[4]).toBeUndefined();
+  expect(starts[1]?.effort).toBeUndefined();
   expect((await manager.setThreadEffort("thread-1", { mode: "default" })).pendingEffort).toBe("low");
   await expect(manager.setThreadEffort("thread-1", "ultra")).rejects.toMatchObject({ failure: { code: "unsupported_effort", available: ["low", "high"] } });
 });
 
 test("failed turn starts retain pending effort, and new selections survive an in-flight start", async () => {
-  const { manager, session } = await setup();
+  const { manager, session, applied } = await setup();
   await manager.setThreadEffort("thread-1", "high");
   session.startTurn = async () => { throw new Error("start failed"); };
   await expect(manager.submitTurn("thread-1", { input: [] })).rejects.toThrow("start failed");
   expect((await manager.getThreadEffort("thread-1")).pendingEffort).toBe("high");
-  session.startTurn = async () => {
+  session.startTurn = async (_input, settings = {}) => {
     await manager.setThreadEffort("thread-1", "low");
+    reportSettings(session, applied, settings);
     return "turn-1";
   };
   await manager.submitTurn("thread-1", { input: [] });
@@ -73,8 +84,7 @@ test("a model switch rejects incompatible pending effort before execution and ke
   expect((await manager.getThreadEffort("thread-1")).pendingEffort).toBe("high");
   await manager.setThreadEffort("thread-1", { mode: "default" });
   await manager.submitTurn("thread-1", { input: [] });
-  expect(starts[0]?.[2]).toBe("other");
-  expect(starts[0]?.[4]).toBe("medium");
+  expect(starts[0]).toMatchObject({ model: "other", effort: "medium" });
 });
 
 test("direct turn model and effort overrides are validated against the requested model", async () => {
@@ -87,8 +97,7 @@ test("direct turn model and effort overrides are validated against the requested
   });
   expect(starts).toHaveLength(0);
   await manager.submitTurn("thread-1", { input: [], model: "other", effort: "medium" });
-  expect(starts[0]?.[2]).toBe("other");
-  expect(starts[0]?.[4]).toBe("medium");
+  expect(starts[0]).toMatchObject({ model: "other", effort: "medium" });
 });
 
 test("Codex turn/start forwards effort and resume exposes the effective effort", async () => {
@@ -100,7 +109,7 @@ test("Codex turn/start forwards effort and resume exposes the effective effort",
     return { thread: { id: "thread-1", cwd: "/repo" }, turn: { id: "turn-1" }, reasoningEffort: "medium" };
   };
   expect(await session.resumeThread("thread-1", {})).toMatchObject({ effort: "medium" });
-  await session.startTurn([], undefined, undefined, "/repo", "high");
+  await session.startTurn([], { effort: "high" });
   expect(requests.at(-1)).toMatchObject({ method: "turn/start", params: { threadId: "thread-1", effort: "high" } });
 });
 

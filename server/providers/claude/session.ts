@@ -19,7 +19,7 @@ import type * as P from "../../../shared/protocol/requests.js";
 import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../../shared/protocol/events.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
-import { UnsupportedProviderOperationError, type ProviderSession, type ThreadBootstrapInfo } from "../../ports/provider_session.js";
+import { UnsupportedProviderOperationError, type ProviderSession, type ThreadBootstrapInfo, type TurnSettings } from "../../ports/provider_session.js";
 import { noProviderTools, type ProviderTools } from "../../ports/provider_tools.js";
 import { claudeExecutablePath } from "./claude_executable.js";
 import { claudeAuthenticationOptions } from "./authentication.js";
@@ -150,7 +150,7 @@ export class ClaudeSession implements ProviderSession {
     assertApprovalSupport("Claude", this.capabilities, request.approvalPolicy ?? this.approvalPolicy);
     if (request.effort && !isClaudeEffort(request.effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
   }
-  async startTurn(input: UserInput[], policy?: P.ApprovalPolicy, model?: string, cwd?: string, effort?: string | null): Promise<string> {
+  async startTurn(input: UserInput[], { model, effort, approvalPolicy: policy }: TurnSettings = {}): Promise<string> {
     await this.initialize();
     if (this.activeTurnId) throw new Error("A Claude turn is already active.");
     const thread = this.requireThread();
@@ -159,7 +159,7 @@ export class ClaudeSession implements ProviderSession {
     if (effort && !isClaudeEffort(effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
     const message = this.userMessage(input);
     const nextPolicy = policy === "provider_default" ? this.approvalPolicy : policy ?? this.approvalPolicy;
-    const settingsChanged = (cwd && cwd !== thread.cwd) || (model && model !== thread.model) || (effort !== undefined && (effort ?? undefined) !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
+    const settingsChanged = (model && model !== thread.model) || (effort !== undefined && (effort ?? undefined) !== thread.effort) || JSON.stringify(nextPolicy) !== JSON.stringify(this.approvalPolicy);
     // The SDK fixes MCP tools when its process starts; reopen when Shepherd tools change.
     const tools = JSON.stringify(this.dynamicTools.specifications());
     const toolsChanged = this.runningTools !== null && tools !== this.runningTools;
@@ -170,7 +170,7 @@ export class ClaudeSession implements ProviderSession {
     }
     this.approvalPolicy = nextPolicy;
     const options: Options = {
-      cwd: cwd ?? thread.cwd, model: model ?? thread.model, effort: effort === null ? undefined : (effort as ClaudeEffort | undefined) ?? thread.effort,
+      cwd: thread.cwd, model: model ?? thread.model, effort: effort === null ? undefined : (effort as ClaudeEffort | undefined) ?? thread.effort,
       ...(thread.materialized ? { resume: thread.id } : { sessionId: thread.id }),
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
       includePartialMessages: true, settingSources: ["user", "project", "local"],
@@ -186,6 +186,7 @@ export class ClaudeSession implements ProviderSession {
     // The prompt's ID is recorded in Claude's transcript, so the turn has the same ID after a reload.
     const turn = this.transcript.beginTurn(message.uuid!, Date.now() / 1000, promptContent(message.message.content));
     this.input = queue; this.running = running; this.activeTurnId = turn.id; this.interrupted = false; this.steeredMessages = 0;
+    this.publishSettings();
     this.publish("turn.started", { turnId: turn.id });
     queue.push(message);
     if (!existing) { this.runningTools = tools; this.backgroundTasks.reset(); void this.consume(running, queue); }
@@ -438,6 +439,11 @@ export class ClaudeSession implements ProviderSession {
     if (this.activeTurnId || this.backgroundTaskCount) throw new Error("Wait for Claude work to finish before changing the working directory.");
     if (this.running) { this.closeQuery(this.running); this.running = null; this.input = null; }
     thread.cwd = cwd;
+    this.publishSettings();
+  }
+  private publishSettings(): void {
+    const thread = this.requireThread();
+    this.publish("thread.settings.changed", { model: thread.model, effort: thread.effort ?? null, cwd: thread.cwd, approvalPolicy: this.approvalPolicy });
   }
   async listModels(request: P.ListModelsRequest): Promise<P.ListModelsResponse> {
     await this.initialize();

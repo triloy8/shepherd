@@ -9,6 +9,7 @@ export interface ProviderEvents {
   subscribe(listener: (event: BridgeEvent) => void, cursor?: string | { afterId?: string; replay?: boolean }): () => void;
 }
 
+/** The settings a thread runs with, as bootstrap reports them and `thread.settings.changed` updates them. */
 export type ThreadBootstrapInfo = {
   /** Provider-local identity by default; composition translates it to a stable application ID. */
   threadId: string;
@@ -16,30 +17,39 @@ export type ThreadBootstrapInfo = {
   cwd: string;
   model: string | null;
   effort: string | null;
-  approvalPolicy?: Protocol.ApprovalPolicy;
+  approvalPolicy: Protocol.ApprovalPolicy;
 };
+
+/** Settings for one turn. Omitted fields keep the thread's current value; `effort: null` clears
+ * the effort override. The workspace is not a turn setting: it changes through `setCwd`. */
+export interface TurnSettings {
+  model?: string;
+  effort?: string | null;
+  approvalPolicy?: Protocol.ApprovalPolicy;
+}
 
 /** Providers are local coding agents; every bootstrapped thread has a workspace.
  * Required baseline: initialization, thread creation/resumption, turns, history and events.
  * Optional operations are declared in ProviderCapabilities and checked before execution.
- * Implementations translate native SDK traffic into BridgeEvents. */
+ * Implementations translate native SDK traffic into BridgeEvents. Core learns a thread's state
+ * from those events (`turn.*`, `thread.status.changed`, `thread.settings.changed`), never by
+ * reading adapter fields. */
 export interface ProviderExecution {
   readonly capabilities: ProviderCapabilities;
-  readonly backgroundTaskCount?: number;
   readonly sessionId: string;
   readonly eventBus: ProviderEvents;
-  activeTurnId: string | null;
-  approvalPolicy: Protocol.ApprovalPolicy;
   /** Core awaits initialization before discovery, history or bootstrap. Must be safe to call again. */
   initialize(): Promise<void>;
   startThread(request: Protocol.CreateThreadRequest): Promise<ThreadBootstrapInfo>;
   resumeThread(threadId: string, request: Protocol.ResumeThreadRequest): Promise<ThreadBootstrapInfo>;
   forkThread?(threadId: string, request: Protocol.ForkThreadRequest): Promise<ThreadBootstrapInfo>;
-  /** Effort: undefined preserves settings, null clears, a string selects. */
-  startTurn(input: UserInput[], policy?: Protocol.ApprovalPolicy, model?: string, cwd?: string, effort?: string | null): Promise<string | null>;
+  /** Publishes `turn.started` before returning, and `thread.settings.changed` when the turn
+   * changes the settings the thread runs with. */
+  startTurn(input: UserInput[], settings: TurnSettings): Promise<string | null>;
   steerTurn?(input: UserInput[], turnId?: string): Promise<string | null>;
   interruptTurn?(turnId?: string): Promise<void>;
   applyApprovalDecision(id: string, decision: ApprovalDecisionRequest): Promise<{ approvalId: string }>;
+  /** Publishes `thread.settings.changed`; later turns run in the new workspace. */
   setCwd?(cwd: string): void;
   stop(): void;
 }

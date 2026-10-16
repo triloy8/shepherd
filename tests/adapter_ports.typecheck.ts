@@ -124,10 +124,12 @@ void assertEventPayloads;
 
 import type { ThreadBootstrapInfo } from "../server/ports/provider_session.js";
 function assertWorkspaceContract() {
-  const complete: ThreadBootstrapInfo = { threadId: "thread", cwd: "/workspace", model: null, effort: null };
+  const complete: ThreadBootstrapInfo = { threadId: "thread", cwd: "/workspace", model: null, effort: null, approvalPolicy: "provider_default" };
   // @ts-expect-error A live provider thread must expose its effective workspace.
-  const incomplete: ThreadBootstrapInfo = { threadId: "thread", model: null, effort: null };
-  return [complete, incomplete];
+  const incomplete: ThreadBootstrapInfo = { threadId: "thread", model: null, effort: null, approvalPolicy: "provider_default" };
+  // @ts-expect-error Bootstrap reports the approval mode the thread runs with.
+  const unreported: ThreadBootstrapInfo = { threadId: "thread", cwd: "/workspace", model: null, effort: null };
+  return [complete, incomplete, unreported];
 }
 void assertWorkspaceContract;
 
@@ -177,3 +179,16 @@ function assertItemEvents(started: Extract<BridgeEventType, "item.started">, ima
   void started;
 }
 void assertItemEvents;
+
+import type { ProviderExecution } from "../server/ports/provider_session.js";
+function assertEventSourcedState(session: ProviderExecution) {
+  // @ts-expect-error Core learns the running turn from turn events, not an adapter field.
+  session.activeTurnId;
+  // @ts-expect-error Core learns the approval mode from bootstrap and settings events.
+  session.approvalPolicy;
+  // @ts-expect-error Background work is reported by thread.status.changed.
+  session.backgroundTaskCount;
+  // @ts-expect-error Turn settings are one object; the workspace is not a turn setting.
+  void session.startTurn([], undefined, "model", "/workspace");
+}
+void assertEventSourcedState;

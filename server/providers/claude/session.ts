@@ -15,7 +15,7 @@ import { InputQueue } from "./input_queue.js";
 import { ClaudeModelCache } from "./model_cache.js";
 import { archivedTag, claudeNative, type ClaudeNative } from "./native_sessions.js";
 import { randomUUID } from "node:crypto";
-import type { ModelInfo, ModelUsage, Options, Query, SDKMessage, SDKSessionInfo, SDKUserMessage, PermissionResult, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
+import type { ModelInfo, ModelUsage, Options, Query, SDKUserMessage, PermissionResult, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type * as P from "../../../shared/protocol/requests.js";
 import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals.js";
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../../shared/protocol/events.js";

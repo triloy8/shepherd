@@ -63,18 +63,6 @@ function parseOptionalString(value: unknown, name: string): string | undefined {
   return value.trim();
 }
 
-function parseOptionalEnum<T extends string>(
-  value: unknown,
-  name: string,
-  allowed: readonly T[],
-): T | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  if (typeof value !== "string" || !allowed.includes(value as T)) {
-    throw new Error(`Invalid ${name}.`);
-  }
-  return value as T;
-}
-
 function assertFields(value: Record<string, unknown>, allowed: readonly string[]): void {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) throw new Error(`Unsupported request field: ${key}.`);
 }

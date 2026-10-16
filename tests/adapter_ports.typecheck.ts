@@ -33,7 +33,7 @@ function assertLauncherBoundary(adapter: SurfaceAdapterContext) {
 }
 void assertLauncherBoundary;
 
-import type { ProviderSession } from "../server/ports/provider_session.js";
+import type { Provider, ThreadSession as ProviderSession } from "../server/ports/provider_session.js";
 import type { ItemDeltaEvent } from "../shared/protocol/events.js";
 import type { ApprovalRequestPayload } from "../shared/protocol/approvals.js";
 function assertProviderBoundary(session: ProviderSession, delta: ItemDeltaEvent, approval: ApprovalRequestPayload) {
@@ -192,3 +192,14 @@ function assertEventSourcedState(session: ProviderExecution) {
   void session.startTurn([], undefined, "model", "/workspace");
 }
 void assertEventSourcedState;
+
+function assertProviderSplit(provider: Provider, session: ProviderSession) {
+  // @ts-expect-error Conversation listing is the provider's, never a session's.
+  void session.listStoredThreads({});
+  // @ts-expect-error Reading another thread's history is the provider's.
+  void session.readThread("thread", false);
+  // @ts-expect-error A provider does not run turns; its sessions do.
+  void provider.startTurn([], {});
+  void provider.openSession("provider_default", { hasTools: () => false, specifications: () => [], execute: async () => ({ contentItems: [], success: true }) });
+}
+void assertProviderSplit;

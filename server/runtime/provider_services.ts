@@ -3,8 +3,8 @@ import { codexOwnsStoredThread } from "../providers/codex/thread_ownership.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderServices } from "../ports/provider_services.js";
-import { CodexSession } from "../providers/codex/session.js";
-import { ClaudeSession } from "../providers/claude/session.js";
+import { CodexProvider } from "../providers/codex/provider.js";
+import { ClaudeProvider } from "../providers/claude/provider.js";
 import { codexCapabilities } from "../providers/codex/capabilities.js";
 import { claudeCapabilities } from "../providers/claude/capabilities.js";
 import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
@@ -21,7 +21,7 @@ const installedDefinitions = [
     register() {
       const account = new CodexAccount();
       return {
-        create: (policy, tools) => new CodexSession(policy, tools),
+        provider: new CodexProvider(),
         account, hasStoredThreads: () => true,
         ownsStoredThread: id => codexOwnsStoredThread(id),
         shutdown: () => account.stop(),
@@ -34,7 +34,7 @@ const installedDefinitions = [
       const limits = new ClaudeAccountLimits();
       const models = new ClaudeModelCache();
       return {
-        create: (policy, tools) => new ClaudeSession(policy, tools, claudeNative, limits, models),
+        provider: new ClaudeProvider(claudeNative, limits, models),
         account: { read: refresh => limits.readAccount(refresh) },
         hasStoredThreads: () => claudeHasSessions(),
         ownsStoredThread: id => claudeSessionExists(id),

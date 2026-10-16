@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { sessionProviders } from "./helpers/session_providers.js";
 import type { TurnSettings } from "../server/ports/provider_session.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../shared/protocol/model_capabilities.js";
 import type { ModelSummary } from "../shared/protocol/requests.js";
@@ -58,7 +59,7 @@ test("submission uses the next or explicitly requested model; steering keeps the
   session.listModels = async request => request?.cursor
     ? { data: [model("vision", ["text", "image"])], nextCursor: null }
     : { data: [model("third-model", ["text"])], nextCursor: "next" };
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   try {
     const { threadId } = await manager.createThread({ cwd: "/tmp" });
     const input = [{ type: "image" as const, url: "data:image/png;base64,AA" }];
@@ -79,7 +80,7 @@ test("model support cannot bypass adapter input restrictions", async () => {
   const session = new IndependentSession();
   session.listModels = async () => ({ data: [model("third-model", ["text", "audio"])], nextCursor: null });
   session.onTurn = () => { throw new Error("must not execute"); };
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   try {
     const { threadId } = await manager.createThread({ cwd: "/tmp" });
     await expect(manager.submitTurn(threadId, { input: [{ type: "audio", url: "data:audio/wav;base64,AA" }] })).rejects.toThrow("audio inputs");
@@ -91,7 +92,7 @@ test("a model switch replaces unsupported inherited effort with the new model de
   const starts: TurnSettings[] = [];
   session.onTurn = (_input, settings) => { starts.push(settings); };
   session.listModels = async () => ({ data: [model("third-model", ["text"]), model("quick-model", ["text"], "quick")], nextCursor: null });
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   try {
     const { threadId } = await manager.createThread({ cwd: "/tmp" });
     manager.setThreadModel(threadId, "quick-model");

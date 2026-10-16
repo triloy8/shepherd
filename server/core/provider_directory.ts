@@ -1,5 +1,5 @@
 import type { AgentProvider } from "../../shared/protocol/requests.js";
-import type { ThreadProviderDirectory, ProviderSessionFactory } from "../ports/provider_services.js";
+import type { ThreadProviderDirectory, ProviderLookup } from "../ports/provider_services.js";
 /** Pure defaults for isolated application tests. Production supplies persistent services. */
 export function memoryProviderDirectory(defaultProvider = "default"): ThreadProviderDirectory {
   const bindings = new Map<string, AgentProvider>();
@@ -13,6 +13,6 @@ export function memoryProviderDirectory(defaultProvider = "default"): ThreadProv
   };
 }
 
-export const missingSessionFactory: ProviderSessionFactory = () => {
+export const missingProviders: ProviderLookup = () => {
   throw new Error("Provider services were not supplied at the runtime composition boundary.");
 };

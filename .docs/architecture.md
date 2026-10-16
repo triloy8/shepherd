@@ -197,7 +197,7 @@ So the simplest mental model is:
 ## Provider boundary
 
 The production application uses `server/ports/provider_session.ts` and
-`server/ports/provider_services.ts`. They define shared session operations,
+`server/ports/provider_services.ts`. They define providers, their thread sessions,
 capabilities, optional features, account readers/resets, factories, and persisted
 thread ownership. Core never imports a provider implementation or branches on
 Codex/Claude identity. Runtime composition registers the installed adapters.
@@ -493,10 +493,9 @@ underlying session. Handles and replay buffers are volatile; stored thread
 history is the recovery source. Browser reconnects do not submit prompts again.
 
 SessionManager owns sessions from allocation, including pending bootstrap, and
-rejects late startup completion after shutdown. Concurrent catalog requests share
-control-session initialization; concurrent resumes of the same thread share a
-bootstrap, and each provider has its own control session. Failed startup releases
-the allocated session. An explicitly stopped session cannot start its native
+rejects late startup completion after shutdown. It reads history and provider-wide
+catalogs from providers and never opens a session to do so; concurrent resumes of the
+same thread share a bootstrap. Failed startup releases the allocated session. An explicitly stopped session cannot start its native
 process or queries again.
 
 See [web API setup and contract](web-api.md) for the operator trust boundary,

@@ -1,4 +1,6 @@
+import { CodexProvider } from "../server/providers/codex/provider.js";
 import { expect, test } from "bun:test";
+import { sessionProviders } from "./helpers/session_providers.js";
 import { CodexSession } from "../server/providers/codex/session.js";
 import { SessionManager } from "../server/core/session_manager.js";
 
@@ -14,7 +16,7 @@ function harness() {
   const sessions: CodexSession[] = [];
   let stops = 0;
   let reads = 0;
-  const manager = new SessionManager(undefined, (policy, tools) => {
+  const manager = new SessionManager(undefined, sessionProviders((policy, tools) => {
     const session = new CodexSession(policy, tools);
     session.startThread = async () => gate.promise;
     session.resumeThread = async () => gate.promise;
@@ -24,7 +26,7 @@ function harness() {
     session.stop = () => { stops++; };
     sessions.push(session);
     return session;
-  });
+  }));
   return { gate, sessions, manager, stops: () => stops, reads: () => reads };
 }
 
@@ -56,20 +58,21 @@ test("concurrent resumes share one session and one bootstrap", async () => {
   expect(h.stops()).toBe(1);
 });
 
-test("concurrent catalog reads share initialization and shutdown owns pending control session", async () => {
-  const h = harness();
-  const first = h.manager.listStoredThreads({});
-  const second = h.manager.listStoredThreads({});
-  expect(h.sessions).toHaveLength(1);
-  h.manager.stopAll();
-  expect(h.stops()).toBe(1);
-  const settled = Promise.allSettled([first, second]);
-  h.gate.resolve(started);
-  for (const result of await settled) {
-    expect(result.status).toBe("rejected");
-    if (result.status === "rejected") expect(result.reason.message).toContain("stopped");
-  }
-  expect(h.reads()).toBe(0);
+test("Codex history shares one app-server client, and stopping the provider stops a client still starting", async () => {
+  let release!: () => void; const clients: CodexSession[] = []; let stops = 0, reads = 0;
+  const provider = new CodexProvider(() => {
+    const client = new CodexSession("provider_default");
+    client.initialize = () => new Promise<void>(resolve => { release = resolve; });
+    client.listStoredThreads = async () => { reads++; return { data: [], nextCursor: null }; };
+    client.stop = () => { stops++; };
+    clients.push(client); return client;
+  });
+  const reads1 = [provider.listStoredThreads({}), provider.listStoredThreads({})];
+  expect(clients).toHaveLength(1);
+  provider.stop(); release();
+  await Promise.all(reads1);
+  await Promise.resolve();
+  expect(stops).toBe(1); expect(reads).toBe(2);
 });
 
 test("successful concurrent catalog reads share the control session", async () => {
@@ -83,17 +86,18 @@ test("successful concurrent catalog reads share the control session", async () =
   h.manager.stopAll();
 });
 
-test("failed initialization releases sessions and allows later retries", async () => {
-  const h = harness();
-  const result = h.manager.listStoredThreads({});
-  h.gate.reject(new Error("bootstrap failed"));
-  expect(await result).toMatchObject({ threads: [], unavailableProviders: ["default"] });
-  expect(h.stops()).toBe(1);
-  expect(await h.manager.listStoredThreads({})).toMatchObject({ threads: [], unavailableProviders: ["default"] });
-  expect(h.sessions).toHaveLength(2);
-  expect(h.stops()).toBe(2);
-  h.manager.stopAll();
-  expect(h.stops()).toBe(2);
+test("a Codex history client that fails to start is replaced on the next request", async () => {
+  let attempts = 0;
+  const provider = new CodexProvider(() => {
+    const client = new CodexSession("provider_default");
+    client.initialize = async () => { if (++attempts === 1) throw new Error("spawn failed"); };
+    client.listStoredThreads = async () => ({ data: [], nextCursor: null });
+    return client;
+  });
+  await expect(provider.listStoredThreads({})).rejects.toThrow("spawn failed");
+  expect(await provider.listStoredThreads({})).toEqual({ data: [], nextCursor: null });
+  expect(attempts).toBe(2);
+  provider.stop();
 });
 
 test("failed thread bootstrap releases its session", async () => {
@@ -117,14 +121,14 @@ test("explicitly stopped Codex sessions cannot spawn a new process", async () =>
 
 test("saved cwd can be read before loading a thread without resuming it", async () => {
   let resumes = 0;
-  const manager = new SessionManager(undefined, (policy, tools) => {
+  const manager = new SessionManager(undefined, sessionProviders((policy, tools) => {
     const session = new CodexSession(policy, tools);
     session.initialize = async () => {};
     session.readThread = async (id) => ({ thread: { id, cwd: id === "missing" ? null : "/original/checkout" } });
     session.resumeThread = async () => { resumes++; return started; };
     session.stop = () => {};
     return session;
-  });
+  }));
   try {
     expect(await manager.resolveThreadCwd("stored")).toBe("/original/checkout");
     expect(manager.listThreads().threads).toEqual([]);

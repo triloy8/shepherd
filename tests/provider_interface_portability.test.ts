@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { sessionProvider } from "./helpers/session_providers.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +21,7 @@ function directory() { const root = mkdtempSync(join(tmpdir(), "shepherd-portabi
 function registration(id: string, configure: (session: LocalSession) => void = () => {}, flags = capabilities) {
   const sessions: LocalSession[] = [];
   const entry: ProviderRegistration = { id, displayName: id, capabilities: flags,
-    create: () => { const session = new LocalSession(flags); configure(session); sessions.push(session); return session; },
+    provider: sessionProvider(() => { const session = new LocalSession(flags); configure(session); sessions.push(session); return session; }, flags),
     hasStoredThreads: () => true, ownsStoredThread: id => id === "1" };
   return { entry, sessions };
 }
@@ -201,10 +202,10 @@ test("identity translation covers tools, nested question targets, loaded discove
   const native = new LocalSession(flags);
   Object.assign(native, { listLoadedThreads: async () => ({ data: ["1"], nextCursor: null }) });
   const entry: ProviderRegistration = { id: "tool-provider", displayName: "Tools", capabilities: flags,
-    create: (_policy, tools) => { nativeTools = tools; return native; }, hasStoredThreads: () => true };
+    provider: sessionProvider((_policy, tools) => { nativeTools = tools; return native; }, flags), hasStoredThreads: () => true };
   const services = assembleProviderServices([entry], directory(), entry.id);
   const calls: string[] = [];
-  const session = services.createSession("provider_default", { ...noProviderTools, execute: async request => { calls.push(request.threadId); return { contentItems: [], success: true }; } }, entry.id);
+  const session = services.provider(entry.id).openSession("provider_default", { ...noProviderTools, execute: async request => { calls.push(request.threadId); return { contentItems: [], success: true }; } });
   try {
     const { threadId } = await session.startThread({});
     await nativeTools.execute({ threadId: "1", turnId: "turn", callId: "call", namespace: null, tool: "probe", arguments: null });
@@ -215,9 +216,9 @@ test("identity translation covers tools, nested question targets, loaded discove
     const targets: string[] = [];
     const unsubscribe = session.eventBus.subscribe(event => { if (event.type === "approval.requested") targets.push(event.threadId, event.payload.userInput!.threadId); });
     expect(targets).toEqual([threadId, threadId]); unsubscribe();
-    expect((await session.listLoadedThreads!({})).data).toEqual([threadId]);
-    await expect(session.readThread(scopedThreadId("another", "1"), false)).rejects.toThrow("another provider");
-    await expect(session.readThread("shepherd-thread:invalid", false)).rejects.toThrow("Invalid scoped");
+    expect((await services.provider(entry.id).listLoadedThreads!({})).data).toEqual([threadId]);
+    await expect(services.provider(entry.id).readThread(scopedThreadId("another", "1"), false)).rejects.toThrow("another provider");
+    await expect(services.provider(entry.id).readThread("shepherd-thread:invalid", false)).rejects.toThrow("Invalid scoped");
     expect(session.forkThread).toBeUndefined();
   } finally { session.stop(); }
 });
@@ -391,8 +392,7 @@ for (const explicitDefaults of [true, false]) test(`registration normalizes opti
 
 test("capability normalization still rejects different catalog scope and authority", async () => {
   for (const changed of [{ modelCatalogScope: "provider" as const }, { modelCatalogAuthoritative: true }]) {
-    const entry = registration("mismatch", () => {}, { ...capabilities, modelCatalog: true }); const create = entry.entry.create;
-    entry.entry.create = (policy, tools, provider) => Object.assign(create(policy, tools, provider), { capabilities: { ...entry.entry.capabilities, ...changed } });
+    const entry = registration("mismatch", session => Object.assign(session, { capabilities: { ...session.capabilities, ...changed } }), { ...capabilities, modelCatalog: true });
     const conversation = new ConversationService({ providers: assembleProviderServices([entry.entry], directory(), entry.entry.id) });
     try { await expect(conversation.createThread({})).rejects.toThrow("capability contract mismatch"); expect(entry.sessions[0]!.stopped).toBe(true); }
     finally { conversation.stopAll(); }

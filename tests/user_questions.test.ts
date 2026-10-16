@@ -1,4 +1,5 @@
 import { encodeApprovalButtonId } from "../server/adapters/discord/message_renderer";
+import { sessionProviders } from "./helpers/session_providers.js";
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -180,7 +181,7 @@ test("SessionManager expires pending questions when the turn ends or the session
   const { SessionManager } = await import("../server/core/session_manager");
   for (const end of ["turn", "stop"] as const) {
     let raw!: ReturnType<typeof sessionHarness>["raw"];
-    const manager = new SessionManager(undefined, policy => {
+    const manager = new SessionManager(undefined, sessionProviders(policy => {
       const session = new CodexSession(policy);
       session.initialize = async () => {};
       session.threadId = input.threadId;
@@ -189,7 +190,7 @@ test("SessionManager expires pending questions when the turn ends or the session
       raw.writeLine = () => {};
       session.startThread = async () => ({ threadId: input.threadId, cwd: "/tmp", effort: null, model: "test", approvalPolicy: policy });
       return session;
-    });
+    }));
     try {
       await manager.createThread({ approvalPolicy: "bypass" });
       raw.onNotification("turn/started", { threadId: input.threadId, turn: { id: input.turnId } });

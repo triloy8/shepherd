@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { sessionProvider } from "./helpers/session_providers.js";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -61,7 +62,7 @@ function harness(options: { fork?: boolean; github?: boolean; sharedDirectory?: 
   const projectRoot = options.github ? join(root, ".agent-workspaces", "repo") : join(root, "projects");
   const service = () => new ConversationService({
     providers: assembleProviderServices([{ threadIdentity: "application", id: descriptor.id, displayName: descriptor.displayName, capabilities,
-      create: () => new MinimalSession(), account: { read: async () => account(descriptor.id) }, hasStoredThreads: () => saved.size > 0,
+      provider: sessionProvider(() => new MinimalSession(), capabilities), account: { read: async () => account(descriptor.id) }, hasStoredThreads: () => saved.size > 0,
     }], join(root, "state"), descriptor.id),
     // The least restrictive defaults fall back to the provider's own; restrictive ones would be refused.
     threadDefaults: { sandbox: "unrestricted", approvalPolicy: "bypass" },

@@ -1,10 +1,13 @@
 import { ClaudeModelCache } from "../server/providers/claude/model_cache.js";
+import { sessionProviders } from "./helpers/session_providers.js";
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { query, Query, SDKMessage, SDKSessionInfo, SDKUserMessage, PermissionResult, Options, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeNative } from "../server/providers/claude/native_sessions.js";
 import { decodeTranscript, type TranscriptEntry } from "../server/providers/claude/transcript.js";
 import { ClaudeSession } from "../server/providers/claude/session.js";
+import { ClaudeProvider } from "../server/providers/claude/provider.js";
+import { noProviderTools } from "../server/ports/provider_tools.js";
 import { SessionManager } from "../server/core/session_manager.js";
 import { CodexSession } from "../server/providers/codex/session.js";
 import { DynamicToolRegistry } from "../server/core/dynamic_tool_registry.js";
@@ -124,7 +127,7 @@ test("Claude streams common events and resumes the native session from its trans
   expect(fake.calls[1]!.options).toMatchObject({ cwd: "/project", resume: created.threadId });
   expect((await resumed.listThreadTurns(created.threadId, { limit: 1 })).nextCursor).toBe("1");
   await resumed.archiveThread(created.threadId);
-  expect((await resumed.listStoredThreads({ archived: true })).data).toHaveLength(1);
+  expect((await new ClaudeProvider(fake).listStoredThreads({ archived: true })).data).toHaveLength(1);
   await resumed.unarchiveThread(created.threadId);
   await resumed.setThreadName(created.threadId, "Saved");
   expect(await resumed.readThread(created.threadId, false)).toMatchObject({ thread: { name: "Saved", cwd: "/project" } });
@@ -140,7 +143,7 @@ test("Claude approvals apply decisions and interruption clears pending manager a
   });
   fake.onInterrupt(cancelled.resolve);
   const session = new ClaudeSession("review_sensitive", undefined, fake);
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
   await manager.submitTurn(threadId, { input: [toTextUserInput("run ls")] }); await asked.promise;
   const approval = manager.listApprovals(threadId)[0]!;
@@ -160,7 +163,7 @@ test("ending a turn expires unanswered approvals", async () => {
     asked.resolve(); expect((await pending).behavior).toBe("deny"); yield result;
   });
   const session = new ClaudeSession("review_sensitive", undefined, fake);
-  const manager = new SessionManager(undefined, () => session);
+  const manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude" });
   await manager.submitTurn(threadId, { input: [toTextUserInput("write")] }); await asked.promise;
   session.stop(); await done(session);
@@ -204,13 +207,13 @@ test("Claude rejects unsupported sandbox and audio input before starting an SDK 
 test("manager selects providers and routes unloaded Claude history without spawning Codex", async () => {
   const fake = sdk(async function* (_input, options) { yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage; yield result; });
   const providers: string[] = [];
-  const manager = new SessionManager(undefined, (policy, tools, provider) => {
+  const manager = new SessionManager(undefined, sessionProviders((policy, tools, provider) => {
     providers.push(provider);
     if (provider === "claude") return new ClaudeSession(policy, tools, fake);
     const codex = new CodexSession(policy, tools);
     codex.startThread = async () => ({ threadId: "codex-thread", cwd: "/tmp", model: "codex-model", effort: null, approvalPolicy: "provider_default" });
     return codex;
-  }, () => false, { resolve: id => id === "codex-thread" ? "codex" : "claude", bind: () => {} }, ["codex", "claude"]);
+  }), () => false, { resolve: id => id === "codex-thread" ? "codex" : "claude", bind: () => {} }, ["codex", "claude"]);
   await manager.createThread({});
   const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
   expect(providers).toEqual(["codex", "claude"]);
@@ -253,7 +256,7 @@ test("Shepherd dynamic tools retain namespaces and conversation identity through
 
 
 test("combined stored conversations stay sorted across provider pages without duplicates", async () => {
-  const manager = new SessionManager(undefined, (policy, tools, provider) => {
+  const manager = new SessionManager(undefined, sessionProviders((policy, tools, provider) => {
     const session = new CodexSession(policy, tools); session.initialize = async () => {};
     const rows = (provider === "codex" ? [9, 7, 3, 1] : [10, 8, 6, 4, 2]).map((date) => ({ id: `${provider}-${date}`, updatedAt: date }));
     session.listStoredThreads = async (request) => {
@@ -261,7 +264,7 @@ test("combined stored conversations stay sorted across provider pages without du
       return { data: rows.slice(offset, offset + limit), nextCursor: offset + limit < rows.length ? String(offset + limit) : null };
     };
     return session;
-  }, () => true, undefined, ["codex", "claude"]);
+  }), () => true, undefined, ["codex", "claude"]);
   try {
     let cursor: string | undefined; const ids: string[] = [];
     let pageNumber = 0;
@@ -320,7 +323,7 @@ test("renaming and archiving go to Claude's session, including changes made befo
   await session.unarchiveThread(created.threadId); await session.setThreadName(created.threadId, "Renamed");
   expect(fake.sessions.get(created.threadId)!.info).toMatchObject({ customTitle: "Renamed" });
   expect(fake.sessions.get(created.threadId)!.info.tag).toBeUndefined();
-  expect((await session.listStoredThreads({})).data).toMatchObject([{ id: created.threadId, name: "Renamed" }]);
+  expect((await new ClaudeProvider(fake).listStoredThreads({})).data).toMatchObject([{ id: created.threadId, name: "Renamed" }]);
   session.stop();
 });
 
@@ -331,7 +334,7 @@ test("Claude questions support multiple answers, invalid retries, and bypass per
     const pending = options.canUseTool!("AskUserQuestion", native, { signal: new AbortController().signal } as Parameters<CanUseTool>[2]);
     asked.resolve(); permission = await pending; yield result;
   });
-  const session = new ClaudeSession("bypass", undefined, fake); const manager = new SessionManager(undefined, () => session);
+  const session = new ClaudeSession("bypass", undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude" }); await manager.submitTurn(threadId, { input: [toTextUserInput("choose")] }); await asked.promise;
   const approval = manager.listApprovals(threadId)[0]!;
   expect(approval.userInput!.questions[0]).toMatchObject({ id: "question-0", multiSelect: true });
@@ -349,7 +352,7 @@ test("question cancellation and native abort settle callbacks and expire stale a
       const pending = options.canUseTool!("AskUserQuestion", { questions: [{ header: "Pick", question: "Choose?", multiSelect: false, options: [{ label: "A", description: "" }] }] }, { signal: controller.signal } as Parameters<CanUseTool>[2]);
       asked.resolve(); permission = await pending; yield result;
     });
-    const session = new ClaudeSession("review_sensitive", undefined, fake); const manager = new SessionManager(undefined, () => session);
+    const session = new ClaudeSession("review_sensitive", undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
     const { threadId } = await manager.createThread({ provider: "claude" }); await manager.submitTurn(threadId, { input: [toTextUserInput("choose")] }); await asked.promise;
     const approval = manager.listApprovals(threadId)[0]!;
     if (cancelled) await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "cancel")!.value }); else controller.abort();
@@ -360,7 +363,7 @@ test("question cancellation and native abort settle callbacks and expire stale a
 
 test("capabilities reach thread state and reject unsupported controls in the application", async () => {
   const fake = sdk(async function* () { yield result; }); const session = new ClaudeSession("review_sensitive", undefined, fake);
-  const manager = new SessionManager(undefined, () => session, undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
+  const manager = new SessionManager(undefined, sessionProviders(() => session), undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
   expect(manager.getThreadState(threadId)).toMatchObject({ provider: "claude", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: true } });
   expect((await manager.listLoadedThreads({})).threadIds).toContain(threadId);
   await expect(manager.compactThread(threadId)).rejects.toThrow("does not support compact");
@@ -372,7 +375,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   const events = new InputQueue<SDKMessage>();
   const fake = sdk(async function* () { for await (const event of events) yield event; });
   const session = new ClaudeSession("review_sensitive", undefined, fake);
-  const manager = new SessionManager(undefined, () => session, undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
+  const manager = new SessionManager(undefined, sessionProviders(() => session), undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
   const turns = async () => (await session.listThreadTurns(threadId, { sortDirection: "asc" })).data;
   function waitFor(type: string) { return new Promise<void>(resolve => { const off = session.eventBus.subscribe(event => { if (event.type === type) { off(); resolve(); } }, { replay: false }); }); }
   await manager.submitTurn(threadId, { input: [toTextUserInput("background work")] });
@@ -429,12 +432,12 @@ test("stopping a catalog-only session closes its pending native discovery query"
 
 test("loaded conversations include every provider and respect page size", async () => {
   const fake = sdk(async function* () { yield result; });
-  const manager = new SessionManager(undefined, (policy, tools, provider) => {
+  const manager = new SessionManager(undefined, sessionProviders((policy, tools, provider) => {
     if (provider === "claude") return new ClaudeSession(policy, tools, fake);
     const session = new CodexSession(policy, tools); session.initialize = async () => {};
     session.startThread = async () => ({ threadId: "opaque-codex-id", cwd: "/tmp", model: "codex", effort: null, approvalPolicy: "provider_default" });
     session.listLoadedThreads = async () => ({ data: ["opaque-codex-id"], nextCursor: null }); return session;
-  }, undefined, undefined, ["codex", "claude"]);
+  }), undefined, undefined, ["codex", "claude"]);
   const codex = await manager.createThread({}); const claude = await manager.createThread({ provider: "claude" });
   const first = await manager.listLoadedThreads({ limit: 1 }); const second = await manager.listLoadedThreads({ limit: 1, cursor: first.nextCursor! });
   expect(first.threadIds).toHaveLength(1); expect(second.threadIds).toHaveLength(1); expect(second.nextCursor).toBeNull();
@@ -448,7 +451,7 @@ test("background questions create a pending wake turn before an assistant messag
     const pending = options.canUseTool!("AskUserQuestion", { questions: [{ header: "Continue", question: "Continue work?", multiSelect: false, options: [{ label: "Yes", description: "" }] }] }, { signal: new AbortController().signal } as Parameters<CanUseTool>[2]);
     asked.resolve(); expect((await pending).behavior).toBe("allow"); yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake); const manager = new SessionManager(undefined, () => session);
+  const session = new ClaudeSession("review_sensitive", undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude" }); await manager.submitTurn(threadId, { input: [toTextUserInput("start")] }); await done(session);
   gate.resolve(); await asked.promise;
   const request = manager.listApprovals(threadId).find(approval => approval.status === "pending")!;
@@ -534,7 +537,7 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
   fake.query = (options => Object.assign(open(options), { supportedModels: async () => [
     { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "Opus", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high"] },
   ] })) as typeof query;
-  const manager = new SessionManager(undefined, (policy, tools) => new ClaudeSession(policy, tools, fake));
+  const manager = new SessionManager(undefined, sessionProviders((policy, tools) => new ClaudeSession(policy, tools, fake)));
   try {
     const { threadId } = await manager.createThread({ provider: "claude", model: "claude-opus-5-5" });
     expect(await manager.getThreadEffort(threadId)).toMatchObject({ model: "claude-opus-5-5", currentEffort: "medium", defaultEffort: "medium" });
@@ -750,19 +753,23 @@ test("stored transcripts decode prompts, steering, interruptions and background 
 
 test("conversation listing reads Claude's sessions, filters archived and search, and sorts", async () => {
   const fake = sdk(async function* (_input, options) { yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage; yield result; });
+  const provider = new ClaudeProvider(fake);
   const ids: string[] = [];
   for (const prompt of ["alpha task", "beta task", "gamma"]) {
-    const session = new ClaudeSession("review_sensitive", undefined, fake); const { threadId } = await session.startThread({ cwd: `/${prompt.split(" ")[0]}` });
+    const session = provider.openSession("review_sensitive", noProviderTools); const { threadId } = await session.startThread({ cwd: `/${prompt.split(" ")[0]}` });
     await session.startTurn([toTextUserInput(prompt)]); await done(session); session.stop(); ids.push(threadId);
   }
-  const lister = new ClaudeSession("review_sensitive", undefined, fake);
-  await lister.archiveThread(ids[1]!);
-  expect((await lister.listStoredThreads({})).data.map(thread => thread.preview)).toEqual(["gamma", "alpha task"]);
-  expect((await lister.listStoredThreads({ archived: true })).data.map(thread => thread.id)).toEqual([ids[1]]);
-  expect((await lister.listStoredThreads({ searchTerm: "TASK" })).data.map(thread => thread.id)).toEqual([ids[0]]);
-  expect((await lister.listStoredThreads({ sortDirection: "asc", cwd: ["/alpha", "/gamma"] })).data.map(thread => thread.cwd)).toEqual(["/alpha", "/gamma"]);
-  await expect(lister.resumeThread("00000000-0000-4000-8000-000000000000", {})).rejects.toThrow("Unknown Claude session");
-  lister.stop();
+  // The provider reads stored conversations without opening a session.
+  await provider.archiveThread(ids[1]!);
+  expect((await provider.listStoredThreads({})).data.map(thread => thread.preview)).toEqual(["gamma", "alpha task"]);
+  expect((await provider.listStoredThreads({ archived: true })).data.map(thread => thread.id)).toEqual([ids[1]]);
+  expect((await provider.listStoredThreads({ searchTerm: "TASK" })).data.map(thread => thread.id)).toEqual([ids[0]]);
+  expect((await provider.listStoredThreads({ sortDirection: "asc", cwd: ["/alpha", "/gamma"] })).data.map(thread => thread.cwd)).toEqual(["/alpha", "/gamma"]);
+  expect((await provider.listThreadTurns(ids[0]!, {})).data).toMatchObject([{ items: [{ type: "user_message", content: [{ text: "alpha task" }] }] }]);
+  expect(fake.calls).toHaveLength(3);
+  const resumed = provider.openSession("review_sensitive", noProviderTools);
+  await expect(resumed.resumeThread("00000000-0000-4000-8000-000000000000", {})).rejects.toThrow("Unknown Claude session");
+  provider.stop();
 });
 
 test("Claude applies opaque permission options through the shared session boundary", async () => {
@@ -771,7 +778,7 @@ test("Claude applies opaque permission options through the shared session bounda
     const pending = options.canUseTool!("Read", { file_path: "/project/readme.md" }, { signal: new AbortController().signal, suggestions: [] } as Parameters<CanUseTool>[2]);
     asked.resolve(); decisions.push(await pending); yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake), manager = new SessionManager(undefined, () => session);
+  const session = new ClaudeSession("review_sensitive", undefined, fake), manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
   const observed: BridgeEvent[] = [];
   manager.subscribeToThreadEvents(threadId, event => observed.push(event));

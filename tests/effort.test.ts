@@ -15,7 +15,7 @@ function reportSettings(session: CodexSession, applied: { model: string | null; 
 
 async function setup() {
   const starts: TurnSettings[] = [];
-  const session = new CodexSession("review_sensitive");
+  const session = new CodexSession();
   const applied = { model: "test-model" as string | null, effort: "low" as string | null };
   session.startThread = async () => ({ threadId: "thread-1", cwd: "/repo", ...applied, approvalPolicy: "review_sensitive" });
   session.startTurn = async (_input, settings = {}) => { starts.push(settings); reportSettings(session, applied, settings); return "turn-1"; };
@@ -102,7 +102,7 @@ test("direct turn model and effort overrides are validated against the requested
 });
 
 test("Codex turn/start forwards effort and resume exposes the effective effort", async () => {
-  const session = new CodexSession("review_sensitive");
+  const session = new CodexSession();
   const requests: Array<{ method: string; params: any }> = [];
   session.initialize = async () => {};
   (session as any).sendRequest = async (method: string, params: unknown) => {

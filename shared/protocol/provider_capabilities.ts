@@ -1,4 +1,4 @@
-import type { ApprovalPolicy, SandboxMode } from "./requests.js";
+import type { PolicyProfile } from "./execution_policy.js";
 import type { UserInput } from "./user_input.js";
 
 /** Adapter transport and operation support. Selected-model constraints live in ModelCapabilities. */
@@ -26,8 +26,9 @@ export interface ProviderCapabilities {
   fork: boolean;
   /** Redeeming account usage resets; the account reader must implement reset. */
   accountReset: boolean;
-  sandboxModes: readonly SandboxMode[];
-  approvalModes: readonly ApprovalPolicy[];
+  /** Native execution modes and the restrictions each guarantees. Core picks the least
+   * restrictive one within the requested policy. */
+  policyProfiles: readonly PolicyProfile[];
   inputKinds: readonly UserInput["type"][];
   imageDetail: boolean;
 }

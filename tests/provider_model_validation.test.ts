@@ -63,7 +63,7 @@ test("switching to a model without effort clears inherited effort and commits on
 });
 
 test("Codex sends an explicit null effort instead of omitting the clear", async () => {
-  const session = new CodexSession("provider_default"); session.threadId = "thread";
+  const session = new CodexSession(); session.threadId = "thread";
   let params: unknown;
   (session as unknown as { sendRequest: (method: string, input: unknown) => Promise<unknown> }).sendRequest = async (_method, input) => { params = input; return { turn: { id: "turn" } }; };
   try { await session.startTurn([], { effort: null }); expect(params).toMatchObject({ effort: null }); }

@@ -1,7 +1,5 @@
 import type {
-  ApprovalPolicy,
   ResumeThreadRequest,
-  SandboxMode,
 } from "../../shared/protocol/requests.js";
 import type { SessionManager } from "./session_manager.js";
 
@@ -28,8 +26,6 @@ export type ResolveRouteInput = {
   cwd: string;
   explicitThreadId?: string;
   autoCreateIfMissing?: boolean;
-  approvalPolicyHint?: ApprovalPolicy;
-  sandboxHint?: SandboxMode;
 };
 
 export type ResolveRouteResult = {
@@ -122,11 +118,7 @@ export class ConversationRoutingService {
     const candidate = input.explicitThreadId ?? surface.defaultThreadId;
 
     if (candidate) {
-      const resumeRequest = {
-        approvalPolicy: input.approvalPolicyHint,
-        ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
-        cwd: input.cwd,
-      };
+      const resumeRequest = { cwd: input.cwd };
       const resolved = await this.setDefaultThread(input.adapter, input.surfaceId, candidate, resumeRequest);
       return {
         threadId: resolved,
@@ -140,11 +132,7 @@ export class ConversationRoutingService {
     if (!allowAutoCreate) {
       throw new Error("No routing target available for this surface.");
     }
-    const created = await this.manager.createThread({
-      ...(input.approvalPolicyHint ? { approvalPolicy: input.approvalPolicyHint } : {}),
-      ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
-      cwd: input.cwd,
-    });
+    const created = await this.manager.createThread({ cwd: input.cwd });
     await this.setDefaultThread(input.adapter, input.surfaceId, created.threadId);
     return {
       threadId: created.threadId,

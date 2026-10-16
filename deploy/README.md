@@ -78,8 +78,7 @@ Discord and web are implemented. When selecting Discord, set `DISCORD_BOT_TOKEN`
 keep these settings in `envs/common.env`:
 
 ```env
-SHEPHERD_APPROVAL_MODE=review_sensitive
-SHEPHERD_SANDBOX_MODE=workspace_write
+SHEPHERD_POLICY=workspace
 ```
 
 Authenticate as `nio`:

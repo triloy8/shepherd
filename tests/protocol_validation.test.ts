@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   validateCreateThreadRequest,
+  validateForkThreadRequest,
+  validateResumeThreadRequest,
   validateListStoredThreadsRequest,
   validateSubmitTurnRequest,
   validateSkillsListRequest,
@@ -12,18 +14,17 @@ describe("application protocol validation", () => {
     expect(validateSkillsListRequest({ refresh: true })).toEqual({ refresh: true });
     for (const request of [{ cwds: ["/other"] }, { workspacePath: "/other" }, { forceReload: true }]) expect(() => validateSkillsListRequest(request)).toThrow("Invalid skills list payload");
   });
-  test("rejects the removed on-failure approval policy", () => {
-    expect(() => validateCreateThreadRequest({ approvalPolicy: "on-failure" })).toThrow(
-      "Invalid approval policy.",
-    );
-  });
-
-  test("rejects native granular policies and accepts only application modes", () => {
-    expect(() => validateCreateThreadRequest({ approvalPolicy: { granular: { sandbox_approval: true } } })).toThrow("Invalid approval policy");
-    for (const approvalPolicy of ["provider_default", "review_sensitive", "review_untrusted", "bypass"]) {
-      expect(validateCreateThreadRequest({ approvalPolicy }).approvalPolicy).toBe(approvalPolicy);
+  test("thread requests take one execution policy and reject the removed approval and sandbox modes", () => {
+    const policy = { writes: "workspace", network: "none", review: "risky" };
+    for (const validate of [validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest]) {
+      expect(validate({ policy }).policy).toEqual(policy);
+      expect(validate({}).policy).toBeUndefined();
+      for (const removed of [{ approvalPolicy: "bypass" }, { sandbox: "read_only" }]) expect(() => validate(removed)).toThrow("Unsupported request field");
     }
-    for (const approvalPolicy of ["never", "on-request", "untrusted", "review_all"]) expect(() => validateCreateThreadRequest({ approvalPolicy })).toThrow("Invalid approval policy");
+    for (const invalid of [{ ...policy, writes: "danger-full-access" }, { ...policy, review: "untrusted" }, { writes: "any" }, { ...policy, extra: "x" }, "bypass"]) {
+      expect(() => validateCreateThreadRequest({ policy: invalid })).toThrow("Invalid execution policy");
+    }
+    expect(() => validateSubmitTurnRequest({ input: "hi", approvalPolicy: "bypass" })).toThrow("Unsupported request field: approvalPolicy");
   });
 
   test("accepts shared sorting and multiple workspace filters; rejects native listing knobs", () => {

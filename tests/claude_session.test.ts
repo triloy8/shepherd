@@ -6,6 +6,7 @@ import type { query, Query, SDKMessage, SDKSessionInfo, SDKUserMessage, Permissi
 import type { ClaudeNative } from "../server/providers/claude/native_sessions.js";
 import { decodeTranscript, type TranscriptEntry } from "../server/providers/claude/transcript.js";
 import { ClaudeSession } from "../server/providers/claude/session.js";
+import { POLICY_PRESETS } from "../shared/protocol/execution_policy.js";
 import { ClaudeProvider } from "../server/providers/claude/provider.js";
 import { noProviderTools } from "../server/ports/provider_tools.js";
 import { SessionManager } from "../server/core/session_manager.js";
@@ -104,7 +105,7 @@ test("Claude streams common events and resumes the native session from its trans
     yield { type: "assistant", parent_tool_use_id: null, message: { id: "msg-1", content: [{ type: "text", text: "Hello" }] } } as SDKMessage;
     yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   const created = await session.startThread({ cwd: "/old" });
   session.setCwd("/project");
   const events: BridgeEvent[] = []; session.eventBus.subscribe((event) => events.push(event), { replay: false });
@@ -115,12 +116,12 @@ test("Claude streams common events and resumes the native session from its trans
     expect(fake.calls[0]!.options.settings).toMatchObject({ forceLoginMethod: "claudeai", apiKeyHelper: "" });
   }
   expect(events.map((e) => e.type)).toEqual(["thread.settings.changed", "turn.started", "item.delta", "item.completed", "thread.tokenUsage.updated", "turn.completed"]);
-  expect(events[0]!.payload).toEqual({ model: "claude-opus-5-5", effort: "medium", cwd: "/project", approvalPolicy: "review_sensitive" });
+  expect(events[0]!.payload).toEqual({ model: "claude-opus-5-5", effort: "medium", cwd: "/project", profile: null });
   const chat = events.reduce(reduceBridge, emptyChat());
   expect(chat.messages.filter((message) => message.role === "assistant")).toMatchObject([{ text: "Hello", complete: true }]);
   expect(events[2]!.payload).toEqual({ channel: "message", phase: null, itemId: "msg-1", delta: "Hello", turnId });
   expect((await session.listThreadTurns(created.threadId, {})).data[0]).toMatchObject({ status: "completed", items: [{ type: "user_message" }, { type: "assistant_message", text: "Hello" }] });
-  const resumed = new ClaudeSession("review_sensitive", undefined, fake);
+  const resumed = new ClaudeSession(undefined, fake);
   await resumed.resumeThread(created.threadId, {});
   await resumed.startTurn([toTextUserInput("again")]); await done(resumed);
   // The conversation is Claude's session: same ID, resumed in the workspace Claude recorded.
@@ -142,7 +143,7 @@ test("Claude approvals apply decisions and interruption clears pending manager a
     await cancelled.promise; yield result;
   });
   fake.onInterrupt(cancelled.resolve);
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   const manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
   await manager.submitTurn(threadId, { input: [toTextUserInput("run ls")] }); await asked.promise;
@@ -162,7 +163,7 @@ test("ending a turn expires unanswered approvals", async () => {
     const pending = options.canUseTool!("Write", {}, { signal: new AbortController().signal } as Parameters<NonNullable<Options["canUseTool"]>>[2]);
     asked.resolve(); expect((await pending).behavior).toBe("deny"); yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   const manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude" });
   await manager.submitTurn(threadId, { input: [toTextUserInput("write")] }); await asked.promise;
@@ -177,7 +178,7 @@ test("steering adds input to the same SDK stream and rejects a stale turn", asyn
     for await (const message of input) { messages.push(message); if (messages.length === 2) break; }
     received.resolve(); await gate.promise; yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   await session.startThread({}); const turnId = await session.startTurn([toTextUserInput("first")]);
   await expect(session.steerTurn([toTextUserInput("stale")], "wrong")).rejects.toThrow("matching active");
   expect(await session.steerTurn([toTextUserInput("second")], turnId)).toBe(turnId);
@@ -187,7 +188,7 @@ test("steering adds input to the same SDK stream and rejects a stale turn", asyn
 test("SDK errors and truncated streams fail the turn and release active state", async () => {
   for (const events of [[], [{ ...result, is_error: true, result: "API failed" }]]) {
     const fake = sdk(async function* () { for (const event of events) yield event as SDKMessage; });
-    const session = new ClaudeSession("review_sensitive", undefined, fake);
+    const session = new ClaudeSession(undefined, fake);
     const created = await session.startThread({}); await session.startTurn([toTextUserInput("hello")]); await done(session);
     expect(session.activeTurnId).toBeNull();
     expect((await session.listThreadTurns(created.threadId, {})).data[0]!.status).toBe("failed");
@@ -195,10 +196,10 @@ test("SDK errors and truncated streams fail the turn and release active state", 
   }
 });
 
-test("Claude rejects unsupported sandbox and audio input before starting an SDK query", async () => {
+test("Claude rejects unknown policy profiles and audio input before starting an SDK query", async () => {
   const fake = sdk(async function* () { yield result; });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
-  await expect(session.startThread({ sandbox: "workspace_write" })).rejects.toThrow("sandbox mode");
+  const session = new ClaudeSession(undefined, fake);
+  await expect(session.startThread({ profile: "danger-full-access:never" })).rejects.toThrow("Unknown Claude policy profile");
   await session.startThread({});
   await expect(session.startTurn([{ type: "audio", url: "https://example.test/a.wav" }])).rejects.toThrow("audio inputs");
   expect(fake.calls).toHaveLength(0); expect(session.activeTurnId).toBeNull(); session.stop();
@@ -207,11 +208,11 @@ test("Claude rejects unsupported sandbox and audio input before starting an SDK 
 test("manager selects providers and routes unloaded Claude history without spawning Codex", async () => {
   const fake = sdk(async function* (_input, options) { yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage; yield result; });
   const providers: string[] = [];
-  const manager = new SessionManager(undefined, sessionProviders((policy, tools, provider) => {
+  const manager = new SessionManager(undefined, sessionProviders((tools, provider) => {
     providers.push(provider);
-    if (provider === "claude") return new ClaudeSession(policy, tools, fake);
-    const codex = new CodexSession(policy, tools);
-    codex.startThread = async () => ({ threadId: "codex-thread", cwd: "/tmp", model: "codex-model", effort: null, approvalPolicy: "provider_default" });
+    if (provider === "claude") return new ClaudeSession(tools, fake);
+    const codex = new CodexSession(tools);
+    codex.startThread = async () => ({ threadId: "codex-thread", cwd: "/tmp", model: "codex-model", effort: null, profile: null });
     return codex;
   }), () => false, { resolve: id => id === "codex-thread" ? "codex" : "claude", bind: () => {} }, ["codex", "claude"]);
   await manager.createThread({});
@@ -219,7 +220,7 @@ test("manager selects providers and routes unloaded Claude history without spawn
   expect(providers).toEqual(["codex", "claude"]);
   await expect(manager.forkThread(threadId, { provider: "codex" })).rejects.toThrow("Cannot change");
   // A conversation another process ran exists only in Claude's sessions.
-  const created = new ClaudeSession("review_sensitive", undefined, fake); const unloaded = await created.startThread({ cwd: "/saved" });
+  const created = new ClaudeSession(undefined, fake); const unloaded = await created.startThread({ cwd: "/saved" });
   await created.startTurn([toTextUserInput("saved")]); await done(created); created.stop();
   expect(await manager.resolveThreadCwd(unloaded.threadId)).toBe("/saved");
   expect((await manager.listThreadTurns(unloaded.threadId, {})).data).toMatchObject([{ status: "completed", items: [{ type: "user_message", content: [{ type: "text", text: "saved" }] }] }]);
@@ -248,7 +249,7 @@ test("Shepherd dynamic tools retain namespaces and conversation identity through
     expect(await client.callTool({ name: "signals__callback", arguments: { kind: "ready" } })).toMatchObject({ content: [{ type: "text", text: "callback-created" }] });
     await client.close(); await server.instance.close(); yield result;
   });
-  const session = new ClaudeSession("review_sensitive", registry, fake);
+  const session = new ClaudeSession(registry, fake);
   const { threadId } = await session.startThread({}); const turnId = await session.startTurn([toTextUserInput("create callback")]); await done(session);
   expect(calls).toMatchObject([{ namespace: "signals", tool: "callback", threadId, turnId, arguments: { kind: "ready" } }]);
   expect((await session.listThreadTurns(threadId, {})).data[0]!.status).toBe("completed"); session.stop();
@@ -256,8 +257,8 @@ test("Shepherd dynamic tools retain namespaces and conversation identity through
 
 
 test("combined stored conversations stay sorted across provider pages without duplicates", async () => {
-  const manager = new SessionManager(undefined, sessionProviders((policy, tools, provider) => {
-    const session = new CodexSession(policy, tools); session.initialize = async () => {};
+  const manager = new SessionManager(undefined, sessionProviders((tools, provider) => {
+    const session = new CodexSession(tools); session.initialize = async () => {};
     const rows = (provider === "codex" ? [9, 7, 3, 1] : [10, 8, 6, 4, 2]).map((date) => ({ id: `${provider}-${date}`, updatedAt: date }));
     session.listStoredThreads = async (request) => {
       const offset = Number(request.cursor ?? 0); const limit = request.limit ?? 20;
@@ -278,22 +279,28 @@ test("combined stored conversations stay sorted across provider pages without du
   } finally { manager.stopAll(); }
 });
 
-test("never approval policy maps to explicit Claude permission bypass", async () => {
-  const fake = sdk(async function* (_input, options) {
-    expect(options).toMatchObject({ permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true });
-    expect(options.canUseTool).toBeFunction(); yield result;
-  });
-  const session = new ClaudeSession("bypass", undefined, fake);
-  await session.startThread({ sandbox: "unrestricted" }); await session.startTurn([toTextUserInput("hello")]); await done(session); session.stop();
+test("the bypass policy resolves to Claude's explicit permission bypass", async () => {
+  const fake = sdk(async function* () { yield result; });
+  const session = new ClaudeSession(undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
+  const { threadId } = await manager.createThread({ provider: "claude", policy: POLICY_PRESETS.bypass });
+  expect(manager.getThreadState(threadId).policy).toEqual({ profile: "bypassPermissions", policy: POLICY_PRESETS.bypass });
+  await manager.submitTurn(threadId, { input: [toTextUserInput("hello")] }); await done(session);
+  // Asserted on the recorded options: a failure inside the SDK script would only fail the turn.
+  // Submitting reads the model catalog first, which is a separate query.
+  const turn = fake.calls.find(call => call.options.sessionId || call.options.resume)!;
+  expect(fake.calls.map(call => call.options.permissionMode)).toEqual(["dontAsk", "bypassPermissions"]);
+  expect(turn.options).toMatchObject({ permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true });
+  expect(turn.options.canUseTool).toBeFunction();
+  manager.stopAll();
 });
 
 test("forks are new Claude sessions: overrides apply to the fork and never change the source", async () => {
   const fake = sdk(async function* (_input, options) { yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage; yield result; });
-  const source = new ClaudeSession("review_sensitive", undefined, fake);
+  const source = new ClaudeSession(undefined, fake);
   const created = await source.startThread({ cwd: "/source", model: "sonnet" });
   await source.startTurn([toTextUserInput("first")]); await done(source);
   const before = structuredClone(fake.sessions.get(created.threadId));
-  const fork = new ClaudeSession("review_sensitive", undefined, fake);
+  const fork = new ClaudeSession(undefined, fake);
   const forked = await fork.forkThread(created.threadId, { cwd: "/fork", model: "opus" });
   expect(fake.sessions.get(created.threadId)).toEqual(before!);
   expect(forked).toMatchObject({ threadId: "12345678-1234-1234-1234-123456789abc", cwd: "/fork", model: "opus" });
@@ -304,7 +311,7 @@ test("forks are new Claude sessions: overrides apply to the fork and never chang
 
 test("new conversations use Claude's preset prompt without additions", async () => {
   const fake = sdk(async function* () { yield result; });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   await session.startThread({ cwd: "/project" });
   await session.startTurn([toTextUserInput("hello")]); await done(session);
   expect(fake.calls[0]!.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
@@ -313,7 +320,7 @@ test("new conversations use Claude's preset prompt without additions", async () 
 
 test("renaming and archiving go to Claude's session, including changes made before it exists", async () => {
   const fake = sdk(async function* (_input, options) { yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage; yield result; });
-  const session = new ClaudeSession("review_sensitive", undefined, fake); const created = await session.startThread({});
+  const session = new ClaudeSession(undefined, fake); const created = await session.startThread({});
   await session.setThreadName(created.threadId, "Early name"); await session.archiveThread(created.threadId);
   expect(fake.sessions.has(created.threadId)).toBe(false);
   expect(await session.readThread(created.threadId, false)).toMatchObject({ thread: { name: "Early name" } });
@@ -334,8 +341,9 @@ test("Claude questions support multiple answers, invalid retries, and bypass per
     const pending = options.canUseTool!("AskUserQuestion", native, { signal: new AbortController().signal } as Parameters<CanUseTool>[2]);
     asked.resolve(); permission = await pending; yield result;
   });
-  const session = new ClaudeSession("bypass", undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
-  const { threadId } = await manager.createThread({ provider: "claude" }); await manager.submitTurn(threadId, { input: [toTextUserInput("choose")] }); await asked.promise;
+  const session = new ClaudeSession(undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
+  // Bypass suppresses permission review but not the user's own answers.
+  const { threadId } = await manager.createThread({ provider: "claude", policy: POLICY_PRESETS.bypass }); await manager.submitTurn(threadId, { input: [toTextUserInput("choose")] }); await asked.promise;
   const approval = manager.listApprovals(threadId)[0]!;
   expect(approval.userInput!.questions[0]).toMatchObject({ id: "question-0", multiSelect: true });
   await expect(manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "answer")!.value, answers: {} })).rejects.toThrow("Answer every question");
@@ -352,8 +360,9 @@ test("question cancellation and native abort settle callbacks and expire stale a
       const pending = options.canUseTool!("AskUserQuestion", { questions: [{ header: "Pick", question: "Choose?", multiSelect: false, options: [{ label: "A", description: "" }] }] }, { signal: controller.signal } as Parameters<CanUseTool>[2]);
       asked.resolve(); permission = await pending; yield result;
     });
-    const session = new ClaudeSession("review_sensitive", undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
-    const { threadId } = await manager.createThread({ provider: "claude" }); await manager.submitTurn(threadId, { input: [toTextUserInput("choose")] }); await asked.promise;
+    const session = new ClaudeSession(undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
+    // Bypass suppresses permission review but not the user's own answers.
+  const { threadId } = await manager.createThread({ provider: "claude", policy: POLICY_PRESETS.bypass }); await manager.submitTurn(threadId, { input: [toTextUserInput("choose")] }); await asked.promise;
     const approval = manager.listApprovals(threadId)[0]!;
     if (cancelled) await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "cancel")!.value }); else controller.abort();
     await done(session); expect(permission!.behavior).toBe("deny"); expect(manager.getRuntimeActivity().pendingApprovalIds).toEqual([]);
@@ -362,7 +371,7 @@ test("question cancellation and native abort settle callbacks and expire stale a
 });
 
 test("capabilities reach thread state and reject unsupported controls in the application", async () => {
-  const fake = sdk(async function* () { yield result; }); const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const fake = sdk(async function* () { yield result; }); const session = new ClaudeSession(undefined, fake);
   const manager = new SessionManager(undefined, sessionProviders(() => session), undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
   expect(manager.getThreadState(threadId)).toMatchObject({ provider: "claude", capabilities: { questions: true, skills: false, compact: false, revert: false, fork: true } });
   expect((await manager.listLoadedThreads({})).threadIds).toContain(threadId);
@@ -374,7 +383,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   const { InputQueue } = await import("../server/providers/claude/input_queue.js");
   const events = new InputQueue<SDKMessage>();
   const fake = sdk(async function* () { for await (const event of events) yield event; });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   const manager = new SessionManager(undefined, sessionProviders(() => session), undefined, undefined, ["claude"]); const { threadId } = await manager.createThread({ provider: "claude" });
   const turns = async () => (await session.listThreadTurns(threadId, { sortDirection: "asc" })).data;
   function waitFor(type: string) { return new Promise<void>(resolve => { const off = session.eventBus.subscribe(event => { if (event.type === type) { off(); resolve(); } }, { replay: false }); }); }
@@ -405,7 +414,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
 test("shutdown ends the running turn as interrupted before the SDK iterator finishes", async () => {
   const gate = signal();
   const fake = sdk(async function* () { await gate.promise; yield result; });
-  const session = new ClaudeSession("review_sensitive", undefined, fake); const { threadId } = await session.startThread({});
+  const session = new ClaudeSession(undefined, fake); const { threadId } = await session.startThread({});
   await session.startTurn([toTextUserInput("wait")]); session.stop();
   const [turn] = (await session.listThreadTurns(threadId, {})).data;
   expect(turn).toMatchObject({ status: "interrupted" });
@@ -424,7 +433,7 @@ test("stopping a catalog-only session closes its pending native discovery query"
     running.close = () => { close(); reject(new Error("Discovery closed.")); };
     created.resolve(); return running;
   }) as typeof query;
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   const pending = session.listModels({}); await created.promise; session.stop();
   await expect(pending).rejects.toThrow("Discovery closed"); expect(fake.closed()).toBe(1);
   await expect(session.listModels({})).rejects.toThrow("Session is stopped");
@@ -432,10 +441,10 @@ test("stopping a catalog-only session closes its pending native discovery query"
 
 test("loaded conversations include every provider and respect page size", async () => {
   const fake = sdk(async function* () { yield result; });
-  const manager = new SessionManager(undefined, sessionProviders((policy, tools, provider) => {
-    if (provider === "claude") return new ClaudeSession(policy, tools, fake);
-    const session = new CodexSession(policy, tools); session.initialize = async () => {};
-    session.startThread = async () => ({ threadId: "opaque-codex-id", cwd: "/tmp", model: "codex", effort: null, approvalPolicy: "provider_default" });
+  const manager = new SessionManager(undefined, sessionProviders((tools, provider) => {
+    if (provider === "claude") return new ClaudeSession(tools, fake);
+    const session = new CodexSession(tools); session.initialize = async () => {};
+    session.startThread = async () => ({ threadId: "opaque-codex-id", cwd: "/tmp", model: "codex", effort: null, profile: null });
     session.listLoadedThreads = async () => ({ data: ["opaque-codex-id"], nextCursor: null }); return session;
   }), undefined, undefined, ["codex", "claude"]);
   const codex = await manager.createThread({}); const claude = await manager.createThread({ provider: "claude" });
@@ -451,7 +460,7 @@ test("background questions create a pending wake turn before an assistant messag
     const pending = options.canUseTool!("AskUserQuestion", { questions: [{ header: "Continue", question: "Continue work?", multiSelect: false, options: [{ label: "Yes", description: "" }] }] }, { signal: new AbortController().signal } as Parameters<CanUseTool>[2]);
     asked.resolve(); expect((await pending).behavior).toBe("allow"); yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
+  const session = new ClaudeSession(undefined, fake); const manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude" }); await manager.submitTurn(threadId, { input: [toTextUserInput("start")] }); await done(session);
   gate.resolve(); await asked.promise;
   const request = manager.listApprovals(threadId).find(approval => approval.status === "pending")!;
@@ -471,7 +480,7 @@ test("Claude streams forward allowance events to the account observer without co
   });
   const open = fake.query;
   fake.query = (options => Object.assign(open(options), { accountInfo: async () => identity })) as typeof query;
-  const session = new ClaudeSession("review_sensitive", undefined, fake, {
+  const session = new ClaudeSession(undefined, fake, {
     scope: () => "credential-scope", observe: (...values) => { observations.push(values); },
   });
   try {
@@ -492,7 +501,7 @@ test("an unavailable account lookup cannot stall a Claude response", async () =>
   });
   const open = fake.query;
   fake.query = (options => Object.assign(open(options), { accountInfo: () => new Promise(() => {}) })) as typeof query;
-  const session = new ClaudeSession("review_sensitive", undefined, fake, { scope: () => "scope", observe() { throw new Error("Must not observe an unknown account"); } });
+  const session = new ClaudeSession(undefined, fake, { scope: () => "scope", observe() { throw new Error("Must not observe an unknown account"); } });
   try {
     await session.startThread({ cwd: "/project" });
     await session.startTurn([toTextUserInput("hello")]); await done(session);
@@ -509,9 +518,9 @@ test("new Claude defaults reach SDK turns; resumed conversations keep Claude's m
     yield { type: "assistant", parent_tool_use_id: null, message: { id: "answer", model: "claude-sonnet-5-5", content: [{ type: "text", text: "Hi" }] } } as SDKMessage;
     yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
-  const resumed = new ClaudeSession("review_sensitive", undefined, fake);
-  const forked = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
+  const resumed = new ClaudeSession(undefined, fake);
+  const forked = new ClaudeSession(undefined, fake);
   try {
     const created = await session.startThread({ cwd: "/project" });
     expect(created).toMatchObject({ model: "claude-opus-5-5", effort: "medium" });
@@ -520,8 +529,8 @@ test("new Claude defaults reach SDK turns; resumed conversations keep Claude's m
     process.env.CLAUDE_MODEL = "haiku"; process.env.CLAUDE_EFFORT = "low";
     expect(await resumed.resumeThread(created.threadId, {})).toMatchObject({ model: "claude-sonnet-5-5", effort: "low", cwd: "/project" });
     expect(await forked.forkThread(created.threadId, {})).toMatchObject({ model: "claude-sonnet-5-5", effort: "low" });
-    expect(await new ClaudeSession("review_sensitive", undefined, fake).resumeThread(created.threadId, { model: "opus", effort: "high" })).toMatchObject({ model: "opus", effort: "high" });
-    const explicit = new ClaudeSession("review_sensitive", undefined, fake);
+    expect(await new ClaudeSession(undefined, fake).resumeThread(created.threadId, { model: "opus", effort: "high" })).toMatchObject({ model: "opus", effort: "high" });
+    const explicit = new ClaudeSession(undefined, fake);
     expect(await explicit.startThread({ model: "opus" })).toMatchObject({ model: "opus", effort: "low" });
     explicit.stop();
   } finally {
@@ -537,7 +546,7 @@ test("Claude effort controls find pinned default IDs and legacy aliases through 
   fake.query = (options => Object.assign(open(options), { supportedModels: async () => [
     { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "Opus", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high"] },
   ] })) as typeof query;
-  const manager = new SessionManager(undefined, sessionProviders((policy, tools) => new ClaudeSession(policy, tools, fake)));
+  const manager = new SessionManager(undefined, sessionProviders((tools) => new ClaudeSession(tools, fake)));
   try {
     const { threadId } = await manager.createThread({ provider: "claude", model: "claude-opus-5-5" });
     expect(await manager.getThreadEffort(threadId)).toMatchObject({ model: "claude-opus-5-5", currentEffort: "medium", defaultEffort: "medium" });
@@ -560,7 +569,7 @@ test("Claude history records thinking as reasoning and proposed plans as plans, 
     yield assistant("m2", { type: "text", text: "Done." });
     yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   try {
     const { threadId } = await session.startThread({});
     await session.startTurn([toTextUserInput("fix it")]); await done(session);
@@ -594,7 +603,7 @@ test("per-block assistant messages mark text before tools as interim and the las
     yield assistant("answer", { type: "text", text: "Nothing else to do." });
     yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   const { threadId } = await session.startThread({});
   const events: BridgeEvent[] = []; session.eventBus.subscribe(event => events.push(event), { replay: false });
   await session.startTurn([toTextUserInput("run tests")]); await done(session);
@@ -616,7 +625,7 @@ test("per-request cache counts the SDK omits are unreported, not zero", async ()
     yield { type: "assistant", parent_tool_use_id: null, message: { id: "m", usage: { input_tokens: 7, output_tokens: 2 }, content: [{ type: "text", text: "Done" }] } } as SDKMessage;
     yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   await session.startThread({});
   const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
   await session.startTurn([toTextUserInput("hello")]); await done(session);
@@ -633,7 +642,7 @@ test("token usage reports the last request's context and the model context windo
     yield { ...result, usage: { input_tokens: 9_999, cache_read_input_tokens: 99_999, output_tokens: 999 },
       modelUsage: { "claude-opus-5-5": { inputTokens: 10, outputTokens: 50, cacheReadInputTokens: 1000, cacheCreationInputTokens: 5, contextWindow: 200_000 } } } as SDKMessage;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   await session.startThread({ model: "claude-opus-5-5" });
   const updates: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "thread.tokenUsage.updated") updates.push(event.payload); }, { replay: false });
   await session.startTurn([toTextUserInput("hello")]); await done(session);
@@ -647,10 +656,10 @@ test("token usage reports the last request's context and the model context windo
 
 test("forking a Claude session lets the SDK find its transcript, and the fork resumes in its own workspace", async () => {
   const fake = sdk(async function* (_input, options) { yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage; yield result; });
-  const source = new ClaudeSession("review_sensitive", undefined, fake);
+  const source = new ClaudeSession(undefined, fake);
   const created = await source.startThread({ cwd: "/workspace-a" });
   await source.startTurn([toTextUserInput("first")]); await done(source);
-  const fork = new ClaudeSession("review_sensitive", undefined, fake);
+  const fork = new ClaudeSession(undefined, fake);
   const forked = await fork.forkThread(created.threadId, {});
   // No project directory is passed, so the SDK searches every one for the transcript.
   expect(fake.forks).toEqual([[created.threadId]]);
@@ -668,7 +677,7 @@ test("activities come from a bounded subset of tool arguments; tool results neve
     }
     yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   const { threadId } = await session.startThread({});
   await session.startTurn([toTextUserInput("read")]); await done(session);
   const items = (await session.listThreadTurns(threadId, {})).data[0]!.items;
@@ -681,7 +690,7 @@ test("activities come from a bounded subset of tool arguments; tool results neve
 
 test("the model catalog is cached and concurrent lookups share one CLI process", async () => {
   const fake = sdk(async function* () { yield result; });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   await Promise.all([session.listModels({}), session.listModels({})]);
   await session.listModels({ includeHidden: true });
   expect(fake.calls).toHaveLength(1);
@@ -691,8 +700,8 @@ test("the model catalog is cached and concurrent lookups share one CLI process",
 test("sessions sharing a runtime model cache start one CLI process for the model list", async () => {
   const fake = sdk(async function* () { yield result; });
   const models = new ClaudeModelCache({ scope: () => "login" });
-  const first = new ClaudeSession("review_sensitive", undefined, fake, undefined, models);
-  const second = new ClaudeSession("review_sensitive", undefined, fake, undefined, models);
+  const first = new ClaudeSession(undefined, fake, undefined, models);
+  const second = new ClaudeSession(undefined, fake, undefined, models);
   await first.listModels({}); await second.listModels({});
   expect(fake.calls).toHaveLength(1);
   first.stop(); second.stop();
@@ -701,7 +710,7 @@ test("sessions sharing a runtime model cache start one CLI process for the model
 test("newly registered Shepherd tools reopen the idle SDK process before the next turn", async () => {
   const registry = new DynamicToolRegistry();
   const fake = sdk(async function* (input) { for await (const _message of input) yield result; });
-  const session = new ClaudeSession("review_sensitive", registry, fake);
+  const session = new ClaudeSession(registry, fake);
   await session.startThread({});
   await session.startTurn([toTextUserInput("one")]); await done(session);
   await session.startTurn([toTextUserInput("two")]); await done(session);
@@ -756,7 +765,7 @@ test("conversation listing reads Claude's sessions, filters archived and search,
   const provider = new ClaudeProvider(fake);
   const ids: string[] = [];
   for (const prompt of ["alpha task", "beta task", "gamma"]) {
-    const session = provider.openSession("review_sensitive", noProviderTools); const { threadId } = await session.startThread({ cwd: `/${prompt.split(" ")[0]}` });
+    const session = provider.openSession(noProviderTools); const { threadId } = await session.startThread({ cwd: `/${prompt.split(" ")[0]}` });
     await session.startTurn([toTextUserInput(prompt)]); await done(session); session.stop(); ids.push(threadId);
   }
   // The provider reads stored conversations without opening a session.
@@ -767,7 +776,7 @@ test("conversation listing reads Claude's sessions, filters archived and search,
   expect((await provider.listStoredThreads({ sortDirection: "asc", cwd: ["/alpha", "/gamma"] })).data.map(thread => thread.cwd)).toEqual(["/alpha", "/gamma"]);
   expect((await provider.listThreadTurns(ids[0]!, {})).data).toMatchObject([{ items: [{ type: "user_message", content: [{ text: "alpha task" }] }] }]);
   expect(fake.calls).toHaveLength(3);
-  const resumed = provider.openSession("review_sensitive", noProviderTools);
+  const resumed = provider.openSession(noProviderTools);
   await expect(resumed.resumeThread("00000000-0000-4000-8000-000000000000", {})).rejects.toThrow("Unknown Claude session");
   provider.stop();
 });
@@ -778,7 +787,7 @@ test("Claude applies opaque permission options through the shared session bounda
     const pending = options.canUseTool!("Read", { file_path: "/project/readme.md" }, { signal: new AbortController().signal, suggestions: [] } as Parameters<CanUseTool>[2]);
     asked.resolve(); decisions.push(await pending); yield result;
   });
-  const session = new ClaudeSession("review_sensitive", undefined, fake), manager = new SessionManager(undefined, sessionProviders(() => session));
+  const session = new ClaudeSession(undefined, fake), manager = new SessionManager(undefined, sessionProviders(() => session));
   const { threadId } = await manager.createThread({ provider: "claude", cwd: "/project" });
   const observed: BridgeEvent[] = [];
   manager.subscribeToThreadEvents(threadId, event => observed.push(event));
@@ -795,43 +804,44 @@ test("Claude applies opaque permission options through the shared session bounda
   manager.stopAll();
 });
 
-test("Claude permission modes map to SDK options; resumed and forked sessions use the requested or host mode", async () => {
-  for (const approvalPolicy of ["provider_default", "review_sensitive", "bypass"] as const) {
+test("Claude profiles map to SDK permission modes, and every bootstrap states its profile", async () => {
+  const modes = { bypassPermissions: ["bypassPermissions", true], default: ["default", undefined], plan: ["plan", undefined] } as const;
+  for (const [profile, [permissionMode, skip]] of [...Object.entries(modes), [null, [undefined, undefined]]] as Array<[string | null, readonly [string | undefined, boolean | undefined]]>) {
     const fake = sdk(async function* (input, options) { for await (const _message of input) { yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage; yield result; break; } });
-    const original = new ClaudeSession(approvalPolicy, undefined, fake);
-    const created = await original.startThread({ effort: "high" });
+    const original = new ClaudeSession(undefined, fake);
+    const created = await original.startThread({ effort: "high", profile });
+    expect(created.profile).toBe(profile);
     await original.startTurn([toTextUserInput("Start")]); await done(original); original.stop();
+    // Without a profile, Claude's settings choose the permission mode.
     expect(fake.calls[0]!.options).toMatchObject({ effort: "high" });
-    // The provider default leaves the mode to Claude's settings; review asks explicitly.
-    expect(fake.calls[0]!.options.permissionMode).toBe(({ provider_default: undefined, review_sensitive: "default", bypass: "bypassPermissions" } as const)[approvalPolicy]);
-    expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBe(approvalPolicy === "bypass" ? true : undefined);
-    // Claude's session does not record Shepherd's mode: resuming uses the host's configured mode unless one is requested.
-    const resumed = new ClaudeSession("review_untrusted", undefined, fake);
-    const forked = new ClaudeSession("review_untrusted", undefined, fake);
+    expect(fake.calls[0]!.options.permissionMode).toBe(permissionMode);
+    expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBe(skip);
+    // Claude's session does not record Shepherd's profile, so resume and fork use the one they are given.
+    const resumed = new ClaudeSession(undefined, fake), forked = new ClaudeSession(undefined, fake);
     try {
-      expect(await resumed.resumeThread(created.threadId, { approvalPolicy: "provider_default" })).toMatchObject({ approvalPolicy: "review_untrusted" });
-      // On resume and fork, provider_default keeps the conversation's mode, which here is the host's.
-      expect(await forked.forkThread(created.threadId, { approvalPolicy })).toMatchObject({ approvalPolicy: approvalPolicy === "provider_default" ? "review_untrusted" : approvalPolicy });
+      expect(await resumed.resumeThread(created.threadId, { profile: "plan" })).toMatchObject({ profile: "plan" });
+      expect(await forked.forkThread(created.threadId, {})).toMatchObject({ profile: null });
     } finally { resumed.stop(); forked.stop(); }
   }
 });
 
-test("Claude reviews untrusted actions with its default permission mode", async () => {
-  const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });
-  const session = new ClaudeSession("provider_default", undefined, fake);
+test("core picks Claude's least restrictive profile within the requested policy, and refuses a stricter one it lacks", async () => {
+  const fake = sdk(async function* () { yield result; });
+  const manager = new SessionManager(undefined, sessionProviders(tools => new ClaudeSession(tools, fake)), undefined, undefined, ["claude"], "claude", { policy: POLICY_PRESETS.review });
   try {
-    const created = await session.startThread({ approvalPolicy: "review_untrusted" });
-    expect(created.approvalPolicy).toBe("review_untrusted");
-    await expect(session.steerTurn([{ type: "audio", url: "audio" }])).rejects.toThrow("audio inputs");
-    await session.startTurn([toTextUserInput("Hello")]); await done(session);
-    expect(fake.calls[0]!.options).toMatchObject({ permissionMode: "default" });
-    expect(fake.calls[0]!.options.allowDangerouslySkipPermissions).toBeUndefined();
-  } finally { session.stop(); }
+    const host = await manager.createThread({});
+    expect(manager.getThreadState(host.threadId).policy).toEqual({ profile: "default", policy: POLICY_PRESETS.review });
+    // Read-only writes allow Claude's plan mode.
+    const readOnly = await manager.createThread({ policy: POLICY_PRESETS.read_only });
+    expect(manager.getThreadState(readOnly.threadId).policy?.profile).toBe("plan");
+    // Claude has no mode that blocks the network, so it refuses rather than loosen the policy.
+    await expect(manager.createThread({ policy: { writes: "none", network: "none", review: "risky" } })).rejects.toThrow("execution policy");
+  } finally { manager.stopAll(); }
 });
 
 test("Claude clears effort by restarting with no SDK effort and keeps it cleared", async () => {
   const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });
-  const session = new ClaudeSession("review_sensitive", undefined, fake);
+  const session = new ClaudeSession(undefined, fake);
   try {
     const { threadId } = await session.startThread({});
     await session.startTurn([toTextUserInput("first")]); await done(session);

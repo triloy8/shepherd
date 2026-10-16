@@ -3,22 +3,22 @@ import type { Provider, ThreadSession } from "../ports/provider_session.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
 import { scopedProvider, scopedProviderTools, parseScopedThreadId, withMethods } from "./provider_thread_identity.js";
 import { FileThreadProviderDirectory } from "../storage/thread_provider_directory.js";
-import { resolveThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
+import type { ThreadDefaults } from "../../shared/protocol/provider_support.js";
+import { resolveProfile, withinPolicy } from "../../shared/protocol/execution_policy.js";
 
-/** Check the same capability metadata used to register providers, without constructing sessions. */
+/** How each provider applies the host policy, from the same capability metadata used to
+ * register providers and without constructing sessions. Each notice names one provider that
+ * cannot apply the policy exactly. */
 export function describeThreadDefaults(defaults: ThreadDefaults, providers: readonly Pick<ProviderRegistration, "displayName" | "capabilities">[]): string[] {
-  const settings = { approvalPolicy: ["SHEPHERD_APPROVAL_MODE", defaults.approvalPolicy], sandbox: ["SHEPHERD_SANDBOX_MODE", defaults.sandbox] } as const;
-  return providers.flatMap(({ displayName, capabilities }) => Object.entries(resolveThreadDefaults(defaults, capabilities)).flatMap(([key, resolution]) => {
-    const [name, value] = settings[key as keyof ThreadDefaults];
-    const unsupported = `${displayName} does not support ${name}=${value}`;
-    switch (resolution.outcome) {
-      case "apply": return [];
-      case "stricter": return [`${unsupported}; its conversations use the stricter ${resolution.value} instead.`];
-      case "provider_default": return [`${unsupported}; its conversations use the agent's own default for that setting.`];
-      // Creation applies both defaults; resume and fork apply only the sandbox default.
-      case "refuse": return [`${unsupported} or anything stricter; Shepherd refuses to ${key === "sandbox" ? "create, resume or fork" : "create"} its conversations until the setting changes.`];
-    }
-  }));
+  const limit = defaults.policy;
+  if (!limit) return [];
+  const requested = `SHEPHERD_POLICY (writes=${limit.writes}, network=${limit.network}, review=${limit.review})`;
+  return providers.flatMap(({ displayName, capabilities }) => {
+    const profile = resolveProfile(capabilities.policyProfiles, limit);
+    if (!profile) return [`${displayName} has no mode within ${requested}; Shepherd refuses to start or resume its conversations until the setting changes.`];
+    const exact = withinPolicy(limit, profile.policy);
+    return exact ? [] : [`${displayName} has no mode matching ${requested} exactly; its conversations use the stricter "${profile.label}".`];
+  });
 }
 
 export interface ProviderRegistration {
@@ -81,7 +81,7 @@ export function assembleProviderServices(registrations: readonly ProviderRegistr
     const native = registration.provider;
     // Sessions are checked as the provider opens them; scoped identities translate at this boundary.
     const checked = withMethods(native, {
-      openSession: (policy, tools) => checkSession(registration.id, capabilities, native.openSession(policy, scoped ? scopedProviderTools(registration.id, tools) : tools)),
+      openSession: tools => checkSession(registration.id, capabilities, native.openSession(scoped ? scopedProviderTools(registration.id, tools) : tools)),
     });
     entries.set(registration.id, { registration: { ...registration, capabilities }, provider: scoped ? scopedProvider(registration.id, checked) : checked });
   }

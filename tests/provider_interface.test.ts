@@ -24,7 +24,7 @@ import { descriptor, IndependentSession } from "./helpers/independent_provider.j
 
 test("an independent provider uses production orchestration, settings, events, history and ownership without native shims", async () => {
   const sessions: IndependentSession[] = [];
-  const services: ProviderServices = { descriptors: [descriptor], providers: [descriptor.id], accounts: new Map([[descriptor.id, { read: async () => account(descriptor.id) }]]), directory: memoryProviderDirectory(descriptor.id), hasStoredThreads: () => true, provider: sessionProviders((_policy, _tools, provider) => { expect(provider).toBe(descriptor.id); const session = new IndependentSession(); sessions.push(session); return session; }) };
+  const services: ProviderServices = { descriptors: [descriptor], providers: [descriptor.id], accounts: new Map([[descriptor.id, { read: async () => account(descriptor.id) }]]), directory: memoryProviderDirectory(descriptor.id), hasStoredThreads: () => true, provider: sessionProviders((_tools, provider) => { expect(provider).toBe(descriptor.id); const session = new IndependentSession(); sessions.push(session); return session; }) };
   const conversation = new ConversationService({ providers: services });
   try {
     const { threadId } = await conversation.createThread({ cwd: "/tmp" });
@@ -65,7 +65,7 @@ test("web discovers and routes an arbitrary provider; retired API prefixes have 
 });
 
 test("account reset calls preserve adapter method ownership and decode native outcomes", async () => {
-  const session = new CodexSession("review_sensitive"); session.initialize = async () => {};
+  const session = new CodexSession(); session.initialize = async () => {};
   const seen: unknown[] = [];
   Object.assign(session, { sendRequest: async (method: string, params: unknown) => { seen.push({ method, params }); return { outcome: "alreadyRedeemed" }; } });
   const reader = new CodexAccount(() => session);
@@ -132,7 +132,7 @@ test("Codex skill listings keep application fields and drop native presentation 
 });
 
 test("opaque permission options retain native policy amendments and reject stale ownership", async () => {
-  const session = new CodexSession("review_sensitive"); session.threadId = "thread"; session.activeTurnId = "turn";
+  const session = new CodexSession(); session.threadId = "thread"; session.activeTurnId = "turn";
   const writes: unknown[] = [], requests: import("../shared/protocol/approvals").ApprovalRequestPayload[] = [];
   const raw = session as unknown as { writeLine(value: unknown): void; onServerRequest(value: unknown): void; onNotification(method: string, value: unknown): void };
   raw.writeLine = value => writes.push(value);

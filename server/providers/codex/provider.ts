@@ -11,8 +11,8 @@ export class CodexProvider implements Provider {
   readonly capabilities = codexCapabilities;
   private readonly live = new Map<string, CodexSession>();
   private client: Promise<CodexSession> | null = null;
-  constructor(private readonly createClient: () => CodexSession = () => new CodexSession("provider_default", noProviderTools)) {}
-  openSession(policy: P.ApprovalPolicy, tools: ProviderTools): CodexSession { return new CodexSession(policy, tools, this.live); }
+  constructor(private readonly createClient: () => CodexSession = () => new CodexSession(noProviderTools)) {}
+  openSession(tools: ProviderTools): CodexSession { return new CodexSession(tools, this.live); }
   /** The process for provider-wide requests, started on first use and replaced if it fails to start. */
   private history(threadId?: string): Promise<CodexSession> {
     const live = threadId ? this.live.get(threadId) : undefined;

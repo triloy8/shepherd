@@ -1,5 +1,5 @@
 import { createProviderServices } from "./provider_services.js";
-import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
+import type { ExecutionPolicy } from "../../shared/protocol/execution_policy.js";
 import { ConversationService } from "../core/conversation_service.js";
 import {
   RuntimeLifecycleOrchestrator,
@@ -9,8 +9,8 @@ import {
 type ShutdownHook = () => void | Promise<void>;
 
 export type ShepherdRuntimeOptions = {
-  approvalPolicy: ApprovalPolicy;
-  defaultSandbox?: SandboxMode;
+  /** The host execution policy; null leaves each agent's own defaults. */
+  policy: ExecutionPolicy | null;
   defaultProvider?: string;
   deployment: RuntimeDeploymentPort;
   runningCommit?: Promise<string | null>;
@@ -38,10 +38,7 @@ export class ShepherdRuntime {
         autoCreateIfMissing: true,
         exclusiveThreadBinding: true,
       },
-      threadDefaults: {
-        approvalPolicy: options.approvalPolicy,
-        ...(options.defaultSandbox ? { sandbox: options.defaultSandbox } : {}),
-      },
+      threadDefaults: { policy: options.policy },
     });
     this.lifecycle = new RuntimeLifecycleOrchestrator({
       readActivity: () => this.conversation.getRuntimeActivity(),

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities, ProviderOperation } from "../../shared/protocol/provider_capabilities.js";
-import { assertThreadSupport, assertApprovalSupport, assertInputSupport, assertProviderOperation, resolveThreadDefaults, type ThreadDefaultResolution, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
+import { assertThreadSupport, assertInputSupport, assertProviderOperation, resolveThreadProfile, threadPolicy, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
 import { ApplicationActionError } from "./action_error.js";
@@ -14,7 +14,6 @@ import type { ThreadTokenUsageUpdatedEvent } from "../../shared/protocol/events.
 import type {
 
 
-  ApprovalPolicy,
   EffortSelection,
   AgentProvider,
 
@@ -59,7 +58,7 @@ import type {
   UnarchiveThreadResponse,
 } from "../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
-import { UnsupportedProviderOperationError, type Provider, type ThreadSession as ProviderSession, type LoadedThreadPage } from "../ports/provider_session.js";
+import { UnsupportedProviderOperationError, type Provider, type ProviderThreadRequest, type ThreadSession as ProviderSession, type LoadedThreadPage } from "../ports/provider_session.js";
 import type { ThreadProviderDirectory, ProviderLookup } from "../ports/provider_services.js";
 import { missingProviders, memoryProviderDirectory } from "./provider_directory.js";
 import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
@@ -81,7 +80,7 @@ type ManagedModelState = {
 };
 
 /** What core knows about a running thread, learned from its bootstrap and events. */
-type ThreadRuntime = { activeTurnId: string | null; backgroundTaskCount: number; approvalPolicy: ApprovalPolicy };
+type ThreadRuntime = { activeTurnId: string | null; backgroundTaskCount: number; profile: string | null };
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
@@ -118,7 +117,7 @@ export class SessionManager {
   ) {}
 
   async createThread(request: CreateThreadRequest): Promise<CreateThreadResponse> {
-    return this.bootstrap(request, (session, effective) => session.startThread(effective), undefined, true);
+    return this.bootstrap(request, (session, effective) => session.startThread(effective));
   }
 
   async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ResumeThreadResponse> {
@@ -145,18 +144,19 @@ export class SessionManager {
     return this.bootstrap({ ...request, provider: this.threadProvider(threadId, request.provider) }, (session, effective) => { if (!session.capabilities.fork || !session.forkThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "fork"); return session.forkThread(threadId, effective); }, threadId);
   }
 
-  /** Resume and fork keep the saved approval mode, so only creation applies the host approval default. */
+  /** Create, resume and fork run within the requested policy, or the host policy when none is
+   * requested: providers do not all record a thread's mode, so every bootstrap states it. */
   private async bootstrap(
     requested: CreateThreadRequest,
-    start: (session: ProviderSession, request: CreateThreadRequest) => ReturnType<ProviderSession["startThread"]>,
+    start: (session: ProviderSession, request: ProviderThreadRequest) => ReturnType<ProviderSession["startThread"]>,
     sourceThreadId?: string,
-    applyApprovalDefault = false,
   ): Promise<CreateThreadResponse> {
-    const session = this.allocateSession(requested.approvalPolicy ?? "provider_default", requested.provider ?? this.defaultProvider());
+    const session = this.allocateSession(requested.provider ?? this.defaultProvider());
     try {
-      const request = this.withThreadDefaults(requested, session.capabilities, applyApprovalDefault);
+      const { policy: _policy, provider: _provider, ...settings } = requested;
+      const request: ProviderThreadRequest & { provider?: AgentProvider } = { ...settings, provider: requested.provider,
+        profile: resolveThreadProfile(requested.provider ?? this.defaultProvider(), session.capabilities, requested.policy, this.threadDefaults.policy) };
       assertThreadSupport(request.provider ?? this.defaultProvider(), session.capabilities, request);
-      assertApprovalSupport(request.provider ?? this.defaultProvider(), session.capabilities, request.approvalPolicy ?? "provider_default");
       await session.initialize();
       this.assertRunning();
       const preBootstrapCatalog = session.capabilities.modelCatalogScope === "provider";
@@ -166,7 +166,8 @@ export class SessionManager {
         const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? savedModel, session, !!request.model && session.capabilities.modelCatalogAuthoritative === true);
         if (selected) this.assertModelEffort(selected, request.effort);
       }
-      const created = await start(session, request);
+      const { provider: _selected, ...native } = request;
+      const created = await start(session, native);
       this.assertRunning();
       if (session.capabilities.modelCatalog && !preBootstrapCatalog && (request.model || request.effort)) {
         const selected = await this.resolveModel(request.provider ?? this.defaultProvider(), request.model ?? created.model, session, !!request.model && session.capabilities.modelCatalogAuthoritative === true, created.threadId);
@@ -180,27 +181,12 @@ export class SessionManager {
       this.cwdByThread.set(created.threadId, created.cwd);
       this.effortStateByThread.set(created.threadId, { current: created.effort, pending: null });
       this.modelStateByThread.set(created.threadId, { currentModel: created.model, pendingModel: null });
-      this.runtimeByThread.set(created.threadId, { activeTurnId: null, backgroundTaskCount: 0, approvalPolicy: created.approvalPolicy });
+      this.runtimeByThread.set(created.threadId, { activeTurnId: null, backgroundTaskCount: 0, profile: created.profile });
       return { threadId: created.threadId, sessionId: session.sessionId };
     } catch (error) {
       this.releaseSession(session);
       throw error;
     }
-  }
-
-  /** Host defaults never loosen execution; a provider without an equal or stricter mode is refused. */
-  private withThreadDefaults(request: CreateThreadRequest, capabilities: ProviderCapabilities, applyApproval: boolean): CreateThreadRequest {
-    const provider = request.provider ?? this.defaultProvider();
-    const resolved = resolveThreadDefaults(this.threadDefaults, capabilities);
-    const value = <T>(setting: string, configured: T | undefined, resolution: ThreadDefaultResolution<T> | undefined): T | undefined => {
-      if (!resolution) return undefined;
-      if (resolution.outcome === "refuse") throw new UnsupportedProviderOperationError(provider, `the host default ${setting} ${String(configured)} or a stricter one`);
-      return resolution.outcome === "provider_default" ? undefined : resolution.value;
-    };
-    const approvalPolicy = applyApproval && request.approvalPolicy === undefined
-      ? value("approval mode", this.threadDefaults.approvalPolicy, resolved.approvalPolicy) : undefined;
-    const sandbox = request.sandbox === undefined ? value("sandbox mode", this.threadDefaults.sandbox, resolved.sandbox) : undefined;
-    return { ...request, ...(approvalPolicy ? { approvalPolicy } : {}), ...(sandbox ? { sandbox } : {}) };
   }
 
   listThreads(): ListThreadsResponse {
@@ -272,7 +258,7 @@ export class SessionManager {
       capabilities: { ...managed.session.capabilities, modelCatalogAuthoritative: managed.session.capabilities.modelCatalogAuthoritative === true },
       backgroundTaskCount: this.runtime(threadId).backgroundTaskCount,
       activeTurnId: this.runtime(threadId).activeTurnId,
-      approvalPolicy: this.runtime(threadId).approvalPolicy,
+      policy: threadPolicy(managed.session.capabilities, this.runtime(threadId).profile),
     };
   }
 
@@ -479,7 +465,6 @@ export class SessionManager {
 
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     const managed = this.mustGet(threadId);
-    assertApprovalSupport(this.threadProvider(threadId), managed.session.capabilities, request.approvalPolicy ?? this.runtime(threadId).approvalPolicy);
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     const modelState = this.modelStateByThread.get(threadId);
     const model = request.model ?? modelState?.pendingModel ?? undefined;
@@ -500,7 +485,7 @@ export class SessionManager {
     // The adapter reports the settings it applied with `thread.settings.changed`, which settles
     // pending selections; a failed start leaves them pending and retryable.
     const turnId = await managed.session.startTurn(request.input, {
-      ...(model ? { model } : {}), ...(effort !== undefined ? { effort } : {}), ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
+      ...(model ? { model } : {}), ...(effort !== undefined ? { effort } : {}),
     });
     return { ok: true, turnId };
   }
@@ -596,9 +581,9 @@ export class SessionManager {
     return this.fallbackProvider;
   }
 
-  private allocateSession(approvalPolicy: ApprovalPolicy, provider: AgentProvider = this.defaultProvider()): ProviderSession {
+  private allocateSession(provider: AgentProvider = this.defaultProvider()): ProviderSession {
     this.assertRunning();
-    const session = this.provider(provider).openSession(approvalPolicy, this.dynamicTools);
+    const session = this.provider(provider).openSession(this.dynamicTools);
     this.providerCapabilities.set(provider, session.capabilities);
     this.ownedSessions.add(session);
     this.attachSessionSubscriptions(session);
@@ -718,8 +703,8 @@ export class SessionManager {
     }
     if (event.type === "thread.status.changed" && runtime) runtime.backgroundTaskCount = event.payload.status.backgroundTaskCount;
     if (event.type === "thread.settings.changed") {
-      const { model, effort, cwd, approvalPolicy } = event.payload;
-      if (runtime) runtime.approvalPolicy = approvalPolicy;
+      const { model, effort, cwd, profile } = event.payload;
+      if (runtime) runtime.profile = profile;
       if (this.sessionsByThread.has(event.threadId)) this.cwdByThread.set(event.threadId, cwd);
       const models = this.modelStateByThread.get(event.threadId);
       if (models) this.modelStateByThread.set(event.threadId, { currentModel: model, pendingModel: models.pendingModel === model ? null : models.pendingModel });
@@ -734,7 +719,7 @@ export class SessionManager {
 
   private runtime(threadId: string): ThreadRuntime {
     this.mustGet(threadId);
-    return this.runtimeByThread.get(threadId) ?? { activeTurnId: null, backgroundTaskCount: 0, approvalPolicy: "provider_default" };
+    return this.runtimeByThread.get(threadId) ?? { activeTurnId: null, backgroundTaskCount: 0, profile: null };
   }
 
   /** Release an unusable session without deleting its provider history or workspace. */

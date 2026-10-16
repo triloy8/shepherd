@@ -142,7 +142,7 @@ test("history fetch failures acknowledge and preserve the existing card", async 
 });
 
 test("history APIs preserve filters and both cursors without resuming a stored thread", async () => {
-  const session = new CodexSession("review_sensitive");
+  const session = new CodexSession();
   session.initialize = async () => {};
   const requests: any[] = [];
   const response = { data: [], nextCursor: "next", backwardsCursor: "back" };
@@ -161,7 +161,7 @@ test("history APIs preserve filters and both cursors without resuming a stored t
 });
 
 test("Codex history pages are decoded and the items view is encoded inside the adapter", async () => {
-  const session = new CodexSession("review_sensitive");
+  const session = new CodexSession();
   session.initialize = async () => {};
   const requests: any[] = [];
   (session as any).sendRequest = async (method: string, params: unknown) => {

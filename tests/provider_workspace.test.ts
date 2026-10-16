@@ -40,7 +40,7 @@ test("core uses the provider's effective workspace without reading history, and 
 });
 
 test("Codex lifecycle returns its effective workspace and rejects missing native workspace", async () => {
-  const session = new CodexSession("provider_default");
+  const session = new CodexSession();
   session.initialize = async () => {};
   let response: unknown = { cwd: "/effective", thread: { id: "thread", cwd: "/saved" } };
   (session as unknown as { sendRequest: () => Promise<unknown> }).sendRequest = async () => response;

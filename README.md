@@ -67,26 +67,32 @@ SHEPHERD_SURFACES=discord,web
 Use `discord` or `web` to run only one. If unset, the selection defaults to
 Discord. Copy and configure only the selected adapters' environment files.
 
-The common template sets `SHEPHERD_APPROVAL_MODE=bypass` and
-`SHEPHERD_SANDBOX_MODE=unrestricted`: commands and file changes can run without
-approval prompts. To use approval requests and a workspace-limited sandbox,
-set these explicitly:
+`SHEPHERD_POLICY` sets what agents may do. A policy is three restrictions: where the
+agent may write files (`none`, `workspace`, `any`), whether it may use the network
+(`none`, `any`), and whether risky actions wait for approval (`risky`, `none`). The presets:
 
-```env
-SHEPHERD_APPROVAL_MODE=review_sensitive
-SHEPHERD_SANDBOX_MODE=workspace_write
-```
+| `SHEPHERD_POLICY` | writes | network | review |
+| --- | --- | --- | --- |
+| `bypass` (common template) | any | any | none |
+| `review` | any | any | risky |
+| `workspace` | workspace | any | risky |
+| `read_only` | none | any | risky |
+| `provider_default` (unset) | each agent's own configuration | | |
 
-These are host defaults, and they never make an agent less restricted than configured.
-An agent that lacks the configured mode uses the least restrictive mode it has that is
-still stricter. When it has none, it keeps its own default only for the least restrictive
-values (`bypass`, `unrestricted`); for any other value Shepherd refuses to create that
-agent's conversations, and to resume or fork them for the sandbox setting. For example,
-Claude has no sandbox modes other than `unrestricted`, so `SHEPHERD_SANDBOX_MODE=workspace_write` refuses Claude
-conversations. Shepherd prints a notice at startup and with `--check-config` for each
-installed agent that cannot apply a default, and fails to start when the default agent
-would refuse every new conversation. Values passed explicitly in an API request are never
-adjusted: a request for an unsupported mode is rejected.
+Each agent declares native modes and the restrictions each guarantees. Shepherd runs a
+conversation in the least restrictive mode that stays within the policy, so a policy never
+makes an agent less restricted. For example, under `workspace` Codex uses its
+workspace-write sandbox, which also blocks the network, and Claude uses plan mode, which
+makes no changes. An agent with no mode within the policy is refused rather than run
+looser. Create, resume and fork all apply the policy, and API requests may pass their own
+`policy`. Shepherd prints a notice at startup and with `--check-config` for each installed
+agent that cannot apply the policy exactly, and fails to start when the default agent would
+refuse every conversation.
+
+`SHEPHERD_APPROVAL_MODE` and `SHEPHERD_SANDBOX_MODE` were replaced by `SHEPHERD_POLICY`;
+Shepherd refuses to start while either is set. `bypass` + `unrestricted` becomes
+`SHEPHERD_POLICY=bypass`, and `review_sensitive` + `workspace_write` becomes
+`SHEPHERD_POLICY=workspace`.
 
 Choose **Codex** or **Claude** in the web UI's new-conversation dialog. The choice
 belongs to the conversation; resume and fork preserve it. Codex is the default
@@ -153,22 +159,17 @@ User message attachments and provider-managed external MCP tools use separate pa
 
 Claude supports text and image messages, streaming, follow-up input, interruption,
 approvals, structured questions (including multiple selections), model/effort selection, stored history, rename, archive, resume, fork,
-and Shepherd dynamic tools through MCP. The common approval policy applies to
-both providers: `bypass` runs Claude with permission bypass; `review_sensitive` sets Claude's
-`default` permission mode, which asks through Shepherd before tools its rules do not allow.
-`provider_default` sets no mode, so Claude applies the `defaultMode` from its user, project, or
-local settings, for new conversations, and preserves
-the saved permission mode when resuming, forking, or continuing a conversation.
-Host defaults apply when creating a conversation; ordinary messages keep its saved mode. Claude serves both
-`review_sensitive` and `review_untrusted` with its `default` permission mode; unsupported modes are rejected rather than silently downgraded.
+and Shepherd dynamic tools through MCP. `SHEPHERD_POLICY` applies to both providers:
+`bypass` runs Claude with permission bypass; `review` uses Claude's `default` permission mode,
+which asks through Shepherd before tools its rules do not allow; `workspace` and `read_only`
+use plan mode, which makes no changes; `provider_default` sets no mode, so Claude applies the
+`defaultMode` from its user, project, or local settings.
 Claude has no sandbox in Shepherd. With `bypass`, Claude can run any command and
 edit any file the Shepherd host user can, without a prompt. Codex with `bypass`
-still applies its configured sandbox. Run Claude conversations on an isolated
-host or container, or keep `review_sensitive` when Claude should ask first.
+runs with full access. Run Claude conversations on an isolated host or container, or use
+`review` when Claude should ask first. No Claude mode blocks the network, so a policy with
+`network: none` refuses Claude conversations.
 See the [SDK permission modes](https://code.claude.com/docs/en/agent-sdk/permissions).
-Claude currently accepts only an unset sandbox or `unrestricted`; it
-rejects Codex's restricted sandbox modes rather than treating them as enforced, whether
-they are requested explicitly or configured as the host default.
 Manual compaction, turn revert, audio/file input, and skill management controls
 are unavailable for Claude. Claude loads its own configured project skills.
 The sidebar **Usage & limits** panel has a discovered agent selector. It opens on the

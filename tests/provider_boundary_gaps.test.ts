@@ -13,11 +13,12 @@ import { account } from "./helpers/account.js";
 import { CodexSession } from "../server/providers/codex/session.js";
 import { codexOwnsStoredThread } from "../server/providers/codex/thread_ownership.js";
 import { readRuntimeConfig } from "../server/config/runtime_environment.js";
-import { assertInputSupport, assertThreadSupport } from "../shared/protocol/provider_support.js";
+import { assertInputSupport, resolveThreadProfile, threadPolicy } from "../shared/protocol/provider_support.js";
+import { POLICY_PRESETS, type ExecutionPolicy } from "../shared/protocol/execution_policy.js";
+import type { ProviderThreadRequest } from "../server/ports/provider_session.js";
 import { codexCapabilities } from "../server/providers/codex/capabilities.js";
 import { claudeCapabilities } from "../server/providers/claude/capabilities.js";
 import { validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest } from "../shared/protocol/validation.js";
-import type { ApprovalPolicy, SandboxMode } from "../shared/protocol/requests.js";
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach(path => rmSync(path, { recursive: true, force: true })));
@@ -88,20 +89,29 @@ test("application request validators reject SDK fields across create, resume and
   for (const validate of [validateCreateThreadRequest, validateResumeThreadRequest, validateForkThreadRequest]) {
     // instructions and ephemeral were removed: no surface sent them, and their cross-provider semantics were unverified.
     for (const field of ["config", "personality", "modelProvider", "serviceName", "baseInstructions", "developerInstructions", "instructions", "ephemeral"]) expect(() => validate({ [field]: {} })).toThrow(`Unsupported request field: ${field}`);
-    expect(validate({ effort: "high", sandbox: "workspace_write", approvalPolicy: "review_sensitive" })).toMatchObject({ effort: "high", sandbox: "workspace_write", approvalPolicy: "review_sensitive" });
+    expect(validate({ effort: "high", policy: POLICY_PRESETS.workspace })).toMatchObject({ effort: "high", policy: POLICY_PRESETS.workspace });
   }
 });
 
-test("capabilities reject unsupported settings and media inputs without claiming identical native policies", () => {
-  expect(() => assertThreadSupport("agent", claudeCapabilities, { approvalPolicy: "review_untrusted" })).not.toThrow();
-  expect(() => assertThreadSupport("agent", claudeCapabilities, { sandbox: "workspace_write" })).toThrow("sandbox mode workspace_write");
+test("each provider resolves a policy to its least restrictive profile within it and rejects unsupported media", () => {
+  const resolve = (capabilities: typeof claudeCapabilities, policy: ExecutionPolicy) => resolveThreadProfile("agent", capabilities, policy, undefined);
+  expect(resolve(claudeCapabilities, POLICY_PRESETS.bypass)).toBe("bypassPermissions");
+  expect(resolve(claudeCapabilities, POLICY_PRESETS.workspace)).toBe("plan");
+  expect(resolve(codexCapabilities, POLICY_PRESETS.bypass)).toBe("danger-full-access:never");
+  expect(resolve(codexCapabilities, POLICY_PRESETS.review)).toBe("danger-full-access:on-request");
+  // Codex's workspace sandbox blocks the network, which is stricter than the preset allows.
+  expect(resolve(codexCapabilities, POLICY_PRESETS.workspace)).toBe("workspace-write:on-request");
+  expect(resolve(codexCapabilities, { writes: "none", network: "none", review: "none" })).toBe("read-only:never");
+  expect(() => resolve(claudeCapabilities, { writes: "any", network: "none", review: "none" })).toThrow("execution policy");
+  // A request names its own policy; without one the host policy applies; with neither the agent keeps its defaults.
+  expect(resolveThreadProfile("agent", codexCapabilities, undefined, POLICY_PRESETS.bypass)).toBe("danger-full-access:never");
+  expect(resolveThreadProfile("agent", codexCapabilities, POLICY_PRESETS.review, POLICY_PRESETS.bypass)).toBe("danger-full-access:on-request");
+  expect(resolveThreadProfile("agent", codexCapabilities, undefined, null)).toBeNull();
+  expect(threadPolicy(codexCapabilities, "read-only:never")).toEqual({ profile: "read-only:never", policy: { writes: "none", network: "none", review: "none" } });
+  expect(threadPolicy(codexCapabilities, null)).toBeNull();
   for (const input of [{ type: "audio", url: "data:audio/wav;base64,AA" }, { type: "image_file", path: "/tmp/image" }, { type: "skill", name: "tool", path: "/tmp/tool" }] as const) expect(() => assertInputSupport("agent", claudeCapabilities, [input])).toThrow("inputs");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "image", url: "https://example.com", detail: "high" }])).toThrow("image detail");
   expect(() => assertInputSupport("agent", claudeCapabilities, [{ type: "text", text: "abc" }, { type: "image", url: "data:image/png;base64,AA" }])).not.toThrow();
-  expect(() => assertThreadSupport("agent", codexCapabilities, { approvalPolicy: "review_untrusted", sandbox: "read_only" })).not.toThrow();
-  expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "provider_default" });
-  expect(readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "bypass", SHEPHERD_SANDBOX_MODE: "unrestricted" })).toMatchObject({ approvalPolicy: "bypass", defaultSandbox: "unrestricted" });
-  expect(() => readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "review_all" })).toThrow("misleading");
 });
 
 test("core rejects unsupported create, submit and steer before provider execution or state changes", async () => {
@@ -109,10 +119,10 @@ test("core rejects unsupported create, submit and steer before provider executio
   const services = assembleProviderServices([{ ...registration(), provider: sessionProvider(() => { const session = new IndependentSession(); sessions.push(session); return session; }, descriptor.capabilities)}], directory(), descriptor.id);
   const conversation = new ConversationService({ providers: services });
   try {
-    await expect(conversation.createThread({ sandbox: "read_only" })).rejects.toThrow("sandbox mode");
+    // This provider declares no profiles, so any requested policy is refused rather than ignored.
+    await expect(conversation.createThread({ policy: POLICY_PRESETS.read_only })).rejects.toThrow("execution policy");
     expect(sessions[0]!.stopped).toBe(true);
     const { threadId } = await conversation.createThread({});
-    await expect(conversation.submitTurn(threadId, { input: [{ type: "text", text: "hello" }], approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode");
     await expect(conversation.submitTurn(threadId, { input: [{ type: "audio", url: "data:audio/wav;base64,AA" }] })).rejects.toThrow("audio inputs");
     await expect(conversation.steerTurn(threadId, { input: [{ type: "audio", url: "data:audio/wav;base64,AA" }] })).rejects.toThrow("audio inputs");
     expect(sessions[1]!.inputs).toEqual([]);
@@ -120,31 +130,30 @@ test("core rejects unsupported create, submit and steer before provider executio
   } finally { conversation.stopAll(); }
 });
 
-test("Codex maps canonical settings privately through every lifecycle operation and inherits default policies", async () => {
-  const session = new CodexSession("provider_default");
+test("Codex sends every profile's native settings through each lifecycle operation, never per turn", async () => {
+  const session = new CodexSession();
   session.initialize = async () => {};
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
   const raw = session as unknown as { sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> };
-  raw.sendRequest = async (method, params) => { requests.push({ method, params }); return method === "turn/start" ? { turn: { id: "turn" } } : { thread: { id: "thread", cwd: "/repo" }, approvalPolicy: params.approvalPolicy, model: "test" }; };
+  raw.sendRequest = async (method, params) => { requests.push({ method, params }); return method === "turn/start" ? { turn: { id: "turn" } } : { thread: { id: "thread", cwd: "/repo" }, model: "test" }; };
   try {
-    for (const [policy, native] of [["review_sensitive", "on-request"], ["review_untrusted", "untrusted"], ["bypass", "never"]] as const) {
-      await session.startThread({ approvalPolicy: policy, sandbox: "workspace_write", effort: "high" });
-      expect(requests.at(-1)!.params).toMatchObject({ approvalPolicy: native, sandbox: "workspace-write", config: { model_reasoning_effort: "high" } });
-      expect(session.approvalPolicy).toBe(policy);
-      await session.resumeThread("thread", { approvalPolicy: policy });
-      expect(requests.at(-1)!.params.approvalPolicy).toBe(native);
-      await session.forkThread("thread", { approvalPolicy: policy, sandbox: "read_only" });
-      expect(requests.at(-1)!.params).toMatchObject({ approvalPolicy: native, sandbox: "read-only" });
-      await session.startTurn([{ type: "text", text: "hello" }], { approvalPolicy: policy });
-      expect(requests.at(-1)!.params.approvalPolicy).toBe(native);
+    for (const profile of codexCapabilities.policyProfiles) {
+      const [sandbox, approvalPolicy] = profile.id.split(":");
+      await session.startThread({ profile: profile.id, effort: "high" });
+      expect(requests.at(-1)!.params).toMatchObject({ approvalPolicy, sandbox, config: { model_reasoning_effort: "high" } });
+      expect(session.profile).toBe(profile.id);
+      await session.resumeThread("thread", { profile: profile.id });
+      expect(requests.at(-1)!.params).toMatchObject({ approvalPolicy, sandbox });
+      await session.forkThread("thread", { profile: profile.id });
+      expect(requests.at(-1)!.params).toMatchObject({ approvalPolicy, sandbox });
+      // The thread's mode is set when it starts; turns do not resend it.
+      await session.startTurn([{ type: "text", text: "hello" }]);
+      expect(requests.at(-1)!.params).not.toHaveProperty("approvalPolicy");
     }
-    await session.startThread({ approvalPolicy: "bypass" });
-    await session.startTurn([{ type: "text", text: "Continue saved policy" }], { approvalPolicy: "provider_default" });
-    expect(session.approvalPolicy).toBe("bypass");
-    expect(requests.at(-1)!.params.approvalPolicy).toBe("never");
-    for (const operation of [() => session.startThread({ approvalPolicy: "provider_default" }), () => session.resumeThread("thread", { approvalPolicy: "provider_default" }), () => session.forkThread("thread", { approvalPolicy: "provider_default" }), () => session.startTurn([{ type: "text", text: "hello" }], "provider_default")]) {
-      await operation(); expect(requests.at(-1)!.params).not.toHaveProperty("approvalPolicy");
+    for (const operation of [() => session.startThread({}), () => session.resumeThread("thread", {}), () => session.forkThread("thread", { profile: null })]) {
+      await operation(); expect(requests.at(-1)!.params).not.toHaveProperty("approvalPolicy"); expect(requests.at(-1)!.params).not.toHaveProperty("sandbox");
     }
+    await expect(session.startThread({ profile: "bypassPermissions" })).rejects.toThrow("Unknown Codex policy profile");
   } finally { session.stop(); }
 });
 
@@ -154,17 +163,17 @@ test("registration rejects conflicting capabilities and missing advertised metho
     const session = new IndependentSession(); let initialized = false;
     session.initialize = async () => { initialized = true; };
     const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => session, capabilities)}], directory(), descriptor.id);
-    expect(() => services.provider(descriptor.id).openSession("provider_default", noProviderTools)).toThrow("capability contract mismatch");
+    expect(() => services.provider(descriptor.id).openSession(noProviderTools)).toThrow("capability contract mismatch");
     expect(session.stopped).toBe(true); expect(initialized).toBe(false);
   }
   const session = new IndependentSession();
   const capabilities = { ...descriptor.capabilities, fork: true };
   Object.assign(session, { capabilities });
   const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => session, capabilities)}], directory(), descriptor.id);
-  expect(() => services.provider(descriptor.id).openSession("provider_default", noProviderTools)).toThrow("capability contract mismatch");
+  expect(() => services.provider(descriptor.id).openSession(noProviderTools)).toThrow("capability contract mismatch");
   expect(session.stopped).toBe(true);
-  const equivalent = assembleProviderServices([{ ...registration(), capabilities: { ...descriptor.capabilities, approvalModes: [...descriptor.capabilities.approvalModes].reverse() }, provider: sessionProvider(() => new IndependentSession())}], directory(), descriptor.id);
-  const accepted = equivalent.provider(descriptor.id).openSession("provider_default", noProviderTools); accepted.stop();
+  const equivalent = assembleProviderServices([{ ...registration(), capabilities: { ...descriptor.capabilities, inputKinds: [...descriptor.capabilities.inputKinds].reverse() }, provider: sessionProvider(() => new IndependentSession())}], directory(), descriptor.id);
+  const accepted = equivalent.provider(descriptor.id).openSession(noProviderTools); accepted.stop();
 });
 
 test("loaded discovery queries all registered providers including unmanaged threads, pages and persists owners", async () => {
@@ -307,13 +316,13 @@ test("registration validates every advertised optional method and permits select
   for (const method of ["steerTurn", "interruptTurn", "setCwd"] as const) {
     const session = new IndependentSession(); Object.assign(session, { [method]: undefined });
     const services = assembleProviderServices([{ ...registration(), provider: sessionProvider(() => session, descriptor.capabilities)}], directory(), descriptor.id);
-    expect(() => services.provider(descriptor.id).openSession("provider_default", noProviderTools)).toThrow("capability contract mismatch");
+    expect(() => services.provider(descriptor.id).openSession(noProviderTools)).toThrow("capability contract mismatch");
     expect(session.stopped).toBe(true);
   }
   const capabilities = { ...descriptor.capabilities, modelCatalog: false, effortSelection: true };
   const session = new IndependentSession(); Object.assign(session, { capabilities });
   const services = assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => session, capabilities)}], directory(), descriptor.id);
-  expect(() => services.provider(descriptor.id).openSession("provider_default", noProviderTools)).not.toThrow();
+  expect(() => services.provider(descriptor.id).openSession(noProviderTools)).not.toThrow();
 });
 
 test("skill discovery and model catalogs can be read-only", async () => {
@@ -336,74 +345,77 @@ test("skill discovery and model catalogs can be read-only", async () => {
   } finally { conversation.stopAll(); }
 });
 
-test("host approval and sandbox defaults never loosen a provider's execution", async () => {
+/** A test agent whose profiles cover the cases resolution distinguishes. */
+const profiled = { ...descriptor.capabilities, policyProfiles: [
+  { id: "open", label: "Open", policy: POLICY_PRESETS.bypass },
+  { id: "ask", label: "Ask", policy: POLICY_PRESETS.review },
+  { id: "locked", label: "Locked", policy: { writes: "none", network: "none", review: "risky" } },
+] } satisfies typeof descriptor.capabilities;
+
+test("host and requested policies resolve to a profile within them and never loosen execution", async () => {
   const requests: unknown[] = [];
   class RecordingSession extends IndependentSession {
-    override async startThread(request?: unknown) { requests.push(request); return super.startThread(); }
-    override async resumeThread(threadId: string, request?: unknown) { requests.push(request); return super.resumeThread(threadId); }
+    override async startThread(request?: ProviderThreadRequest) { requests.push(request); return super.startThread(request); }
   }
-  type Capabilities = typeof descriptor.capabilities;
-  const create = (capabilities: Capabilities, threadDefaults: { approvalPolicy?: ApprovalPolicy; sandbox?: SandboxMode }) => new ConversationService({
-    threadDefaults,
+  const create = (capabilities: typeof descriptor.capabilities, policy: ExecutionPolicy | null) => new ConversationService({
+    threadDefaults: { policy },
     providers: assembleProviderServices([{ ...registration(), capabilities, provider: sessionProvider(() => { const session = new RecordingSession(); Object.assign(session, { capabilities }); return session; }, capabilities)}], directory(), descriptor.id),
   });
-  // descriptor: no sandbox modes; provider_default, review_sensitive and bypass approvals.
-  const loosest = create(descriptor.capabilities, { approvalPolicy: "bypass", sandbox: "unrestricted" });
-  const restricted = create(descriptor.capabilities, { sandbox: "workspace_write" });
-  const untrusted = create(descriptor.capabilities, { approvalPolicy: "review_untrusted" });
-  const stricter = create({ ...descriptor.capabilities, sandboxModes: ["read_only", "unrestricted"], approvalModes: ["review_untrusted"] }, { approvalPolicy: "review_sensitive", sandbox: "workspace_write" });
-  const honored = create({ ...descriptor.capabilities, sandboxModes: ["workspace_write"] }, { approvalPolicy: "bypass", sandbox: "workspace_write" });
-  const services = [loosest, restricted, untrusted, stricter, honored];
+  const bypass = create(profiled, POLICY_PRESETS.bypass);
+  const workspace = create(profiled, POLICY_PRESETS.workspace);
+  const unrestricted = create(profiled, null);
+  const none = create(descriptor.capabilities, POLICY_PRESETS.bypass);
   try {
-    // The least restrictive modes fall back to the provider's own default, which cannot be looser.
-    const { threadId } = await loosest.createThread({});
-    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "bypass" });
-    expect(requests.at(-1)).not.toHaveProperty("sandbox");
-    // Restrictive defaults without an equal or stricter mode are refused, not dropped.
+    const { threadId } = await bypass.createThread({});
+    expect(requests.at(-1)).toMatchObject({ profile: "open" });
+    expect(bypass.getThreadState(threadId).policy).toEqual({ profile: "open", policy: POLICY_PRESETS.bypass });
+    // No exact match: the least restrictive profile that is still within the policy.
+    await workspace.createThread({});
+    expect(requests.at(-1)).toMatchObject({ profile: "locked" });
+    // A request names its own policy instead of the host's, and is held to it.
+    await workspace.createThread({ policy: POLICY_PRESETS.review });
+    expect(requests.at(-1)).toMatchObject({ profile: "ask" });
+    // Asking before risky actions is stricter than no review, so the locked profile is within this policy.
+    await bypass.createThread({ policy: { writes: "none", network: "none", review: "none" } });
+    expect(requests.at(-1)).toMatchObject({ profile: "locked" });
+    // Without a host policy, the agent keeps its own defaults.
+    await unrestricted.createThread({});
+    expect(requests.at(-1)).toMatchObject({ profile: null });
+    // An agent without a profile within the policy is refused before its session starts.
     const created = requests.length;
-    await expect(restricted.createThread({})).rejects.toThrow("host default sandbox mode workspace_write");
-    await expect(untrusted.createThread({})).rejects.toThrow("host default approval mode review_untrusted");
+    await expect(none.createThread({})).rejects.toThrow("execution policy");
     expect(requests.length).toBe(created);
-    // An explicit request replaces the default rather than being refused because of it.
-    await untrusted.createThread({ approvalPolicy: "review_sensitive" });
-    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "review_sensitive" });
-    // An unsupported default becomes the least restrictive supported mode that is still stricter.
-    await stricter.createThread({});
-    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "review_untrusted", sandbox: "read_only" });
-    // Explicit request values are never adjusted.
-    await expect(loosest.createThread({ sandbox: "workspace_write" })).rejects.toThrow("sandbox mode");
-    await expect(loosest.createThread({ approvalPolicy: "review_untrusted" })).rejects.toThrow("approval mode");
-    await honored.createThread({});
-    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "bypass", sandbox: "workspace_write" });
-    await honored.createThread({ approvalPolicy: "review_sensitive" });
-    expect(requests.at(-1)).toMatchObject({ approvalPolicy: "review_sensitive", sandbox: "workspace_write" });
-    expect(loosest.getThreadState(threadId).threadId).toBe(threadId);
-  } finally { for (const service of services) service.stopAll(); }
+  } finally { for (const service of [bypass, workspace, unrestricted, none]) service.stopAll(); }
 });
 
-test("a restrictive host sandbox default also refuses resuming and forking", async () => {
+test("resume and fork also run within the host policy", async () => {
   const path = directory();
-  const open = (threadDefaults: { sandbox?: SandboxMode }) => new ConversationService({ threadDefaults, providers: assembleProviderServices([registration()], path, descriptor.id) });
-  const first = open({});
+  const open = (policy: ExecutionPolicy | null) => new ConversationService({ threadDefaults: { policy }, providers: assembleProviderServices([registration()], path, descriptor.id) });
+  const first = open(null);
   let threadId: string;
   try { threadId = (await first.createThread({ cwd: "/tmp" })).threadId; } finally { first.stopAll(); }
-  const second = open({ sandbox: "read_only" });
-  try { await expect(second.resumeThread(threadId!, {})).rejects.toThrow("host default sandbox mode read_only"); }
+  const second = open(POLICY_PRESETS.read_only);
+  try { await expect(second.resumeThread(threadId!, {})).rejects.toThrow("execution policy"); }
   finally { second.stopAll(); }
 });
 
-test("startup notices name the host defaults an installed agent cannot apply", () => {
-  expect(threadDefaultNotices({ approvalPolicy: "bypass", sandbox: "unrestricted" })).toEqual([]);
-  const notices = threadDefaultNotices({ approvalPolicy: "review_untrusted", sandbox: "workspace_write" });
-  expect(notices).toEqual([
-    expect.stringContaining("Claude does not support SHEPHERD_SANDBOX_MODE=workspace_write or anything stricter; Shepherd refuses to create, resume or fork"),
+test("startup notices name each installed agent that cannot apply SHEPHERD_POLICY exactly", () => {
+  expect(threadDefaultNotices({ policy: null })).toEqual([]);
+  expect(threadDefaultNotices({ policy: POLICY_PRESETS.bypass })).toEqual([]);
+  expect(threadDefaultNotices({ policy: POLICY_PRESETS.workspace })).toEqual([
+    expect.stringContaining('Codex has no mode matching SHEPHERD_POLICY (writes=workspace, network=any, review=risky) exactly; its conversations use the stricter "Workspace writes, asks when needed"'),
+    expect.stringContaining('Claude has no mode matching SHEPHERD_POLICY (writes=workspace, network=any, review=risky) exactly; its conversations use the stricter "Plan without changes"'),
+  ]);
+  expect(threadDefaultNotices({ policy: { writes: "none", network: "none", review: "risky" } })).toEqual([
+    expect.stringContaining("Claude has no mode within SHEPHERD_POLICY (writes=none, network=none, review=risky); Shepherd refuses to start or resume its conversations"),
   ]);
 });
 
-test("startup rejects host defaults that the default agent would refuse for every conversation", () => {
-  expect(() => assertDefaultProviderAcceptsThreadDefaults({ approvalPolicy: "review_untrusted", sandbox: "read_only" }, "codex")).not.toThrow();
-  expect(() => assertDefaultProviderAcceptsThreadDefaults({ approvalPolicy: "bypass", sandbox: "unrestricted" }, "claude")).not.toThrow();
-  expect(() => assertDefaultProviderAcceptsThreadDefaults({ sandbox: "read_only" }, "claude")).toThrow("SHEPHERD_SANDBOX_MODE=read_only");
+test("startup rejects a host policy that the default agent would refuse for every conversation", () => {
+  const offline = { writes: "none", network: "none", review: "risky" } as const;
+  expect(() => assertDefaultProviderAcceptsThreadDefaults({ policy: offline }, "codex")).not.toThrow();
+  expect(() => assertDefaultProviderAcceptsThreadDefaults({ policy: POLICY_PRESETS.bypass }, "claude")).not.toThrow();
+  expect(() => assertDefaultProviderAcceptsThreadDefaults({ policy: offline }, "claude")).toThrow("Claude has no mode within SHEPHERD_POLICY");
 });
 
 test("keeping a thread's workspace does not require workspace changes", async () => {
@@ -477,9 +489,9 @@ test("invalid question cancellation stops the session instead of leaving a provi
   }
 });
 
-test("config notices validate arbitrary provider registrations, including providers without sandbox settings", () => {
-  expect(describeThreadDefaults({ sandbox: "unrestricted", approvalPolicy: "review_untrusted" }, [registration()])).toEqual([
-    expect.stringContaining("SHEPHERD_APPROVAL_MODE=review_untrusted or anything stricter"),
-    expect.stringContaining("SHEPHERD_SANDBOX_MODE=unrestricted; its conversations use the agent's own default"),
+test("config notices validate arbitrary provider registrations, including providers without profiles", () => {
+  expect(describeThreadDefaults({ policy: POLICY_PRESETS.review }, [registration()])).toEqual([
+    expect.stringContaining("An unrelated agent has no mode within SHEPHERD_POLICY (writes=any, network=any, review=risky)"),
   ]);
+  expect(describeThreadDefaults({ policy: null }, [registration()])).toEqual([]);
 });

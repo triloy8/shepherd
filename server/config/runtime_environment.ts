@@ -1,10 +1,10 @@
 import { readProviderDefaults } from "../runtime/provider_defaults.js";
-import type { ApprovalPolicy, SandboxMode } from "../../shared/protocol/requests.js";
+import type { ExecutionPolicy } from "../../shared/protocol/execution_policy.js";
 import { readSignalRuntimeConfig, type SignalRuntimeConfig } from "./signal_environment.js";
 
 export type RuntimeConfig = {
-  approvalPolicy: ApprovalPolicy;
-  defaultSandbox?: SandboxMode;
+  /** The host execution policy; null leaves each agent's own defaults. */
+  policy: ExecutionPolicy | null;
   defaultProvider?: string;
   deploymentCommandTimeoutMs?: number;
   signals: SignalRuntimeConfig;
@@ -18,8 +18,7 @@ export function readRuntimeConfig(environment: Record<string, string | undefined
     throw new Error("SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS must be a positive number.");
   }
   return {
-    approvalPolicy: defaults.approvalMode ?? "provider_default",
-    defaultSandbox: defaults.sandboxMode,
+    policy: defaults.policy,
     ...(defaults.defaultProvider ? { defaultProvider: defaults.defaultProvider } : {}),
     deploymentCommandTimeoutMs: timeout,
     signals: readSignalRuntimeConfig(environment),

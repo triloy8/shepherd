@@ -11,7 +11,7 @@ async function main(): Promise<void> {
   const config = readRuntimeConfig();
   if (config.defaultProvider) assertInstalledProvider(config.defaultProvider);
   const surfaces = await prepareSurfaces(process.env, surfaceRegistry);
-  const threadDefaults = { approvalPolicy: config.approvalPolicy, sandbox: config.defaultSandbox };
+  const threadDefaults = { policy: config.policy };
   assertDefaultProviderAcceptsThreadDefaults(threadDefaults, config.defaultProvider);
   for (const notice of threadDefaultNotices(threadDefaults)) console.warn(notice);
   // Complete all config validation before creating a runtime or opening clients.

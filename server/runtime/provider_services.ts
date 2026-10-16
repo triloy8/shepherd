@@ -11,7 +11,8 @@ import { ClaudeAccountLimits } from "../providers/claude/account_limits.js";
 import { claudeHasSessions, claudeNative, claudeSessionExists } from "../providers/claude/native_sessions.js";
 import { ClaudeModelCache } from "../providers/claude/model_cache.js";
 import { assembleProviderServices, describeThreadDefaults, type ProviderRegistration } from "./provider_registration.js";
-import { resolveThreadDefaults, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
+import type { ThreadDefaults } from "../../shared/protocol/provider_support.js";
+import { resolveProfile } from "../../shared/protocol/execution_policy.js";
 
 /** One source for installed identities, configuration checks and runtime registrations.
  * Reading metadata never starts clients or opens provider storage. */
@@ -59,8 +60,7 @@ export function threadDefaultNotices(defaults: ThreadDefaults): string[] {
 export function assertDefaultProviderAcceptsThreadDefaults(defaults: ThreadDefaults, defaultProvider: string = fallbackDefaultProvider): void {
   assertInstalledProvider(defaultProvider);
   const definition = installedDefinitions.find(entry => entry.id === defaultProvider)!;
-  const refused = Object.entries(resolveThreadDefaults(defaults, definition.capabilities)).filter(([, resolution]) => resolution.outcome === "refuse");
-  if (refused.length) throw new Error(describeThreadDefaults(defaults, [definition]).filter(notice => notice.includes("refuses")).join("\n"));
+  if (defaults.policy && !resolveProfile(definition.capabilities.policyProfiles, defaults.policy)) throw new Error(describeThreadDefaults(defaults, [definition]).join("\n"));
 }
 
 export function createProviderServices(defaultProvider: string = fallbackDefaultProvider): ProviderServices {

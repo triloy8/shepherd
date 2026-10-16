@@ -17,15 +17,19 @@ export type ThreadBootstrapInfo = {
   cwd: string;
   model: string | null;
   effort: string | null;
-  approvalPolicy: Protocol.ApprovalPolicy;
+  /** The policy profile the thread runs with, or null for the agent's own defaults. */
+  profile: string | null;
 };
+
+/** Create, resume and fork as the adapter receives them: core has resolved the host or requested
+ * policy to one of the provider's profiles, or null to leave the agent's own defaults. */
+export type ProviderThreadRequest = Pick<Protocol.CreateThreadRequest, "cwd" | "model" | "effort"> & { profile?: string | null };
 
 /** Settings for one turn. Omitted fields keep the thread's current value; `effort: null` clears
  * the effort override. The workspace is not a turn setting: it changes through `setCwd`. */
 export interface TurnSettings {
   model?: string;
   effort?: string | null;
-  approvalPolicy?: Protocol.ApprovalPolicy;
 }
 
 /** Providers are local coding agents; every bootstrapped thread has a workspace.
@@ -40,9 +44,9 @@ export interface ProviderExecution {
   readonly eventBus: ProviderEvents;
   /** Core awaits initialization before discovery, history or bootstrap. Must be safe to call again. */
   initialize(): Promise<void>;
-  startThread(request: Protocol.CreateThreadRequest): Promise<ThreadBootstrapInfo>;
-  resumeThread(threadId: string, request: Protocol.ResumeThreadRequest): Promise<ThreadBootstrapInfo>;
-  forkThread?(threadId: string, request: Protocol.ForkThreadRequest): Promise<ThreadBootstrapInfo>;
+  startThread(request: ProviderThreadRequest): Promise<ThreadBootstrapInfo>;
+  resumeThread(threadId: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo>;
+  forkThread?(threadId: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo>;
   /** Publishes `turn.started` before returning, and `thread.settings.changed` when the turn
    * changes the settings the thread runs with. */
   startTurn(input: UserInput[], settings: TurnSettings): Promise<string | null>;
@@ -79,7 +83,7 @@ export type ProviderSkillsRequest = Protocol.SkillsListRequest & { workspacePath
  * thread. Core never creates a session to read history or list models. */
 export interface Provider extends ProviderHistory {
   readonly capabilities: ProviderCapabilities;
-  openSession(policy: Protocol.ApprovalPolicy, tools: import("./provider_tools.js").ProviderTools): ThreadSession;
+  openSession(tools: import("./provider_tools.js").ProviderTools): ThreadSession;
   /** Provider-wide model discovery (`modelCatalogScope: "provider"`). */
   listModels?(request: Protocol.ListModelsRequest): Promise<Protocol.ListModelsResponse>;
   stop?(): void;

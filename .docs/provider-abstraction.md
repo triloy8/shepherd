@@ -146,7 +146,7 @@ Optional operations are negotiated independently:
 | Models | `modelCatalog`, `modelSelection`, `effortSelection` |
 | Skills | `skills` (discovery), `skillConfig` (configuration writes) |
 | Interaction and transport | `questions` (core fails question requests from providers that do not declare it), `inputKinds`, `imageDetail` |
-| Execution policy | `approvalModes`, `sandboxModes` |
+| Execution policy | `policyProfiles` |
 | Account service | `accountReset`; registration rejects a mismatch with the account reader's `reset` method |
 
 False means unsupported, including when a method exists. Optional methods may be
@@ -195,7 +195,7 @@ uses the current model even when another model is pending. Known unsupported tex
 are rejected before execution. Unsupported explicit/pending effort stays retryable;
 when switching models, incompatible inherited effort uses the new model's advertised
 default. If no supported default exists, the adapter is told to clear effort. A turn starts
-with one `TurnSettings` object (`model`, `effort`, `approvalPolicy`); an omitted field keeps
+with one `TurnSettings` object (`model`, `effort`); an omitted field keeps
 the thread's value, `effort: null` clears it, and a string selects one. The workspace is not
 a turn setting: it changes only through `setCwd`, and each adapter runs turns in its own
 current workspace. Codex forwards the explicit null; Claude reopens its SDK session without
@@ -226,45 +226,31 @@ Neither account reporting nor opening the usage panel sends a user conversation 
 
 ## Configuration and persistence
 
-Common policy is configured with `SHEPHERD_APPROVAL_MODE` (`provider_default`,
-`review_sensitive`, `review_untrusted`, `bypass`) and `SHEPHERD_SANDBOX_MODE`
-(`read_only`, `workspace_write`, `unrestricted`). Model/authentication settings remain
-provider-specific inside their adapters. These are host defaults, not requests, and they
-never loosen execution. Core (`resolveThreadDefaults` in `shared/protocol/provider_support.ts`)
-applies a default the provider supports. Otherwise it uses the least restrictive supported
-mode that is still stricter (approval order: `review_untrusted`, `review_sensitive`,
-`bypass`; sandbox order: `read_only`, `workspace_write`, `unrestricted`). Without one, the
-provider keeps its own default only for the least restrictive value (`bypass`,
-`unrestricted`), which its default cannot be looser than; any other value refuses the
-operation with `UnsupportedProviderOperationError`. A configured `provider_default`
-approval mode is never substituted. Startup and `--check-config` print a notice for each
-installed agent that cannot apply a configured default, and fail when the default agent
-would refuse every new conversation. An explicitly
-requested sandbox or approval mode that a provider lacks is rejected rather than
-silently changing execution privileges. Creation applies both defaults; resume and fork
-apply only the sandbox default and keep the saved approval mode.
+An execution policy (`shared/protocol/execution_policy.ts`) is three restrictions, each
+ordered from strictest: `writes` (`none`, `workspace`, `any`), `network` (`none`, `any`)
+and `review` (`risky`, `none`). Each provider declares `policyProfiles`: its native modes
+and the restrictions each guarantees. Codex declares its sandbox × approval combinations
+(its workspace-write and read-only sandboxes block the network); Claude declares
+`bypassPermissions`, `default` and `plan`. Core resolves a policy to the least restrictive
+profile within it on every restriction, and refuses a provider with none, so a policy never
+loosens execution. Among equally loose profiles the first declared wins.
 
-The shared configuration no longer reads `CODEX_APPROVAL_POLICY` or `CODEX_SANDBOX`.
-For existing installations, rename those common settings before redeployment:
-`never` → `bypass`, `on-request` → `review_sensitive`, `untrusted` → `review_untrusted`;
-`danger-full-access` → `unrestricted`, `workspace-write` → `workspace_write`,
-`read-only` → `read_only`. There is no runtime alias or API translator.
+`SHEPHERD_POLICY` (`bypass`, `review`, `workspace`, `read_only`, or `provider_default`)
+sets the host policy; `provider_default` applies none, so each agent keeps its own
+configured mode. Create, resume and fork apply the requested policy or the host policy:
+Claude's session does not record Shepherd's mode, so every bootstrap states it rather than
+some providers inheriting a saved mode. Adapters receive the resolved profile ID, or null
+for the agent's own defaults, and report the profile they run with at bootstrap and in
+`thread.settings.changed`; Codex reads it back from its response and reports none for
+settings no profile describes, such as a workspace sandbox with network access. Thread
+state reports the profile and its restrictions. Turns do not change a thread's policy.
+Startup and `--check-config` print a notice for each installed agent that cannot apply
+the host policy exactly, and fail when the default agent would refuse every conversation.
+`SHEPHERD_APPROVAL_MODE` and `SHEPHERD_SANDBOX_MODE` were replaced; Shepherd refuses to
+start while either is set. Bypass suppresses permission review but retains explicit user
+questions. No mode promises review of every action.
 
-Approval and sandbox modes use these same application values throughout core, ports,
-and HTTP. Native policy names are encoded and decoded inside adapters. `provider_default`
-uses native defaults for a new conversation and inherits the saved mode on resume, fork,
-and continuation. Adapters pass no native mode for it: Codex sends no approval policy, and
-Claude sends no permission mode so its settings' `defaultMode` applies. Host defaults apply at creation; ordinary surface messages do not
-override the saved mode. `review_sensitive` uses
-the provider's normal permission review (Codex `on-request`, Claude `default`); `review_untrusted` reviews actions according to
-its trust model (Codex `untrusted`; Claude `default`, which already asks before any action its
-permission rules have not allowed, so both review modes select it). `bypass` suppresses permission
-review but retains explicit user questions. None of these modes promises review of every
-action. The misleading `review_all` environment value is rejected; use `review_untrusted`
-for the previous trust-based behavior. Existing `bypass`/`unrestricted` installations need
-no further environment edits.
-
-Shared thread requests offer model, effort, workspace, sandbox, and approval mode. They
+Shared thread requests offer model, effort, workspace, and policy. They
 carry no instructions and no ephemeral lifetime: no surface sent either, Codex's
 `developerInstructions` may replace configured developer instructions rather than add to
 them, and ephemeral threads are Codex-only. Each agent keeps its own configured

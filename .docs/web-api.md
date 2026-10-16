@@ -208,8 +208,8 @@ new handle using the desired thread ID after restart.
 `GET /api/providers` returns capabilities for each registered agent. In addition to
 questions, skills, fork, compact, revert and `accountReset`, descriptors advertise `steer`,
 `interrupt`, `rename`, `archive`, `unarchive`, `workspaceChange`, `modelCatalog`,
-`modelSelection`, `effortSelection`, `skillConfig`, and `approvalModes`,
-`sandboxModes`, `inputKinds`, and `imageDetail`. Input kinds are
+`modelSelection`, `effortSelection`, `skillConfig`, `policyProfiles`, `inputKinds`, and
+`imageDetail`. Input kinds are
 `text`, `image` (URL or data URL), `image_file`, `audio`, `audio_file`, and `skill`.
 Image inputs may set `detail` to `low`, `high`, or `full` (no downscaling) when
 `imageDetail` is true; omit it to let the provider choose.
@@ -218,9 +218,11 @@ Thread state exposes the same session capabilities. `skills` controls discovery;
 selection require a catalog. Flags describe adapter support, while
 model capabilities constrain the selected model. Missing catalog metadata remains unknown.
 Unsupported operations/settings produce `422 unsupported_provider_operation` before execution.
-Public policy values are `provider_default`, `review_sensitive`, `review_untrusted`, and
-`bypass`; sandbox values are `read_only`, `workspace_write`, and `unrestricted`. Native
-policy spellings and granular SDK policy objects are not accepted. Shared internal thread
+Create, resume and fork accept an optional `policy` of `{ writes, network, review }`
+(see [provider adapters](provider-abstraction.md#configuration-and-persistence)); without one
+the host's `SHEPHERD_POLICY` applies. Thread state reports `policy` as the provider profile
+and its restrictions, or null when the agent uses its own defaults. Native policy spellings,
+granular SDK policy objects, and the removed `approvalPolicy` and `sandbox` fields are rejected. Shared internal thread
 requests use typed `effort` rather than a raw SDK configuration object. Native configuration,
 model backend selectors, and native listing/database filters remain adapter-owned.
 

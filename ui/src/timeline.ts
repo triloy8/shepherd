@@ -1,4 +1,5 @@
 import type { ChatMessage, ChatState } from "./chat-state";
+import { answerMessages } from "../../shared/protocol/item_stream";
 
 export type TimelineGroup = { id: string; messages: ChatMessage[]; finalIds: string[]; settled: boolean; label: string };
 
@@ -6,20 +7,17 @@ export type TimelineGroup = { id: string; messages: ChatMessage[]; finalIds: str
 // inside a disclosure or out of its chronological position.
 export function timelineGroups(chat: ChatState): TimelineGroup[] {
   const groups: TimelineGroup[] = [];
-  const explicitFinals = new Map<string, Set<string>>();
-  const implicitFinals = new Map<string, Set<string>>();
   // A subagent's rows render inside their delegation step, not as the turn's own progress.
   const own = chat.messages.filter(message => !message.parentId);
-  for (const message of own) {
-    if (message.role !== "assistant" || message.activity || message.image) continue;
-    if (message.phase === "final") {
-      const ids = explicitFinals.get(message.turnId) ?? new Set<string>();
-      ids.add(message.id); explicitFinals.set(message.turnId, ids);
-    } else if (!message.phase && !explicitFinals.has(message.turnId)) {
-      // Legacy history has no phase metadata, so only its last assistant text
-      // is the final response.
-      implicitFinals.set(message.turnId, new Set([message.id]));
-    }
+  const texts = new Map<string, ChatMessage[]>();
+  for (const message of own) if (message.role === "assistant" && !message.activity && !message.image) texts.set(message.turnId, [...texts.get(message.turnId) ?? [], message]);
+  // Messages marked final answer their turn. Without phase metadata the last text is the answer,
+  // which is known only once the turn has settled.
+  const explicitFinals = new Map<string, Set<string>>();
+  const implicitFinals = new Map<string, Set<string>>();
+  for (const [turnId, messages] of texts) {
+    const answers = answerMessages(messages);
+    if (answers.length) (answers[0]!.phase === "final" ? explicitFinals : implicitFinals).set(turnId, new Set(answers.map(message => message.id)));
   }
   for (const message of own) {
     const previous = groups.at(-1);

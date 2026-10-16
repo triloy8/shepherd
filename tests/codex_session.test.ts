@@ -480,6 +480,9 @@ describe("CodexSession app-server contract", () => {
     expect(events.map((event) => event.type === "item.delta" ? [event.payload.channel, event.payload.itemId] : event.type)).toEqual([
       ["plan", "plan-1"], ["reasoning", "reason-1"], ["output", "command-1"],
     ]);
+    // A reasoning delta names the summary part it extends.
+    internals(session).onNotification("item/reasoning/summaryTextDelta", { threadId: "thread-1", turnId: "turn-1", itemId: "reason-1", delta: "second", summaryIndex: 1 });
+    expect(events.at(-1)?.payload).toMatchObject({ channel: "reasoning", delta: "second", part: 1 });
   });
 
   test("attaches turn and captured phase metadata to agent deltas", () => {

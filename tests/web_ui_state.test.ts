@@ -286,3 +286,35 @@ test("audio and skill inputs in history keep labels rather than becoming generic
   ] }] };
   expect(mergeHistory(emptyChat(), [history]).messages[0]!.text).toBe("[Audio attachment]\n[Audio attachment]\n[Skill: review]");
 });
+
+test("plans and reasoning stream as running steps until their canonical item completes", () => {
+  const delta = (id: string, channel: string, text: string, extra: object = {}) => event(id, "item.delta", { turnId: "turn", itemId: "reason", channel, delta: text, phase: null, ...extra });
+  let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
+  state = reduceBridge(state, delta("d1", "reasoning", "Checking"));
+  state = reduceBridge(state, delta("d2", "reasoning", " the logs"));
+  state = reduceBridge(state, delta("d3", "reasoning", "Then tests", { part: 1 }));
+  expect(state.messages).toHaveLength(1);
+  expect(state.messages[0]!.activity).toEqual({ status: "started", activity: { kind: "other", title: "Reasoning summary", detail: "Checking the logs\n\nThen tests" } });
+  // A history snapshot taken mid-stream does not drop what streamed.
+  state = mergeHistory(state, [{ id: "turn", items: [{ id: "reason", type: "reasoning", summary: ["Check"] }], status: "in_progress", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null }]);
+  expect(state.messages[0]!.activity?.activity).toMatchObject({ detail: "Checking the logs\n\nThen tests" });
+  state = reduceBridge(state, event("done", "item.completed", { turnId: "turn", item: { id: "reason", type: "reasoning", summary: ["Checked the logs."] } }));
+  expect(state.messages).toHaveLength(1);
+  expect(state.messages[0]!.activity).toEqual({ status: "completed", activity: { kind: "other", title: "Reasoning summary", detail: "Checked the logs." } });
+  expect(state.messages[0]!.streamed).toBeUndefined();
+  // Late deltas never reopen a completed item; deltas without an item have nothing to extend.
+  expect(reduceBridge(state, delta("late", "reasoning", "more"))).toMatchObject({ messages: state.messages });
+  expect(reduceBridge(state, event("anon", "item.delta", { turnId: "turn", itemId: null, channel: "plan", delta: "x", phase: null })).messages).toEqual(state.messages);
+});
+
+test("a running step shows its latest output, which history does not keep", () => {
+  let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
+  const command = { id: "cmd", type: "activity", activity: { kind: "command", command: "bun test", cwd: null } };
+  state = reduceBridge(state, event("s", "item.started", { turnId: "turn", item: { ...command, status: "started" } }));
+  state = reduceBridge(state, event("o1", "item.delta", { turnId: "turn", itemId: "cmd", channel: "output", delta: "1 pass\n", phase: null }));
+  state = reduceBridge(state, event("o2", "item.delta", { turnId: "turn", itemId: "cmd", channel: "output", delta: "2 pass\n", phase: null }));
+  expect(state.messages[0]!.output).toBe("1 pass\n2 pass\n");
+  state = reduceBridge(state, event("c", "item.completed", { turnId: "turn", item: { ...command, status: "completed" } }));
+  expect(state.messages[0]!.output).toBeUndefined();
+  expect(reduceBridge(state, event("o3", "item.delta", { turnId: "turn", itemId: "cmd", channel: "output", delta: "late", phase: null })).messages[0]!.output).toBeUndefined();
+});

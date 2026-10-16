@@ -680,6 +680,40 @@ test("subagent work joins its delegation live and in history, including a backgr
   reader.stop();
 });
 
+test("thinking streams as reasoning under the item ID history records it with", async () => {
+  const stream = (event: unknown) => ({ type: "stream_event", parent_tool_use_id: null, event }) as SDKMessage;
+  const assistant = (block: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { id: "m", content: [block] } }) as SDKMessage;
+  const fake = sdk(async function* (input) {
+    for await (const _ of input) break;
+    yield stream({ type: "message_start", message: { id: "m", usage: {} } });
+    // A thinking block without text is not recorded, so it takes no index.
+    yield stream({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } });
+    yield stream({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: " " } });
+    yield assistant({ type: "thinking", thinking: " " });
+    yield stream({ type: "content_block_start", index: 1, content_block: { type: "thinking", thinking: "" } });
+    yield stream({ type: "content_block_delta", index: 1, delta: { type: "thinking_delta", thinking: "\n" } });
+    yield stream({ type: "content_block_delta", index: 1, delta: { type: "thinking_delta", thinking: "Check" } });
+    yield stream({ type: "content_block_delta", index: 1, delta: { type: "thinking_delta", thinking: " the logs." } });
+    yield assistant({ type: "thinking", thinking: "\nCheck the logs." });
+    yield stream({ type: "content_block_start", index: 2, content_block: { type: "text", text: "" } });
+    yield stream({ type: "content_block_delta", index: 2, delta: { type: "text_delta", text: "Done." } });
+    yield assistant({ type: "text", text: "Done." });
+    yield result;
+  });
+  const session = new ClaudeSession(undefined, fake);
+  const { threadId } = await session.startThread({});
+  const events: BridgeEvent[] = []; session.eventBus.subscribe(event => events.push(event), { replay: false });
+  await session.startTurn([toTextUserInput("think")]); await done(session);
+  const reasoning = events.flatMap(event => event.type === "item.delta" && event.payload.channel === "reasoning" ? [event.payload] : []);
+  expect(reasoning.map(delta => [delta.itemId, delta.delta])).toEqual([["m:thinking:0", "\nCheck"], ["m:thinking:0", " the logs."]]);
+  const history = (await session.listThreadTurns(threadId, {})).data[0]!.items;
+  expect(history.filter(item => item.type === "reasoning")).toEqual([{ id: "m:thinking:0", type: "reasoning", summary: ["\nCheck the logs."] }]);
+  // The web view shows the reasoning while it streams, then the canonical item in its place.
+  const chat = events.reduce(reduceBridge, emptyChat());
+  expect(chat.messages.filter(message => message.id === "m:thinking:0").map(message => message.activity?.status)).toEqual(["completed"]);
+  session.stop();
+});
+
 test("per-request cache counts the SDK omits are unreported, not zero", async () => {
   const fake = sdk(async function* () {
     yield { type: "assistant", parent_tool_use_id: null, message: { id: "m", usage: { input_tokens: 7, output_tokens: 2 }, content: [{ type: "text", text: "Done" }] } } as SDKMessage;

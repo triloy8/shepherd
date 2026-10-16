@@ -122,6 +122,26 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     });
     return { ok: true, turnId };
   }
+  if (text.includes("live steps")) {
+    // Reasoning and command output stream into running steps before their items complete.
+    const reasoning = { id: `reasoning-${sequence}`, type: "reasoning" as const, summary: ["Reading the failing test.", "Running it again."] };
+    const command = { id: `command-${sequence}`, type: "activity" as const, activity: { kind: "command" as const, command: "bun test", cwd: null } };
+    later(50, () => {
+      publish(threadId, "item.delta", { turnId, itemId: reasoning.id, channel: "reasoning", delta: "Reading the ", phase: null, part: 0 });
+      publish(threadId, "item.delta", { turnId, itemId: reasoning.id, channel: "reasoning", delta: "failing test.", phase: null, part: 0 });
+      publish(threadId, "item.delta", { turnId, itemId: reasoning.id, channel: "reasoning", delta: "Running it again.", phase: null, part: 1 });
+      publish(threadId, "item.started", { turnId, item: { ...command, status: "started" } });
+      publish(threadId, "item.delta", { turnId, itemId: command.id, channel: "output", delta: "streamed output line\n", phase: null });
+    });
+    later(2500, () => {
+      if (h.active.get(threadId) !== turnId) return;
+      complete(threadId, turn, reasoning);
+      complete(threadId, turn, { ...command, status: "completed" });
+      complete(threadId, turn, { id: `final-${sequence}`, type: "assistant_message", phase: "final", text: "Live steps finished." });
+      finish(threadId, "completed", turnId);
+    });
+    return { ok: true, turnId };
+  }
   const progress = { id: portable ? "progress" : `progress-${sequence}`, type: "assistant_message" as const, phase: "interim" as const, text: "I’ll check the project first." };
   turn.items.push(progress);
   publish(threadId, "item.completed", { turnId, item: { id: progress.id, type: "assistant_message", text: progress.text, ...(progress.phase ? { phase: progress.phase } : {}) } });

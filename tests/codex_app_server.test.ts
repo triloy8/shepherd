@@ -6,8 +6,9 @@ import { fakeAppServer } from "./helpers/fake_app_server.js";
 
 function harness() {
   let threads = 0;
-  const fake = fakeAppServer(({ method }) => {
+  const fake = fakeAppServer(({ method, params }) => {
     if (method === "thread/start") return { thread: { id: `thread-${++threads}` }, cwd: "/repo", model: "gpt" };
+    if (method === "thread/resume") return { thread: { id: (params as { threadId: string }).threadId }, cwd: "/repo", model: "gpt" };
     if (method === "thread/list") return { data: [], nextCursor: null };
     if (method === "thread/unsubscribe") return { status: "unsubscribed" };
     return {};
@@ -68,5 +69,24 @@ test("when the process exits every session hears it, and the next use starts a n
   expect(h.fake.processes).toHaveLength(2);
   const c = await h.open();
   expect(c.threadId).toBe("thread-3");
+  h.provider.stop();
+});
+
+test("a stopped session leaves a thread another session has since resumed subscribed", async () => {
+  const h = harness();
+  const a = await h.open();
+  // The thread moves to a new session before the old one stops, as when a conversation is reopened.
+  const b = h.provider.openSession(noProviderTools);
+  const events: BridgeEvent[] = []; b.eventBus.subscribe(event => events.push(event), { replay: false });
+  await b.resumeThread(a.threadId, {});
+  a.session.stop();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  // Codex subscribes the process's one client, so unsubscribing here would silence the new session.
+  expect(h.fake.received().some(line => line.method === "thread/unsubscribe")).toBe(false);
+  await h.fake.notify("item/completed", completed(a.threadId, "after-handover"));
+  expect(events.flatMap(event => event.type === "item.completed" ? [event.payload.item.id] : [])).toEqual(["after-handover"]);
+  b.stop();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(h.fake.received()).toContainEqual({ id: expect.any(Number), method: "thread/unsubscribe", params: { threadId: a.threadId } });
   h.provider.stop();
 });

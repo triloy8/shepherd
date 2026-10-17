@@ -111,7 +111,8 @@ test("Codex turn/start forwards effort and resume exposes the effective effort",
   };
   expect(await session.resumeThread("thread-1", {})).toMatchObject({ effort: "medium" });
   await session.startTurn([], { effort: "high" });
-  expect(requests.at(-1)).toMatchObject({ method: "turn/start", params: { threadId: "thread-1", effort: "high" } });
+  // Codex writes no reasoning summaries unless a turn asks for them.
+  expect(requests.at(-1)).toMatchObject({ method: "turn/start", params: { threadId: "thread-1", effort: "high", summary: "auto" } });
 });
 
 test("Discord effort commands display settings, validate usage and require a thread", async () => {

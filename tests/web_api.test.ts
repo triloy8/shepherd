@@ -223,3 +223,14 @@ test("ordinary web messages preserve the thread policy instead of applying the h
     expect((sent as { approvalPolicy?: string }).approvalPolicy).toBeUndefined();
   } finally { h.api.dispose(); }
 });
+
+test("a message sent while a restart drains is refused with a reason, not as a backend failure", async () => {
+  const h = webHarness();
+  try {
+    const conversation = await h.create();
+    h.context.ingress.submitTurn = async () => { throw new ApplicationActionError({ code: "restart_pending" }); };
+    const response = await h.request(`/conversations/${conversation.id}/messages`, "POST", { text: "new work" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: { code: "restart_pending", message: expect.stringContaining("restarting once running work finishes") } });
+  } finally { h.api.dispose(); }
+});

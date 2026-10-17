@@ -10,9 +10,7 @@ function outcome(result: RuntimeLifecycleResult): string {
     case "restart-already-scheduled": return "A restart is already scheduled.";
     case "deployment-in-progress": return "Another deployment is in progress. Wait for it to finish.";
     case "deployment-failed": return result.message;
-    case "busy": return result.deployment
-      ? `Validated ${result.deployment.deployedCommit}, but new agent work prevented restart. Restart after turns and approvals finish.`
-      : "Host is busy. Finish active turns and pending approvals on all surfaces before retrying.";
+    case "drain-timed-out": return `${result.deployment ? `Validated ${result.deployment.deployedCommit}. ` : ""}Running work did not finish in time, so Shepherd kept running and accepts new turns again. Restart after it finishes.`;
   }
 }
 
@@ -59,9 +57,17 @@ export class WebHostControls {
           ? `Validated ${value.deployment.deployedCommit}. Restarting Shepherd.`
           : "Restarting Shepherd.";
       };
+      const onDraining = async (activity: import("../../core/session_manager.js").RuntimeActivity) => {
+        operation.phase = "draining";
+        const waiting = [
+          activity.activeTurnThreadIds.length ? `${activity.activeTurnThreadIds.length} running ${activity.activeTurnThreadIds.length === 1 ? "conversation" : "conversations"}` : "",
+          activity.pendingApprovalIds.length ? `${activity.pendingApprovalIds.length} pending ${activity.pendingApprovalIds.length === 1 ? "approval" : "approvals"}` : "",
+        ].filter(Boolean).join(" and ");
+        operation.message = `Waiting for ${waiting} to finish, then restarting. New turns wait until Shepherd is back; interrupts and approvals still work.`;
+      };
       const result = request.action === "restart"
-        ? await this.lifecycle!.restart({ announce })
-        : await this.lifecycle!.deploy({ target: request.branch ? { kind: "branch", branch: request.branch } : { kind: "main" }, announce,
+        ? await this.lifecycle!.restart({ announce, onDraining })
+        : await this.lifecycle!.deploy({ target: request.branch ? { kind: "branch", branch: request.branch } : { kind: "main" }, announce, onDraining,
           onDeploymentStarted: async () => { operation.phase = "validating"; operation.message = `Fetching and validating origin/${request.branch ?? "main"}…`; },
         });
       operation.phase = result.type === "restart-requested" || result.type === "restart-already-scheduled" ? "restarting" : "finished";

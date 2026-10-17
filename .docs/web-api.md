@@ -423,10 +423,13 @@ Git checkout. Checkout status also reflects deployments started on other surface
 `POST /api/host/actions` accepts `{ "requestId": "unique-id", "action": "restart" }`
 or `{ "requestId": "unique-id", "action": "deploy", "branch": "optional-preview" }`.
 Omit branch to deploy stable main. The response is 202 with a `WebHostOperation`;
-clients poll host status for starting, validating, restarting, and finished phases.
-A finished operation may be a refusal or validation failure; read its message.
-The shared runtime lifecycle orchestrator owns active-turn/approval guards,
-validation, restoration on failure, quiescing, and restart. No shell command is
+clients poll host status for starting, validating, draining, restarting, and finished
+phases. `draining` waits for running turns, background tasks and pending approvals to
+finish; its message says what it waits for. Meanwhile new messages and compactions
+return 503 `restart_pending`, while reads, steering, interrupts and approval decisions
+keep working. A finished operation may be a validation failure or a drain that did
+not finish within 30 minutes; read its message. The shared runtime lifecycle
+orchestrator owns draining, validation, restoration on failure, quiescing, and restart. No shell command is
 constructed by the web adapter.
 
 Accepted operations survive client disconnects. Repeated request IDs with identical

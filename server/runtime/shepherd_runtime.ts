@@ -42,6 +42,7 @@ export class ShepherdRuntime {
     });
     this.lifecycle = new RuntimeLifecycleOrchestrator({
       readActivity: () => this.conversation.getRuntimeActivity(),
+      admission: { pauseNewTurns: () => this.conversation.pauseNewTurns(), resumeNewTurns: () => this.conversation.resumeNewTurns() },
       deployment: options.deployment,
       runningCommit: options.runningCommit,
       lifecycle: {

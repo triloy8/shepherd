@@ -112,6 +112,9 @@ export class ConversationService {
     return this.manager.getRuntimeActivity();
   }
 
+  pauseNewTurns(): void { this.manager.pauseNewTurns(); }
+  resumeNewTurns(): void { this.manager.resumeNewTurns(); }
+
   async bindSurfaceToThread(adapter: string, surfaceId: string, threadId: string): Promise<string> {
     const resolvedThreadId = await this.routing.setDefaultThread(adapter, surfaceId, threadId);
     this.rebindSurfaceSubscription(adapter, surfaceId, resolvedThreadId);

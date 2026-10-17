@@ -777,23 +777,22 @@ describe("Discord operational commands", () => {
     expect(replyCardAt(replies).description).toContain("!listen open");
   });
 
-  test("refuses restart while a turn is active", async () => {
-    const { message, replies } = makeMessage("!restart");
+  test("shows what a restart waits for, and reports work that did not finish in time", async () => {
+    const { message, replies, edits } = makeMessage("!restart");
+    const activity = { activeTurnThreadIds: ["thread-busy"], pendingApprovalIds: [] };
     const { context, getRestartRequests } = makeContext({
-      async restart() {
-        return {
-          type: "busy",
-          action: "restart",
-          stage: "before-operation",
-          activity: { activeTurnThreadIds: ["thread-busy"], pendingApprovalIds: [] },
-        };
+      async restart(options: { onDraining?: (value: typeof activity) => Promise<void> }) {
+        await options.onDraining?.(activity);
+        return { type: "drain-timed-out", action: "restart", activity };
       },
     });
 
     await handleMessage(message as never, context);
 
-    expect(replyCardAt(replies).title).toBe("Restart refused");
-    expect(replyCardAt(replies).description).toContain("Active turns: thread-busy");
+    const cards = [...replies, ...edits].map((reply) => replyCardAt([reply]));
+    expect(cards.map((card) => card.title)).toEqual(["Waiting for running work", "Restart not done"]);
+    expect(cards[0]!.description).toContain("Active turns: thread-busy");
+    expect(cards[1]!.description).toContain("accepts new turns again");
     expect(getRestartRequests()).toBe(0);
   });
 

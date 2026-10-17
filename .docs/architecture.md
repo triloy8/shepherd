@@ -322,13 +322,16 @@ See [question workflows](user-questions.md) and the [wire contract](web-api.md#s
 ### Runtime restart and deployment
 
 1. `commands.ts` parses `!restart` or `!deploy` and supplies Discord announcement callbacks
-2. `runtime_lifecycle_orchestrator.ts` checks agent activity (active turns, pending approvals, and Claude background tasks) and coordinates the workflow
+2. `runtime_lifecycle_orchestrator.ts` coordinates the workflow; agent activity is active turns, pending approvals, and Claude background tasks
 3. Before its first asynchronous progress callback, the deploy branch claims an
    in-process lifecycle lock that rejects concurrent deploy and restart requests
 4. The deploy branch delegates Git/Bun validation, command timeouts, and
    rollback to `deployment_service.ts`
-5. The orchestrator asks the lifecycle port in `ShepherdRuntime` to quiesce all ingress
-6. After a final activity check, the orchestrator awaits the Discord recovery announcement
+5. The orchestrator pauses new turns in core (`restart_pending`) and waits for agent
+   activity to finish, reporting what it waits for; it gives up after 30 minutes and
+   resumes new turns
+6. Once idle, it asks the lifecycle port in `ShepherdRuntime` to quiesce all ingress;
+   after a final activity check, it awaits the recovery announcement
 7. `ShepherdRuntime` runs registered signal/adapter shutdown hooks, stops provider sessions and account readers, then exits for the external supervisor to restart
 
 ## What Still Lives In `bot.ts`

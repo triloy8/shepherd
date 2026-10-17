@@ -3,7 +3,8 @@
  * never cross the boundary. Surfaces write every label from these fields. A new kind belongs
  * here only when surfaces present it differently; anything else is `other`. */
 export type Activity =
-  | { kind: "command"; command: string | null; cwd: string | null }
+  /** `result` is what a finished command printed, when the provider records it. */
+  | { kind: "command"; command: string | null; cwd: string | null; result?: CommandResult }
   | { kind: "file_change"; paths: string[] }
   /** `application` tools are Shepherd's own; `builtin` tools are the agent's own (for example
    * file reads or searches). `target` is the main argument, such as a path or pattern. */
@@ -13,6 +14,20 @@ export type Activity =
   | { kind: "image"; action: "view" | "generate"; path: string | null; prompt: string | null }
   | { kind: "wait"; durationMs: number | null }
   | { kind: "other"; title: string; detail: string | null };
+
+/** The end of a finished command's output, and its exit code when the provider reports one. */
+export type CommandResult = { output: string; exitCode: number | null };
+
+/** History keeps the end of a command's output: the part that shows how it finished. */
+export const COMMAND_OUTPUT_LIMIT = 4_096;
+
+/** A command's result as every provider records it, bounded the same way; none when it printed
+ * nothing and reported no exit code. */
+export function commandResult(output: string | null, exitCode: number | null): CommandResult | undefined {
+  const text = output ?? "";
+  if (!text && exitCode === null) return undefined;
+  return { output: text.length > COMMAND_OUTPUT_LIMIT ? `…${text.slice(-COMMAND_OUTPUT_LIMIT)}` : text, exitCode };
+}
 
 export type ActivityKind = Activity["kind"];
 export type ActivityStatus = "started" | "completed" | "failed";

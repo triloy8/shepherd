@@ -1,4 +1,4 @@
-import type { Activity, ActivityStatus } from "../../../shared/protocol/activity.js";
+import { commandResult, type Activity, type ActivityStatus } from "../../../shared/protocol/activity.js";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
 function asString(value: unknown): string | null { return typeof value === "string" && value.trim() ? value : null; }
@@ -84,7 +84,10 @@ function commandText(value: unknown): string | null {
 /** Classify a native Codex thread item. */
 export function codexActivity(item: Record<string, unknown>): Activity | null {
   switch (asString(item.type)) {
-    case "commandExecution": return { kind: "command", command: commandText(item.command), cwd: asString(item.cwd) };
+    case "commandExecution": {
+      const result = commandResult(asString(item.aggregatedOutput), typeof item.exitCode === "number" ? item.exitCode : null);
+      return { kind: "command", command: commandText(item.command), cwd: asString(item.cwd), ...(result ? { result } : {}) };
+    }
     case "fileChange": return { kind: "file_change", paths: changedPaths(item.changes) };
     case "mcpToolCall": return { kind: "tool", source: "mcp", server: asString(item.server), name: asString(item.tool) ?? "tool", target: null };
     case "dynamicToolCall": return { kind: "tool", source: "application", server: asString(item.namespace), name: asString(item.tool) ?? "tool", target: null };

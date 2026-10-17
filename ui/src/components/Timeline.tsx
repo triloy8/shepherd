@@ -76,11 +76,15 @@ function SubagentRows({ rows, images, turnStatus }: { rows: readonly ChatMessage
 
 function ActivityStep({ step, output, turnStatus, children }: { step: Step; output?: string; turnStatus?: string; children?: ReactNode }) {
   const { title, detail } = describeActivity(step.activity);
-  const state = step.status === "started" && turnStatus && turnStatus !== "in_progress" ? "Stopped" : step.status === "started" ? "Running" : step.status === "failed" ? "Failed" : "Done";
+  // A finished command keeps the end of what it printed; a failure names its exit code when known.
+  const result = step.status !== "started" && step.activity.kind === "command" ? step.activity.result : undefined;
+  const failed = result?.exitCode != null && result.exitCode !== 0 ? `Failed · exit ${result.exitCode}` : "Failed";
+  const state = step.status === "started" && turnStatus && turnStatus !== "in_progress" ? "Stopped" : step.status === "started" ? "Running" : step.status === "failed" ? failed : "Done";
   return <details className={step.status === "failed" ? "notice" : "text-xs text-muted"}>
     <summary className="cursor-pointer">{title} · {state}</summary>
     {detail && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{detail.slice(0, 16384)}</pre>}
     {output && step.status === "started" && <pre className="step-output mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words" aria-label="Output so far">{output}</pre>}
+    {result?.output && <pre className="step-output mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words" aria-label="Output">{result.output}</pre>}
     {children}
   </details>;
 }

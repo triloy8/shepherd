@@ -269,8 +269,9 @@ reasoning delta states its `form` and may name its `part`), and
 them, including the scoped image URL, so a reload shows what the live view showed. The browser
 uses these fields for the work timeline and image previews; it does not request files by
 filesystem path. Plan and reasoning deltas show as running steps until their item completes;
-`output` shows the latest output of a running step and is not kept once the step completes,
-because history records none.
+`output` shows the latest output of a running step. A finished command activity carries
+`result: { output, exitCode }`: the last 4 KB of what it printed, and its exit code when the
+provider reports one.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a
 provider image event or that conversation's stored history. IDs are opaque and

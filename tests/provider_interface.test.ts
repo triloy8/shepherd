@@ -82,9 +82,14 @@ test("native input and history fields are encoded and sanitized inside adapters"
   expect(codexInput([{ type: "text", text: "hi" }, { type: "image_file", path: "/tmp/a.png", detail: "high" }, { type: "image", url: "https://example.com/a.png", detail: "full" }, { type: "audio_file", path: "/tmp/a.wav" }])).toEqual([
     { type: "text", text: "hi", text_elements: [] }, { type: "localImage", path: "/tmp/a.png", detail: "high" }, { type: "image", url: "https://example.com/a.png", detail: "original" }, { type: "localAudio", path: "/tmp/a.wav" },
   ]);
-  const item = historyItem({ id: "tool", type: "commandExecution", command: "bun test", status: "completed", nativeSecret: "private", aggregatedOutput: "private" }, "turn");
-  expect(item).toEqual({ id: "tool", type: "activity", status: "completed", activity: { kind: "command", command: "bun test", cwd: null } });
+  // A command's output and exit code cross as its bounded result; native fields do not.
+  const item = historyItem({ id: "tool", type: "commandExecution", command: "bun test", status: "failed", nativeSecret: "private", aggregatedOutput: `${"x".repeat(5000)}1 fail`, exitCode: 1 }, "turn");
+  expect(item).toMatchObject({ id: "tool", type: "activity", status: "failed", activity: { kind: "command", command: "bun test", cwd: null, result: { exitCode: 1 } } });
+  const result = (item as { activity: { result: { output: string } } }).activity.result;
+  expect(result.output.endsWith("1 fail")).toBe(true); expect(result.output.length).toBe(4097); expect(result.output.startsWith("…")).toBe(true);
   expect(JSON.stringify(item)).not.toContain("nativeSecret"); expect(JSON.stringify(item)).not.toContain("aggregatedOutput");
+  // A command that printed nothing and reported no exit code has no result.
+  expect(historyItem({ id: "quiet", type: "commandExecution", command: "true", status: "inProgress" }, "turn")).toEqual({ id: "quiet", type: "activity", status: "started", activity: { kind: "command", command: "true", cwd: null } });
 });
 
 test("application tool declarations and results are encoded into Codex dynamic tool wire values", () => {

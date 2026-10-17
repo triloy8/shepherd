@@ -46,7 +46,8 @@ method. `shared/protocol/item_stream.ts` holds the rules every surface shares: h
 reasoning deltas build their item until the canonical item replaces it, and which messages answer
 a turn (those marked final, or else the last unphased one). Output deltas are a running step's
 latest output; history keeps none, so surfaces drop it when the step completes. Reasoning items state their `form`: Codex keeps raw reasoning private and sends `summary`
-reasoning; Claude's thinking is the reasoning itself, `full`. `tests/provider_neutral_layers.test.ts`
+reasoning; Claude returns summaries of its thinking, also `summary`. `full` is for a provider
+that exposes reasoning itself. `tests/provider_neutral_layers.test.ts`
 fails if a provider name or an adapter import appears in core, ports, surfaces, shared protocol or UI.
 Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
 Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.

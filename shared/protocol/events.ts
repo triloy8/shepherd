@@ -28,7 +28,8 @@ export interface BridgeEventPayloads {
   "thread.unarchived": Record<string, never>;
   "thread.tokenUsage.updated": { turnId: string | null; tokenUsage: ThreadTokenUsage | null };
   "turn.started": { turnId: string | null };
-  "turn.completed": { turnId: string | null };
+  /** `interrupted` marks a turn stopped before it finished, as history then reports it. */
+  "turn.completed": { turnId: string | null; interrupted?: boolean };
   "turn.failed": { message: string; turnId: string | null };
   /** An item that takes time has begun; it is the same record history returns, in its current state. */
   "item.started": { turnId: string | null; item: HistoryItem };

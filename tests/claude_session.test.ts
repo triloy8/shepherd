@@ -74,6 +74,10 @@ function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) =>
           clock += 1000;
           agents.set(agentId, [...agents.get(agentId) ?? [], { type: message.type, uuid: randomUUID(), message: message.message, parent_tool_use_id: message.parent_tool_use_id, session_id: sessionId, timestamp: new Date(clock).toISOString() }]);
         }
+        // Claude Code records a background task's notification as the input that wakes the next turn.
+        if (message.type === "system" && message.subtype === "task_notification" && message.run_id) {
+          record(sessionId, options!.cwd, { type: "user", uuid: randomUUID(), message: { role: "user", content: [{ type: "text", text: `<task-notification>${message.summary}</task-notification>` }] }, parent_tool_use_id: null, origin: { kind: "task-notification", runId: message.run_id } });
+        }
         if (message.type === "result") busy = false;
         yield message;
       }
@@ -161,7 +165,10 @@ test("Claude approvals apply decisions and interruption clears pending manager a
   const approval = manager.listApprovals(threadId)[0]!;
   await manager.applyApprovalDecision(threadId, approval.approvalId, { decision: approval.choices.find(choice => choice.intent === "allow")!.value });
   expect(manager.listApprovals(threadId)[0]!.status).toBe("applied");
+  const ended: BridgeEvent[] = []; session.eventBus.subscribe(event => { if (event.type === "turn.completed") ended.push(event); }, { replay: false });
   await manager.interruptTurn(threadId); await done(session);
+  // The live end of the turn says it was interrupted, as history does.
+  expect(ended.map(event => event.payload)).toEqual([{ turnId: expect.any(String), interrupted: true }]);
   expect(decisions).toEqual([{ behavior: "allow", updatedInput: { command: "ls" } }]);
   expect(fake.interruptions()).toBe(1);
   expect((await session.listThreadTurns(threadId, {})).data[0]!.status).toBe("interrupted");
@@ -409,9 +416,16 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   await expect(session.startTurn([toTextUserInput("change")], { model: "opus" })).rejects.toThrow("Wait for background tasks");
   expect(fake.calls).toHaveLength(callsBeforeResult);
   const started = waitFor("turn.started"); const completed = waitFor("turn.completed");
+  const liveTurns: string[] = []; session.eventBus.subscribe(event => { if (event.type === "turn.started") liveTurns.push(event.payload.turnId!); }, { replay: false });
+  // Two notifications arriving together wake one turn, named by the first task run.
+  events.push({ type: "system", subtype: "task_notification", task_id: "task-1", run_id: "run-1", status: "completed", output_file: "", summary: "done" } as SDKMessage);
+  events.push({ type: "system", subtype: "task_notification", task_id: "task-2", run_id: "run-2", status: "completed", output_file: "", summary: "done" } as SDKMessage);
   events.push({ type: "assistant", parent_tool_use_id: null, message: { id: "wake-message", content: [{ type: "text", text: "Background result" }] } } as SDKMessage);
   await started; events.push(result); await completed;
+  expect(liveTurns).toEqual(["run-1"]);
   expect(await turns()).toHaveLength(2);
+  // History names the wake turn as the live stream did.
+  expect((await turns())[1]!.id).toBe("run-1"); expect((await turns())[1]!.status).toBe("completed");
   expect((await turns())[1]!.items).toMatchObject([{ type: "assistant_message", text: "Background result" }]);
   const cleared = waitFor("thread.status.changed");
   events.push({ type: "system", subtype: "background_tasks_changed", tasks: [] } as SDKMessage); await cleared;
@@ -587,8 +601,8 @@ test("Claude history records thinking as reasoning and proposed plans as plans, 
     const items = (await session.listThreadTurns(threadId, {})).data[0]!.items;
     expect(items.map(item => item.type)).toEqual(["user_message", "assistant_message", "reasoning", "reasoning", "plan", "activity", "assistant_message"]);
     expect(items[1]).toMatchObject({ text: "Looking first.", phase: "interim" });
-    // Claude's thinking is the reasoning itself, not a summary of it.
-    expect(items[2]).toMatchObject({ form: "full", parts: ["The parser drops empty lines."] });
+    // Claude returns a summary of its thinking, not the thinking itself.
+    expect(items[2]).toMatchObject({ form: "summary", parts: ["The parser drops empty lines."] });
     expect((items[3] as { parts: string[] }).parts[0]).toEndWith("[1000 characters omitted]");
     expect(items[4]).toMatchObject({ type: "plan", text: "1. Fix the parser.\n2. Add a test." });
     expect(new Set(items.map(item => item.id)).size).toBe(items.length);
@@ -708,11 +722,13 @@ test("thinking streams as reasoning under the item ID history records it with", 
   const reasoning = events.flatMap(event => event.type === "item.delta" && event.payload.channel === "reasoning" ? [event.payload] : []);
   expect(reasoning.map(delta => [delta.itemId, delta.delta])).toEqual([["m:thinking:0", "\nCheck"], ["m:thinking:0", " the logs."]]);
   const history = (await session.listThreadTurns(threadId, {})).data[0]!.items;
-  expect(history.filter(item => item.type === "reasoning")).toEqual([{ id: "m:thinking:0", type: "reasoning", form: "full", parts: ["\nCheck the logs."] }]);
+  expect(history.filter(item => item.type === "reasoning")).toEqual([{ id: "m:thinking:0", type: "reasoning", form: "summary", parts: ["\nCheck the logs."] }]);
   // The web view shows the reasoning while it streams, then the canonical item in its place.
   const chat = events.reduce(reduceBridge, emptyChat());
-  expect(chat.messages.filter(message => message.id === "m:thinking:0").map(message => [message.activity?.status, message.activity?.activity.kind === "other" ? message.activity.activity.title : null])).toEqual([["completed", "Reasoning"]]);
-  expect(reasoning.every(delta => delta.form === "full")).toBe(true);
+  expect(chat.messages.filter(message => message.id === "m:thinking:0").map(message => [message.activity?.status, message.activity?.activity.kind === "other" ? message.activity.activity.title : null])).toEqual([["completed", "Reasoning summary"]]);
+  expect(reasoning.every(delta => delta.form === "summary")).toBe(true);
+  // Claude omits thinking text unless the display is requested.
+  expect(fake.calls.at(-1)!.options.extraArgs).toEqual({ "thinking-display": "summarized" });
   session.stop();
 });
 

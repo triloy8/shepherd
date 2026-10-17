@@ -119,9 +119,17 @@ describe("ResponseStreamReducer", () => {
     expect(reduction).toEqual({
       type: "finish",
       failed: true,
+      interrupted: false,
       state: { ...state, activeInterim: null },
       completedInterim: { itemId: "comment-1", text: "still useful" },
     });
+  });
+
+  test("an interrupted turn finishes as interrupted, so its text is a partial response", () => {
+    const state = { turnId: "turn-1", finalMessages: [{ itemId: "answer", text: "Half an" }], activeInterim: null };
+    const reduction = reduceResponseStream(state, makeEvent("turn.completed", { turnId: "turn-1", interrupted: true }));
+    expect(reduction).toMatchObject({ type: "finish", failed: false, interrupted: true });
+    expect(reduceResponseStream(state, makeEvent("turn.completed", { turnId: "turn-1" }))).toMatchObject({ type: "finish", interrupted: false });
   });
 });
 

@@ -497,7 +497,8 @@ export function createDiscordThreadEventHandler(
     } else if (reduction.type === "finish") {
       if (reduction.state) state.stream = reduction.state;
       sendInterim(channelId, state, reduction.completedInterim);
-      finalizeTurn(channelId, state, reduction.failed);
+      // An interrupted turn's text is a partial response, not its answer.
+      finalizeTurn(channelId, state, reduction.failed || reduction.interrupted);
     }
 
     if (event.type === "approval.requested") {

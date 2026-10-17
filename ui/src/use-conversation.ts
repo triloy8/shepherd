@@ -1,7 +1,9 @@
+import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities";
+import type { WebSettingsResponse } from "../../shared/protocol/web";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import { startTransition, useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
-import type { BridgeEvent } from "../../shared/protocol/events";
+import type { WebBridgeEvent } from "../../shared/protocol/web";
 import type { WebConversation } from "../../shared/protocol/web";
 import { api, ApiError, explainError, streamConversation } from "./api";
 import { acceptUserMessage, emptyChat, mergeHistory, reduceBridge, type ChatState } from "./chat-state";
@@ -18,6 +20,8 @@ export function useConversation(conversation: WebConversation | null) {
   const [chat, setChat] = useState<ChatState>(emptyChat);
   const chatRef = useRef(chat);
   chatRef.current = chat;
+  const [capabilities, setCapabilities] = useState<ProviderCapabilities | null>(null);
+  const [modelCapabilities, setModelCapabilities] = useState<WebSettingsResponse["modelCapabilities"] | null>(null);
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +42,7 @@ export function useConversation(conversation: WebConversation | null) {
     actionEpoch.current++;
     setStateId(conversation?.id);
     historyEpoch.current++; historyRevision.current = null;
-    setChat(emptyChat()); setApprovals([]); setError(null); setHistoryCursor(null);
+    setChat(emptyChat()); setCapabilities(null); setModelCapabilities(null); setApprovals([]); setError(null); setHistoryCursor(null);
     setConnection("connecting"); setBusy(false); actionRef.current = false;
     setLoadingHistory(false); historyExpanded.current = false;
     if (!conversation) { refreshRef.current = async () => false; return; }
@@ -56,6 +60,7 @@ export function useConversation(conversation: WebConversation | null) {
     let snapshot: Promise<boolean> | null = null;
     let refreshAgain = false;
     let turnRevision = 0;
+    let modelMetadataRevision = 0;
     let scheduled: ReturnType<typeof setTimeout> | undefined;
     const missing = (error: unknown) => {
       if (!current()) return false;
@@ -77,9 +82,15 @@ export function useConversation(conversation: WebConversation | null) {
             const revision = turnRevision;
             const epoch = historyEpoch.current;
             const stateRequest = api.state(id, abort.signal).then((state) => {
+              if (current()) setCapabilities(state.state.capabilities ?? null);
               if (current() && revision === turnRevision) setChat((chat) => current() && revision === turnRevision && epoch === historyEpoch.current ? ({ ...chat, activeTurnId: state.state.activeTurnId }) : chat);
               return state;
             });
+            // Model metadata is optional for rendering and must not block stream recovery.
+            const metadataRevision = ++modelMetadataRevision;
+            void stateRequest.then(state => state.state.capabilities?.modelCatalog ? api.settings(id, abort.signal) : null).then(settings => {
+              if (current() && revision === turnRevision && metadataRevision === modelMetadataRevision) setModelCapabilities(settings?.modelCapabilities ?? null);
+            }).catch(() => { if (current() && revision === turnRevision && metadataRevision === modelMetadataRevision) setModelCapabilities(null); });
             const historyRequest = api.history(id, undefined, abort.signal).then((history) => {
               if (!current() || epoch !== historyEpoch.current) return history;
               const replaced = historyRevision.current !== null && historyRevision.current !== history.revision;
@@ -114,7 +125,7 @@ export function useConversation(conversation: WebConversation | null) {
       if (scheduled) clearTimeout(scheduled);
       scheduled = setTimeout(() => { void refresh(); }, 150);
     };
-    let pendingDeltas: BridgeEvent[] = [];
+    let pendingDeltas: WebBridgeEvent[] = [];
     let deltaFrame: number | undefined;
     const flushDeltas = () => {
       if (deltaFrame !== undefined) cancelAnimationFrame(deltaFrame);
@@ -138,7 +149,7 @@ export function useConversation(conversation: WebConversation | null) {
             if (event.id) cursor = event.id;
             if (event.type === "bridge") {
               if (["turn.started", "turn.completed", "turn.failed"].includes(event.data.type)) turnRevision++;
-              if (event.data.type === "turn.stream.delta") {
+              if (event.data.type === "item.delta") {
                 pendingDeltas.push(event.data);
                 // Animation frames pause in background tabs. Bound the queue
                 // there too, while preserving the original event order.
@@ -148,7 +159,7 @@ export function useConversation(conversation: WebConversation | null) {
                 flushDeltas();
                 setChat((chat) => current() ? reduceBridge(chat, event.data) : chat);
               }
-              if (event.data.type.startsWith("approval.") || ["turn.started", "turn.completed", "turn.failed", "turn.message.completed"].includes(event.data.type)) soon();
+              if (event.data.type.startsWith("approval.") || ["turn.started", "turn.completed", "turn.failed"].includes(event.data.type) || (event.data.type === "item.completed" && event.data.payload.item.type === "assistant_message")) soon();
             } else {
               flushDeltas();
               if (event.type === "reset" && event.data.reason === "history_changed") {
@@ -218,12 +229,13 @@ export function useConversation(conversation: WebConversation | null) {
   // Selection renders before effect cleanup/reset; never show the previous
   // conversation's messages or enabled controls under the new chat's title.
   const selected = stateId === conversation?.id;
-  return { chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
+  return { capabilities: selected ? capabilities : null, modelCapabilities: selected ? (chat.activeTurnId ? modelCapabilities?.current : modelCapabilities?.next) ?? null : null, chat: selected ? chat : emptyChat(), approvals: selected ? approvals : [], connection: selected ? connection : "connecting" as Connection,
     error: selected ? error : null, busy: selected && busy, historyCursor: selected ? historyCursor : null, loadingHistory: selected && loadingHistory, send, loadOlder,
     interrupt: () => action((id) => api.interrupt(id)),
     decide: (approvalId: string, decision: string, answers?: UserQuestionAnswers) => action((id) => api.decide(id, approvalId, decision, answers)),
     revert: async (beforeTurnId: string) => {
       const id = conversation?.id;
+      if (!capabilities?.revert) throw new ApiError(422, "unsupported_provider_operation", "Revert is unavailable for this agent.");
       if (!id || actionRef.current || connection !== "online" || chat.activeTurnId || approvals.length) {
         throw new ApiError(409, "conversation_active", "Wait until the conversation is connected, idle, and has no pending approvals.");
       }

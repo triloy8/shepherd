@@ -12,12 +12,12 @@ async (page) => {
   await page.getByRole('button', { name: 'Remove first.png', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Remove second.png', exact: true }).click();
   await composer.fill('Describe the attached image');
-  await page.route('**/api/v1/conversations/*/messages', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Image send failed' } } }));
+  await page.route('**/api/conversations/*/messages', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Image send failed' } } }));
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await page.getByText('Image send failed', { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Remove first.png', exact: true }).waitFor();
   if (await composer.inputValue() !== 'Describe the attached image') throw Error('Text draft lost on failure');
-  await page.unroute('**/api/v1/conversations/*/messages');
+  await page.unroute('**/api/conversations/*/messages');
   const posted = page.waitForRequest(request => request.url().endsWith('/messages') && request.method() === 'POST');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   const body = (await posted).postDataJSON();

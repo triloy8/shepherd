@@ -1,0 +1,158 @@
+import { sessionProviders } from "./helpers/session_providers.js";
+import { expect, test } from "bun:test";
+import { ConversationService } from "../server/core/conversation_service";
+import { memoryProviderDirectory } from "../server/core/provider_directory";
+import { EventBus } from "../server/providers/event_bus";
+import type { ProviderSession } from "../server/ports/provider_session";
+import type { ProviderServices } from "../server/ports/provider_services";
+import type { ProviderDescriptor } from "../shared/protocol/providers";
+import type { UserInput } from "../shared/protocol/user_input";
+import type { HistoryTurn } from "../shared/protocol/requests";
+import { toTextUserInput } from "../shared/protocol/user_input";
+import { CodexSession } from "../server/providers/codex/session";
+import { CodexAccount } from "../server/providers/codex/account";
+import { codexInput } from "../server/providers/codex/input";
+import { historyItem, historyTurn as codexHistoryTurn } from "../server/providers/codex/history";
+import { codexToolResponse, codexToolSpecs } from "../server/providers/codex/tools";
+import { codexAccount } from "../server/providers/codex/account_presentation";
+import { codexTokenUsage } from "../server/providers/codex/token_usage";
+import { codexSkills } from "../server/providers/codex/skills";
+import { webHarness } from "./helpers/web_harness";
+import { account } from "./helpers/account";
+
+import { descriptor, IndependentSession } from "./helpers/independent_provider.js";
+
+test("an independent provider uses production orchestration, settings, events, history and ownership without native shims", async () => {
+  const sessions: IndependentSession[] = [];
+  const services: ProviderServices = { descriptors: [descriptor], providers: [descriptor.id], accounts: new Map([[descriptor.id, { read: async () => account(descriptor.id) }]]), directory: memoryProviderDirectory(descriptor.id), hasStoredThreads: () => true, provider: sessionProviders((_tools, provider) => { expect(provider).toBe(descriptor.id); const session = new IndependentSession(); sessions.push(session); return session; }) };
+  const conversation = new ConversationService({ providers: services });
+  try {
+    const { threadId } = await conversation.createThread({ cwd: "/tmp" });
+    expect(conversation.getThreadProvider(threadId)).toBe(descriptor.id);
+    expect(conversation.listProviders()).toEqual([descriptor]);
+    expect((await conversation.getThreadEffort(threadId)).supportedEfforts[0]!.value).toBe("focused");
+    const events: import("../shared/protocol/events").BridgeEvent[] = [];
+    conversation.subscribeToThreadEvents(threadId, event => events.push(event));
+    await conversation.submitTurn(threadId, { input: [toTextUserInput("Hello")] });
+    expect(events.find(event => event.type === "item.delta")!.payload).toMatchObject({ channel: "message", delta: "Third provider answer" });
+    expect(sessions[0]!.inputs).toEqual([{ type: "text", text: "Hello" }]);
+    expect((await conversation.listThreadTurns(threadId, { sortDirection: "desc" })).data[0]!.items[0]!.text).toBe("Third provider answer");
+    expect((await conversation.readAccount(descriptor.id)).provider).toBe(descriptor.id);
+    await expect(conversation.listSkills(threadId, {})).rejects.toThrow("support");
+    await expect(conversation.compactThread(threadId)).rejects.toThrow("support");
+    await expect(conversation.revertThread(threadId, { beforeTurnId: "opaque-turn" })).rejects.toThrow("support");
+    await expect(conversation.forkThread(threadId, {})).rejects.toThrow("support");
+    await conversation.interruptTurn(threadId);
+    expect(conversation.getThreadState(threadId).activeTurnId).toBeNull();
+  } finally { conversation.stopAll(); }
+  expect(sessions.every(session => session.stopped)).toBe(true);
+});
+
+test("web discovers and routes an arbitrary provider; retired API prefixes have no aliases", async () => {
+  const h = webHarness(), calls: string[] = [];
+  Object.assign(h.application.conversation, { listProviders: () => [descriptor], readAccount: async (provider: string) => { calls.push(provider); return account(provider); }, listModels: async (request: { provider?: string }) => ({ data: [{ id: request.provider }], nextCursor: null }) });
+  h.application.createSurfaceThread = async (_id, provider?: string) => { calls.push(provider!); return "arbitrary-thread"; };
+  try {
+    expect((await (await h.request("/providers")).json()).providers).toEqual([descriptor]);
+    expect((await h.request("/conversations", "POST", { provider: descriptor.id, project: "~" })).status).toBe(201);
+    expect((await (await h.request(`/limits?provider=${descriptor.id}`)).json()).provider).toBe(descriptor.id);
+    expect(calls).toEqual([descriptor.id, descriptor.id]);
+    expect((await (await h.request(`/models?provider=${descriptor.id}`)).json()).data[0].id).toBe(descriptor.id);
+    expect((await h.request("/limits?provider=unregistered")).status).toBe(400);
+    expect((await h.request("/limits/reset", "POST", { provider: descriptor.id, idempotencyKey: "attempt" })).status).toBe(422);
+    for (const retired of ["v1", "v2"]) expect((await h.api.fetch(new Request(`http://localhost/api/${retired}/health`))).status).toBe(404);
+  } finally { h.api.dispose(); }
+});
+
+test("account reset calls preserve adapter method ownership and decode native outcomes", async () => {
+  const session = new CodexSession(); session.initialize = async () => {};
+  const seen: unknown[] = [];
+  Object.assign(session, { sendRequest: async (method: string, params: unknown) => { seen.push({ method, params }); return { outcome: "alreadyRedeemed" }; } });
+  const reader = new CodexAccount(() => session);
+  const services = { descriptors: [], providers: [], accounts: new Map([["anything", reader]]), provider: sessionProviders(() => session), hasStoredThreads: () => false, directory: memoryProviderDirectory() } satisfies ProviderServices;
+  const conversation = new ConversationService({ providers: services });
+  try {
+    expect(await conversation.resetAccount("anything", { idempotencyKey: "stable-key" })).toEqual({ outcome: "already_redeemed" });
+    expect(seen).toEqual([{ method: "account/rateLimitResetCredit/consume", params: { idempotencyKey: "stable-key" } }]);
+  } finally { conversation.stopAll(); reader.stop(); }
+  await expect(reader.read()).rejects.toThrow("stopped");
+});
+
+test("native input and history fields are encoded and sanitized inside adapters", () => {
+  expect(codexInput([{ type: "text", text: "hi" }, { type: "image_file", path: "/tmp/a.png", detail: "high" }, { type: "image", url: "https://example.com/a.png", detail: "full" }, { type: "audio_file", path: "/tmp/a.wav" }])).toEqual([
+    { type: "text", text: "hi", text_elements: [] }, { type: "localImage", path: "/tmp/a.png", detail: "high" }, { type: "image", url: "https://example.com/a.png", detail: "original" }, { type: "localAudio", path: "/tmp/a.wav" },
+  ]);
+  const item = historyItem({ id: "tool", type: "commandExecution", command: "bun test", status: "completed", nativeSecret: "private", aggregatedOutput: "private" }, "turn");
+  expect(item).toEqual({ id: "tool", type: "activity", status: "completed", activity: { kind: "command", command: "bun test", cwd: null } });
+  expect(JSON.stringify(item)).not.toContain("nativeSecret"); expect(JSON.stringify(item)).not.toContain("aggregatedOutput");
+});
+
+test("application tool declarations and results are encoded into Codex dynamic tool wire values", () => {
+  expect(codexToolSpecs([{ type: "namespace", name: "signals", description: "Signals", tools: [{ type: "function", name: "callback", description: "Create", inputSchema: { type: "object" } }] }]))
+    .toEqual([{ type: "namespace", name: "signals", description: "Signals", tools: [{ type: "function", name: "callback", description: "Create", inputSchema: { type: "object" } }] }]);
+  expect(codexToolResponse({ success: true, contentItems: [{ type: "text", text: "ok" }, { type: "image", data: "AA==", mimeType: "image/png" }, { type: "audio", data: "AA==", mimeType: "audio/wav" }] }))
+    .toEqual({ success: true, contentItems: [{ type: "inputText", text: "ok" }, { type: "inputImage", imageUrl: "data:image/png;base64,AA==" }, { type: "inputAudio", audioUrl: "data:audio/wav;base64,AA==" }] });
+});
+
+test("Codex allowance labels keep provider names and humanize opaque limit IDs inside the adapter", () => {
+  const window = { usedPercent: 10, windowDurationMins: 300, resetsAt: 1 };
+  const account = codexAccount({ rateLimits: {}, rateLimitsByLimitId: {
+    named: { limitId: "named", limitName: "  Provider Label-v2 ", primary: window },
+    opaque: { limitId: "new_feature-quota", primary: window },
+    blank: { primary: window },
+  }, rateLimitResetCredits: null }, 1);
+  expect(account.windows.map(entry => entry.label)).toEqual(["Provider Label-v2", "New feature quota", "Account allowance"]);
+});
+
+test("Codex token usage is decoded into the neutral breakdown without inventing cache writes", () => {
+  const native = { inputTokens: 100, cachedInputTokens: 40, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 };
+  expect(codexTokenUsage({ last: native, total: native, modelContextWindow: 1000 })).toEqual({
+    last: { inputTokens: 100, cacheReadInputTokens: 40, cacheWriteInputTokens: null, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 },
+    total: { inputTokens: 100, cacheReadInputTokens: 40, cacheWriteInputTokens: null, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 },
+    contextWindow: 1000,
+  });
+  expect(codexTokenUsage({ last: {}, total: native })).toMatchObject({ last: null, total: { totalTokens: 120 } });
+});
+
+test("Codex skill listings keep application fields and drop native presentation metadata", () => {
+  const listed = codexSkills({ data: [{ cwd: "/repo", errors: [{ path: "/repo/bad", message: "Broken" }], skills: [
+    { name: "github", description: "GitHub", path: "/skills/github", scope: "repo", enabled: true, interface: { brandColor: "#000", iconSmall: "x" }, dependencies: { tools: [] } },
+    { name: "future", description: "Future", path: "/skills/future", scope: "workspace-cloud", enabled: false },
+    { name: "broken", path: "/skills/broken" },
+  ] }] });
+  expect(listed).toEqual({ errors: [{ path: "/repo/bad", message: "Broken" }], skills: [
+    { name: "github", description: "GitHub", path: "/skills/github", scope: "repo", enabled: true },
+    { name: "future", description: "Future", path: "/skills/future", scope: "workspace-cloud", enabled: false },
+  ] });
+  // Codex groups discovery by directory; one workspace's entries merge without duplicate paths.
+  expect(codexSkills({ data: [
+    { cwd: "/repo", errors: [], skills: [{ name: "a", description: "", path: "/a", scope: "repo", enabled: true }] },
+    { cwd: "/repo", errors: [{ path: "/b", message: "Bad" }], skills: [{ name: "a", description: "", path: "/a", scope: "repo", enabled: true }] },
+  ] })).toEqual({ errors: [{ path: "/b", message: "Bad" }], skills: [{ name: "a", description: "", path: "/a", scope: "repo", enabled: true }] });
+});
+
+test("opaque permission options retain native policy amendments and reject stale ownership", async () => {
+  const session = new CodexSession(); session.threadId = "thread"; session.activeTurnId = "turn";
+  const writes: unknown[] = [], requests: import("../shared/protocol/approvals").ApprovalRequestPayload[] = [];
+  const raw = session as unknown as { writeLine(value: unknown): void; onServerRequest(value: unknown): void; onNotification(method: string, value: unknown): void };
+  raw.writeLine = value => writes.push(value);
+  session.eventBus.subscribe(event => { if (event.type === "approval.requested") requests.push(event.payload as typeof requests[number]); }, { replay: false });
+  raw.onServerRequest({ id: 1, method: "item/commandExecution/requestApproval", params: { threadId: "thread", turnId: "turn", command: "bun test", proposedExecpolicyAmendment: ["bun", "test"] } });
+  const request = requests[0]!;
+  expect(request.choices.every(choice => !["accept", "decline", "cancel"].includes(choice.value))).toBe(true);
+  await expect(session.applyApprovalDecision(request.approvalId, { decision: "accept" })).rejects.toThrow("offered option");
+  const permanent = request.choices.find(choice => choice.label.startsWith("Always allow commands"))!;
+  await session.applyApprovalDecision(request.approvalId, { decision: permanent.value });
+  expect(writes).toEqual([{ id: 1, result: { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["bun", "test"] } } } }]);
+  raw.onNotification("turn/completed", { threadId: "thread", turn: { id: "turn", status: "completed" } });
+  raw.onServerRequest({ id: 2, method: "item/commandExecution/requestApproval", params: { threadId: "thread", turnId: "turn" } });
+  expect(requests).toHaveLength(1); expect(writes.at(-1)).toMatchObject({ id: 2, error: { code: -32602 } });
+  session.stop();
+});
+
+test("Codex turn statuses decode explicitly and unknown statuses are not reported as success", () => {
+  const status = (value: unknown) => codexHistoryTurn({ id: "turn", items: [], ...(value === undefined ? {} : { status: value }) }).status;
+  expect([status("completed"), status("interrupted"), status("failed"), status("inProgress")]).toEqual(["completed", "interrupted", "failed", "in_progress"]);
+  expect(status("cancelledByPolicy")).toBe("interrupted");
+  for (const value of [undefined, null, "", 42]) expect(status(value)).toBe("interrupted");
+});

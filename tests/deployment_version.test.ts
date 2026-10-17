@@ -6,7 +6,7 @@ test("every deployment default matches the documented Codex schema baseline", as
   const root = path.resolve(import.meta.dir, "..");
   const read = (file: string) => readFile(path.join(root, file), "utf8");
   const [matrix, docker, compose, setup] = await Promise.all([
-    read(".docs/schema-parity-matrix.md"), read("Dockerfile"), read("compose.yaml"), read("deploy/ubuntu/setup.sh"),
+    read(".docs/codex-parity-matrix.md"), read("Dockerfile"), read("compose.yaml"), read("deploy/ubuntu/setup.sh"),
   ]);
   const version = matrix.match(/Codex version: `codex-cli ([\d.]+)`/)?.[1];
   expect(version).toBeDefined();

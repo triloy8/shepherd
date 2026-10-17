@@ -3,12 +3,17 @@ import { readRuntimeConfig } from "../server/config/runtime_environment.js";
 import { createHostRuntime, createGithubWorkspacePorts } from "../server/runtime/host_runtime.js";
 
 test("shared host validates configuration without a transport", async () => {
-  expect(readRuntimeConfig({})).toMatchObject({ approvalPolicy: "on-request", defaultSandbox: undefined, signals: { enabled: false } });
-  expect(() => readRuntimeConfig({ CODEX_SANDBOX: "typo" })).toThrow("CODEX_SANDBOX");
+  expect(readRuntimeConfig({})).toMatchObject({ policy: null, signals: { enabled: false } });
+  expect(readRuntimeConfig({ SHEPHERD_POLICY: "bypass" }).policy).toEqual({ writes: "any", network: "any", review: "none" });
+  expect(readRuntimeConfig({ SHEPHERD_POLICY: "workspace" }).policy).toEqual({ writes: "workspace", network: "any", review: "risky" });
+  expect(() => readRuntimeConfig({ SHEPHERD_POLICY: "never" })).toThrow("SHEPHERD_POLICY must be one of");
+  // The removed settings fail loudly instead of silently dropping a configured mode.
+  expect(() => readRuntimeConfig({ SHEPHERD_APPROVAL_MODE: "bypass" })).toThrow("SHEPHERD_APPROVAL_MODE was replaced by SHEPHERD_POLICY");
+  expect(() => readRuntimeConfig({ SHEPHERD_SANDBOX_MODE: "unrestricted" })).toThrow("SHEPHERD_SANDBOX_MODE was replaced by SHEPHERD_POLICY");
   for (const value of ["0", "-1", "NaN", "Infinity"]) {
     expect(() => readRuntimeConfig({ SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS: value })).toThrow("positive number");
   }
-  const config = readRuntimeConfig({ CODEX_SANDBOX: "workspace-write", CODEX_APPROVAL_POLICY: "never", SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS: "1200" });
+  const config = readRuntimeConfig({ SHEPHERD_POLICY: "workspace", SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS: "1200" });
   const host = createHostRuntime({ config, projectDir: "/tmp" });
   expect(host.config).toBe(config);
   expect(host.shepherd.isQuiescing()).toBe(false);

@@ -1,7 +1,5 @@
 import type {
-  ApprovalPolicy,
   ResumeThreadRequest,
-  SandboxMode,
 } from "../../shared/protocol/requests.js";
 import type { SessionManager } from "./session_manager.js";
 
@@ -19,8 +17,6 @@ type SurfaceState = {
   defaultThreadId: string | null;
   attachedThreadIds: Set<string>;
   autoCreateIfMissing: boolean;
-  defaultApprovalPolicy: ApprovalPolicy;
-  defaultSandbox?: SandboxMode;
   exclusiveThreadBinding: boolean;
 };
 
@@ -30,8 +26,6 @@ export type ResolveRouteInput = {
   cwd: string;
   explicitThreadId?: string;
   autoCreateIfMissing?: boolean;
-  approvalPolicyHint?: ApprovalPolicy;
-  sandboxHint?: SandboxMode;
 };
 
 export type ResolveRouteResult = {
@@ -46,10 +40,9 @@ export type ConversationSurface = {
   surfaceId: string;
 };
 
+/** The host execution policy is resolved to each provider's profile by the session manager. */
 export type ConversationRoutingServiceOptions = {
   autoCreateIfMissing?: boolean;
-  defaultApprovalPolicy?: ApprovalPolicy;
-  defaultSandbox?: SandboxMode;
   exclusiveThreadBinding?: boolean;
 };
 
@@ -57,8 +50,6 @@ export class ConversationRoutingService {
   private readonly surfaces = new Map<SurfaceKey, SurfaceState>();
   private readonly surfaceByThread = new Map<string, SurfaceKey>();
   private readonly autoCreateIfMissing: boolean;
-  private readonly defaultApprovalPolicy: ApprovalPolicy;
-  private readonly defaultSandbox?: SandboxMode;
   private readonly exclusiveThreadBinding: boolean;
 
   constructor(
@@ -66,8 +57,6 @@ export class ConversationRoutingService {
     options: ConversationRoutingServiceOptions = {},
   ) {
     this.autoCreateIfMissing = options.autoCreateIfMissing ?? true;
-    this.defaultApprovalPolicy = options.defaultApprovalPolicy ?? "on-request";
-    this.defaultSandbox = options.defaultSandbox;
     this.exclusiveThreadBinding = options.exclusiveThreadBinding ?? false;
   }
 
@@ -129,11 +118,7 @@ export class ConversationRoutingService {
     const candidate = input.explicitThreadId ?? surface.defaultThreadId;
 
     if (candidate) {
-      const resumeRequest = {
-        approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
-        ...(input.sandboxHint ? { sandbox: input.sandboxHint } : {}),
-        cwd: input.cwd,
-      };
+      const resumeRequest = { cwd: input.cwd };
       const resolved = await this.setDefaultThread(input.adapter, input.surfaceId, candidate, resumeRequest);
       return {
         threadId: resolved,
@@ -147,11 +132,7 @@ export class ConversationRoutingService {
     if (!allowAutoCreate) {
       throw new Error("No routing target available for this surface.");
     }
-    const created = await this.manager.createThread({
-      approvalPolicy: input.approvalPolicyHint ?? surface.defaultApprovalPolicy,
-      sandbox: input.sandboxHint ?? surface.defaultSandbox,
-      cwd: input.cwd,
-    });
+    const created = await this.manager.createThread({ cwd: input.cwd });
     await this.setDefaultThread(input.adapter, input.surfaceId, created.threadId);
     return {
       threadId: created.threadId,
@@ -172,8 +153,6 @@ export class ConversationRoutingService {
       defaultThreadId: null,
       attachedThreadIds: new Set<string>(),
       autoCreateIfMissing: this.autoCreateIfMissing,
-      defaultApprovalPolicy: this.defaultApprovalPolicy,
-      defaultSandbox: this.defaultSandbox,
       exclusiveThreadBinding: this.exclusiveThreadBinding,
     };
     this.surfaces.set(key, created);

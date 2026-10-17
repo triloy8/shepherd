@@ -1,5 +1,4 @@
 import type {
-  ApprovalPolicy,
   GetThreadStateResponse,
   SteerTurnResponse,
   SubmitTurnResponse,
@@ -12,14 +11,13 @@ export type TurnRoutingExecutionInput = {
   handled: boolean;
   threadId: string | null;
   input: UserInput[] | null;
-  approvalPolicy: ApprovalPolicy;
 };
 
 export type TurnRoutingConversation = {
   getThreadState: (threadId: string) => GetThreadStateResponse;
   submitTurn: (
     threadId: string,
-    request: { input: UserInput[]; approvalPolicy?: ApprovalPolicy },
+    request: { input: UserInput[] },
   ) => Promise<SubmitTurnResponse>;
   steerTurn: (
     threadId: string,
@@ -50,7 +48,6 @@ export async function executeTurnRouting(
     threadId: input.threadId,
     input: input.input,
     activeTurnId,
-    approvalPolicy: input.approvalPolicy,
   });
 
   if (decision.type === "ignore") {
@@ -71,7 +68,6 @@ export async function executeTurnRouting(
 
   const submitted = await context.conversation.submitTurn(decision.threadId, {
     input: decision.input,
-    approvalPolicy: decision.approvalPolicy,
   });
   return {
     type: "submit",

@@ -1,22 +1,16 @@
-export type ImageDetail = "auto" | "low" | "high" | "original";
+/** Requested image resolution. Omitted means the provider chooses; `full` asks for no downscaling. */
+export const IMAGE_DETAILS = ["low", "high", "full"] as const;
+export type ImageDetail = (typeof IMAGE_DETAILS)[number];
 
-export interface UserInputTextElement {
-  byteRange: {
-    start: number;
-    end: number;
-  };
-  placeholder: string | null;
-}
-
+/** Application input. Adapters encode it into their native message formats. */
 export type UserInput =
-  | { type: "text"; text: string; text_elements: UserInputTextElement[] }
+  | { type: "text"; text: string }
   | { type: "image"; url: string; detail?: ImageDetail }
-  | { type: "localImage"; path: string; detail?: ImageDetail }
+  | { type: "image_file"; path: string; detail?: ImageDetail }
   | { type: "audio"; url: string }
-  | { type: "localAudio"; path: string }
-  | { type: "skill"; name: string; path: string }
-  | { type: "mention"; name: string; path: string };
+  | { type: "audio_file"; path: string }
+  | { type: "skill"; name: string; path: string };
 
 export function toTextUserInput(text: string): UserInput {
-  return { type: "text", text, text_elements: [] };
+  return { type: "text", text };
 }

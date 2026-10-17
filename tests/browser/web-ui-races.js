@@ -5,17 +5,22 @@ async page => {
   const other=page.getByRole('button',{name:'Paginated history',exact:true});
   const connected=page.getByRole('status',{name:'Connected',exact:true});
   const composer=page.getByRole('textbox',{name:'Message Shepherd',exact:true});
-  const select=async(button,title)=>{await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));await button.click();await page.getByRole('heading',{name:title,exact:true}).waitFor();await connected.waitFor();};
+  // Recent-list refreshes can move a row between mouse down and mouse up.
+  // Keyboard activation targets the intended button independently of its position.
+  const select=async(button,title)=>{
+    await button.focus(); await page.keyboard.press('Enter');
+    await page.getByRole('heading',{name:title,exact:true}).waitFor(); await connected.waitFor();
+  };
   await select(stored,'A new home for Shepherd');
   const sentText='Delayed receipt '+Date.now();
   let releaseSend,accepted;const receipt=new Promise(resolve=>accepted=resolve);
-  await page.route('**/api/v1/conversations/*/messages',async route=>{
+  await page.route('**/api/conversations/*/messages',async route=>{
     const response=await route.fetch();const pending=new Promise(resolve=>releaseSend=resolve);accepted();await pending;await route.fulfill({response});
   });
   await composer.fill(sentText);await page.getByRole('button',{name:'Send message',exact:true}).click();await receipt;
   await page.locator('.message-user').filter({hasText:sentText}).waitFor();
   let holdHistory=true;const historyReleases=[];
-  await page.route('**/api/v1/conversations/*/turns?*',async route=>{
+  await page.route('**/api/conversations/*/turns?*',async route=>{
     if(holdHistory)await new Promise(resolve=>historyReleases.push(resolve));await route.continue();
   });
   const response=page.waitForResponse(r=>r.url().endsWith('/messages'));releaseSend();await response;

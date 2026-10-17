@@ -7,8 +7,6 @@ import {
 import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
   BridgeEvent,
-  TurnActivityEvent,
-  TurnImageGeneratedEvent,
 } from "../../../shared/protocol/events.js";
 import {
   createResponseStreamState,
@@ -87,20 +85,8 @@ type DiscordTurnDeliveryState = {
   queue: Promise<void>;
 };
 
-function pickButtonStyle(decision: string): ButtonStyle {
-  const normalized = decision.toLowerCase();
-  if (normalized.includes("accept") || normalized.includes("approve") || normalized === "success") {
-    return ButtonStyle.Success;
-  }
-  if (
-    normalized.includes("decline") ||
-    normalized.includes("deny") ||
-    normalized.includes("reject") ||
-    normalized === "failure"
-  ) {
-    return ButtonStyle.Danger;
-  }
-  return ButtonStyle.Secondary;
+function pickButtonStyle(intent: import("../../../shared/protocol/approvals.js").ApprovalChoice["intent"]): ButtonStyle {
+  return intent === "allow" || intent === "answer" ? ButtonStyle.Success : intent === "deny" ? ButtonStyle.Danger : ButtonStyle.Secondary;
 }
 
 export function buildApprovalRows(
@@ -122,7 +108,7 @@ export function buildApprovalRows(
       new ButtonBuilder()
         .setCustomId(encodeApprovalButtonId(threadId, approval.approvalId, choice.value))
         .setLabel(choice.label)
-        .setStyle(pickButtonStyle(choice.value)),
+        .setStyle(pickButtonStyle(choice.intent)),
     );
     count += 1;
   }
@@ -270,18 +256,18 @@ export function createDiscordThreadEventHandler(
     state.progressDelivery = createDiscordEditableSurfaceState();
   };
 
-  const sendCommentary = (
+  const sendInterim = (
     channelId: string,
     state: DiscordTurnDeliveryState,
-    commentary: AccumulatedMessage | null,
+    interim: AccumulatedMessage | null,
   ): void => {
-    const text = commentary?.text.trim();
+    const text = interim?.text.trim();
     if (!text) return;
     sealProgressSegment(channelId, state);
     enqueue(channelId, state, async (channel) => {
       const result = await sendDiscordMarkdown(channel, text);
       if (!result.success) {
-        onError(new Error(`Commentary delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
+        onError(new Error(`Progress message delivery stopped after ${result.deliveredChunks}/${result.totalChunks} parts.`));
       }
     });
   };
@@ -296,7 +282,7 @@ export function createDiscordThreadEventHandler(
     if (state.previewTimer) timers.clearTimeout(state.previewTimer);
     state.previewTimer = null;
     const text = getFinalResponseText(state.stream);
-    if (!text) return;
+    if (!text && !state.preview.messageId) return;
     enqueue(channelId, state, async (channel) => {
       const result = await updateDiscordPreview(channel, state.preview, text, {
         replyToMessageId: state.replyToMessageId,
@@ -349,6 +335,10 @@ export function createDiscordThreadEventHandler(
 
     const finalText = getFinalResponseText(state.stream);
     enqueue(channelId, state, async (channel) => {
+      if (!finalText && streaming) {
+        const cleared = await updateDiscordPreview(channel, state.preview, "");
+        if (!cleared.success) onError(new Error(cleared.error ?? "Discord preview clearing failed."));
+      }
       if (failed) {
         if (finalText) {
           const partial = await sendDiscordPages(
@@ -444,10 +434,9 @@ export function createDiscordThreadEventHandler(
       state.status !== "working" &&
       (
         [
-          "turn.stream.delta",
-          "turn.message.completed",
-          "turn.image.generated",
-          "turn.activity",
+          "item.started",
+          "item.delta",
+          "item.completed",
           "turn.completed",
           "turn.failed",
         ] as BridgeEvent["type"][]
@@ -456,10 +445,12 @@ export function createDiscordThreadEventHandler(
       return;
     }
 
-    if (event.type === "turn.activity") {
-      const activity = event.payload as TurnActivityEvent["payload"];
-      if (activity.status === "started" || activity.status === "failed") {
-        const line = formatActivityLine(activity);
+    const item = event.type === "item.started" || event.type === "item.completed" ? event.payload.item : null;
+    // Progress lines follow the conversation's own steps; a subagent's work stays inside its delegation.
+    if (item?.parentItemId) return;
+    if (item?.type === "activity") {
+      if (item.status === "started" || item.status === "failed") {
+        const line = formatActivityLine(item);
         if (!state.progressLineSet.has(line)) {
           state.progressLineSet.add(line);
           state.progressLines.push(line);
@@ -469,14 +460,14 @@ export function createDiscordThreadEventHandler(
       return;
     }
 
-    if (event.type === "turn.image.generated") {
-      const image = event.payload as TurnImageGeneratedEvent["payload"];
+    if (event.type === "item.completed" && item?.type === "image" && item.image.kind === "generated") {
+      const image = item.image;
       if (state.generatedImageItemIds.has(image.itemId)) return;
       state.generatedImageItemIds.add(image.itemId);
       flushProgress(channelId, state);
       enqueue(channelId, state, async (channel) => {
         const result = await sendDiscordGeneratedImage(channel, image.path, {
-          description: image.revisedPrompt,
+          description: image.prompt ?? null,
           ...(generatedImageLoader ? { loadAttachment: generatedImageLoader } : {}),
         });
         if (result.success) return;
@@ -499,14 +490,15 @@ export function createDiscordThreadEventHandler(
 
     if (reduction.type === "updated" || reduction.type === "message-completed") {
       state.stream = reduction.state;
-      sendCommentary(channelId, state, reduction.completedCommentary);
-      if (reduction.phase === "final_answer") {
+      sendInterim(channelId, state, reduction.completedInterim);
+      if (reduction.phase !== "interim") {
         schedulePreview(channelId, state);
       }
     } else if (reduction.type === "finish") {
       if (reduction.state) state.stream = reduction.state;
-      sendCommentary(channelId, state, reduction.completedCommentary);
-      finalizeTurn(channelId, state, reduction.failed);
+      sendInterim(channelId, state, reduction.completedInterim);
+      // An interrupted turn's text is a partial response, not its answer.
+      finalizeTurn(channelId, state, reduction.failed || reduction.interrupted);
     }
 
     if (event.type === "approval.requested") {

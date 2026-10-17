@@ -1,3 +1,4 @@
+import type { AgentProvider } from "../../shared/protocol/requests.js";
 import type { ApplicationConversation } from "./conversation_ports.js";
 import type { SurfaceListeningMode } from "./surface_state_service.js";
 import type { RuntimeLifecycleOrchestrator } from "./runtime_lifecycle_orchestrator.js";
@@ -17,7 +18,7 @@ export type SurfaceApplicationContext = {
   setSurfaceProject: (surfaceId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   inheritSurfaceProject?: (surfaceId: string, parentSurfaceId: string) => string | null;
   ensureSurfaceThread: (surfaceId: string) => Promise<string>;
-  createSurfaceThread: (surfaceId: string) => Promise<string>;
+  createSurfaceThread: (surfaceId: string, provider?: AgentProvider) => Promise<string>;
   switchSurfaceThread: (surfaceId: string, threadId: string) => Promise<string>;
   forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
   disposeSurface: (surfaceId: string) => void;

@@ -7,7 +7,8 @@ export type WebHostBatteryResponse = { battery: WebHostBattery | null };
 export type WebHostOperation = {
   id: string;
   action: "restart" | "deploy";
-  phase: "starting" | "validating" | "restarting" | "finished";
+  /** `draining` waits for running work to finish before restarting; new turns wait meanwhile. */
+  phase: "starting" | "validating" | "draining" | "restarting" | "finished";
   message: string;
 };
 export type WebHostStatus = {

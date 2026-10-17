@@ -4,7 +4,7 @@ import { ShepherdRuntime } from "../server/runtime/shepherd_runtime.js";
 
 function makeRuntime(options: { restartDelayMs?: number; exitProcess?: (code: number) => void } = {}) {
   return new ShepherdRuntime({
-    approvalPolicy: "on-request",
+    approvalPolicy: "review_sensitive",
     restartDelayMs: options.restartDelayMs,
     exitProcess: options.exitProcess,
     deployment: {

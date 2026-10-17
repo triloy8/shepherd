@@ -67,7 +67,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
       const listener = (event: BridgeEvent): void => {
         if (event.type === "session.error") {
           const payload = event.payload as { message?: string };
-          finish(new Error(payload.message ?? "Codex session failed during signal turn."));
+          finish(new Error(payload.message ?? "Agent session failed during signal turn."));
           return;
         }
         if (!isTerminalTurnEvent(event)) return;
@@ -79,7 +79,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
           earlyTerminalTurnIds.add(turnId);
           return;
         }
-        if (expectedTurnId === null || turnId === expectedTurnId) finish();
+        if (turnId === null || expectedTurnId === null || turnId === expectedTurnId) finish();
       };
 
       const unsubscribe = this.conversation.subscribeToThreadEvents(
@@ -92,7 +92,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
         (result) => {
           expectedTurnId = result.turnId;
           if (
-            earlyTerminalTurnIds.has(result.turnId) ||
+            earlyTerminalTurnIds.has(null) || earlyTerminalTurnIds.has(result.turnId) ||
             (result.turnId === null && earlyTerminalTurnIds.size > 0)
           ) {
             finish();
@@ -116,10 +116,10 @@ export class ConversationSignalExecutor implements SignalExecutor {
       const listener = (event: BridgeEvent): void => {
         if (event.type === "session.error") {
           const payload = event.payload as { message?: string };
-          finish(new Error(payload.message ?? "Codex session failed while waiting for the active turn."));
+          finish(new Error(payload.message ?? "Agent session failed while waiting for the active turn."));
           return;
         }
-        if (!isTerminalTurnEvent(event) || eventTurnId(event) !== activeTurnId) return;
+        if (!isTerminalTurnEvent(event) || (eventTurnId(event) !== null && eventTurnId(event) !== activeTurnId)) return;
         if (event.type === "turn.failed" && this.conversation.getThreadState(threadId).activeTurnId) return;
         finish();
       };

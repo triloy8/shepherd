@@ -1,7 +1,7 @@
 /** Expected application failures; adapters own their presentation. */
 export type ActionFailure =
   | { code: "model_unavailable" }
-  | { code: "unsupported_effort"; model: string; requested: string; available: string[] }
+  | { code: "unsupported_effort"; model: string | null; requested: string; available: string[] }
   | { code: "thread_required" }
   | { code: "project_required" }
   | { code: "workspace_unavailable" }
@@ -9,7 +9,9 @@ export type ActionFailure =
   | { code: "unknown_model"; requestedModel: string }
   | { code: "invalid_skill" }
   | { code: "skill_not_found"; requestedSkill: string }
-  | { code: "skill_ambiguous"; requestedSkill: string; candidates: Array<{ name: string; scope: string; path: string }> };
+  | { code: "skill_ambiguous"; requestedSkill: string; candidates: Array<{ name: string; scope: string; path: string }> }
+  /** Shepherd is waiting for running work to finish before it restarts; new turns start after. */
+  | { code: "restart_pending" };
 
 export class ApplicationActionError extends Error {
   constructor(readonly failure: ActionFailure) {

@@ -1,3 +1,4 @@
+import { decodeApprovalButtonId } from "../server/adapters/discord/message_renderer";
 import { describe, expect, test } from "bun:test";
 import { ComponentType, type MessageCreateOptions, type MessageEditOptions } from "discord.js";
 
@@ -12,7 +13,7 @@ import { formatApprovalText } from "../server/adapters/discord/message_renderer.
 
 let eventCounter = 0;
 
-function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): BridgeEvent<TPayload> {
+function makeEvent<K extends BridgeEvent["type"]>(type: K, payload: import("../shared/protocol/events.js").BridgeEventPayloads[K]): import("../shared/protocol/events.js").BridgeEventOf<K> {
   return {
     id: `evt-${++eventCounter}`,
     type,
@@ -24,23 +25,11 @@ function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): Brid
 }
 
 function finalDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
-  return makeEvent("turn.stream.delta", {
-    method: "item/agentMessage/delta",
-    textDelta,
-    itemId: `final-${turnId}`,
-    phase: "final_answer",
-    turnId,
-  });
+  return makeEvent("item.delta", { turnId: turnId, itemId: `final-${turnId}`, channel: "message", delta: textDelta, phase: "final" });
 }
 
-function commentaryDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
-  return makeEvent("turn.stream.delta", {
-    method: "item/agentMessage/delta",
-    textDelta,
-    itemId: `comment-${turnId}`,
-    phase: "commentary",
-    turnId,
-  });
+function interimDelta(textDelta: string, turnId = "turn-1"): BridgeEvent {
+  return makeEvent("item.delta", { turnId: turnId, itemId: `comment-${turnId}`, channel: "message", delta: textDelta, phase: "interim" });
 }
 
 function createHarness(options: { failSendAt?: number } = {}) {
@@ -48,6 +37,7 @@ function createHarness(options: { failSendAt?: number } = {}) {
   type EditPayload = string | MessageEditOptions;
   const edits: Array<{ id: string; content: EditPayload }> = [];
   const typing: number[] = [];
+  const deleted: string[] = [];
   const messages = new Map<string, { id: string; edit: (content: EditPayload) => Promise<void> }>();
   let sendAttempts = 0;
 
@@ -62,6 +52,7 @@ function createHarness(options: { failSendAt?: number } = {}) {
       const id = `msg-${sendAttempts}`;
       const message = {
         id,
+        async delete() { deleted.push(id); messages.delete(id); },
         async edit(content: EditPayload) {
           edits.push({ id, content });
         },
@@ -89,7 +80,7 @@ function createHarness(options: { failSendAt?: number } = {}) {
       },
     },
   };
-  return { channel, client, sent, edits, typing, errors };
+  return { channel, client, sent, edits, typing, errors, deleted };
 }
 
 function componentJson(value: unknown): Record<string, unknown> {
@@ -175,35 +166,35 @@ describe("Discord thread event handler", () => {
   test("builds approval button rows with encoded decisions", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
-      method: "shell.exec",
-      prompt: "Approve?",
-      params: {},
+      kind: "permission",
+      activity: { kind: "command", command: "bun test", cwd: null },
+      reason: null,
       choices: [
-        { value: "approve", label: "Approve" },
-        { value: "reject", label: "Reject" },
+        { value: "approve", label: "Approve", intent: "allow" },
+        { value: "reject", label: "Reject", intent: "deny" },
       ],
     };
 
     const rows = buildApprovalRows("thread-1", approval);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.components).toHaveLength(2);
-    expect(rows[0]?.components[0]?.data.custom_id).toBe("approval|thread-1|approval-1|approve");
-    expect(rows[0]?.components[1]?.data.custom_id).toBe("approval|thread-1|approval-1|reject");
+    expect(decodeApprovalButtonId(rows[0]!.components[0]!.data.custom_id!)).toEqual({ threadId: "thread-1", approvalId: "approval-1", decision: "approve" });
+    expect(decodeApprovalButtonId(rows[0]!.components[1]!.data.custom_id!)).toEqual({ threadId: "thread-1", approvalId: "approval-1", decision: "reject" });
   });
 
   test("formats approval content as a structured prompt", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
-      method: "shell.exec",
-      prompt: "Run `bun install`?",
-      params: {},
+      kind: "permission",
+      activity: { kind: "command", command: "bun install", cwd: null },
+      reason: null,
       choices: [
-        { value: "approve", label: "Approve" },
-        { value: "reject", label: "Reject" },
+        { value: "approve", label: "Approve", intent: "allow" },
+        { value: "reject", label: "Reject", intent: "deny" },
       ],
     };
     expect(formatApprovalText(approval)).toContain("Approval Required");
-    expect(formatApprovalText(approval)).toContain("Action: shell.exec");
+    expect(formatApprovalText(approval)).toContain("Action: permission");
   });
 
   test("buffers final deltas until completion while showing typing", async () => {
@@ -277,26 +268,14 @@ describe("Discord thread event handler", () => {
 
     handler.recordReplyTarget("chan-1", "user-message-1");
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
-    handler.handleThreadEvent("chan-1", commentaryDelta("I found the issue."));
+    handler.handleThreadEvent("chan-1", interimDelta("I found the issue."));
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.message.completed", {
-        itemId: "comment-turn-1",
-        phase: "commentary",
-        text: "I found the issue.",
-        turnId: "turn-1",
-      }),
+      makeEvent("item.completed", { turnId: "turn-1", item: { id: "comment-turn-1", type: "assistant_message", text: "I found the issue.", phase: "interim" } }),
     );
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.activity", {
-        itemId: "command-1",
-        turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun test",
-        status: "started",
-      }),
+      makeEvent("item.started", { turnId: "turn-1", item: { id: "command-1", type: "activity", status: "started", activity: { kind: "command", command: "bun test", cwd: null } } }),
     );
     handler.handleThreadEvent("chan-1", finalDelta("The tests pass."));
     handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
@@ -326,35 +305,16 @@ describe("Discord thread event handler", () => {
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.activity", {
-        itemId: "command-1",
-        turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun test",
-        status: "started",
-      }),
+      makeEvent("item.started", { turnId: "turn-1", item: { id: "command-1", type: "activity", status: "started", activity: { kind: "command", command: "bun test", cwd: null } } }),
     );
-    handler.handleThreadEvent("chan-1", commentaryDelta("The first check passed."));
+    handler.handleThreadEvent("chan-1", interimDelta("The first check passed."));
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.message.completed", {
-        itemId: "comment-turn-1",
-        phase: "commentary",
-        text: "The first check passed.",
-        turnId: "turn-1",
-      }),
+      makeEvent("item.completed", { turnId: "turn-1", item: { id: "comment-turn-1", type: "assistant_message", text: "The first check passed.", phase: "interim" } }),
     );
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.activity", {
-        itemId: "search-1",
-        turnId: "turn-1",
-        kind: "web_search",
-        label: "Searching the web",
-        detail: "Discord ordering",
-        status: "started",
-      }),
+      makeEvent("item.started", { turnId: "turn-1", item: { id: "search-1", type: "activity", status: "started", activity: { kind: "web", query: "Discord ordering", url: null } } }),
     );
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
@@ -366,14 +326,7 @@ describe("Discord thread event handler", () => {
 
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.activity", {
-        itemId: "command-2",
-        turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun run check",
-        status: "started",
-      }),
+      makeEvent("item.started", { turnId: "turn-1", item: { id: "command-2", type: "activity", status: "started", activity: { kind: "command", command: "bun run check", cwd: null } } }),
     );
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
@@ -396,14 +349,7 @@ describe("Discord thread event handler", () => {
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.activity", {
-        itemId: "command-1",
-        turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun test",
-        status: "started",
-      }),
+      makeEvent("item.started", { turnId: "turn-1", item: { id: "command-1", type: "activity", status: "started", activity: { kind: "command", command: "bun test", cwd: null } } }),
     );
     handler.handleThreadEvent(
       "chan-1",
@@ -411,14 +357,7 @@ describe("Discord thread event handler", () => {
     );
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.activity", {
-        itemId: "command-2",
-        turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "bun run check",
-        status: "started",
-      }),
+      makeEvent("item.started", { turnId: "turn-1", item: { id: "command-2", type: "activity", status: "started", activity: { kind: "command", command: "bun run check", cwd: null } } }),
     );
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
@@ -439,14 +378,7 @@ describe("Discord thread event handler", () => {
       timers: clock.timers,
       onError: (error) => harness.errors.push(error),
     });
-    const firstActivity = makeEvent("turn.activity", {
-      itemId: "command-1",
-      turnId: "turn-1",
-      kind: "command",
-      label: "Running command",
-      detail: "bun test",
-      status: "started",
-    });
+    const firstActivity = makeEvent("item.started", { turnId: "turn-1", item: { id: "command-1", type: "activity", status: "started", activity: { kind: "command", command: "bun test", cwd: null } } });
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent("chan-1", firstActivity);
     handler.handleThreadEvent("chan-1", firstActivity);
@@ -456,14 +388,7 @@ describe("Discord thread event handler", () => {
 
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.activity", {
-        itemId: "search-1",
-        turnId: "turn-1",
-        kind: "web_search",
-        label: "Searching the web",
-        detail: "Discord limits",
-        status: "started",
-      }),
+      makeEvent("item.started", { turnId: "turn-1", item: { id: "search-1", type: "activity", status: "started", activity: { kind: "web", query: "Discord limits", url: null } } }),
     );
     clock.runTimeouts();
     await handler.waitForIdle("chan-1");
@@ -489,35 +414,18 @@ describe("Discord thread event handler", () => {
       },
       onError: (error) => harness.errors.push(error),
     });
-    const generated = makeEvent("turn.image.generated", {
-      itemId: "image-1",
-      turnId: "turn-1",
-      path: "/tmp/unicorn.png",
-      revisedPrompt: "A pastel unicorn",
-    });
+    const generated = makeEvent("item.completed", { turnId: "turn-1", item: { id: "image-1", type: "image", image: { itemId: "image-1", turnId: "turn-1", path: "/tmp/unicorn.png", prompt: "A pastel unicorn", kind: "generated" } } });
 
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.activity", {
-        itemId: "image-1",
-        turnId: "turn-1",
-        kind: "image",
-        label: "Generating image",
-        detail: "A pastel unicorn",
-        status: "started",
-      }),
+      makeEvent("item.started", { turnId: "turn-1", item: { id: "image-1", type: "activity", status: "started", activity: { kind: "image", action: "generate", path: null, prompt: "A pastel unicorn" } } }),
     );
     handler.handleThreadEvent("chan-1", generated);
     handler.handleThreadEvent("chan-1", generated);
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.image.generated", {
-        itemId: "image-2",
-        turnId: "turn-1",
-        path: "/tmp/landscape.webp",
-        revisedPrompt: "A pastel landscape",
-      }),
+      makeEvent("item.completed", { turnId: "turn-1", item: { id: "image-2", type: "image", image: { itemId: "image-2", turnId: "turn-1", path: "/tmp/landscape.webp", prompt: "A pastel landscape", kind: "generated" } } }),
     );
     handler.handleThreadEvent("chan-1", finalDelta("Here is the generated image."));
     handler.handleThreadEvent("chan-1", makeEvent("turn.completed", { turnId: "turn-1" }));
@@ -557,12 +465,7 @@ describe("Discord thread event handler", () => {
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-new" }));
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.image.generated", {
-        itemId: "image-old",
-        turnId: "turn-old",
-        path: "/tmp/stale.png",
-        revisedPrompt: null,
-      }),
+      makeEvent("item.completed", { turnId: "turn-old", item: { id: "image-old", type: "image", image: { itemId: "image-old", turnId: "turn-old", path: "/tmp/stale.png", prompt: null, kind: "generated" } } }),
     );
     await handler.waitForIdle("chan-1");
 
@@ -583,12 +486,7 @@ describe("Discord thread event handler", () => {
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent(
       "chan-1",
-      makeEvent("turn.image.generated", {
-        itemId: "image-1",
-        turnId: "turn-1",
-        path: "/private/generated.png",
-        revisedPrompt: null,
-      }),
+      makeEvent("item.completed", { turnId: "turn-1", item: { id: "image-1", type: "image", image: { itemId: "image-1", turnId: "turn-1", path: "/private/generated.png", prompt: null, kind: "generated" } } }),
     );
     await handler.waitForIdle("chan-1");
 
@@ -726,10 +624,10 @@ describe("Discord thread event handler", () => {
     const handler = createDiscordThreadEventHandler(harness.client);
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
-      method: "item/commandExecution/requestApproval",
-      prompt: "Run tests?",
-      params: {},
-      choices: [{ value: "accept", label: "Allow Once" }],
+      kind: "permission",
+      activity: { kind: "command", command: "Run tests?", cwd: null },
+      reason: null,
+      choices: [{ value: "accept", label: "Allow Once", intent: "allow" }],
     };
     handler.handleThreadEvent("chan-1", makeEvent("turn.started", { turnId: "turn-1" }));
     handler.handleThreadEvent("chan-1", makeEvent("approval.requested", approval));
@@ -737,8 +635,86 @@ describe("Discord thread event handler", () => {
 
     expect(sentCard(harness.sent, 0).title).toBe("Approval required");
     expect(sentCard(harness.sent, 0).description).toContain("Run tests?");
-    expect(sentCard(harness.sent, 0).description).toContain("**Action:** `item/commandExecution/requestApproval`");
+    expect(sentCard(harness.sent, 0).description).toContain("**Action:** `permission`");
     expect(harness.sent[0]?.components).toHaveLength(1);
     handler.dispose();
   });
+});
+
+for (const streaming of [false, true]) test(`Discord delivers canonical unphased answers with streaming=${streaming}`, async () => {
+  const h = createHarness(); const timers = createDeterministicTimers();
+  const handler = createDiscordThreadEventHandler(h.client, { streaming, timers: timers.timers, onError: error => h.errors.push(error) });
+  try {
+    handler.handleThreadEvent("channel", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("channel", makeEvent("item.delta", { turnId: "turn-1", itemId: "answer", channel: "message", delta: "Partial answer", phase: null }));
+    if (streaming) { timers.runTimeouts(); await handler.waitForIdle("channel"); }
+    handler.handleThreadEvent("channel", makeEvent("item.completed", { turnId: "turn-1", item: { id: "answer", type: "assistant_message", text: "Canonical answer" } }));
+    handler.handleThreadEvent("channel", makeEvent("turn.completed", { turnId: "turn-1" }));
+    await handler.waitForIdle("channel");
+    expect([...h.sent, ...h.edits.map(edit => edit.content)].map(payloadText).join("\n")).toContain("Canonical answer");
+    expect(h.errors).toEqual([]);
+  } finally { handler.dispose(); }
+});
+
+for (const streaming of [false, true]) test(`Discord anonymous item completion sends one answer with streaming=${streaming}`, async () => {
+  const h = createHarness(); const timers = createDeterministicTimers();
+  const handler = createDiscordThreadEventHandler(h.client, { streaming, timers: timers.timers, onError: error => h.errors.push(error) });
+  try {
+    handler.handleThreadEvent("channel", makeEvent("turn.started", { turnId: "turn-1" }));
+    handler.handleThreadEvent("channel", makeEvent("item.delta", { turnId: null, itemId: null, channel: "message", delta: "Hello", phase: "final" }));
+    if (streaming) { timers.runTimeouts(); await handler.waitForIdle("channel"); }
+    handler.handleThreadEvent("channel", makeEvent("item.completed", { turnId: null, item: { id: "canonical", type: "assistant_message", text: "Canonical answer" } }));
+    handler.handleThreadEvent("channel", makeEvent("turn.completed", { turnId: null }));
+    await handler.waitForIdle("channel");
+    const deliveries = [...h.sent, ...h.edits.map(edit => edit.content)].map(payloadText);
+    expect(deliveries.filter(text => text.includes("Canonical answer"))).toHaveLength(1);
+    expect(deliveries.some(text => text.includes("Hello\n\nCanonical answer"))).toBe(false);
+    expect(h.errors).toEqual([]);
+  } finally { handler.dispose(); }
+});
+
+for (const phase of ["final", null] as const) test(`Discord does not deliver text replaced by an empty canonical ${phase} completion`, async () => {
+  const h = createHarness();
+  const handler = createDiscordThreadEventHandler(h.client, { onError: error => h.errors.push(error) });
+  try {
+    handler.handleThreadEvent("channel", makeEvent("turn.started", { turnId: "turn" }));
+    handler.handleThreadEvent("channel", makeEvent("item.delta", { turnId: "turn", itemId: "a", channel: "message", delta: "Discard this", phase: phase }));
+    handler.handleThreadEvent("channel", makeEvent("item.completed", { turnId: "turn", item: { id: "a", type: "assistant_message", text: "", ...(phase ? { phase: phase } : {}) } }));
+    handler.handleThreadEvent("channel", makeEvent("turn.completed", { turnId: null }));
+    await handler.waitForIdle("channel");
+    expect(h.sent.map(payloadText).join("\n")).not.toContain("Discard this");
+    expect(h.errors).toEqual([]);
+  } finally { handler.dispose(); }
+});
+
+for (const terminal of ["turn.completed", "turn.failed"] as const) test(`empty canonical completion removes a visible streaming preview before ${terminal}`, async () => {
+  const h = createHarness(); const timers = createDeterministicTimers();
+  const handler = createDiscordThreadEventHandler(h.client, { streaming: true, timers: timers.timers, onError: error => h.errors.push(error) });
+  try {
+    handler.handleThreadEvent("channel", makeEvent("turn.started", { turnId: "turn" }));
+    handler.handleThreadEvent("channel", makeEvent("item.delta", { turnId: "turn", itemId: "a", channel: "message", delta: "Discard this", phase: "final" }));
+    timers.runTimeouts(); await handler.waitForIdle("channel");
+    expect(h.sent.map(payloadText).join("\n")).toContain("Discard this");
+    handler.handleThreadEvent("channel", makeEvent("item.completed", { turnId: "turn", item: { id: "a", type: "assistant_message", text: "", phase: "final" } }));
+    handler.handleThreadEvent("channel", terminal === "turn.failed" ? makeEvent(terminal, { turnId: null, message: "Stopped" }) : makeEvent(terminal, { turnId: null }));
+    await handler.waitForIdle("channel");
+    expect(h.deleted).toEqual(["msg-1"]);
+    expect(h.errors).toEqual([]);
+  } finally { handler.dispose(); }
+});
+
+test("anonymous interim text adopts a canonical ID and is delivered once", async () => {
+  const h = createHarness(); const handler = createDiscordThreadEventHandler(h.client, { onError: error => h.errors.push(error) });
+  try {
+    handler.handleThreadEvent("channel", makeEvent("turn.started", { turnId: "t" }));
+    handler.handleThreadEvent("channel", makeEvent("item.delta", { turnId: "t", itemId: null, channel: "message", delta: "I am ", phase: "interim" }));
+    handler.handleThreadEvent("channel", makeEvent("item.delta", { turnId: "t", itemId: "a", channel: "message", delta: "working", phase: null }));
+    await handler.waitForIdle("channel"); expect(h.sent).toHaveLength(0);
+    handler.handleThreadEvent("channel", makeEvent("item.completed", { turnId: "t", item: { id: "a", type: "assistant_message", text: "I am working" } }));
+    handler.handleThreadEvent("channel", makeEvent("item.completed", { turnId: "t", item: { id: "b", type: "assistant_message", text: "Done", phase: "final" } }));
+    handler.handleThreadEvent("channel", makeEvent("turn.completed", { turnId: "t" }));
+    await handler.waitForIdle("channel");
+    expect(h.sent.map(payloadText)).toEqual(["I am working", "Done"]);
+    expect(h.errors).toEqual([]);
+  } finally { handler.dispose(); }
 });

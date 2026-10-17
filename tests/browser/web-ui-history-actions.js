@@ -37,7 +37,7 @@ async (page) => {
   let captured;
   const waiting = new Promise(resolve => { captured = resolve; });
   let first = true;
-  await page.route('**/api/v1/conversations/*/turns?*', async route => {
+  await page.route('**/api/conversations/*/turns?*', async route => {
     if (!first) return route.continue();
     first = false;
     const response = await route.fetch();
@@ -54,7 +54,7 @@ async (page) => {
   if (mutation.status() !== 200) throw Error('Revert failed');
   release();
   await page.getByText('Conversation reverted. Files were not changed.', { exact: true }).waitFor();
-  await page.unroute('**/api/v1/conversations/*/turns?*');
+  await page.unroute('**/api/conversations/*/turns?*');
   await user('Keep this turn').waitFor();
   await second.locator('article.message-user').filter({ has: second.getByText('Remove this turn', { exact: true }) }).waitFor({ state: 'hidden' });
   await second.getByText('This turn is no longer in the displayed history.', { exact: false }).waitFor();
@@ -68,7 +68,7 @@ async (page) => {
   if (await user('Remove this turn').count()) throw Error('Old SSE replay restored removed turn');
 
   // Ambiguous outcomes cannot be retried by dismissing/reopening confirmation.
-  await page.route('**/api/v1/conversations/*/revert', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Revert unavailable' } } }));
+  await page.route('**/api/conversations/*/revert', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Revert unavailable' } } }));
   await revert('Keep this turn').click();
   await confirm.click();
   await dialog.getByText('Revert unavailable', { exact: true }).waitFor();
@@ -76,14 +76,14 @@ async (page) => {
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await revert('Keep this turn').click();
   if (await confirm.isEnabled()) throw Error('Closing dialog bypassed recovery');
-  await page.route('**/api/v1/conversations/*/turns?*', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'History unavailable' } } }));
+  await page.route('**/api/conversations/*/turns?*', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'History unavailable' } } }));
   await dialog.getByRole('button', { name: 'Reload conversation to check outcome', exact: true }).click();
   await dialog.getByRole('alert').filter({ hasText: 'Could not reach Shepherd' }).waitFor();
   if (await confirm.isEnabled()) throw Error('Failed reload enabled retry');
-  await page.unroute('**/api/v1/conversations/*/turns?*');
+  await page.unroute('**/api/conversations/*/turns?*');
   await dialog.getByRole('button', { name: 'Reload conversation to check outcome', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
-  await page.unroute('**/api/v1/conversations/*/revert');
+  await page.unroute('**/api/conversations/*/revert');
   await revert('Keep this turn').click();
   if (!await confirm.isEnabled()) throw Error('Successful recovery did not enable revert');
   await page.keyboard.press('Escape');

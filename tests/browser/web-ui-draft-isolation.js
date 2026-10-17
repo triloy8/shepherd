@@ -30,7 +30,7 @@ async page => {
 
   let releaseSend, receivedSend;
   const receipt = new Promise(resolve => { receivedSend = resolve; });
-  await page.route('**/api/v1/conversations/*/messages', async route => {
+  await page.route('**/api/conversations/*/messages', async route => {
     const response = await route.fetch();
     const pending = new Promise(resolve => { releaseSend = resolve; }); receivedSend();
     await pending; await route.fulfill({ response });
@@ -52,7 +52,7 @@ async page => {
 
   let releaseDetach, receivedDetach;
   const detached = new Promise(resolve => { receivedDetach = resolve; });
-  await page.route('**/api/v1/conversations/*', async route => {
+  await page.route('**/api/conversations/*', async route => {
     if (route.request().method() !== 'DELETE') return route.continue();
     const response = await route.fetch();
     const pending = new Promise(resolve => { releaseDetach = resolve; }); receivedDetach();

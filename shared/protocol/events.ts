@@ -1,103 +1,81 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
-import type { ApprovalPolicy, ThreadTokenUsage } from "./requests.js";
+import type { HistoryItem, ReasoningForm, ThreadTokenUsage } from "./requests.js";
 
-export type MessagePhase = "commentary" | "final_answer";
+/** Interim text reports progress during a turn; final text answers it. */
+export type MessagePhase = "interim" | "final";
 
-export type TurnActivityKind =
-  | "command"
-  | "file_change"
-  | "mcp_tool"
-  | "dynamic_tool"
-  | "web_search"
-  | "collaboration"
-  | "image"
-  | "wait"
-  | "other";
+/** Which part of an item a delta extends: assistant message text, plan text, a reasoning
+ * summary, or an activity's output. */
+export type ItemDeltaChannel = "message" | "plan" | "reasoning" | "output";
 
-export type TurnActivityStatus = "started" | "completed" | "failed";
-
-export type BridgeEventType =
-  | "session.started"
-  | "session.error"
-  | "session.limit.context"
-  | "thread.started"
-  | "thread.status.changed"
-  | "thread.name.updated"
-  | "thread.archived"
-  | "thread.unarchived"
-  | "thread.reverted"
-  | "thread.tokenUsage.updated"
-  | "turn.started"
-  | "turn.completed"
-  | "turn.failed"
-  | "turn.stream.delta"
-  | "turn.message.completed"
-  | "turn.image.generated"
-  | "turn.image.viewed"
-  | "turn.activity"
-  | "turn.notification"
-  | "approval.requested"
-  | "approval.decided"
-  | "approval.applied"
-  | "approval.failed"
-  | "approval.expired";
-
-export interface BridgeEvent<TPayload = unknown> {
-  id: string;
-  type: BridgeEventType;
-  threadId: string;
-  sessionId: string;
-  ts: string;
-  payload: TPayload;
+/** A turn's items stream live as the records history returns: `item.started` for items that
+ * take time, `item.delta` for streamed text, and `item.completed` with the canonical item.
+ * Null turn IDs refer to the current turn. Providers must supply IDs for delayed events
+ * belonging to an earlier turn. Null delta item IDs refer to the pending message, which
+ * is anonymous until an identified delta/completion supplies its canonical identity. */
+export interface BridgeEventPayloads {
+  "session.started": { model: string };
+  "session.error": { message: string };
+  "session.limit.context": { message: string };
+  "thread.started": Record<string, never>;
+  "thread.status.changed": { status: { state: "active" | "idle" | "error"; backgroundTaskCount: number } };
+  /** The settings the thread now runs with, as the adapter applied them. */
+  /** `profile` is one of the provider's policy profiles, or null for the agent's own defaults. */
+  "thread.settings.changed": { model: string | null; effort: string | null; cwd: string; profile: string | null };
+  "thread.name.updated": { threadName: string | null };
+  "thread.archived": Record<string, never>;
+  "thread.reverted": Record<string, never>;
+  "thread.unarchived": Record<string, never>;
+  "thread.tokenUsage.updated": { turnId: string | null; tokenUsage: ThreadTokenUsage | null };
+  "turn.started": { turnId: string | null };
+  /** `interrupted` marks a turn stopped before it finished, as history then reports it. */
+  "turn.completed": { turnId: string | null; interrupted?: boolean };
+  "turn.failed": { message: string; turnId: string | null };
+  /** An item that takes time has begun; it is the same record history returns, in its current state. */
+  "item.started": { turnId: string | null; item: HistoryItem };
+  /** Streamed text for an item. Only `message` text is part of an assistant message. */
+  /** Reasoning deltas state their `form`, and `part` names the reasoning part a delta extends
+   * when the provider has several. */
+  "item.delta": { turnId: string | null; itemId: string | null; channel: ItemDeltaChannel; delta: string; phase: MessagePhase | null; part?: number; form?: ReasoningForm };
+  /** The canonical item, equal to what history returns for it. */
+  "item.completed": { turnId: string | null; item: HistoryItem };
+  "approval.requested": ApprovalRequestPayload;
+  /** Reused native IDs need requestEventId (the request event ID), or a uniquely identifying turnId. */
+  "approval.decided": { approvalId: string; decision: string; state: ApprovalRecord["status"]; turnId?: string | null; requestEventId?: string };
+  "approval.applied": { approvalId: string; turnId?: string | null; requestEventId?: string };
+  "approval.failed": { approvalId: string; message: string; turnId?: string | null; requestEventId?: string };
+  "approval.expired": { approvalId: string; turnId?: string | null; requestEventId?: string };
 }
 
-export type SessionStartedEvent = BridgeEvent<{ model: string }>;
-export type SessionErrorEvent = BridgeEvent<{ message: string }>;
-export type SessionContextLimitEvent = BridgeEvent<{ message: string; method: string }>;
-export type ThreadStartedEvent = BridgeEvent<{ approvalPolicy: ApprovalPolicy }>;
-export type ThreadStatusChangedEvent = BridgeEvent<{ status: unknown }>;
-export type ThreadNameUpdatedEvent = BridgeEvent<{ threadName: string | null }>;
-export type ThreadArchivedEvent = BridgeEvent<Record<string, never>>;
-export type ThreadRevertedEvent = BridgeEvent<Record<string, never>>;
-export type ThreadUnarchivedEvent = BridgeEvent<Record<string, never>>;
-export type ThreadTokenUsageUpdatedEvent = BridgeEvent<{ turnId: string | null; tokenUsage: ThreadTokenUsage | null }>;
-export type TurnStartedEvent = BridgeEvent<{ turnId: string | null }>;
-export type TurnCompletedEvent = BridgeEvent<{ turnId: string | null }>;
-export type TurnFailedEvent = BridgeEvent<{ message: string; turnId: string | null }>;
-export type TurnStreamDeltaEvent = BridgeEvent<{
-  method: string;
-  textDelta: string;
-  itemId: string | null;
-  phase: MessagePhase | null;
-  turnId: string | null;
-}>;
-export type TurnMessageCompletedEvent = BridgeEvent<{
-  itemId: string;
-  phase: MessagePhase | null;
-  text: string;
-  turnId: string | null;
-}>;
-export type TurnImageGeneratedEvent = BridgeEvent<{
-  itemId: string;
-  turnId: string | null;
-  path: string;
-  revisedPrompt: string | null;
-}>;
-export type TurnImageViewedEvent = BridgeEvent<{
-  itemId: string;
-  turnId: string | null;
-  path: string;
-}>;
-export type TurnActivityEvent = BridgeEvent<{
-  itemId: string | null;
-  turnId: string | null;
-  kind: TurnActivityKind;
-  label: string;
-  detail: string | null;
-  status: TurnActivityStatus;
-}>;
-export type TurnNotificationEvent = BridgeEvent<{ method: string; params: unknown }>;
-export type ApprovalRequestedEvent = BridgeEvent<ApprovalRequestPayload>;
-export type ApprovalDecidedEvent = BridgeEvent<{ approvalId: string; decision: string; state: ApprovalRecord["status"] }>;
-export type ApprovalAppliedEvent = BridgeEvent<{ approvalId: string }>;
-export type ApprovalFailedEvent = BridgeEvent<{ approvalId: string; message: string }>;
+export type BridgeEventType = keyof BridgeEventPayloads;
+export type BridgeEventOf<K extends BridgeEventType> = {
+  id: string; type: K; threadId: string; sessionId: string; ts: string; payload: BridgeEventPayloads[K];
+};
+export type BridgeEvent = { [K in BridgeEventType]: BridgeEventOf<K> }[BridgeEventType];
+
+/** Construct a correlated event; callers must supply the payload for its event name. */
+export function bridgeEvent<K extends BridgeEventType>(event: BridgeEventOf<K>): BridgeEvent {
+  return event as BridgeEvent;
+}
+
+export type SessionStartedEvent = BridgeEventOf<"session.started">;
+export type SessionErrorEvent = BridgeEventOf<"session.error">;
+export type SessionContextLimitEvent = BridgeEventOf<"session.limit.context">;
+export type ThreadStartedEvent = BridgeEventOf<"thread.started">;
+export type ThreadStatusChangedEvent = BridgeEventOf<"thread.status.changed">;
+export type ThreadSettingsChangedEvent = BridgeEventOf<"thread.settings.changed">;
+export type ThreadNameUpdatedEvent = BridgeEventOf<"thread.name.updated">;
+export type ThreadArchivedEvent = BridgeEventOf<"thread.archived">;
+export type ThreadRevertedEvent = BridgeEventOf<"thread.reverted">;
+export type ThreadUnarchivedEvent = BridgeEventOf<"thread.unarchived">;
+export type ThreadTokenUsageUpdatedEvent = BridgeEventOf<"thread.tokenUsage.updated">;
+export type TurnStartedEvent = BridgeEventOf<"turn.started">;
+export type TurnCompletedEvent = BridgeEventOf<"turn.completed">;
+export type TurnFailedEvent = BridgeEventOf<"turn.failed">;
+export type ItemStartedEvent = BridgeEventOf<"item.started">;
+export type ItemDeltaEvent = BridgeEventOf<"item.delta">;
+export type ItemCompletedEvent = BridgeEventOf<"item.completed">;
+export type ApprovalRequestedEvent = BridgeEventOf<"approval.requested">;
+export type ApprovalDecidedEvent = BridgeEventOf<"approval.decided">;
+export type ApprovalAppliedEvent = BridgeEventOf<"approval.applied">;
+export type ApprovalFailedEvent = BridgeEventOf<"approval.failed">;

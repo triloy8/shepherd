@@ -1,4 +1,11 @@
-# Codex App-Server Schema Parity Matrix
+# Codex parity matrix
+
+This document inventories the Codex app-server protocol only. For Claude Agent
+SDK and subscription coverage, see the [Claude parity matrix](claude-parity-matrix.md).
+For Discord and web controls, see the [surface parity matrix](surface-parity-matrix.md).
+The provider split was reviewed on 2026-10-10; the generated Codex baseline and
+its earlier review dates below are unchanged. No schemas were regenerated for
+this documentation change.
 
 Status legend:
 
@@ -33,10 +40,10 @@ Legacy note:
 
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
-| `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools |
-| `thread/start` | Partial | Core | Advertises registered experimental `dynamicTools`; missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
-| `thread/resume` | Partial | Core | Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns`; other generated fields are exposed |
-| `thread/fork` | Partial | Core | Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns`; other generated fields are exposed |
+| `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools. One process serves every thread, history read and account request; notifications and server requests are routed by `threadId`, notifications without one reach every session, and requests for a thread no session runs are refused. If the process exits, every session reports it and the next use starts a new process |
+| `thread/start` | Partial | Core | Adapter encodes shared model, effort, workspace, approval mode, sandbox, and registered dynamic tools. `developerInstructions`, `baseInstructions`, and `ephemeral` are not exposed, so configured instructions apply. Raw SDK config/backend/style/analytics selectors are private native settings; no public pass-through. Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
+| `thread/resume` | Partial | Core | Shared typed overrides only; effort maps to native configuration privately. Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns` |
+| `thread/fork` | Partial | Core | Shared typed overrides only; native fields are not exposed wholesale. Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns` |
 | `thread/archive` | Implemented | Core | |
 | `thread/delete` | Missing | Maybe Later | Destructive thread lifecycle path; useful if Shepherd adds stronger thread management UX |
 | `thread/unarchive` | Implemented | Core | |
@@ -54,7 +61,7 @@ Legacy note:
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
 | `thread/rollback` (removed) | Removed | Core | No longer invoked; Discord command returns a retirement notice; web uses turn-based revert |
 | `thread/revert` | Implemented | Core | Explicit `beforeTurnId` cutoff; web Revert from here under persisted user messages; preserves response pagination cursors and resets history; does not revert local file changes |
-| `thread/list` | Partial | Core | Supports generated filters, multi-cwd selection, sort direction, recency sorting, state-DB-only reads, and both pagination cursors; missing the hosted-only `originators` filter |
+| `thread/list` | Partial | Core | Shared filters cover archived state, workspaces, search, creation/update sorting, and direction. Native source/backend/database filters stay private. Provider cursors are opaque and catalog merging is generic; hosted-only `originators` is not exposed |
 | `threadSection/list` | Missing | Maybe Later | Useful if Shepherd adds section-based thread organization UX |
 | `threadSection/create` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
 | `threadSection/update` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
@@ -64,12 +71,12 @@ Legacy note:
 | `thread/turns/list` | Implemented | Core | Wrapped with cursors, direction, and items view; Discord `!history` uses five-turn summary pages |
 | `thread/items/list` | Partial | Core | Wrapped with string cursors, direction, and optional turn filter; the new object item-anchor cursor is not exposed; Discord history Items buttons and `!history items` show paginated excerpts with Read buttons for message text/activity summaries |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
-| `thread/unsubscribe` | Missing | Maybe Later | Useful for lifecycle cleanup/stream controls; not required for current correctness |
+| `thread/unsubscribe` | Implemented | Core | A stopped session releases its thread so the shared process stops sending its notifications. Codex subscribes the process's one client, so a session releases a thread only while it still runs it; a session that has since resumed the thread keeps it subscribed |
 | `hooks/list` | Missing | Maybe Later | Useful for admin diagnostics, but hook management is not part of the current Discord surface |
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports URL/local image, audio, text, skill, and mention input; missing the new image `fileId` variant. Supports `approvalPolicy`, `model`, `effort` (Discord `!effort`), and resolved `cwd`; missing disabled plugin IDs, client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
+| `turn/start` | Partial | Core | Supports URL/local image, audio, text, and skill input (application `image_file`/`audio_file` encode to `localImage`/`localAudio`); mention input and text elements are not exposed; missing the new image `fileId` variant. Supports `model`, `effort` (Discord `!effort`), and the thread workspace as `cwd`; the policy profile is set on `thread/start`/`resume`/`fork`, not per turn; missing disabled plugin IDs, client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
@@ -184,18 +191,18 @@ Legacy note:
 | `turn/diff/updated` | Generic | Maybe Later |
 | `turn/plan/updated` | Generic | Maybe Later |
 | `hook/started` / `hook/completed` | Generic | Out of Scope (for now) |
-| `item/started` / `item/completed` | Tracks message phase and emits typed completed-message, generated-image, and tool-activity events; other items retain generic notifications | Core |
+| `item/started` / `item/completed` | Decoded with the history decoder into `item.started` / `item.completed`; tracks message phase for deltas | Core |
 | `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Generic | Maybe Later |
 | `autoApprovalReview/strictReviewRequired` | Generic | Maybe Later |
 | `rawResponseItem/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
 | `rawResponse/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
-| `item/agentMessage/delta` | Partially interpreted via text delta | Core |
-| `item/plan/delta` | Partially interpreted via text delta | Maybe Later |
-| `command/exec/outputDelta` | Partially interpreted via text delta | Out of Scope (for now) |
+| `item/agentMessage/delta` | `item.delta` on the `message` channel | Core |
+| `item/plan/delta` | `item.delta` on the `plan` channel; surfaces show the completed item | Partial |
+| `command/exec/outputDelta` | Private | Out of Scope (for now) |
 | `process/outputDelta` / `process/exited` | Generic | Out of Scope (for now) |
-| `item/commandExecution/outputDelta` | Partially interpreted via text delta | Maybe Later |
+| `item/commandExecution/outputDelta` | `item.delta` on the `output` channel; surfaces show the completed item | Partial |
 | `item/commandExecution/terminalInteraction` | Generic | Maybe Later |
-| `item/fileChange/outputDelta` | Partially interpreted via text delta | Maybe Later |
+| `item/fileChange/outputDelta` | `item.delta` on the `output` channel; surfaces show the completed item | Partial |
 | `item/fileChange/patchUpdated` | Generic | Maybe Later |
 | `serverRequest/resolved` | Matches pending user-input request IDs and emits `approval.expired`; no general resolution tracking for other request methods | Core (User input) |
 | `item/mcpToolCall/progress` | Generic | Out of Scope (for now) |
@@ -208,9 +215,9 @@ Legacy note:
 | `externalAgentConfig/import/progress` | Generic | Out of Scope (for now) |
 | `externalAgentConfig/import/completed` | Generic | Out of Scope (for now) |
 | `fs/changed` | Generic | Out of Scope (for now) |
-| `item/reasoning/summaryTextDelta` | Partially interpreted via text delta | Maybe Later |
+| `item/reasoning/summaryTextDelta` | `item.delta` on the `reasoning` channel with `form: "summary"` and `part` from `summaryIndex`; surfaces show it as a running step until the item completes. Codex writes no summaries unless asked, so every `turn/start` sends `summary: "auto"`; the model may still write none | Implemented |
 | `item/reasoning/summaryPartAdded` | Generic | Maybe Later |
-| `item/reasoning/textDelta` | Partially interpreted via text delta | Maybe Later |
+| `item/reasoning/textDelta` | Private; history keeps summaries, not raw reasoning | Out of Scope (for now) |
 | `model/rerouted` | Generic | Maybe Later |
 | `model/verification` | Generic | Maybe Later |
 | `modelProvider/authRecoveryStarted` / `modelProvider/authRecoveryCompleted` | Generic | Maybe Later |
@@ -301,7 +308,7 @@ mean only the count is known. An empty array means details were fetched with no
 available credits. Rows may be capped, so the available count is authoritative;
 `expiresAt: null` means the credit does not expire.
 
-Shepherd decodes the reset summary in SessionManager and preserves it through
+Shepherd decodes the reset summary in the Codex adapter and preserves it through
 `limits.read` shared controls and the web API. The sidebar Usage & limits panel
 shows the count and available details; conversation settings retain only context
 telemetry. Discord still renders ordinary usage only.
@@ -316,7 +323,7 @@ redemption support already existed in the previous baseline; this change adds
 Shepherd's control. No real banked reset was consumed during validation.
 
 Sources: [generated provider documentation](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt),
-[session bridge](../server/core/codex_session.ts),
+[session bridge](../server/providers/codex/session.ts),
 [session manager](../server/core/session_manager.ts),
 [shared controls](../server/core/control_actions_service.ts),
 [web limits route](../server/adapters/web/api.ts),

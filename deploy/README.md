@@ -78,8 +78,7 @@ Discord and web are implemented. When selecting Discord, set `DISCORD_BOT_TOKEN`
 keep these settings in `envs/common.env`:
 
 ```env
-CODEX_APPROVAL_POLICY=on-request
-CODEX_SANDBOX=workspace-write
+SHEPHERD_POLICY=workspace
 ```
 
 Authenticate as `nio`:
@@ -99,6 +98,13 @@ or configure `github/local.env` using the
 inherit `HOME=/home/nio`, so the standard installation needs no
 `SHEPHERD_SKILLS_DIR` override or launcher change. Install skills once; they are
 not automatically updated when Shepherd starts or deploys.
+
+Claude conversations need one more step: Claude Code does not read
+`~/.agents/skills`. Make `~/.claude/skills` a symbolic link to the whole shared
+skills directory, preserving Claude Code's existing sync state, as described in
+[Claude Code discovery](../.docs/shared-skills-location.md#claude-code-discovery).
+Without the link, Claude conversations have no `github` or `playwright-cli`
+skill.
 
 Verify Shepherd:
 
@@ -320,10 +326,17 @@ develop in an isolated workspace
 → copy the posted !repo and !thread recovery commands
 ```
 
-Active turns and pending approvals or structured user questions block normal
-restart/deployment. Answer or explicitly skip pending questions, or interrupt the
-turn, before requesting a deploy. Question records are not persisted across a host
-restart. See the [question guide](../.docs/user-questions.md).
+A restart, and a deploy once its validation passes, waits for running work to
+finish: active turns, Claude background tasks, and pending approvals or structured
+user questions. Meanwhile new turns are paused and refused with a "restarting once
+running work finishes" message; reading, steering, interrupting and answering
+approvals keep working, and the restart happens as soon as the work is done. To
+restart sooner, interrupt the turn or answer or skip its questions. If the work has
+not finished after 30 minutes, Shepherd gives up, accepts new turns again and keeps
+running; the validated deploy is on disk until the next restart. A deploy may be
+started while work runs, since validation does not touch running conversations.
+Question records are not persisted across a host restart. See the
+[question guide](../.docs/user-questions.md).
 
 Deployment validation includes `bun run check:config`, which opens no clients
 or listeners and checks only enabled surfaces. The next restart reuses the

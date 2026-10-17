@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
 
 function parseEnvFile(contents: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -54,14 +53,6 @@ export function readSurfaceEnvironment(
     if (value !== undefined) values[key] = value;
   }
   return values;
-}
-
-export function readApprovalPolicy(value: string | undefined): ApprovalPolicy {
-  const policy = value ?? "on-request";
-  if (policy === "untrusted" || policy === "on-request" || policy === "never") {
-    return policy;
-  }
-  throw new Error(`Invalid CODEX_APPROVAL_POLICY: ${policy}`);
 }
 
 export function readBoolean(value: string | undefined, name: string, defaultValue: boolean): boolean {

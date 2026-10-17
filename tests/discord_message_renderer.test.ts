@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { ApprovalRequestPayload } from "../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import {
+  approvalRequestLines,
   formatActivityLine,
   formatApprovalDecisionLabel,
   formatApprovalDecisionReply,
@@ -10,7 +11,7 @@ import {
   formatEventLine,
 } from "../server/adapters/discord/message_renderer.js";
 
-function makeEvent<TPayload>(type: BridgeEvent["type"], payload: TPayload): BridgeEvent<TPayload> {
+function makeEvent<K extends BridgeEvent["type"]>(type: K, payload: import("../shared/protocol/events.js").BridgeEventPayloads[K]): import("../shared/protocol/events.js").BridgeEventOf<K> {
   return {
     id: "evt-1",
     type,
@@ -25,28 +26,43 @@ describe("Discord message renderer", () => {
   test("formats approval prompts with a structured layout", () => {
     const approval: ApprovalRequestPayload = {
       approvalId: "approval-1",
-      method: "shell.exec",
-      prompt: "Run `bun install` in the workspace?",
-      params: {},
+      kind: "permission",
+      activity: { kind: "command", command: "bun install", cwd: "/repo" },
+      reason: "Dependencies changed.",
       choices: [
-        { value: "approve", label: "Approve" },
-        { value: "reject", label: "Reject" },
+        { value: "approve", label: "Approve", intent: "allow" },
+        { value: "reject", label: "Reject", intent: "deny" },
       ],
     };
 
     expect(formatApprovalText(approval)).toBe(
-      "Approval Required\n\nAction: shell.exec\n\nRun `bun install` in the workspace?\n\nOptions: Approve / Reject",
+      "Approval Required\n\nAction: permission\n\nAllow this command?\nDependencies changed.\nbun install\n\nOptions: Approve / Reject",
     );
   });
 
-  test("normalizes common approval decisions into user-facing labels", () => {
-    expect(formatApprovalDecisionLabel("approve")).toBe("Approved");
-    expect(formatApprovalDecisionLabel("reject")).toBe("Declined");
-    expect(formatApprovalDecisionLabel("allow-once")).toBe("allow-once");
+  test("writes approval prompts from the activity and redacts secrets in them", () => {
+    const lines = approvalRequestLines({
+      approvalId: "approval-2", kind: "permission", reason: null, choices: [],
+      activity: { kind: "command", command: "API_TOKEN=super-secret deploy", cwd: null },
+    });
+    expect(lines).toEqual(["Allow this command?", "API_TOKEN=[REDACTED] deploy"]);
+    expect(approvalRequestLines({
+      approvalId: "approval-3", kind: "permission", reason: null, choices: [],
+      activity: { kind: "tool", source: "mcp", server: "github", name: "merge_pr", target: null },
+    })).toEqual(["Allow github.merge_pr?"]);
+  });
+
+  test("labels approval outcomes by declared intent, never by the provider's wording", () => {
+    expect(formatApprovalDecisionLabel({ intent: "allow", label: "Approved" })).toBe("Approved");
+    expect(formatApprovalDecisionLabel({ intent: "allow", label: "Allow for session" })).toBe("Approved (Allow for session)");
+    // Wording that reads like another outcome does not change the declared intent.
+    expect(formatApprovalDecisionLabel({ intent: "deny", label: "Accept the risk later" })).toBe("Declined (Accept the risk later)");
+    expect(formatApprovalDecisionLabel({ intent: "cancel", label: "Skip" })).toBe("Cancelled (Skip)");
+    expect(formatApprovalDecisionLabel(undefined)).toBe("Submitted");
   });
 
   test("formats approval acknowledgement replies", () => {
-    expect(formatApprovalDecisionReply("approve")).toBe("Approval decision recorded: Approved");
+    expect(formatApprovalDecisionReply({ intent: "allow", label: "Approve" })).toBe("Approval decision recorded: Approved (Approve)");
   });
 
   test("formats high-signal event messages as status blocks", () => {
@@ -72,11 +88,9 @@ describe("Discord message renderer", () => {
     );
   });
 
-  test("only surfaces failing notification events", () => {
-    expect(formatEventLine(makeEvent("turn.notification", { method: "tool.failed" }))).toBe(
-      "Event Error\n\nEvent: tool.failed",
-    );
-    expect(formatEventLine(makeEvent("turn.notification", { method: "tool.started" }))).toBeNull();
+  test("surfaces shared errors without requiring native notification methods", () => {
+    expect(formatEventLine(makeEvent("session.error", { message: "Tool failed" }))).toBe("Session Error\n\nTool failed");
+    expect(formatEventLine(makeEvent("item.started", { turnId: null, item: { id: "activity", type: "activity", status: "started", activity: { kind: "command", command: "bun test", cwd: null } } }))).toBeNull();
   });
 
   test("renders concise activity lines and redacts command secrets", () => {
@@ -84,9 +98,7 @@ describe("Discord message renderer", () => {
       formatActivityLine({
         itemId: "command-1",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "API_TOKEN=super-secret bun test",
+        activity: { kind: "command", command: "API_TOKEN=super-secret bun test", cwd: null },
         status: "started",
       }),
     ).toBe("🔧 Running command: API_TOKEN=[REDACTED] bun test");
@@ -94,9 +106,7 @@ describe("Discord message renderer", () => {
       formatActivityLine({
         itemId: "command-2",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail: "tool --api-key hidden-value --token=second-secret",
+        activity: { kind: "command", command: "tool --api-key hidden-value --token=second-secret", cwd: null },
         status: "started",
       }),
     ).toBe("🔧 Running command: tool --api-key [REDACTED] --token=[REDACTED]");
@@ -104,10 +114,7 @@ describe("Discord message renderer", () => {
       formatActivityLine({
         itemId: "command-3",
         turnId: "turn-1",
-        kind: "command",
-        label: "Running command",
-        detail:
-          "just launch-signaled run-specs/gpu-smoke.json SPEND http://127.0.0.1:8787/signals/abcdefghijklmnopqrstuvwx",
+        activity: { kind: "command", command: "just launch-signaled run-specs/gpu-smoke.json SPEND http://127.0.0.1:8787/signals/abcdefghijklmnopqrstuvwx", cwd: null },
         status: "started",
       }),
     ).toBe(
@@ -117,9 +124,7 @@ describe("Discord message renderer", () => {
       formatActivityLine({
         itemId: "tool-1",
         turnId: "turn-1",
-        kind: "mcp_tool",
-        label: "Calling MCP tool",
-        detail: "github.get_pull_request",
+        activity: { kind: "tool", source: "mcp", server: "github", name: "get_pull_request", target: null },
         status: "failed",
       }),
     ).toBe("⚠️ Calling MCP tool failed: github.get_pull_request");
@@ -129,9 +134,7 @@ describe("Discord message renderer", () => {
     const line = formatActivityLine({
       itemId: "command-1",
       turnId: "turn-1",
-      kind: "command",
-      label: "Running command",
-      detail: "x".repeat(500),
+      activity: { kind: "command", command: "x".repeat(500), cwd: null },
       status: "started",
     });
     expect(line.endsWith("…")).toBe(true);

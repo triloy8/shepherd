@@ -68,7 +68,7 @@ export function buildDiscordSignalNoticePages(signal: RegisteredSignal): Discord
     `**Producer marked verified:** ${verified === null ? "Not reported" : verified ? "Yes" : "No"}`,
     ...(researchProject ? [`**Project:** ${inlineCode(researchProject)}`] : []),
     "",
-    "Codex is checking authoritative workspace state.",
+    "The agent is checking authoritative workspace state.",
   ].join("\n");
 
   return buildCardPages({

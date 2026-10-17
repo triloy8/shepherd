@@ -22,6 +22,7 @@ import {
 export type DiscordMessage = {
   id: string;
   edit: (content: MessageEditOptions) => Promise<unknown>;
+  delete?: () => Promise<unknown>;
 };
 
 export type DiscordFileAttachment = {
@@ -258,10 +259,23 @@ export async function updateDiscordPreview(
   options: { finalize?: boolean; replyToMessageId?: string | null } = {},
 ): Promise<DiscordDeliveryResult> {
   const pages = buildMarkdownPages(text, { maxChars: DISCORD_CHUNK_TARGET });
-  if (pages.length === 0) {
+  if (!text.trim()) {
+    const ids = [state.messageId, ...state.continuationMessageIds].filter((id): id is string => id !== null);
+    try {
+      for (const id of ids) {
+        const message = await channel.messages.fetch(id);
+        if (message.delete) await message.delete();
+        else await message.edit({ flags: MessageFlags.IsComponentsV2, components: pages[0]!.components, allowedMentions: { parse: [] } });
+      }
+      state.messageId = null;
+      state.continuationMessageIds = [];
+      state.renderedPage = "";
+    } catch (error) {
+      return { success: false, messageIds: ids, deliveredChunks: 0, totalChunks: ids.length, partial: false, error: errorMessage(error) };
+    }
     return {
       success: true,
-      messageIds: state.messageId ? [state.messageId] : [],
+      messageIds: [],
       deliveredChunks: 0,
       totalChunks: 0,
       partial: false,

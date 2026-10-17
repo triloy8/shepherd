@@ -1,3 +1,5 @@
+import { ApplicationActionError } from "../server/core/action_error.js";
+import { account } from "./helpers/account";
 import { describe, expect, test } from "bun:test";
 import { ComponentType, type MessageCreateOptions, type MessageEditOptions } from "discord.js";
 
@@ -69,10 +71,10 @@ function editedCardAt(edits: Array<string | MessageEditOptions>, index = 0) {
 
 function makeContext(overrides?: {
   listSkills?: () => Promise<unknown>;
-  writeSkillConfig?: (threadId: string, request: { path: string; enabled: boolean }) => Promise<{ effectiveEnabled: boolean }>;
+  writeSkillConfig?: (threadId: string, request: { path: string; enabled: boolean }) => Promise<{ enabled: boolean }>;
   listModels?: () => Promise<unknown>;
-  getThreadModel?: () => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
-  setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; modelProvider: string | null; pendingModel: string | null };
+  getThreadModel?: () => { threadId: string; currentModel: string | null; provider: string; pendingModel: string | null };
+  setThreadModel?: (threadId: string, model: string) => { threadId: string; currentModel: string | null; provider: string; pendingModel: string | null };
   getSurfaceProject?: () => string | null;
   setSurfaceProject?: (channelId: string, repoSlug: string) => Promise<{ repoSlug: string }>;
   readThread?: (threadId: string) => Promise<{ thread: { id: string; name?: string | null; preview?: string; updatedAt?: number | null } }>;
@@ -82,7 +84,7 @@ function makeContext(overrides?: {
     threadId: string;
     sessionId: string | null;
     activeTurnId: string | null;
-    approvalPolicy: "on-request";
+    approvalPolicy: "review_sensitive";
   };
   restart?: RuntimeLifecycle["restart"];
   deploy?: RuntimeLifecycle["deploy"];
@@ -99,19 +101,15 @@ function makeContext(overrides?: {
       async listSkills() {
         if (overrides?.listSkills) return overrides.listSkills();
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "workspace",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "GitHub task execution with a gh-first workflow.",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "workspace",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "GitHub task execution with a gh-first workflow.",
+              enabled: true,
             },
           ],
         };
@@ -119,7 +117,7 @@ function makeContext(overrides?: {
       async writeSkillConfig(threadId: string, request: { path: string; enabled: boolean }) {
         writes.push({ threadId, path: request.path, enabled: request.enabled });
         if (overrides?.writeSkillConfig) return overrides.writeSkillConfig(threadId, request);
-        return { effectiveEnabled: !request.enabled ? false : true };
+        return { enabled: !request.enabled ? false : true };
       },
       async listModels() {
         if (overrides?.listModels) return overrides.listModels();
@@ -132,7 +130,6 @@ function makeContext(overrides?: {
               description: "Default coding model",
               hidden: false,
               isDefault: true,
-              supportsPersonality: true,
             },
             {
               id: "o4-mini",
@@ -141,26 +138,25 @@ function makeContext(overrides?: {
               description: "Fast fallback",
               hidden: false,
               isDefault: false,
-              supportsPersonality: true,
             },
           ],
           nextCursor: null,
         };
       },
-      async readAccountRateLimits() {
-        if (overrides?.readAccountRateLimits) return overrides.readAccountRateLimits();
-        return { rateLimits: { planType: "pro" } };
-      },
+      getThreadProvider: () => "fixture",
+      listProviders: () => [{ id: "fixture", displayName: "Fixture", isDefault: true, capabilities: { steer: true, interrupt: true, rename: true, archive: true, unarchive: true, workspaceChange: true, modelCatalog: true, modelCatalogAuthoritative: true, modelSelection: true, effortSelection: true, skillConfig: true, questions: true, skills: true, compact: true, revert: true, fork: true, policyProfiles: [], inputKinds: ["text", "image", "image_file"], imageDetail: false, accountReset: false } }],
+      async readAccount() { return account("fixture", "pro"); },
+      async resetAccount() { throw new Error("Unsupported account reset"); },
       async readThreadTokenUsage(threadId: string) {
         if (overrides?.readThreadTokenUsage) return overrides.readThreadTokenUsage(threadId);
-        return { threadId, tokenUsage: { total: { totalTokens: 42 }, last: {}, modelContextWindow: 128000 } };
+        return { threadId, tokenUsage: { total: { totalTokens: 42 }, last: {}, contextWindow: 128000 } };
       },
       getThreadModel() {
         if (overrides?.getThreadModel) return overrides.getThreadModel();
         return {
           threadId: "thread-1",
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: null,
         };
       },
@@ -170,7 +166,7 @@ function makeContext(overrides?: {
         return {
           threadId,
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: model,
         };
       },
@@ -218,7 +214,8 @@ function makeContext(overrides?: {
           threadId,
           sessionId: "session-1",
           activeTurnId: null,
-          approvalPolicy: "on-request",
+          approvalPolicy: "review_sensitive",
+          capabilities: context.conversation.listProviders()[0]!.capabilities,
         };
       },
     } as unknown as CommandContext["conversation"],
@@ -347,7 +344,7 @@ describe("Discord listening commands", () => {
     expect(getListeningMode()).toBe("mention");
     expect(replyCardAt(replies)).toEqual({
       title: "Channel detached",
-      description: "Channel detached from thread thread-1. The Codex thread was retained and can be reattached with `!thread thread-1`.",
+      description: "Channel detached from thread thread-1. The agent thread was retained and can be reattached with `!thread thread-1`.",
     });
   });
 
@@ -395,6 +392,20 @@ describe("Discord !skill commands", () => {
     expect(embed.description).not.toContain("!rollback");
   });
 
+  test("help hides commands the conversation's agent does not support", async () => {
+    const { message, replies } = makeMessage("!help");
+    const { context } = makeContext();
+    const capabilities = { ...context.conversation.listProviders()[0]!.capabilities, compact: false, skills: false, skillConfig: false, effortSelection: false };
+    Object.assign(context.conversation, { getThreadState: (threadId: string) => ({ threadId, sessionId: "s", activeTurnId: null, approvalPolicy: "review_sensitive", capabilities }) });
+
+    await handleMessage(message as never, context);
+
+    const description = replyCardAt(replies).description;
+    expect(description).toContain("this conversation's agent does not support are hidden");
+    for (const hidden of ["!compact", "!skills", "!skill enable", "set <level|default>"]) expect(description).not.toContain(hidden);
+    for (const shown of ["!fork", "!model set", "- !effort"]) expect(description).toContain(shown);
+  });
+
   test("renders context telemetry as a structured Components V2 card", async () => {
     const { message, replies } = makeMessage("!context");
     const { context } = makeContext();
@@ -405,6 +416,20 @@ describe("Discord !skill commands", () => {
     expect(embed.title).toBe("Context usage");
     expect(embed.description).toContain("Context left");
     expect(embed.description).toContain("**Total Token Usage**");
+  });
+
+  test("distinguishes token counts the provider does not report from unknown values", async () => {
+    const { message, replies } = makeMessage("!context");
+    const breakdown = { inputTokens: 10, cacheReadInputTokens: 4, cacheWriteInputTokens: null, outputTokens: 5, reasoningOutputTokens: null, totalTokens: 15 };
+    const { context } = makeContext({ readThreadTokenUsage: async (threadId) => ({ threadId, tokenUsage: { last: breakdown, total: breakdown, contextWindow: 100 } }) });
+
+    await handleMessage(message as never, context);
+
+    const description = replyCardAt(replies).description;
+    expect(description).toContain("- Cache read: 4");
+    expect(description).toContain("- Cache write: not reported");
+    expect(description).toContain("- Reasoning output: not reported");
+    expect(description).toContain("- Context left: 85%");
   });
 
   test("renders skill and thread listings as Components V2 cards", async () => {
@@ -436,7 +461,7 @@ describe("Discord !skill commands", () => {
     ]);
     expect(replyCardAt(replies)).toEqual({
       title: "Skill disabled",
-      description: "Disabled skill github (effectiveEnabled=false)",
+      description: "Disabled skill github (now disabled)",
     });
   });
 
@@ -445,26 +470,22 @@ describe("Discord !skill commands", () => {
     const { context, writes } = makeContext({
       async listSkills() {
         return {
-          data: [
+          workspacePath: "/home/tadhiel/shepherd",
+          errors: [],
+          skills: [
             {
-              cwd: "/home/tadhiel/shepherd",
-              errors: [],
-              skills: [
-                {
-                  name: "github",
-                  scope: "workspace",
-                  path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-                {
-                  name: "github",
-                  scope: "personal",
-                  path: "/home/tadhiel/.agents/skills/github/SKILL.md",
-                  description: "",
-                  enabled: true,
-                },
-              ],
+              name: "github",
+              scope: "workspace",
+              path: "/home/tadhiel/shepherd/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
+            },
+            {
+              name: "github",
+              scope: "personal",
+              path: "/home/tadhiel/.agents/skills/github/SKILL.md",
+              description: "",
+              enabled: true,
             },
           ],
         };
@@ -487,7 +508,7 @@ describe("Discord !skill commands", () => {
         return {
           threadId: "thread-1",
           currentModel: "o4-mini",
-          modelProvider: "openai",
+          provider: "fixture",
           pendingModel: "gpt-5.3-codex",
         };
       },
@@ -503,6 +524,21 @@ describe("Discord !skill commands", () => {
     expect(embed.description).toContain("Current: o4-mini");
   });
 
+  test("!effort set preserves literal values regardless of the advertised model default", async () => {
+    for (const [offered, requested, expected] of [[["low", "high"], "default", "default"], [["default", "high"], "default", "default"], [["DEFAULT", "high"], "DEFAULT", "DEFAULT"]] as const) {
+      const { message } = makeMessage(`!effort set ${requested}`);
+      const { context } = makeContext();
+      const requests: Array<string | null> = [];
+      const state = { threadId: "thread-1", model: "o4-mini", currentEffort: "low", pendingEffort: null, inputModalities: null, defaultEffort: "high", supportedEfforts: offered.map((value) => ({ value, description: value })) };
+      Object.assign(context.conversation, {
+        async getThreadEffort() { return state; },
+        async setThreadEffort(_threadId: string, effort: string | null) { requests.push(effort); return { ...state, pendingEffort: effort ?? state.defaultEffort }; },
+      });
+      await handleMessage(message as never, context);
+      expect(requests).toEqual([expected]);
+    }
+  });
+
   test("stores a thread-scoped pending model override", async () => {
     const { message, replies } = makeMessage("!model set gpt-5.3-codex");
     const { context, modelWrites } = makeContext();
@@ -514,6 +550,42 @@ describe("Discord !skill commands", () => {
       title: "Model updated",
       description: "Model for thread thread-1 set to `gpt-5.3-codex`.\nApplies to the next new turn and subsequent turns.",
     });
+  });
+
+  test("a rejected literal default points to the model-default command", async () => {
+    const { context } = makeContext();
+    Object.assign(context.conversation, {
+      async setThreadEffort() { throw new ApplicationActionError({ code: "unsupported_effort", model: "opaque-model", requested: "default", available: ["low", "high"] }); },
+    });
+    const { message, replies } = makeMessage("!effort set default");
+    await handleMessage(message as never, context);
+    expect(replyCardAt(replies).description).toContain("Use `!effort default` to select the model default.");
+    const other = makeMessage("!effort set turbo");
+    Object.assign(context.conversation, {
+      async setThreadEffort() { throw new ApplicationActionError({ code: "unsupported_effort", model: "opaque-model", requested: "turbo", available: ["low"] }); },
+    });
+    await handleMessage(other.message as never, context);
+    expect(replyCardAt(other.replies).description).not.toContain("!effort default");
+  });
+
+  test("effort commands preserve literal provider values and distinguish default and clear", async () => {
+    const { context } = makeContext();
+    const selections: unknown[] = [];
+    Object.assign(context.conversation, {
+      async setThreadEffort(threadId: string, effort: unknown) {
+        selections.push(effort);
+        return { threadId, model: "opaque-model", currentEffort: null,
+          pendingEffort: typeof effort === "string" ? effort : null, pendingEffortClear: effort === null,
+          inputModalities: ["text"], defaultEffort: "Focused", supportedEfforts: [{ value: "default", description: "" }, { value: "Focused", description: "" }] };
+      },
+    });
+    for (const command of ["!effort set default", "!effort set Focused", "!effort default", "!effort clear"]) {
+      const { message, replies } = makeMessage(command);
+      await handleMessage(message as never, context);
+      expect(replyCardAt(replies).title).toBe("Effort updated");
+      if (command.endsWith("clear")) expect(replyCardAt(replies).description).toContain("clear effort override");
+    }
+    expect(selections).toEqual(["default", "Focused", { mode: "default" }, null]);
   });
 
   test("reports the current repo binding for the channel", async () => {
@@ -654,7 +726,7 @@ describe("Discord !skill commands", () => {
           threadId,
           sessionId: "session-1",
           activeTurnId: "turn-1",
-          approvalPolicy: "on-request",
+          approvalPolicy: "review_sensitive",
         };
       },
     });
@@ -705,23 +777,22 @@ describe("Discord operational commands", () => {
     expect(replyCardAt(replies).description).toContain("!listen open");
   });
 
-  test("refuses restart while a turn is active", async () => {
-    const { message, replies } = makeMessage("!restart");
+  test("shows what a restart waits for, and reports work that did not finish in time", async () => {
+    const { message, replies, edits } = makeMessage("!restart");
+    const activity = { activeTurnThreadIds: ["thread-busy"], pendingApprovalIds: [] };
     const { context, getRestartRequests } = makeContext({
-      async restart() {
-        return {
-          type: "busy",
-          action: "restart",
-          stage: "before-operation",
-          activity: { activeTurnThreadIds: ["thread-busy"], pendingApprovalIds: [] },
-        };
+      async restart(options: { onDraining?: (value: typeof activity) => Promise<void> }) {
+        await options.onDraining?.(activity);
+        return { type: "drain-timed-out", action: "restart", activity };
       },
     });
 
     await handleMessage(message as never, context);
 
-    expect(replyCardAt(replies).title).toBe("Restart refused");
-    expect(replyCardAt(replies).description).toContain("Active turns: thread-busy");
+    const cards = [...replies, ...edits].map((reply) => replyCardAt([reply]));
+    expect(cards.map((card) => card.title)).toEqual(["Waiting for running work", "Restart not done"]);
+    expect(cards[0]!.description).toContain("Active turns: thread-busy");
+    expect(cards[1]!.description).toContain("accepts new turns again");
     expect(getRestartRequests()).toBe(0);
   });
 
@@ -858,4 +929,116 @@ test("deployment diagnostic continuation failures propagate instead of reporting
     return { type: "deployment-failed", message: "diagnostic output\n".repeat(1000) };
   } });
   await expect(handleMessage(message as never, context)).rejects.toThrow("delivery rejected");
+});
+
+test("Discord discovers arbitrary agents and routes creation and account reads without identity branches", async () => {
+  const { context } = makeContext();
+  const provider = "independent-agent";
+  const original = context.conversation.listProviders()[0]!;
+  context.conversation.listProviders = () => [{ ...original, id: provider, displayName: "Independent agent" }];
+  const created: Array<[string, string | undefined]> = [], accounts: string[] = [];
+  context.createSurfaceThread = async (id, selected) => { created.push([id, selected]); return "independent-thread"; };
+  context.conversation.readAccount = async selected => { accounts.push(selected); return account(selected); };
+  const discovery = makeMessage("!providers");
+  await handleMessage(discovery.message as never, context);
+  expect(replyTextAt(discovery.replies)).toContain("Independent agent");
+  expect(replyTextAt(discovery.replies)).toContain(provider);
+  await handleMessage(makeMessage(`!newthread ${provider}`).message as never, context);
+  expect(created).toEqual([["chan-1", provider]]);
+  await handleMessage(makeMessage(`!limits ${provider}`).message as never, context);
+  expect(accounts).toEqual([provider]);
+  for (const command of ["!newthread unknown", "!limits unknown", `!newthread ${provider} extra`]) {
+    const message = makeMessage(command); await handleMessage(message.message as never, context);
+    expect(replyTextAt(message.replies)).toContain("!providers");
+  }
+  expect(created).toHaveLength(1); expect(accounts).toHaveLength(1);
+  await handleMessage(makeMessage("!newthread").message as never, context);
+  expect(created[1]).toEqual(["chan-1", undefined]);
+});
+
+for (const provider of ["neutral fixture", "team/Agent  α", '"literal provider"']) test(`Discord preserves opaque provider ${provider}`, async () => {
+  const { context } = makeContext();
+  const base = context.conversation.listProviders()[0]!;
+  const selected: string[] = [];
+  Object.assign(context.conversation, {
+    listProviders: () => [{ ...base, id: provider }],
+    readAccount: async (value: string) => { selected.push(value); return account(value); },
+  });
+  context.createSurfaceThread = async (_id, value) => { selected.push(value!); return "created"; };
+  for (const command of [`!newthread ${provider}`, `!limits ${provider}`]) {
+    await handleMessage(makeMessage(command).message as never, context);
+  }
+  expect(selected).toEqual([provider, provider]);
+});
+
+test("Discord accepts quoted provider selection without splitting the identifier", async () => {
+  const { context } = makeContext();
+  const base = context.conversation.listProviders()[0]!;
+  Object.assign(context.conversation, { listProviders: () => [{ ...base, id: "neutral fixture" }] });
+  let selected: string | undefined;
+  context.createSurfaceThread = async (_id, provider) => { selected = provider; return "created"; };
+  await handleMessage(makeMessage('!newthread "neutral fixture"').message as never, context);
+  expect(selected).toBe("neutral fixture");
+});
+
+test("Discord preserves case and repeated spaces in opaque effort values", async () => {
+  const { context } = makeContext();
+  let selected: unknown;
+  Object.assign(context.conversation, { setThreadEffort: async (_id: string, effort: unknown) => {
+    selected = effort; return { threadId: "thread-1", model: null, currentEffort: null, pendingEffort: effort, supportedEfforts: null, effortOptionsKnown: false };
+  } });
+  await handleMessage(makeMessage("!effort set Low  Power α").message as never, context);
+  expect(selected).toBe("Low  Power α");
+});
+
+test("Discord explicit extensionless skill paths work without discovery", async () => {
+  const { context, writes } = makeContext({ listSkills: async () => { throw Error("Discovery is unavailable"); } });
+  const getState = context.conversation.getThreadState;
+  Object.assign(context.conversation, { getThreadState: (id: string) => ({ ...getState(id), capabilities: { ...getState(id).capabilities, skills: false, skillConfig: true } }) });
+  await handleMessage(makeMessage("!skill disable --path instructions").message as never, context);
+  expect(writes).toEqual([{ threadId: "thread-1", path: "instructions", enabled: false }]);
+});
+
+for (const value of ['Case  Sensitive α', 'vendor/model "quoted"', 'C:\\models\\native']) test(`Discord preserves the complete model identity ${value}`, async () => {
+  const { context, modelWrites } = makeContext();
+  const getState = context.conversation.getThreadState;
+  Object.assign(context.conversation, { getThreadState: (id: string) => ({ ...getState(id), capabilities: { ...getState(id).capabilities, modelCatalog: false } }) });
+  await handleMessage(makeMessage(`!model set ${value}`).message as never, context);
+  expect(modelWrites).toEqual([{ threadId: "thread-1", model: value }]);
+});
+
+for (const command of ["!thread", "!threadread", "!fork", "!archive", "!unarchive"]) test(`${command} preserves a quoted thread identity`, async () => {
+  const { context } = makeContext(); const ids: string[] = [];
+  const value = 'app  thread "α"';
+  context.switchSurfaceThread = async (_channel, id) => { ids.push(id); return id; };
+  context.forkSurfaceThread = async (_channel, id) => { ids.push(id); return "forked"; };
+  Object.assign(context.conversation, {
+    readThread: async (id: string) => { ids.push(id); return { thread: { id } }; },
+    archiveThread: async (id: string) => { ids.push(id); return { ok: true }; },
+    unarchiveThread: async (id: string) => { ids.push(id); return { ok: true }; },
+  });
+  await handleMessage(makeMessage(`${command} "app  thread \\"α\\""`).message as never, context);
+  expect(ids).toEqual([value]);
+});
+
+test("history item commands preserve quoted native turn IDs and optional thread IDs", async () => {
+  const { context } = makeContext(); const calls: unknown[] = [];
+  Object.assign(context.conversation, { listThreadItems: async (threadId: string, request: unknown) => { calls.push({ threadId, request }); return { data: [], nextCursor: null }; } });
+  await handleMessage(makeMessage('!history items "native  turn α" "app  thread"').message as never, context);
+  expect(calls).toEqual([{ threadId: "app  thread", request: { turnId: "native  turn α", cursor: undefined, limit: 5, sortDirection: "asc" } }]);
+});
+
+test("quoted history thread named items does not select item mode", async () => {
+  const { context } = makeContext(); const ids: string[] = [];
+  Object.assign(context.conversation, { listThreadTurns: async (id: string) => { ids.push(id); return { data: [], nextCursor: null }; } });
+  await handleMessage(makeMessage('!history "items"').message as never, context);
+  expect(ids).toEqual(["items"]);
+});
+
+for (const command of ['!thread "unclosed', '!history items "turn"garbage', '!model set "one" "two"']) test(`invalid argument boundaries never execute ${command}`, async () => {
+  const { context, modelWrites } = makeContext(); let calls = 0;
+  context.switchSurfaceThread = async () => { calls++; return "wrong"; };
+  Object.assign(context.conversation, { listThreadItems: async () => { calls++; throw Error("Must not execute"); } });
+  await handleMessage(makeMessage(command).message as never, context);
+  expect(calls).toBe(0); expect(modelWrites).toEqual([]);
 });

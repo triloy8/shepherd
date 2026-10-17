@@ -1,4 +1,4 @@
-# Web API v1
+# Web API
 
 The web surface serves the built-in UI and a private conversation API from the
 same loopback listener. It runs alone or alongside Discord using the shared core.
@@ -70,20 +70,21 @@ lifecycle. Origin configuration changes take effect at the next host restart.
 
 ## HTTP contract
 
-All paths below are relative to `/api/v1`. JSON request bodies require
+All paths below are relative to `/api`. JSON request bodies require
 `Content-Type: application/json`. Unknown body fields are rejected. Shared
 TypeScript response/event types are in `shared/protocol/web.ts` and its imported
 protocol files. Error responses are `{ "error": { "code": "...", "message": "..." } }`.
 
 | Method | Path | Body or result |
 | --- | --- | --- |
-| GET | `/health` | `{ ok: true, apiVersion: 1 }`; availability, not downstream readiness |
-| GET | `/models?cursor=...&limit=100` | Account-wide model catalog; includes hidden quota aliases and supports pagination |
-| GET | `/limits` | `{ rateLimits, rateLimitsByLimitId, rateLimitResetCredits }`; account-wide usage and banked resets |
-| POST | `/limits/reset` | `{ idempotencyKey, creditId? }` → `{ outcome }`; redeem one banked reset |
+| GET | `/health` | `{ ok: true }`; availability, not downstream readiness |
+| GET | `/models?cursor=...&limit=100` | Provider catalog; optional `provider=<registered-id>` defaults to the configured default provider. Includes hidden model aliases and supports pagination. Conversation-scoped catalogs use the attached provider. |
+| GET | `/providers` | Registered provider IDs, display names, `isDefault`, and capabilities |
+| GET | `/limits?provider=<id>&refresh=true` | `ProviderAccountLimits` for any registered provider. Provider defaults to the configured default provider; refresh is optional. No conversation needed. |
+| POST | `/limits/reset` | `{ provider, idempotencyKey, creditId? }` → `{ outcome }`; requires the provider’s reset capability. Query parameters are rejected. |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
 | GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
-| POST | `/conversations` | `{ project }` creates a thread; `{ threadId }` resumes its saved workspace; 201 with `{ id, threadId, project }` |
+| POST | `/conversations` | `{ project, provider? }` creates a thread (provider defaults to the configured default provider); `{ threadId }` resumes its saved workspace/provider; 201 with `{ id, threadId, project }` |
 | GET | `/conversations/:id` | Handle summary plus `state` with active-turn/session state |
 | DELETE | `/conversations/:id` | Detaches the handle and closes streams; `{ ok: true }` |
 | POST | `/conversations/:id/rename` | `{ name }`; rename through shared controls, `{ ok: true }` |
@@ -96,7 +97,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | GET | `/conversations/:id/settings` | `{ model, effort }`; current/pending settings and supported effort levels |
 | GET | `/conversations/:id/models?cursor=...&limit=20` | Available model page with `data` and `nextCursor` |
 | POST | `/conversations/:id/model` | `{ model }`; resolve model ID/name through shared controls; `{ ok: true }` |
-| POST | `/conversations/:id/effort` | `{ effort }`; supported level or `default`; `{ ok: true }` |
+| POST | `/conversations/:id/effort` | `{ effort }`; opaque effort string, `{ "mode": "default" }`, or `null` to clear; `{ ok: true }` |
 | GET | `/conversations/:id/context` | `{ threadId, tokenUsage }`; telemetry may be null |
 | GET | `/conversations/:id/approvals` | `{ approvals: [...] }` with choices/status and optional `userInput` question request |
 | POST | `/conversations/:id/approvals/:approvalId` | `{ decision, reason?, answers? }`; `{ ok: true }` |
@@ -104,7 +105,8 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 
 `project` is required only for new conversations and accepts the shared project-target
 syntax (`owner/repo`, `~/path`, or `~`). Resume takes `threadId` and uses the saved
-absolute working directory; a legacy `project` field on resume is ignored. Loaded
+absolute working directory and provider; a provider override on resume is rejected.
+A project override on resume is ignored; the saved workspace always wins. Loaded
 threads retain their current cwd. Cold resume validates the saved directory without
 creating or cloning a replacement; missing/invalid directories return 409
 `workspace_unavailable`. The resumed handle's `project` displays its restored cwd.
@@ -115,49 +117,54 @@ absolute local workspace targets.
 Messages follow the same submit/steer policy as Discord: a message during an
 active turn steers it. HTTP completion acknowledges routing, not completion of
 the agent's response. Use events/history to follow the result. There is no
-idempotency key in v1: do not blindly retry a message after losing its HTTP
+idempotency key in the API: do not blindly retry a message after losing its HTTP
 response; inspect state/history first. Competing mutations on one handle return
 `409 conversation_busy`.
 
-Approval IDs are URL-encoded path components. Send an exact `choices[].value`
+Approval IDs are URL-encoded path components. Choices carry opaque request-scoped tokens and shared allow/deny/answer/cancel intent. Send an exact `choices[].value`
 from a pending approval. Invalid choices return 400 without consuming it; missing
 approvals return 404; already-decided approvals return 409. Approvals must belong
 to the handle's thread.
 
 ### Structured user questions
 
-The existing approvals routes also carry `item/tool/requestUserInput` requests.
+The existing approvals routes carry Codex `item/tool/requestUserInput` requests
+and Claude `AskUserQuestion` callbacks through the same shared question contract.
 Records include `userInput: { threadId, turnId, itemId, isBlocking, questions }`;
-each question has `id`, `header`, `question`, `isOther`, `isSecret`, and nullable
+each question has `id`, `header`, `question`, `isOther`, optional `multiSelect` and `isSecret`, and nullable
 `options: [{ label, description }]`. Use `status === "pending"` to decide whether
 the request can still be answered. Submit to the record's `approvalId` using:
 
 ```json
 {
-  "decision": "submit",
+  "decision": "<value of the offered answer choice>",
   "answers": {
-    "provider": { "answers": ["Select per conversation (Recommended)"] },
-    "notes": { "answers": ["Remember my last choice."] }
+    "provider": ["Select per conversation (Recommended)"],
+    "notes": ["Remember my last choice."]
   }
 }
 ```
 
-Use exact question IDs and one nonempty string per question (at most 16,000
-characters). Custom text is accepted for free-text questions or when `isOther`
+Use exact question IDs and one nonempty string per question unless `multiSelect`
+is true. Missing/false `multiSelect` means a single answer; true accepts 1–100
+distinct nonempty strings in the answer array. Each string is at most 16,000
+characters. Custom text is accepted for free-text questions or when `isOther`
 is true; otherwise use an exact option label. Missing/extra IDs, empty answers,
 and disallowed choices return `400 invalid_decision` without consuming the
 request. The overall 64 KiB body limit still applies. Already answered or expired
 requests return `409 approval_decided`. Cross-thread/missing IDs return
 `404 approval_not_found`.
 
-To explicitly skip, send `{ "decision": "cancel" }`. Shepherd returns an empty
-answer map to Codex, without selecting an option. It does not interpret ordinary
+To explicitly skip, send the token from the offered choice with `intent: "cancel"`. Shepherd returns an empty
+answer map to Codex or denies the Claude question callback, without selecting an
+option. It does not interpret ordinary
 chat messages as answers to this form. Submitted answer text is not copied into
 approval records or bridge events.
 
 Requests remain pending until submitted/skipped, the turn ends, the session
-stops, or Codex withdraws the request with `serverRequest/resolved`. The provider's
-`isBlocking` flag governs whether Codex waits; Shepherd starts no answer timer.
+stops, Codex withdraws the request with `serverRequest/resolved`, or Claude aborts
+the callback. The provider's `isBlocking` flag governs whether the agent waits;
+Claude questions always block. Shepherd starts no answer timer.
 Refresh the approvals snapshot on reconnect and after decision/lifecycle events.
 Pending question records are process-local, not a durable journal. They count as
 pending decisions for the existing conversation and host lifecycle guards.
@@ -192,9 +199,32 @@ The stream is not a durable event log; history is the recovery source.
 
 Browser disconnection does not interrupt agent work. Detaching a handle releases
 its bindings, subscriptions and replay buffer; it does not archive, cancel or
-stop the underlying Codex session. Interrupt first if that is intended. A host
+stop the underlying provider session. Interrupt first if that is intended. A host
 restart discards all handles and replay cursors. List stored threads and POST a
 new handle using the desired thread ID after restart.
+
+## Provider support
+
+`GET /api/providers` returns capabilities for each registered agent. In addition to
+questions, skills, fork, compact, revert and `accountReset`, descriptors advertise `steer`,
+`interrupt`, `rename`, `archive`, `unarchive`, `workspaceChange`, `modelCatalog`,
+`modelSelection`, `effortSelection`, `skillConfig`, `policyProfiles`, `inputKinds`, and
+`imageDetail`. Input kinds are
+`text`, `image` (URL or data URL), `image_file`, `audio`, `audio_file`, and `skill`.
+Image inputs may set `detail` to `low`, `high`, or `full` (no downscaling) when
+`imageDetail` is true; omit it to let the provider choose.
+Thread state exposes the same session capabilities. `skills` controls discovery;
+`skillConfig` controls configuration writes. A catalog can be read-only; model and effort
+selection require a catalog. Flags describe adapter support, while
+model capabilities constrain the selected model. Missing catalog metadata remains unknown.
+Unsupported operations/settings produce `422 unsupported_provider_operation` before execution.
+Create, resume and fork accept an optional `policy` of `{ writes, network, review }`
+(see [provider adapters](provider-abstraction.md#configuration-and-persistence)); without one
+the host's `SHEPHERD_POLICY` applies. Thread state reports `policy` as the provider profile
+and its restrictions, or null when the agent uses its own defaults. Native policy spellings,
+granular SDK policy objects, and the removed `approvalPolicy` and `sandbox` fields are rejected. Shared internal thread
+requests use typed `effort` rather than a raw SDK configuration object. Native configuration,
+model backend selectors, and native listing/database filters remain adapter-owned.
 
 ## Limits and failure handling
 
@@ -221,37 +251,26 @@ remote tailnet connection are not required by these automated tests.
 
 ## Turn activity and images
 
-Completed work remains collapsible even when a tool step failed. The work summary
-shows the number of failed steps; expand it to inspect their details. Failed or
-interrupted turns themselves retain expanded progress.
+How the browser presents these items is described in [Web UI](web-ui.md#transcript-work-and-images).
 
-History items may include `webActivity` (the shared normalized activity payload)
-or `webImage: { url, prompt, name, path, kind }`. Generated-image and viewed-image SSE events
-(`turn.image.generated` and `turn.image.viewed`) include the same scoped asset URL
-as `payload.url` and the file basename as `payload.name`. The browser uses these
-fields for the work timeline and image previews; it does not request files by
-filesystem path.
-
-Completed Codex `imageView` items expose the existing local image, including
-Playwright screenshots opened with `view_image`. Viewed images (`kind: "viewed"`)
-are work artifacts: their previews are collapsed by default while working and fold
-with completed work. Expand **Viewed image** to inspect them at full size.
-Images explicitly embedded in assistant answers stay visible. Reloading history
-restores the same behavior while source files remain available. Failed or unfinished view
-items remain activity only; inspecting an image makes it visible to the web user.
-Generated images appear immediately as assistant output, grouped with the following
-final text under one Shepherd author label. Generation prompts live under a closed
-**Generation details** disclosure. This also supports image-only responses and
-history reload. Viewed work images use their filenames.
-
-Assistant answers can embed registered images with Markdown, for example
-`![Desktop view](/absolute/path/to/screenshot.png)`. The renderer resolves the exact
-local source path (including URL-encoded paths) to its known conversation asset
-URL. Plain links to registered images resolve to the same full-size asset. Images
-remain inside the assistant message with their Markdown alt text as a caption.
-Unregistered local paths, remote images, and arbitrary asset URLs remain image
-placeholders; Markdown never registers or reads a new file. References to older
-images work when their artifact metadata is loaded in the current conversation.
+History items have an application `type`: `user_message` (with `content` parts `text`,
+`image`, `image_file`, or `attachment`), `assistant_message` (with `text` and an optional
+`phase` of `interim` or `final`), `plan`, `reasoning` (with `parts` and a `form`: `summary` when
+the provider wrote a summary of its reasoning, `full` when it is the reasoning itself),
+`activity`, `image`, or `other`.
+Turn `status` is `completed`, `interrupted`, `failed`, or `in_progress`. Live, an interrupted
+turn ends with `turn.completed` carrying `interrupted: true`.
+Activity items carry `status` (`started`, `completed` or `failed`) and a typed `activity`.
+Image items carry `webImage: { url, prompt, name, path, kind }` instead of a server path.
+Live turns stream the same items over SSE: `item.started` for items that take time,
+`item.delta` for streamed text (`channel` is `message`, `plan`, `reasoning` or `output`; a
+reasoning delta states its `form` and may name its `part`), and
+`item.completed` with the canonical item. Live items are presented exactly as history presents
+them, including the scoped image URL, so a reload shows what the live view showed. The browser
+uses these fields for the work timeline and image previews; it does not request files by
+filesystem path. Plan and reasoning deltas show as running steps until their item completes;
+`output` shows the latest output of a running step and is not kept once the step completes,
+because history records none.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a
 provider image event or that conversation's stored history. IDs are opaque and
@@ -265,13 +284,20 @@ Reloading the relevant history registers images again. Unknown references return
 
 ## Conversation settings
 
+`GET /api/models` lists the selected/default provider’s normal model catalog, with cursor and limit pagination. Optional `includeHidden=true` also lists models omitted from the normal picker. Hidden does not mean forbidden: explicit model-ID validation includes hidden entries so saved selections remain usable. Duplicate or invalid boolean filters return 400.
+
 Model and effort routes delegate to the same control service as Discord. They
 queue changes for the next new turn and subsequent turns; steering an active
 turn does not apply them. `settings` distinguishes current and pending values.
 Effort choices/default belong to the pending model when present, otherwise the
 current/default model. Changing the model does not silently rewrite an existing
-effort override; select a compatible effort if necessary. `default` resolves to
-the model's advertised default, matching Discord.
+effort override; select a compatible effort or clear it if necessary. An effort
+string selects that exact provider value, including `default`. `{ "mode": "default" }`
+resolves the model's advertised default; `null` queues an explicit clear. Settings
+report `pendingEffortClear` to distinguish clearing from leaving effort unchanged.
+Discord uses `!effort set <level>`, `!effort default`, and `!effort clear`.
+
+Masked answers (`isSecret: true`) use password inputs; omitting the flag uses a normal answer field. Masking does not encrypt answers or change provider storage.
 
 Unknown models and unsupported effort return 400 with stable error codes;
 unavailable model metadata returns 409. Writes share the conversation mutation
@@ -280,29 +306,35 @@ and extra fields are rejected. Unexpected backend failures remain sanitized 502
 responses. A failed usage read does not prevent unrelated settings requests.
 
 Model/effort overrides follow existing loaded-session lifetime rules; the web
-surface adds no persistence or global defaults. Account limits are provider data
-and may be incomplete/unavailable. The sidebar **Usage & limits** panel exposes
-all reported usage buckets and banked reset counts/details. Bucket titles use the
-model catalog display name matched by `normalModelSlug`, then the provider's
-`limitName`, then a humanized internal ID. When a model name and distinct quota
-label are both present, the quota label is shown beneath the title. Optional
-catalog failures leave usage and reset controls available. Conversation settings
-retain context telemetry, which can be null before a turn.
+surface adds no persistence or global defaults. `accountReset` in the provider descriptor is the sole operation-support flag; account `resets` contains availability counts and credits, not a second support flag. Account limits are provider data
+and may be incomplete/unavailable. They are host account allowances shared across
+conversations. Codex exposes reported usage buckets and banked reset counts/details.
+The [Usage & limits panel](web-ui.md#usage-and-limits) presents both providers.
 
-Reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
+
+Claude returns the shared `ProviderAccountLimits` DTO: provider, account plan/auth
+mode, availability, source, last check time, allowance windows, extra usage status
+and a safe explanatory message. Each window has a reported percentage (nullable),
+reset time (nullable), status (nullable), observation time and stale flag. Extra
+usage has its own observation time and stale flag. No credentials, email or native
+account IDs are exposed. API accounts report subscription limits as not applicable.
+
+The Claude reader uses an experimental native SDK control with no model prompt,
+project settings, tools or MCP servers. It coalesces reads across callers, caches
+for 30 seconds, limits manual refreshes to one per five seconds and times out after
+ten seconds. Native conversation events also update the same account snapshot. Failed
+reads retain last reported values with stale labels. Unknown percentages remain
+unknown; passed reset times never imply zero usage. Data older than 120 seconds
+is stale. Account or credential changes discard the previous account snapshot.
+Unknown, duplicate or malformed limits query parameters return 400.
+
+Codex reset redemption uses `account/rateLimitResetCredit/consume`. The request key must
 be non-empty (maximum 100 characters); an optional non-empty credit ID (maximum
 256 characters) selects a particular reset. Without an ID, Codex selects the next
-available reset. Outcomes are `reset`, `alreadyRedeemed`, `nothingToReset`, and
-`noCredit`. Read `/limits` after a known result. Retry an unknown result with the
-same key; never generate a new key for the same attempt. The built-in UI retains
-both the request key and selected credit ID in session storage across reloads in
-the same tab. Each available, unexpired, supported detail row has a **Use this
-reset** button. While an outcome is unknown, only retrying that original attempt
-is allowed. If details are count-only or capped, **Use next available reset**
-lets Codex choose from its available inventory; the UI does not assume
-an expiry ordering. Malformed bodies
+available reset. Shared outcomes are `reset`, `already_redeemed`, `nothing_to_reset`, and
+`no_credit`. Read `/limits` after a known result. Retry an unknown result with the
+same key; never generate a new key for the same attempt. Malformed bodies
 and extra fields return 400; backend failures remain sanitized 502 responses.
-Reset controls work without a selected conversation.
 
 ## Conversation management
 
@@ -325,31 +357,34 @@ refresh the conversation list before retrying to avoid duplicate forks.
 
 ### Skills
 
-The attached conversation exposes `GET /api/v1/conversations/:id/skills` returning
-`SkillsListResponse` (workspace directories, skill names/descriptions/paths/scopes,
-effective enabled state, and discovery errors). Workspace selection comes from the
+The attached conversation exposes `GET /api/conversations/:id/skills` returning
+`SkillsListResponse`: `{ workspacePath, skills, errors }`, where `workspacePath` is the
+conversation's effective workspace, `skills` lists names, descriptions, paths, scopes and
+effective enabled state, and `errors` lists skill files that could not be loaded. Workspace selection comes from the
 shared conversation service, not a client-supplied directory.
 
-`POST /api/v1/conversations/:id/skills-reload` with `{}` repeats discovery with
-`forceReload: true` and returns the same shape. `POST /api/v1/conversations/:id/skills`
+Discovery is scoped to the conversation’s effective workspace; clients cannot override it with arbitrary directories. The provider port receives one `workspacePath` and an optional refresh preference, and returns `{ skills, errors }`; core adds the workspace. Codex's per-directory grouping is merged inside its adapter.
+
+`POST /api/conversations/:id/skills-reload` with `{}` repeats discovery with
+`refresh: true` and returns the same shape. `POST /api/conversations/:id/skills`
 with `{ "path": "/absolute/skill/SKILL.md", "enabled": false }` uses the same shared
-`skill.set-enabled` action as Discord and returns `{ "effectiveEnabled": false }`.
+`skill.set-enabled` action as Discord and returns the resulting state, such as `{ "enabled": false }`.
 The action also supports the shared name resolution semantics; the UI always sends
 the listed path to distinguish duplicate names. Unknown/ambiguous names return 400.
 Both writes share the conversation mutation lock and existing origin/host checks.
 
-Skill configuration is shared Codex configuration, not a per-conversation override.
+Skill configuration is shared provider configuration, not a per-conversation override.
 Effective state can differ from the requested value. Reload discovery after changing
 skill files; it does not install skills or restart the host.
 
 ### Compaction and revert
 
-`POST /api/v1/conversations/:id/compact` with `{}` starts compaction through the
+`POST /api/conversations/:id/compact` with `{}` starts compaction through the
 shared `thread.compact` control action. `{ "ok": true }` means the start request
 was accepted, not that compaction finished. Existing turn/activity events report
 progress and failures.
 
-`POST /api/v1/conversations/:id/revert` with `{ "beforeTurnId": "turn-id" }`
+`POST /api/conversations/:id/revert` with `{ "beforeTurnId": "turn-id" }`
 removes that turn and all later turns through shared `thread.revert` and provider
 `thread/revert`. `beforeTurnId` must be a non-empty string of at most 256 characters.
 The attached thread is fixed by the conversation handle; clients cannot override it.
@@ -371,7 +406,7 @@ recovery. The revision is navigation state, not persistent conversation metadata
 
 ### Host lifecycle controls
 
-`GET /api/v1/host/battery` returns `WebHostBatteryResponse`: `{ battery: { percentage,
+`GET /api/host/battery` returns `WebHostBatteryResponse`: `{ battery: { percentage,
 status } }`, or `{ battery: null }` when no system battery can be read. Percentage
 is an integer from 0 to 100; status is `charging`, `discharging`, `full`,
 `not-charging`, or `unknown`. This reads the Shepherd host's Linux/Android sysfs
@@ -379,19 +414,22 @@ power supplies, excludes supplies marked with Device scope, and requires neither
 a conversation nor lifecycle controls. It follows the same origin checks as other
 API routes.
 
-`GET /api/v1/host` returns `WebHostStatus`: web instance identity/start time, lifecycle
+`GET /api/host` returns `WebHostStatus`: web instance identity/start time, lifecycle
 availability, the commit captured at host startup, current checkout status, and the
 latest web-requested operation. Running and checkout commits can differ while a
 validated deployment waits for restart. Startup commit may be unavailable outside a
 Git checkout. Checkout status also reflects deployments started on other surfaces.
 
-`POST /api/v1/host/actions` accepts `{ "requestId": "unique-id", "action": "restart" }`
+`POST /api/host/actions` accepts `{ "requestId": "unique-id", "action": "restart" }`
 or `{ "requestId": "unique-id", "action": "deploy", "branch": "optional-preview" }`.
 Omit branch to deploy stable main. The response is 202 with a `WebHostOperation`;
-clients poll host status for starting, validating, restarting, and finished phases.
-A finished operation may be a refusal or validation failure; read its message.
-The shared runtime lifecycle orchestrator owns active-turn/approval guards,
-validation, restoration on failure, quiescing, and restart. No shell command is
+clients poll host status for starting, validating, draining, restarting, and finished
+phases. `draining` waits for running turns, background tasks and pending approvals to
+finish; its message says what it waits for. Meanwhile new messages and compactions
+return 503 `restart_pending`, while reads, steering, interrupts and approval decisions
+keep working. A finished operation may be a validation failure or a drain that did
+not finish within 30 minutes; read its message. The shared runtime lifecycle
+orchestrator owns draining, validation, restoration on failure, quiescing, and restart. No shell command is
 constructed by the web adapter.
 
 Accepted operations survive client disconnects. Repeated request IDs with identical
@@ -407,7 +445,7 @@ uncertain action. A reconnect alone is not proof of a successful deployment.
 
 ### Image input
 
-`POST /api/v1/conversations/:id/messages` accepts `{ "text": "Describe this", "images":
+`POST /api/conversations/:id/messages` accepts `{ "text": "Describe this", "images":
 ["data:image/png;base64,..."] }`. `images` is optional; text may be empty when at least
 one image is attached. Inputs become the same shared text/image user-input records
 used by Discord, for both new turns and steering an active turn.
@@ -429,11 +467,29 @@ created. Images are stored as part of provider conversation history.
 User-message history preserves bounded valid inline images for previews. Unsupported
 or remote image URLs become an unavailable-image placeholder, never a browser fetch.
 
+Model catalog rows include the shared `ModelCapabilities` fields: `inputModalities`
+(`text`, `image`, `audio`, or `null` when unreported), `supportedEfforts`, and
+`defaultEffort`. `GET /api/conversations/:id/settings` also returns
+`modelCapabilities.current` and `modelCapabilities.next`; these differ when a model
+change is pending. The active turn continues to use the current model. Unsupported
+model media returns HTTP 422 with `unsupported_model_input`; adapter restrictions
+still return `unsupported_provider_operation`.
+
 ### Conversation list freshness
 
 Stored conversation pages explicitly use `updated_at` descending, matching Discord
 `!threads`, including archived and later pages. Active means not archived, not
-currently running. The web list refreshes after selected-turn activity, when the
-page regains focus/visibility, and every 30 seconds while visible. Refresh shows a
-busy indicator. Automatic refresh pauses after loading more conversations to avoid
-collapsing older pages; manual Refresh returns to the newest page and resumes it.
+currently running.
+
+Stored-thread summaries include `provider` and `canUnarchive`; Restore is disabled
+when the owning provider cannot unarchive. Stored and loaded listings can return
+`unavailableProviders` with partial results. Stored-list cursors retain that notice
+until the first page is reloaded, which retries the unavailable providers.
+
+## Independent provider metadata
+
+Provider descriptors expose `accountReporting`; a provider without an account reader returns an unsupported-operation error from `/limits`, and clients should omit reporting requests for it. `signedIn: null` means login state is unknown.
+
+Conversation model discovery uses the attached session. Model/effort selection does not require discovery: clients can submit opaque selections to adapters without catalogs. Unknown current/default models remain null, `supportedEfforts: null` means effort metadata is unreported, and `effortOptionsKnown: false` distinguishes unknown options from a reported empty set. Known catalog constraints remain enforced. `modelCatalogAuthoritative` determines whether unlisted selections are rejected by shared controls; advisory catalogs also permit custom IDs in the picker. `modelCatalogScope` specifies whether bootstrap can validate before provider execution or needs the newly established conversation context.
+
+Token input/output/total counts may be null. `last` and `total` token breakdowns may each be null; cumulative-only reports remain usable. Thread IDs exposed to clients are application identities, not native provider handles. Provider-local IDs are scoped at registration; approval IDs are scoped to their thread.

@@ -46,10 +46,10 @@ async (page) => {
   await page.context().setOffline(false);
   await page.getByText('Connected', { exact: true }).waitFor({ timeout: 15000 });
   await page.evaluate(async () => {
-    const conversations = await (await fetch('/api/v1/conversations')).json();
+    const conversations = await (await fetch('/api/conversations')).json();
     const selected = JSON.parse(localStorage.getItem('shepherd.selection'));
     if (!conversations.conversations.some(item => item.id === selected.id)) throw new Error('Missing selected handle');
-    await fetch(`/api/v1/conversations/${selected.id}`, { method: 'DELETE' });
+    await fetch(`/api/conversations/${selected.id}`, { method: 'DELETE' });
   });
   await page.getByText('Needs attention', { exact: true }).waitFor({ timeout: 15000 });
   await page.getByRole('button', { name: 'Resume conversation', exact: true }).click();

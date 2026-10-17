@@ -15,7 +15,7 @@ async (page) => {
 
   let holdHistory = true;
   const releaseHistory = [];
-  await page.route('**/api/v1/conversations/*/turns?*', async route => {
+  await page.route('**/api/conversations/*/turns?*', async route => {
     if (holdHistory) await new Promise(resolve => releaseHistory.push(resolve));
     await route.continue();
   });
@@ -33,7 +33,7 @@ async (page) => {
   let releaseSend;
   let receivedSend;
   let receipt = new Promise(resolve => { receivedSend = resolve; });
-  await page.route('**/api/v1/conversations/*/messages', async route => {
+  await page.route('**/api/conversations/*/messages', async route => {
     const response = await route.fetch();
     const pending = new Promise(resolve => { releaseSend = resolve; });
     receivedSend();
@@ -67,14 +67,14 @@ async (page) => {
   await page.getByRole('button', { name: 'Remove first.png', exact: true }).waitFor({ state: 'hidden' });
   if (await composer.inputValue() !== 'Keep this new edit') throw Error('Deleted text edited after switching back');
   await page.getByRole('button', { name: 'Remove only.png', exact: true }).waitFor();
-  await page.unroute('**/api/v1/conversations/*/messages');
+  await page.unroute('**/api/conversations/*/messages');
   await page.getByRole('button', { name: 'Interrupt response', exact: true }).waitFor({ state: 'hidden' });
 
-  await page.route('**/api/v1/conversations/*/messages', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Send failed' } } }));
+  await page.route('**/api/conversations/*/messages', route => route.fulfill({ status: 502, json: { error: { code: 'operation_failed', message: 'Send failed' } } }));
   await send.click();
   await page.getByRole('alert').filter({ hasText: 'Send failed' }).waitFor();
   if (await composer.inputValue() !== 'Keep this new edit') throw Error('Lost text after a rejected send');
   await page.getByRole('button', { name: 'Remove only.png', exact: true }).waitFor();
-  await page.unroute('**/api/v1/conversations/*/messages');
+  await page.unroute('**/api/conversations/*/messages');
   return 'Accepted sends clear text/images without waiting for history, including after switching chats; newer edits and other-chat drafts survive; failed sends retain their draft';
 }

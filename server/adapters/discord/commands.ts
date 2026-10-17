@@ -1,3 +1,4 @@
+import { opaqueArgument, quotedArguments } from "./command_arguments.js";
 import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery } from "../../core/surface_snapshot_service.js";
 import type { SurfaceApplicationContext } from "../../core/surface_application_context.js";
 import { executeSurfaceAction } from "../../core/surface_actions_service.js";
@@ -16,6 +17,8 @@ import type {
 } from "../../core/runtime_lifecycle_orchestrator.js";
 import type { RuntimeActivity } from "../../core/session_manager.js";
 import type { SurfaceListeningMode } from "../../core/surface_state_service.js";
+import { UnsupportedProviderOperationError } from "../../../shared/protocol/provider_support.js";
+import type { ProviderCapabilities, ProviderOperation } from "../../../shared/protocol/provider_capabilities.js";
 import type { ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
@@ -42,7 +45,7 @@ import {
 import { initialHistoryRequest, loadHistoryPage } from "./history_pagination.js";
 
 type HandleResult = { handled: boolean; threadId: string | null; input: UserInput[] | null };
-const CODEX_CONTEXT_BASELINE_TOKENS = 12_000;
+
 
 export type CommandContext = SurfaceApplicationContext;
 
@@ -182,49 +185,33 @@ function formatWindow(label: string, value: unknown): string {
   ].join("\n");
 }
 
-function formatRateLimitsForDiscord(value: unknown): string {
-  const limits = asRecord(value);
-  const planType = asString(limits.planType) ?? "unknown";
-  const limitId = asString(limits.limitId) ?? "unknown";
+function formatRateLimitsForDiscord(limits: import("../../../shared/protocol/account_limits.js").ProviderAccountLimits): string {
+  return [
+    `- Provider: ${limits.provider}`,
+    `- Plan: ${limits.account.plan ?? "unknown"}`,
+    ...limits.windows.map(window => `- ${window.label}: ${window.usedPercent === null ? window.status : `${window.usedPercent}% used`}${window.resetsAt === null ? "" : ` · resets <t:${Math.floor(window.resetsAt)}:R>`}`),
+    ...(limits.extraUsage ? [`- Extra usage: ${limits.extraUsage.balanceLabel ?? limits.extraUsage.status}`] : []),
+    ...(limits.message ? [limits.message] : []),
+  ].join("\n");
+}
 
-  const credits = asRecord(limits.credits);
-  const hasCredits = credits.hasCredits === true ? "yes" : "no";
-  const unlimited = credits.unlimited === true ? "yes" : "no";
-  const balance = asString(credits.balance) ?? "unknown";
-
-  const lines = [
-    `- Plan: ${planType}`,
-    `- Limit ID: ${limitId}`,
-    "",
-    formatWindow("Primary Window", limits.primary),
-    "",
-    formatWindow("Secondary Window", limits.secondary),
-    "",
-    `**Credits**`,
-    `- Has credits: ${hasCredits}`,
-    `- Unlimited: ${unlimited}`,
-    `- Balance: ${balance}`,
-  ];
-
-  if (!limits.primary && !limits.secondary) {
-    lines.push("", "Raw payload:", "```json", safeJson(value), "```");
-  }
-
-  return lines.join("\n");
+/** Null counts are ones the provider does not report. */
+function formatOptionalCount(value: unknown): string {
+  return value === null ? "not reported" : formatNumber(value);
 }
 
 function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): string {
   const usage = asRecord(tokenUsage);
   const last = asRecord(usage.last);
   const total = asRecord(usage.total);
-  const contextWindow = asNumber(usage.modelContextWindow);
+  const contextWindow = asNumber(usage.contextWindow);
 
   const lastTotalTokens = asNumber(last.totalTokens);
   const effectiveWindow =
-    contextWindow !== null ? Math.max(contextWindow - CODEX_CONTEXT_BASELINE_TOKENS, 0) : null;
+    contextWindow !== null ? Math.max(contextWindow - 0, 0) : null;
   const usedInEffectiveWindow =
     effectiveWindow !== null && lastTotalTokens !== null
-      ? Math.max(lastTotalTokens - CODEX_CONTEXT_BASELINE_TOKENS, 0)
+      ? Math.max(lastTotalTokens - 0, 0)
       : null;
   const remainingInEffectiveWindow =
     effectiveWindow !== null && usedInEffectiveWindow !== null
@@ -244,21 +231,23 @@ function formatThreadContextForDiscord(threadId: string, tokenUsage: unknown): s
     `- Effective remaining tokens: ${
       remainingInEffectiveWindow === null
         ? "unknown"
-        : `${remainingInEffectiveWindow.toLocaleString()} (baseline ${CODEX_CONTEXT_BASELINE_TOKENS.toLocaleString()})`
+        : `${remainingInEffectiveWindow.toLocaleString()}`
     }`,
     "",
     `**Last Token Usage**`,
     `- Input: ${formatNumber(last.inputTokens)}`,
-    `- Cached input: ${formatNumber(last.cachedInputTokens)}`,
+    `- Cache read: ${formatOptionalCount(last.cacheReadInputTokens)}`,
+    `- Cache write: ${formatOptionalCount(last.cacheWriteInputTokens)}`,
     `- Output: ${formatNumber(last.outputTokens)}`,
-    `- Reasoning output: ${formatNumber(last.reasoningOutputTokens)}`,
+    `- Reasoning output: ${formatOptionalCount(last.reasoningOutputTokens)}`,
     `- Total: ${formatNumber(last.totalTokens)}`,
     "",
     `**Total Token Usage**`,
     `- Input: ${formatNumber(total.inputTokens)}`,
-    `- Cached input: ${formatNumber(total.cachedInputTokens)}`,
+    `- Cache read: ${formatOptionalCount(total.cacheReadInputTokens)}`,
+    `- Cache write: ${formatOptionalCount(total.cacheWriteInputTokens)}`,
     `- Output: ${formatNumber(total.outputTokens)}`,
-    `- Reasoning output: ${formatNumber(total.reasoningOutputTokens)}`,
+    `- Reasoning output: ${formatOptionalCount(total.reasoningOutputTokens)}`,
     `- Total: ${formatNumber(total.totalTokens)}`,
   ].join("\n");
 }
@@ -267,7 +256,7 @@ function formatThreadModelForDiscord(modelState: ThreadModelState): string {
   const lines = [
     `- Thread: ${modelState.threadId}`,
     `- Current: ${modelState.currentModel ?? "unknown"}`,
-    `- Provider: ${modelState.modelProvider ?? "unknown"}`,
+    `- Agent: ${modelState.provider}`,
   ];
   if (modelState.pendingModel) {
     lines.push(`- Pending next turn: ${modelState.pendingModel}`);
@@ -352,25 +341,28 @@ async function replyRuntimeLifecycleResult(
     return;
   }
 
-  const activity = formatRuntimeActivity(result.activity);
-  if (result.action === "deploy" && result.stage === "after-quiescing" && result.deployment) {
-    await reporter.show({
-      title: "Deployment validated; restart deferred",
-      tone: "warning",
-      text: [
-        `Validated commit \`${result.deployment.deployedCommit.slice(0, 7)}\` from \`${deploymentTargetLabel(result.deployment.target)}\`, but Codex work started during deployment.`,
-        activity,
-        "Run `!restart` when the work is complete.",
-      ].filter(Boolean).join("\n"),
-    });
-    return;
-  }
-
+  // Running work did not finish in time; new turns are accepted again and nothing restarted.
   await reporter.show({
-    title: `${result.action === "restart" ? "Restart" : "Deployment"} refused`,
+    title: result.deployment ? "Deployment validated; restart not done" : "Restart not done",
     tone: "warning",
-    text: `Codex work is active.\n${activity}`,
+    text: [
+      result.deployment ? `Validated commit \`${result.deployment.deployedCommit.slice(0, 7)}\` from \`${deploymentTargetLabel(result.deployment.target)}\`.` : "",
+      "Agent work did not finish in time, so Shepherd kept running and accepts new turns again.",
+      formatRuntimeActivity(result.activity),
+      "Run `!restart` when the work is complete.",
+    ].filter(Boolean).join("\n"),
   });
+}
+
+/** Shows what a restart is waiting for while new turns are paused. */
+function drainingReporter(reporter: RuntimeSurfaceReporter) {
+  return async (activity: RuntimeActivity) => {
+    await reporter.show({
+      title: "Waiting for running work",
+      tone: "working",
+      text: ["Shepherd restarts once this work finishes. New turns wait until it is back; interrupts and approvals still work.", formatRuntimeActivity(activity)].filter(Boolean).join("\n"),
+    });
+  };
 }
 
 async function listStoredThreads(message: Message, context: CommandContext, archived: boolean): Promise<void> {
@@ -402,47 +394,86 @@ export async function handleMessage(
   const content = inputContent.trim();
   const channelId = message.channelId;
   const { command, args } = parseThreadArgs(content);
+  // Provider IDs are opaque; preserve the complete argument, including internal spaces.
+  const providerValue = content.slice(command.length).trim();
+  const unquotedProvider = providerValue.match(/^(["'])([\s\S]*)\1$/)?.[2] ?? providerValue;
+  const requestedProvider = ["!newthread", "!limits"].includes(command) && context.conversation.listProviders().some(entry => entry.id === providerValue)
+    ? providerValue : unquotedProvider;
+
+  let identityArgument = "";
+  if (["!thread", "!threadread", "!fork", "!archive", "!unarchive"].includes(command)) {
+    try { identityArgument = opaqueArgument(content.slice(command.length)); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId: null, input: null }; }
+  }
+
+  if (command === "!providers") {
+    const providers = context.conversation.listProviders();
+    await replyCard(message, "Available agents", providers.map(provider => `- ${provider.displayName}: \`${provider.id}\`${provider.isDefault ? " (default)" : ""}`).join("\n") || "No agent providers are registered.");
+    return { handled: true, threadId: null, input: null };
+  }
+
+  if (command === "!newthread" || command === "!limits") {
+    const provider = requestedProvider;
+    if (provider && !context.conversation.listProviders().some(entry => entry.id === provider)) {
+      await replyCard(message, "Choose an agent", `Usage: \`${command} [provider]\`. Use \`!providers\` to list available agent IDs.`, "danger");
+      return { handled: true, threadId: null, input: null };
+    }
+  }
 
   if (command === "!help") {
-    const helpText = [
-      "Conversation messages follow the channel's listening mode.",
-      "",
+    // Hide commands the agent that would run them does not support: the channel's
+    // conversation, or the default agent when the channel has none.
+    const threadId = context.getSurfaceThreadId(channelId);
+    let capabilities: ProviderCapabilities | undefined;
+    try {
+      capabilities = threadId ? context.conversation.getThreadState(threadId).capabilities : undefined;
+    } catch { capabilities = undefined; }
+    capabilities ??= context.conversation.listProviders().find((entry) => entry.isDefault)?.capabilities;
+    const supports = (operation: ProviderOperation) => !capabilities || capabilities[operation] === true;
+    const lines: Array<string | [ProviderOperation, string]> = [
       "- !help",
       "- !status",
       "- !listen [open|mentions]",
       "- !pause",
       "- !resume",
       "- !detach",
-      "- !newthread",
+      "- !providers",
+      "- !newthread [provider]",
       "- !repo",
       "- !repo <owner>/<repo>",
-      "- !limits",
-      "- !models",
+      "- !limits [provider]",
+      ["modelCatalog", "- !models"],
       "- !model",
-      "- !model set <id>",
-      "- !effort [set <level|default>]",
+      ["modelSelection", "- !model set <id>"],
+      supports("effortSelection") ? "- !effort [set <level>|default|clear]" : "- !effort",
       "- !history [thread-id]",
       "- !history items <turn-id> [thread-id]",
       "- !context",
-      "- !skills [reload]",
-      "- !skill enable <name-or-path>",
-      "- !skill disable <name-or-path>",
+      ["skills", "- !skills [reload]"],
+      ["skillConfig", "- !skill enable <name-or-path>"],
+      ["skillConfig", "- !skill disable <name-or-path>"],
       "- !threads",
       "- !threads loaded",
       "- !threads archived",
       "- !thread",
       "- !thread <id>",
-      "- !threadname <name>",
+      ["rename", "- !threadname <name>"],
       "- !threadread [id]",
-      "- !fork [id]",
-      "- !archive [id]",
-      "- !unarchive <id>",
-      "- !compact [id]",
-      "- !interrupt",
+      ["fork", "- !fork [id]"],
+      ["archive", "- !archive [id]"],
+      ["unarchive", "- !unarchive <id>"],
+      ["compact", "- !compact [id]"],
+      ["interrupt", "- !interrupt"],
       "- !restart",
       "- !deploy",
       "- !deploy branch <branch-name>",
       "- !deploy status",
+    ];
+    const helpText = [
+      "Conversation messages follow the channel's listening mode.",
+      ...(capabilities ? [`Commands ${threadId ? "this conversation's" : "the default"} agent does not support are hidden.`] : []),
+      "",
+      ...lines.flatMap((line) => typeof line === "string" ? [line] : supports(line[0]) ? [line[1]] : []),
     ].join("\n");
     await replyCard(message, "Shepherd commands", helpText);
     return { handled: true, threadId: null, input: null };
@@ -512,7 +543,7 @@ export async function handleMessage(
     await replyCard(
       message,
       "Listening paused",
-      "Paused. New conversation messages and attachments will be ignored; control commands remain available. The current Codex turn is unaffected.",
+      "Paused. New conversation messages and attachments will be ignored; control commands remain available. The current agent turn is unaffected.",
       "warning",
     );
     return { handled: true, threadId: context.getSurfaceThreadId(channelId), input: null };
@@ -552,7 +583,7 @@ export async function handleMessage(
     await replyCard(
       message,
       "Channel detached",
-      `Channel detached from thread ${threadId}. The Codex thread was retained and can be reattached with \`!thread ${threadId}\`.`,
+      `Channel detached from thread ${threadId}. The agent thread was retained and can be reattached with \`!thread ${threadId}\`.`,
       "neutral",
     );
     return { handled: true, threadId: null, input: null };
@@ -570,6 +601,7 @@ export async function handleMessage(
 
     const reporter = new RuntimeSurfaceReporter(message);
     const result = await context.runtimeLifecycle.restart({
+      onDraining: drainingReporter(reporter),
       announce: async () => {
         await reporter.show({
           title: "Restarting Shepherd",
@@ -610,6 +642,7 @@ export async function handleMessage(
     const reporter = new RuntimeSurfaceReporter(message);
     const result = await context.runtimeLifecycle.deploy({
       target,
+      onDraining: drainingReporter(reporter),
       onDeploymentStarted: async () => {
         await reporter.show({
           title: "Checking deployment",
@@ -664,12 +697,17 @@ export async function handleMessage(
   }
 
   if (command === "!limits") {
-    const result = await executeControlAction(context, { type: "limits.read" });
-    if (result.type !== "limits.read") {
-      throw new Error("Unexpected control action result for limits.read.");
+    try {
+      const result = await executeControlAction(context, { type: "limits.read", surfaceId: message.channelId, ...(requestedProvider ? { provider: requestedProvider } : {}) });
+      if (result.type !== "limits.read") {
+        throw new Error("Unexpected control action result for limits.read.");
+      }
+      const text = formatRateLimitsForDiscord(result.limits);
+      await replyCard(message, "Rate limits", text);
+    } catch (error) {
+      if (!(error instanceof UnsupportedProviderOperationError)) throw error;
+      await replyCard(message, "Usage unavailable", error.message, "warning");
     }
-    const text = formatRateLimitsForDiscord(result.rateLimits);
-    await replyCard(message, "Rate limits", text);
     return { handled: true, threadId: null, input: null };
   }
 
@@ -692,19 +730,23 @@ export async function handleMessage(
   }
 
   if (command === "!history") {
-    const items = args[0]?.toLowerCase() === "items";
-    if ((items && (args.length < 2 || args.length > 3)) || (!items && args.length > 1)) {
-      await replyMarkdown(message, "Usage: !history [thread-id]\nUsage: !history items <turn-id> [thread-id]");
+    let historyArgs: string[];
+    const remainder = content.slice(command.length).trim();
+    try { historyArgs = quotedArguments(remainder); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId: null, input: null }; }
+    const items = /^items(?:\s|$)/i.test(remainder);
+    if ((items && (historyArgs.length < 2 || historyArgs.length > 3)) || (!items && historyArgs.length > 1)) {
+      await replyMarkdown(message, "Usage: !history [thread-id]\nUsage: !history items <turn-id> [thread-id]\nQuote IDs containing spaces.");
       return { handled: true, threadId: null, input: null };
     }
-    const threadId = (items ? args[2] : args[0]) ?? context.getSurfaceThreadId(channelId);
+    const threadId = (items ? historyArgs[2] : historyArgs[0]) ?? context.getSurfaceThreadId(channelId);
     if (!threadId) {
       await replyCard(message, "Thread required", "Use `!history <thread-id>` or select a thread first.", "warning");
       return { handled: true, threadId: null, input: null };
     }
     try {
       const page = await loadHistoryPage(context.conversation,
-        initialHistoryRequest(threadId, message.author.id, items ? args[1] : undefined));
+        initialHistoryRequest(threadId, message.author.id, items ? historyArgs[1] : undefined));
       await replyPage(message, page);
     } catch (error) {
       await replyCard(message, "History unavailable", error instanceof Error ? error.message : "Failed to load history.", "danger");
@@ -714,17 +756,20 @@ export async function handleMessage(
 
   if (command === "!effort") {
     const threadId = context.getSurfaceThreadId(channelId);
-    if (args.length && (args.length !== 2 || args[0]?.toLowerCase() !== "set")) {
-      await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level|default>");
+    const effortValue = content.match(/^!effort\s+set\s+([\s\S]+)$/i)?.[1].trim();
+    if (args.length && !((effortValue && args[0]?.toLowerCase() === "set") || (args.length === 1 && ["default", "clear"].includes(args[0]!.toLowerCase())))) {
+      await replyMarkdown(message, "Usage: !effort\nUsage: !effort set <level>\nUsage: !effort default\nUsage: !effort clear");
       return { handled: true, threadId, input: null };
     }
     try {
       const result = await executeControlAction(context, args.length
-        ? { type: "effort.set", surfaceId: channelId, effort: args[1]!.toLowerCase() }
+        ? { type: "effort.set", surfaceId: channelId, effort: effortValue ? effortValue : args[0]!.toLowerCase() === "clear" ? null : { mode: "default" } }
         : { type: "effort.get", surfaceId: channelId });
       if (result.type !== "effort.get" && result.type !== "effort.set") throw new Error("Unexpected effort result.");
       if (!result.ok) {
-        await replyCard(message, result.error.code === "thread_required" ? "Thread required" : "Effort unavailable", formatActionFailure(result.error), "warning");
+        // Effort values are opaque, so "set default" stays literal; point users of the older syntax to the model default.
+        const hint = result.error.code === "unsupported_effort" && effortValue?.toLowerCase() === "default" ? "\nUse `!effort default` to select the model default." : "";
+        await replyCard(message, result.error.code === "thread_required" ? "Thread required" : "Effort unavailable", `${formatActionFailure(result.error)}${hint}`, "warning");
         return { handled: true, threadId: null, input: null };
       }
       const { state } = result;
@@ -732,8 +777,9 @@ export async function handleMessage(
         `- Model: ${state.model}`,
         `- Current: ${state.currentEffort ?? "unknown"}`,
         `- Model default: ${state.defaultEffort ?? "unknown"}`,
-        `- Available: ${state.supportedEfforts.map((option) => option.reasoningEffort).join(", ") || "none"}`,
+        `- Available: ${state.supportedEfforts?.map((option) => option.value).join(", ") || (state.supportedEfforts === null ? "not reported" : "none")}`,
       ];
+      if (state.pendingEffortClear) lines.push("- Pending next turn: clear effort override");
       if (state.pendingEffort) lines.push(`- Pending next turn: ${state.pendingEffort}`);
       if (args.length) lines.push("Applies to the next new turn and subsequent turns.");
       await replyCard(message, args.length ? "Effort updated" : "Effort", lines.join("\n"));
@@ -767,7 +813,9 @@ export async function handleMessage(
       return { handled: true, threadId, input: null };
     }
 
-    const requestedModel = args.slice(1).join(" ").trim();
+    let requestedModel: string;
+    try { requestedModel = opaqueArgument(content.match(/^!model\s+set(?:\s+([\s\S]+))?$/i)?.[1] ?? ""); }
+    catch (error) { await replyMarkdown(message, (error as Error).message); return { handled: true, threadId, input: null }; }
     if (!requestedModel) {
       await replyMarkdown(message, "Usage: !model set <id>");
       return { handled: true, threadId, input: null };
@@ -819,7 +867,7 @@ export async function handleMessage(
   }
 
   if (command === "!newthread") {
-    const result = await executeControlAction(context, { type: "thread.create", surfaceId: channelId });
+    const result = await executeControlAction(context, { type: "thread.create", surfaceId: channelId, ...(requestedProvider ? { provider: requestedProvider } : {}) });
     if (result.type !== "thread.create") {
       throw new Error("Unexpected control action result for thread.create.");
     }
@@ -877,9 +925,9 @@ export async function handleMessage(
     }
 
     const mode = (args[0] ?? "").toLowerCase();
-    const forceReload = mode === "reload";
+    const refresh = mode === "reload";
     const listed = await loadSkillsPage(context.conversation, {
-      threadId: activeThreadId, forceReload, page: 1, pageSize: DISCORD_LIST_PAGE_SIZE,
+      threadId: activeThreadId, refresh, page: 1, pageSize: DISCORD_LIST_PAGE_SIZE,
     });
     await replyPage(message, buildSkillsListPage({
       result: listed,
@@ -902,15 +950,17 @@ export async function handleMessage(
 
     const sub = (args[0] ?? "").toLowerCase();
     if (sub === "enable" || sub === "disable") {
-      const requestedSkill = args.slice(1).join(" ").trim();
+      const skillArgument = content.match(/^!skill\s+\S+\s+([\s\S]+)$/i)?.[1].trim() ?? "";
+      const explicitPath = /^--path(?:\s|$)/.test(skillArgument);
+      const requestedSkill = explicitPath ? skillArgument.slice(6).trim() : skillArgument;
       if (!requestedSkill) {
-        await replyMarkdown(message, `Usage: !skill ${sub} <name-or-path>`);
+        await replyMarkdown(message, `Usage: !skill ${sub} <name-or-path>\nUsage: !skill ${sub} --path <path>`);
         return { handled: true, threadId: null, input: null };
       }
       const result = await executeControlAction(context, {
         type: "skill.set-enabled",
         surfaceId: channelId,
-        requestedSkill,
+        ...(explicitPath ? { path: requestedSkill } : { requestedSkill }),
         enabled: sub === "enable",
       });
       if (result.type !== "skill.set-enabled") {
@@ -923,7 +973,7 @@ export async function handleMessage(
       await replyCard(
         message,
         result.enabled ? "Skill enabled" : "Skill disabled",
-        `${result.enabled ? "Enabled" : "Disabled"} skill ${result.requestedSkill} (effectiveEnabled=${result.effectiveEnabled})`,
+        `${result.enabled ? "Enabled" : "Disabled"} skill ${result.requestedSkill} (now ${result.appliedEnabled ? "enabled" : "disabled"})`,
         result.enabled ? "success" : "neutral",
       );
       return { handled: true, threadId: null, input: null };
@@ -949,7 +999,7 @@ export async function handleMessage(
   }
 
   if (command === "!thread" && args.length > 0) {
-    const requestedThreadId = args[0]?.trim();
+    const requestedThreadId = identityArgument;
     if (!requestedThreadId) {
       await replyMarkdown(message, "Usage: !thread <id>");
       return { handled: true, threadId: null, input: null };
@@ -993,7 +1043,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.read",
       surfaceId: channelId,
-      threadId: args[0],
+      threadId: identityArgument || undefined,
     });
     if (result.type !== "thread.read") {
       throw new Error("Unexpected control action result for thread.read.");
@@ -1018,7 +1068,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.fork",
       surfaceId: channelId,
-      sourceThreadId: args[0],
+      sourceThreadId: identityArgument || undefined,
     });
     if (result.type !== "thread.fork") {
       throw new Error("Unexpected control action result for thread.fork.");
@@ -1040,7 +1090,7 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.archive",
       surfaceId: channelId,
-      threadId: args[0],
+      threadId: identityArgument || undefined,
     });
     if (result.type !== "thread.archive") {
       throw new Error("Unexpected control action result for thread.archive.");
@@ -1054,7 +1104,7 @@ export async function handleMessage(
   }
 
   if (command === "!unarchive") {
-    const target = args[0];
+    const target = identityArgument;
     if (!target) {
       await replyMarkdown(message, "Usage: !unarchive <id>");
       return { handled: true, threadId: null, input: null };
@@ -1079,7 +1129,6 @@ export async function handleMessage(
     const result = await executeControlAction(context, {
       type: "thread.compact",
       surfaceId: channelId,
-      threadId: args[0],
     });
     if (result.type !== "thread.compact") {
       throw new Error("Unexpected control action result for thread.compact.");

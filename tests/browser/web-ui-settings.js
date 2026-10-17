@@ -7,8 +7,8 @@ async (page) => {
   await dialog.getByRole('button', { name: 'More models', exact: true }).click();
   await dialog.getByLabel('Model for next turn', { exact: true }).selectOption('large');
   await dialog.getByRole('button', { name: 'Use model', exact: true }).click();
-  await dialog.getByLabel('Effort for next turn', { exact: true }).locator('option[value="high"]').waitFor({ state: 'attached' });
-  await dialog.getByLabel('Effort for next turn', { exact: true }).selectOption('high');
+  await dialog.getByLabel('Effort for next turn', { exact: true }).locator('option').filter({ hasText: /^high$/ }).waitFor({ state: 'attached' });
+  await dialog.getByLabel('Effort for next turn', { exact: true }).selectOption({ label: 'high' });
   await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
   await dialog.getByText('Current and pending values', { exact: true }).click();
   await dialog.locator('dd').filter({ hasText: /^high$/ }).waitFor();
@@ -32,9 +32,11 @@ async (page) => {
   await dialog.getByText('Current and pending values', { exact: true }).click();
   await dialog.locator('dd').filter({ hasText: /^large$/ }).waitFor();
   await dialog.locator('dd').filter({ hasText: /^high$/ }).waitFor();
-  await dialog.getByLabel('Effort for next turn', { exact: true }).selectOption('default');
+  // The model-default option carries no provider effort value.
+  const effortSelect = dialog.getByLabel('Effort for next turn', { exact: true });
+  await effortSelect.selectOption(await effortSelect.locator('option', { hasText: 'Model default' }).getAttribute('value'));
   await dialog.getByRole('button', { name: 'Use effort', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('select[aria-label="Effort for next turn"]')?.value === 'low');
+  await page.waitForFunction(() => document.querySelector('select[aria-label="Effort for next turn"]')?.selectedOptions[0]?.textContent === 'low');
   await page.keyboard.press('Escape');
   if (await dialog.isVisible()) throw Error('Escape did not close settings');
 }

@@ -4,10 +4,12 @@ import { RuntimeLifecycleOrchestrator } from "../server/core/runtime_lifecycle_o
 import { webHarness } from "./helpers/web_harness";
 
 function fixture() {
-  let active = false; let pending = false; let count = 0; let restart = 0; let fail = false;
+  let active = false; let pending = false; let count = 0; let restart = 0; let fail = false; let paused = false;
   let release: (() => void) | null = null;
   const lifecycle = new RuntimeLifecycleOrchestrator({
     runningCommit: Promise.resolve("boot-commit"),
+    drainPollMs: 1,
+    admission: { pauseNewTurns() { paused = true; }, resumeNewTurns() { paused = false; } },
     readActivity: () => ({ activeTurnThreadIds: active ? ["thread"] : [], pendingApprovalIds: pending ? ["approval"] : [] }),
     lifecycle: { prepareRestart: () => true, cancelRestart() {}, requestRestart() { restart++; } },
     deployment: {
@@ -16,7 +18,7 @@ function fixture() {
       async deploy(target) { count++; await new Promise<void>((resolve) => { release = resolve; }); if (fail) throw new Error("Validation failed; restored boot-commit"); return { target, previousCommit: "boot-commit", deployedCommit: "next-commit", changed: true }; },
     },
   });
-  return { lifecycle, setActive: (value: boolean) => { active = value; }, setPending: (value: boolean) => { pending = value; }, fail: () => { fail = true; }, release: () => release?.(), count: () => count, restarts: () => restart };
+  return { lifecycle, setActive: (value: boolean) => { active = value; }, setPending: (value: boolean) => { pending = value; }, fail: () => { fail = true; }, release: () => release?.(), count: () => count, restarts: () => restart, paused: () => paused };
 }
 async function until(predicate: () => Promise<boolean>) { for (let i = 0; i < 200; i++) { if (await predicate()) return; await new Promise((resolve) => setTimeout(resolve, 5)); } throw new Error("Timed out waiting for host operation"); }
 
@@ -33,18 +35,27 @@ test("host deployment runs asynchronously, exposes progress, deduplicates reques
   expect((await controls.status()).operation?.message).toContain("next-commit");
 });
 
-test("shared lifecycle refuses active work and pending approvals, and retains deployment failure/restore details", async () => {
+test("a restart waits for active work and pending approvals, showing what it waits for, and retains deployment failure details", async () => {
   const f = fixture(); const controls = new WebHostControls(f.lifecycle);
   f.setActive(true); controls.start({ requestId: "busy", action: "restart" });
-  await until(async () => (await controls.status()).operation?.phase === "finished");
-  expect((await controls.status()).operation?.message).toContain("Host is busy"); expect(f.restarts()).toBe(0);
-  f.setActive(false); f.setPending(true); controls.start({ requestId: "approval", action: "deploy" });
-  await until(async () => (await controls.status()).operation?.phase === "finished"); expect(f.count()).toBe(0);
-  f.setPending(false); f.fail(); controls.start({ requestId: "failed", action: "deploy" });
-  await until(async () => f.count() === 1); f.release();
-  await until(async () => (await controls.status()).operation?.phase === "finished");
-  expect((await controls.status()).operation?.message).toContain("restored boot-commit");
-  expect(f.restarts()).toBe(0);
+  await until(async () => (await controls.status()).operation?.phase === "draining");
+  expect((await controls.status()).operation?.message).toContain("Waiting for 1 running conversation to finish");
+  // New turns wait while the restart drains; the work already running finishes first.
+  expect(f.paused()).toBe(true); expect(f.restarts()).toBe(0);
+  f.setActive(false); await until(async () => f.restarts() === 1);
+  expect((await controls.status()).operation?.phase).toBe("restarting");
+  const next = fixture(); const deploying = new WebHostControls(next.lifecycle);
+  next.setPending(true); deploying.start({ requestId: "approval", action: "deploy" });
+  await until(async () => next.count() === 1); next.release();
+  await until(async () => (await deploying.status()).operation?.phase === "draining");
+  expect((await deploying.status()).operation?.message).toContain("1 pending approval");
+  next.setPending(false); await until(async () => next.restarts() === 1);
+  const failing = fixture(); const failed = new WebHostControls(failing.lifecycle);
+  failing.fail(); failed.start({ requestId: "failed", action: "deploy" });
+  await until(async () => failing.count() === 1); failing.release();
+  await until(async () => (await failed.status()).operation?.phase === "finished");
+  expect((await failed.status()).operation?.message).toContain("restored boot-commit");
+  expect(failing.restarts()).toBe(0); expect(failing.paused()).toBe(false);
 });
 
 test("host API validates input/origin and works without a conversation", async () => {

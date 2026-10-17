@@ -1,12 +1,12 @@
 // Run against tests/fixtures/web-ui-host.ts using playwright-cli run-code.
 async (page) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.route('**/api/v1/conversations/*/turns?*', async route => {
+  await page.route('**/api/conversations/*/turns?*', async route => {
     const response = await route.fetch();
     const history = await response.json();
     if (history.data?.length) {
       const text = index => `Message ${index} reference[^same]. Inline math: $E = mc^2$.\n\n${Array.from({ length: 25 }, (_, row) => `Paragraph ${index}.${row}: enough content to require scrolling within the conversation.`).join('\n\n')}\n\n[^same]: Note for message ${index}.`;
-      history.data[0].items = [1, 2].map(index => ({ id: `footnote-${index}`, type: 'agentMessage', phase: 'final_answer', text: text(index) }));
+      history.data[0].items = [1, 2].map(index => ({ id: `footnote-${index}`, type: 'assistant_message', phase: 'final', text: text(index) }));
     }
     await route.fulfill({ response, json: history });
   });
@@ -56,6 +56,6 @@ async (page) => {
     await document.fonts.ready;
     if (!document.fonts.check('16px KaTeX_Main')) throw Error('Math font failed to load');
   });
-  await page.unroute('**/api/v1/conversations/*/turns?*');
+  await page.unroute('**/api/conversations/*/turns?*');
   return 'Mobile footnote references and return links keep the header/composer fixed, scroll only the chat, focus the correct targets, and have distinct IDs across messages';
 }

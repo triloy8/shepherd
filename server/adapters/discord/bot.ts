@@ -48,7 +48,6 @@ export function createDiscordAdapter(
     partials: [Partials.Channel],
   }),
 ): SurfaceAdapter {
-  const { approvalPolicy } = context;
 
   const threadEvents = createDiscordThreadEventHandler(client, {
     streaming: options.streaming,
@@ -85,7 +84,6 @@ export function createDiscordAdapter(
         botUserId: client.user.id,
         conversation: context.ingress,
         commandContext,
-        approvalPolicy,
       });
     } catch (error) {
       const text = formatApplicationError(error, "Failed to process message.");

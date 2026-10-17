@@ -62,7 +62,6 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
         report(prepared.id, { state: "starting" });
         const adapter = prepared.create({
           signal: abort.signal,
-          approvalPolicy: config.approvalPolicy,
           ingress: createIngressConversation(shepherd.conversation),
           interactions: createInteractionConversation(shepherd.conversation),
           approvals: createApprovalConversation(shepherd.conversation),
@@ -71,8 +70,6 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
           createApplication: (onThreadEvent) => createSurfaceRuntime({
             adapter: prepared.id,
             conversation: shepherd.conversation,
-            approvalPolicy: config.approvalPolicy,
-            defaultSandbox: config.defaultSandbox,
             runtimeLifecycle: shepherd.lifecycle,
             onThreadEvent,
             ...workspace,

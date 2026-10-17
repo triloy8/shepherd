@@ -1,0 +1,68 @@
+import { historyTurn } from "./history.js";
+import type {  ReadThreadResponse, RevertThreadResponse, ThreadRecord, ListModelsResponse } from "../../../shared/protocol/requests.js";
+import type { AccountRateLimitsResponse } from "./account_types.js";
+import type { StoredThreadPage, LoadedThreadPage } from "../../ports/provider_session.js";
+import { decodeResetCredits } from "./account_usage.js";
+const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+const asString = (value: unknown): string | null => typeof value === "string" && value.trim() ? value : null;
+
+function thread(value: unknown): ThreadRecord {
+  const record = asRecord(value);
+  const id = asString(record.id);
+  if (!id) throw new Error("Thread payload missing id.");
+  return { id, name: asString(record.name), preview: asString(record.preview) ?? "",
+    ...(typeof record.createdAt === "number" ? { createdAt: record.createdAt } : {}),
+    ...(typeof record.updatedAt === "number" ? { updatedAt: record.updatedAt } : {}),
+    ...(Object.hasOwn(record, "model") ? { model: asString(record.model) } : {}),
+    ...(asString(record.cwd) ? { cwd: String(record.cwd) } : {}),
+    ...(Array.isArray(record.turns) ? { turns: record.turns.map(historyTurn) } : {}) };
+}
+export function readResponse(value: unknown): ReadThreadResponse { return { thread: thread(asRecord(value).thread) }; }
+export function revertResponse(value: unknown): RevertThreadResponse {
+  const record = asRecord(value);
+  return { ...readResponse(value), turnsBackwardsCursor: asString(record.turnsBackwardsCursor), itemsBackwardsCursor: asString(record.itemsBackwardsCursor) };
+}
+export function storedResponse(value: unknown): StoredThreadPage {
+  const record = asRecord(value);
+  if (!Array.isArray(record.data)) throw new Error("Invalid stored thread page.");
+  return { data: record.data.map(thread), nextCursor: asString(record.nextCursor), backwardsCursor: asString(record.backwardsCursor) };
+}
+export function loadedResponse(value: unknown): LoadedThreadPage {
+  const record = asRecord(value);
+  if (!Array.isArray(record.data) || record.data.some(id => !asString(id))) throw new Error("Invalid loaded thread page.");
+  return { data: record.data as string[], nextCursor: asString(record.nextCursor) };
+}
+export function accountResponse(value: unknown): AccountRateLimitsResponse {
+  const raw = asRecord(value);
+  return { rateLimits: raw.rateLimits ?? raw, rateLimitsByLimitId: raw.rateLimitsByLimitId && typeof raw.rateLimitsByLimitId === "object" ? raw.rateLimitsByLimitId as Record<string, unknown> : null, rateLimitResetCredits: decodeResetCredits(raw.rateLimitResetCredits) };
+}
+export function modelsResponse(value: unknown): ListModelsResponse {
+  const raw = asRecord(value);
+  const items = Array.isArray(raw.data) ? raw.data : [];
+    return {
+      data: items.map((item) => {
+        const record = asRecord(item);
+        // Turns and threads select Codex models by slug; the catalog preset ID is not an application value.
+        const id = asString(record.model) ?? asString(record.id) ?? "unknown";
+        return {
+          id,
+          displayName: asString(record.displayName) ?? id,
+          description: asString(record.description) ?? "",
+          hidden: record.hidden === true,
+          isDefault: record.isDefault === true,
+          // Older Codex catalogs document text/image as their compatibility default.
+          inputModalities: record.inputModalities === undefined ? ["text", "image"] as const
+            : Array.isArray(record.inputModalities) ? record.inputModalities.filter((value): value is "text" | "image" | "audio" => value === "text" || value === "image" || value === "audio") : null,
+          defaultEffort: asString(record.defaultReasoningEffort),
+          // A missing list is unreported, not an empty supported set.
+          supportedEfforts: Array.isArray(record.supportedReasoningEfforts)
+            ? record.supportedReasoningEfforts.map((value) => {
+              const option = asRecord(value);
+              return { value: asString(option.reasoningEffort) ?? "", description: asString(option.description) ?? "" };
+            }).filter((option) => option.value)
+            : null,
+        };
+      }),
+      nextCursor: asString(raw.nextCursor),
+    };
+  }

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("WorkspaceProvisioner", () => {
   test("provisions github workspaces under the agent workspace root", async () => {
@@ -60,6 +63,17 @@ describe("WorkspaceProvisioner", () => {
     });
     expect(mkdirCalls).toEqual(["/tmp/local/ws-2"]);
   });
+});
+
+test("rolling back a reservation preserves an existing dedicated workspace", async () => {
+  const root = mkdtempSync(join(tmpdir(), "shepherd-existing-workspace-"));
+  const cwd = join(root, "existing");
+  mkdirSync(cwd); writeFileSync(join(cwd, "user-file"), "keep");
+  try {
+    const reservation = await new WorkspaceProvisioner().reserveWorkspace({ kind: "local", rootPath: root, display: "test", appendWorkspaceId: true }, "existing");
+    await reservation.rollback();
+    expect(readFileSync(join(cwd, "user-file"), "utf8")).toBe("keep");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 

@@ -1,5 +1,8 @@
-import type { ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
-import type { BridgeEvent, TurnActivityEvent, TurnActivityKind } from "../../../shared/protocol/events.js";
+import { randomUUID } from "node:crypto";
+import type { ApprovalChoice, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
+import type { BridgeEvent } from "../../../shared/protocol/events.js";
+import type { HistoryItem } from "../../../shared/protocol/requests.js";
+import { describeActivity, describePermission, type Activity } from "../../../shared/protocol/activity.js";
 
 function formatStatusBlock(title: string, lines: string[]): string {
   const body = lines.map((line) => line.trim()).filter(Boolean);
@@ -8,15 +11,6 @@ function formatStatusBlock(title: string, lines: string[]): string {
 }
 
 export function formatEventLine(event: BridgeEvent): string | null {
-  if (event.type === "turn.notification") {
-    const payload = event.payload as { method?: string };
-    const method = payload?.method?.toLowerCase();
-    if (!method) return null;
-    if (method.includes("error") || method.includes("failed")) {
-      return formatStatusBlock("Event Error", [`Event: ${payload.method}`]);
-    }
-    return null;
-  }
 
   if (event.type === "session.error") {
     const payload = event.payload as { message?: string };
@@ -47,17 +41,18 @@ export function formatEventLine(event: BridgeEvent): string | null {
   return null;
 }
 
-const ACTIVITY_ICON: Record<TurnActivityKind, string> = {
-  command: "🔧",
-  file_change: "📝",
-  mcp_tool: "🔌",
-  dynamic_tool: "🛠️",
-  web_search: "🔎",
-  collaboration: "🤝",
-  image: "🖼️",
-  wait: "⏳",
-  other: "•",
-};
+function activityIcon(activity: Activity): string {
+  switch (activity.kind) {
+    case "command": return "🔧";
+    case "file_change": return "📝";
+    case "tool": return activity.source === "mcp" ? "🔌" : activity.source === "application" ? "🛠️" : "•";
+    case "web": return "🔎";
+    case "delegation": return "🤝";
+    case "image": return "🖼️";
+    case "wait": return "⏳";
+    case "other": return "•";
+  }
+}
 
 function redactActivityDetail(value: string): string {
   return value
@@ -83,20 +78,28 @@ function truncateActivityDetail(value: string, maxLength = 160): string {
   return `${points.slice(0, maxLength - 1).join("")}…`;
 }
 
-export function formatActivityLine(activity: TurnActivityEvent["payload"]): string {
-  const icon = activity.status === "failed" ? "⚠️" : ACTIVITY_ICON[activity.kind];
-  const detail = activity.detail ? truncateActivityDetail(activity.detail) : "";
-  const statusSuffix = activity.status === "failed" ? " failed" : "";
-  return `${icon} ${activity.label}${statusSuffix}${detail ? `: ${detail}` : ""}`;
+export function formatActivityLine(payload: Pick<Extract<HistoryItem, { type: "activity" }>, "activity" | "status">): string {
+  const icon = payload.status === "failed" ? "⚠️" : activityIcon(payload.activity);
+  const { title, detail } = describeActivity(payload.activity);
+  const shown = detail ? truncateActivityDetail(detail) : "";
+  const statusSuffix = payload.status === "failed" ? " failed" : "";
+  return `${icon} ${title}${statusSuffix}${shown ? `: ${shown}` : ""}`;
+}
+
+/** What an approval asks: the permission written from its activity, or the questions. */
+export function approvalRequestLines(approval: ApprovalRequestPayload): string[] {
+  if (approval.kind === "question") return approval.userInput.questions.map((question) => question.question.trim());
+  const { title, detail } = describePermission(approval.activity);
+  return [title, ...(approval.reason?.trim() ? [approval.reason.trim()] : []), ...(detail ? [redactActivityDetail(detail)] : [])];
 }
 
 export function formatApprovalText(approval: ApprovalRequestPayload): string {
   const lines: string[] = [];
   lines.push("Approval Required");
   lines.push("");
-  lines.push(`Action: ${approval.method}`);
+  lines.push(`Action: ${approval.kind}`);
   lines.push("");
-  lines.push(approval.prompt.trim());
+  lines.push(...approvalRequestLines(approval));
 
   if (approval.choices.length > 0) {
     lines.push("");
@@ -106,36 +109,31 @@ export function formatApprovalText(approval: ApprovalRequestPayload): string {
   return lines.join("\n");
 }
 
-export function formatApprovalDecisionLabel(decision: string): string {
-  const normalized = decision.trim().toLowerCase();
-  if (!normalized) return "Submitted";
+const intentLabels: Record<ApprovalChoice["intent"], string> = { allow: "Approved", deny: "Declined", answer: "Answered", cancel: "Cancelled" };
 
-  if (normalized.includes("approve") || normalized.includes("accept")) {
-    return "Approved";
-  }
-  if (normalized.includes("reject") || normalized.includes("deny") || normalized.includes("decline")) {
-    return "Declined";
-  }
-
-  return decision;
+/** The outcome comes from the choice's declared intent; the provider's label adds its wording. */
+export function formatApprovalDecisionLabel(choice: Pick<ApprovalChoice, "label" | "intent"> | undefined): string {
+  if (!choice) return "Submitted";
+  const outcome = intentLabels[choice.intent] ?? "Submitted";
+  const label = choice.label.trim();
+  return label && label.toLowerCase() !== outcome.toLowerCase() ? `${outcome} (${label})` : outcome;
 }
 
-export function formatApprovalDecisionReply(decision: string): string {
-  return `Approval decision recorded: ${formatApprovalDecisionLabel(decision)}`;
+export function formatApprovalDecisionReply(choice: Pick<ApprovalChoice, "label" | "intent"> | undefined): string {
+  return `Approval decision recorded: ${formatApprovalDecisionLabel(choice)}`;
 }
 
+const approvalButtons = new Map<string, { threadId: string; approvalId: string; decision: string; expires: number }>();
 export function encodeApprovalButtonId(threadId: string, approvalId: string, decision: string): string {
-  return `approval|${threadId}|${approvalId}|${decision}`;
+  const now = Date.now();
+  for (const [id, value] of approvalButtons) if (value.expires <= now) approvalButtons.delete(id);
+  while (approvalButtons.size >= 4000) approvalButtons.delete(approvalButtons.keys().next().value!);
+  const id = `approval|${randomUUID()}`;
+  approvalButtons.set(id, { threadId, approvalId, decision, expires: now + 3600000 });
+  return id;
 }
-
-export function decodeApprovalButtonId(customId: string):
-  | { threadId: string; approvalId: string; decision: string }
-  | null {
-  const parts = customId.split("|");
-  if (parts.length < 4 || parts[0] !== "approval") return null;
-  return {
-    threadId: parts[1],
-    approvalId: parts[2],
-    decision: parts.slice(3).join("|"),
-  };
+export function decodeApprovalButtonId(customId: string): { threadId: string; approvalId: string; decision: string } | null {
+  const entry = approvalButtons.get(customId);
+  if (!entry || entry.expires <= Date.now()) return null;
+  return { threadId: entry.threadId, approvalId: entry.approvalId, decision: entry.decision };
 }

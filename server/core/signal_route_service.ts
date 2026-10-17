@@ -33,7 +33,7 @@ function isRecord(value: JsonValue): value is { [key: string]: JsonValue } {
 function failed(message: string): DynamicToolCallResponse {
   return {
     success: false,
-    contentItems: [{ type: "inputText", text: message }],
+    contentItems: [{ type: "text", text: message }],
   };
 }
 
@@ -99,7 +99,7 @@ export class SignalRouteService {
     try {
       state = this.options.conversation.getThreadState(params.threadId);
     } catch {
-      return failed("The originating Codex thread is unavailable.");
+      return failed("The originating agent thread is unavailable.");
     }
     if (state.activeTurnId !== params.turnId) {
       return failed("The callback request no longer belongs to the active turn.");
@@ -129,7 +129,7 @@ export class SignalRouteService {
         success: true,
         contentItems: [
           {
-            type: "inputText",
+            type: "text",
             text: JSON.stringify({ url: callbackUrl(baseUrl, route.id) }),
           },
         ],

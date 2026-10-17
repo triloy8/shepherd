@@ -89,7 +89,6 @@ describe("TurnRoutingPolicy", () => {
         threadId: "thread-1",
         input: [toTextUserInput("hello")],
         activeTurnId: null,
-        approvalPolicy: "on-request",
       }),
     ).toEqual({ type: "ignore" });
   });
@@ -109,7 +108,6 @@ describe("TurnRoutingPolicy", () => {
         threadId: null,
         input: [toTextUserInput("hello")],
         activeTurnId: null,
-        approvalPolicy: "on-request",
       }),
     ).toEqual({ type: "ignore" });
 
@@ -127,7 +125,6 @@ describe("TurnRoutingPolicy", () => {
         threadId: "thread-1",
         input: null,
         activeTurnId: null,
-        approvalPolicy: "on-request",
       }),
     ).toEqual({ type: "ignore" });
   });
@@ -147,7 +144,6 @@ describe("TurnRoutingPolicy", () => {
         threadId: "thread-1",
         input: [toTextUserInput("continue")],
         activeTurnId: "turn-1",
-        approvalPolicy: "on-request",
       }),
     ).toEqual({
       type: "steer",
@@ -172,13 +168,11 @@ describe("TurnRoutingPolicy", () => {
         threadId: "thread-1",
         input: [toTextUserInput("continue")],
         activeTurnId: null,
-        approvalPolicy: "never",
       }),
     ).toEqual({
       type: "submit",
       threadId: "thread-1",
       input: [toTextUserInput("continue")],
-      approvalPolicy: "never",
     });
   });
 
@@ -197,13 +191,11 @@ describe("TurnRoutingPolicy", () => {
         threadId: "thread-1",
         input: [toTextUserInput("continue")],
         activeTurnId: "turn-1",
-        approvalPolicy: "on-request",
       }),
     ).toEqual({
       type: "submit",
       threadId: "thread-1",
       input: [toTextUserInput("continue")],
-      approvalPolicy: "on-request",
     });
   });
 

@@ -1,10 +1,11 @@
+import type { ProviderServices } from "../ports/provider_services.js";
+import type { AgentProvider, EffortSelection } from "../../shared/protocol/requests.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "../../shared/protocol/approvals.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type {
-  AccountRateLimitsResponse,
-  ConsumeRateLimitResetRequest,
-  ConsumeRateLimitResetResponse,
-  ApprovalPolicy,
+
+
+
   CreateThreadRequest,
   CreateThreadResponse,
   ForkThreadRequest,
@@ -52,7 +53,8 @@ import {
   type DynamicToolRegistration,
 } from "./dynamic_tool_registry.js";
 import { SessionManager } from "./session_manager.js";
-import type { RuntimeActivity } from "./session_manager.js";
+import { UnsupportedProviderOperationError } from "../ports/provider_session.js";
+import type { RuntimeActivity, ThreadDefaults } from "./session_manager.js";
 
 type EventCursorOptions = string | { afterId?: string; replay?: boolean } | undefined;
 
@@ -69,16 +71,20 @@ function toSurfaceKey(adapter: string, surfaceId: string): string {
 
 export type ConversationServiceOptions = {
   routing?: ConversationRoutingServiceOptions;
+  providers?: ProviderServices;
+  threadDefaults?: ThreadDefaults;
 };
 
 export class ConversationService {
   private readonly dynamicTools = new DynamicToolRegistry();
   private readonly manager: SessionManager;
   private readonly routing: ConversationRoutingService;
+  private readonly providerServices: ProviderServices | undefined;
   private readonly subscriptionsBySurface = new Map<string, SurfaceSubscription>();
 
   constructor(options: ConversationServiceOptions = {}) {
-    this.manager = new SessionManager(this.dynamicTools);
+    this.providerServices = options.providers;
+    this.manager = new SessionManager(this.dynamicTools, options.providers?.provider, options.providers?.hasStoredThreads, options.providers?.directory, options.providers?.providers, options.providers?.defaultProvider, options.threadDefaults);
     this.routing = new ConversationRoutingService(this.manager, options.routing);
   }
 
@@ -100,9 +106,14 @@ export class ConversationService {
     return this.dynamicTools.register(registration);
   }
 
+  getThreadProvider(threadId: string) { return this.manager.getThreadProvider(threadId); }
+
   getRuntimeActivity(): RuntimeActivity {
     return this.manager.getRuntimeActivity();
   }
+
+  pauseNewTurns(): void { this.manager.pauseNewTurns(); }
+  resumeNewTurns(): void { this.manager.resumeNewTurns(); }
 
   async bindSurfaceToThread(adapter: string, surfaceId: string, threadId: string): Promise<string> {
     const resolvedThreadId = await this.routing.setDefaultThread(adapter, surfaceId, threadId);
@@ -188,12 +199,11 @@ export class ConversationService {
   }
 
   async submitSurfaceInput(
-    input: ResolveRouteInput & { input: UserInput[]; approvalPolicy?: ApprovalPolicy },
+    input: ResolveRouteInput & { input: UserInput[] },
   ): Promise<{ threadId: string; turn: SubmitTurnResponse; route: ResolveRouteResult }> {
     const route = await this.resolveSurfaceThread(input);
     const turn = await this.manager.submitTurn(route.threadId, {
       input: input.input,
-      approvalPolicy: input.approvalPolicy,
     });
     return { threadId: route.threadId, turn, route };
   }
@@ -246,23 +256,28 @@ export class ConversationService {
     return this.manager.revertThread(threadId, request);
   }
 
-  consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<ConsumeRateLimitResetResponse> {
-    return this.manager.consumeRateLimitReset(request);
+  listProviders() { return structuredClone(this.providerServices?.descriptors ?? []); }
+  async readAccount(provider: string, refresh = false) {
+    const reader = this.providerServices?.accounts.get(provider);
+    if (!reader) throw new UnsupportedProviderOperationError(provider, "account reporting");
+    return reader.read(refresh);
   }
-
-  readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
-    return this.manager.readAccountRateLimits();
+  async resetAccount(provider: string, input: import("../../shared/protocol/account_limits.js").AccountResetRequest) {
+    const account = this.providerServices?.accounts.get(provider);
+    // Registration guarantees that accountReset is declared exactly when reset is implemented.
+    if (!account?.reset) throw new Error("Provider resets are unavailable.");
+    return account.reset(input);
   }
 
   listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
     return this.manager.listModels(request);
   }
 
-  getThreadEffort(threadId: string): Promise<ThreadEffortState> {
-    return this.manager.getThreadEffort(threadId);
+  getThreadEffort(threadId: string, model?: string): Promise<ThreadEffortState> {
+    return this.manager.getThreadEffort(threadId, model);
   }
 
-  setThreadEffort(threadId: string, effort: string): Promise<ThreadEffortState> {
+  setThreadEffort(threadId: string, effort: EffortSelection): Promise<ThreadEffortState> {
     return this.manager.setThreadEffort(threadId, effort);
   }
 
@@ -341,7 +356,8 @@ export class ConversationService {
       }
     }
     this.subscriptionsBySurface.clear();
-    this.manager.stopAll();
+    try { this.manager.stopAll(); }
+    finally { this.providerServices?.shutdown?.(); }
   }
 
   private rebindSurfaceSubscription(adapter: string, surfaceId: string, threadId: string): void {

@@ -1,6 +1,5 @@
 import type { Attachment, Message } from "discord.js";
 
-import type { ApprovalPolicy } from "../../../shared/protocol/requests.js";
 import { toTextUserInput, type UserInput } from "../../../shared/protocol/user_input.js";
 import type { TurnRoutingConversation } from "../../core/turn_routing_service.js";
 import {
@@ -23,7 +22,6 @@ export type DiscordMessageIngressDeps = {
   botUserId: string;
   conversation: TurnRoutingConversation;
   commandContext: CommandContext;
-  approvalPolicy: ApprovalPolicy;
   classifyInput?: typeof classifySurfaceInput;
   fetchImage?: DiscordImageFetch;
   handleCommandMessage?: typeof handleMessage;
@@ -102,7 +100,6 @@ export async function processDiscordMessage(
       handled: result.handled,
       threadId: result.threadId,
       input: result.handled ? result.input : classified.surface.input,
-      approvalPolicy: deps.approvalPolicy,
     },
   );
 }

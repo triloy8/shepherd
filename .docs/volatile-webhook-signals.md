@@ -10,6 +10,14 @@ originating conversation.
 The former static research-channel route, its environment variable, and the old
 `POST /signals` request shape have been removed without a compatibility shim.
 
+Claude conversations get the same tool through Shepherd's in-process MCP server,
+where it appears as `mcp__shepherd__shepherd__get_signal_callback`. The MCP bridge
+(`server/providers/claude/mcp_bridge.ts`) supplies the trusted thread and turn IDs
+from the active turn and rejects calls made outside one, so the route and delivery
+rules below apply unchanged. The wire examples in this document show the Codex
+`item/tool/call` form; a callback from a Claude conversation resumes that Claude
+conversation.
+
 ## Problem
 
 A detached local service can outlive the Codex turn that launched it. When the
@@ -238,7 +246,9 @@ tool.
 ### Tool response
 
 Every successful call creates a distinct route, including repeated calls from
-the same turn. Shepherd returns the complete URL as tool output:
+the same turn. Shepherd returns the complete URL as text tool output
+(`{ "type": "text", "text": ... }` in the application result). Each adapter encodes
+it natively; the Codex JSON-RPC reply is:
 
 ```json
 {
@@ -547,7 +557,8 @@ The narrowly scoped routing components are:
 
 ```text
 server/core/dynamic_tool_registry.ts
-  validate and dispatch explicitly registered item/tool/call handlers
+  validate and dispatch explicitly registered application tools (Codex
+  item/tool/call requests and Claude MCP tool calls)
 
 server/core/signal_route_registry.ts
   create, resolve, expire, revoke, and bound opaque routes
@@ -665,7 +676,7 @@ signal definition.
   URLs using CLI arguments.
 - A detached service can wake Shepherd after its originating turn ends.
 - The new turn resumes the originating Codex conversation.
-- Commentary, activity, and the final answer reach the originating Discord
+- Interim progress, activity, and the final answer reach the originating Discord
   conversation through the existing renderer.
 - Simultaneous operations from one or many conversations remain isolated.
 - Routes are narrowly scoped, bounded, revocable, and process-local.

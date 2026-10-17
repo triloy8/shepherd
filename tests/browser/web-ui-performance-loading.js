@@ -2,7 +2,7 @@
 async page => {
   let releaseApprovals;
   const approvalsGate = new Promise(resolve => { releaseApprovals = resolve; });
-  await page.route('**/api/v1/conversations/*/approvals', async route => {
+  await page.route('**/api/conversations/*/approvals', async route => {
     await approvalsGate;
     await route.continue();
   });

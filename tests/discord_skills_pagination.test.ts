@@ -5,14 +5,14 @@ import { handleInteraction } from "../server/adapters/discord/interactions.js";
 import type { SkillsListResponse } from "../shared/protocol/requests.js";
 
 function inventory(count: number): SkillsListResponse {
-  return { data: [{
-    cwd: "/repo",
+  return {
+    workspacePath: "/repo",
     errors: [],
     skills: Array.from({ length: count }, (_, i) => ({
       name: `skill${i + 1}`, description: "A useful skill", enabled: i % 2 === 0,
       path: `/skills/${i + 1}/SKILL.md`, scope: "workspace",
     })),
-  }] };
+  };
 }
 
 function json(page: unknown): any {
@@ -59,17 +59,18 @@ test("skills clamp stale pages and keep empty lists and discovery errors visible
   expect(button(empty, "Page 1").disabled).toBe(true);
   expect(button(empty, "Next").disabled).toBe(true);
   const result = inventory(5);
-  result.data.push({ cwd: "/other", skills: [], errors: [{ path: "/bad/SKILL.md", message: "Invalid skill" }] });
+  result.errors.push({ path: "/bad/SKILL.md", message: "Invalid skill" });
   const errors = buildSkillsListPage({ result: selectSkillsPage(result, 9, 5), requesterId: "user-1" });
   expect(JSON.stringify(errors)).toContain("Skill discovery error");
   expect(JSON.stringify(errors)).toContain("Invalid skill");
-  expect(JSON.stringify(errors)).toContain("/other");
+  expect(JSON.stringify(errors)).toContain("/bad/SKILL.md");
+  expect(JSON.stringify(errors)).toContain("Workspace: /repo");
   expect(button(errors, "Page 2").disabled).toBe(true);
 });
 
 test("long descriptions fit all five skills and navigation in one card", () => {
   const result = inventory(5);
-  for (const skill of result.data[0]!.skills) skill.description = "long description ".repeat(1000);
+  for (const skill of result.skills) skill.description = "long description ".repeat(1000);
   const page = buildSkillsListPage({ result: selectSkillsPage(result, 1, 5), requesterId: "user-1" });
   expect(JSON.stringify(page)).toContain("5. skill5");
   expect(JSON.stringify(page).length).toBeLessThan(4000);

@@ -1,4 +1,3 @@
-import type { ApprovalPolicy } from "../../shared/protocol/requests.js";
 
 export interface ServerRequestContext {
   requestId: string;
@@ -9,7 +8,6 @@ export interface ServerRequestContext {
 export interface SessionState {
   sessionId: string;
   threadId: string;
-  approvalPolicy: ApprovalPolicy;
   activeTurnId: string | null;
   createdAt: string;
 }

@@ -7,7 +7,7 @@ async page => {
   await page.getByRole('heading', { name: 'A new home for Shepherd', exact: true }).waitFor();
   await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
   let loads = 0;
-  await page.route('**/api/v1/conversations/*/images/*', async route => {
+  await page.route('**/api/conversations/*/images/*', async route => {
     loads++;
     if (loads <= 2) await route.fulfill({ status: 503, body: 'Temporary failure' });
     else await route.continue();

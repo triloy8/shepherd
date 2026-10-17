@@ -9,13 +9,13 @@ test("web skills discover in the attached workspace, reload, and toggle exact pa
     expect(await (await h.request(path)).json()).toEqual(fixture.data);
     expect(fixture.calls[0]).toEqual({ threadId: c.threadId, request: {} });
     expect((await h.request(`${path}-reload`, "POST", {})).status).toBe(200);
-    expect(fixture.calls.at(-1)).toEqual({ threadId: c.threadId, request: { forceReload: true } });
-    const skill = fixture.data.data[0]!.skills[1]!;
-    expect(await (await h.request(path, "POST", { path: skill.path, enabled: true })).json()).toEqual({ effectiveEnabled: true });
+    expect(fixture.calls.at(-1)).toEqual({ threadId: c.threadId, request: { refresh: true } });
+    const skill = fixture.data.skills[1]!;
+    expect(await (await h.request(path, "POST", { path: skill.path, enabled: true })).json()).toEqual({ enabled: true });
     expect(fixture.calls.at(-1)).toEqual({ threadId: c.threadId, request: { path: skill.path, enabled: true } });
-    expect(fixture.data.data[0]!.skills.every((skill) => skill.enabled)).toBe(true);
-    Object.assign(h.application.conversation, { writeSkillConfig: async () => ({ effectiveEnabled: false }) });
-    expect(await (await h.request(path, "POST", { path: skill.path, enabled: true })).json()).toEqual({ effectiveEnabled: false });
+    expect(fixture.data.skills.every((skill) => skill.enabled)).toBe(true);
+    Object.assign(h.application.conversation, { writeSkillConfig: async () => ({ enabled: false }) });
+    expect(await (await h.request(path, "POST", { path: skill.path, enabled: true })).json()).toEqual({ enabled: false });
   } finally { h.api.dispose(); }
 });
 
@@ -24,10 +24,6 @@ test("skill input, resolution errors, origin, and detached handles are handled w
   try {
     const c = await h.create(); const path = `/conversations/${c.id}/skills`;
     for (const body of [{ path: "review", enabled: "true" }, { path: "", enabled: false }, { path: "review", enabled: false, cwd: "/other" }, { path: "review" }]) expect((await h.request(path, "POST", body)).status).toBe(400);
-    for (const [value, code] of [["review", "skill_ambiguous"], ["missing", "skill_not_found"]]) {
-      const response = await h.request(path, "POST", { path: value, enabled: false });
-      expect(response.status).toBe(400); expect((await response.json()).error.code).toBe(code);
-    }
     expect((await h.request(`${path}-reload`, "POST", { cwds: ["/other"] })).status).toBe(400);
     expect((await h.request(path, "POST", { path: "review", enabled: false }, { origin: "https://evil.test" })).status).toBe(403);
     expect(fixture.calls.some((call) => "enabled" in call.request)).toBe(false);
@@ -50,4 +46,34 @@ test("reload and skill writes use the conversation mutation lock and release it 
     installWebSkills(h);
     expect((await h.request(`${path}-reload`, "POST", {})).status).toBe(200);
   } finally { release?.(); h.api.dispose(); }
+});
+
+for (const skillPath of ["instructions", "skill:build", "/workspace/Case  Sensitive"]) test(`web skill path ${skillPath} bypasses discovery`, async () => {
+  const h = webHarness(); installWebSkills(h);
+  const descriptor = h.application.conversation.listProviders()[0]!;
+  const writes: unknown[] = [];
+  Object.assign(h.application.conversation, {
+    listProviders: () => [{ ...descriptor, capabilities: { ...descriptor.capabilities, skills: false, skillConfig: true } }],
+    listSkills: async () => { throw Error("No discovery support"); },
+    writeSkillConfig: async (threadId: string, request: unknown) => { writes.push({ threadId, request }); return { enabled: false }; },
+  });
+  try {
+    const c = await h.create();
+    const response = await h.request(`/conversations/${c.id}/skills`, "POST", { path: skillPath, enabled: false });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ enabled: false });
+    expect(writes).toEqual([{ threadId: c.threadId, request: { path: skillPath, enabled: false } }]);
+  } finally { h.api.dispose(); }
+});
+
+test("an explicit API path is never resolved to a different skill with that name", async () => {
+  const h = webHarness(); const fixture = installWebSkills(h);
+  let written: string | undefined;
+  Object.assign(h.application.conversation, { writeSkillConfig: async (_id: string, request: { path: string }) => { written = request.path; return { enabled: true }; } });
+  try {
+    const c = await h.create();
+    expect((await h.request(`/conversations/${c.id}/skills`, "POST", { path: "review", enabled: true })).status).toBe(200);
+    expect(written).toBe("review");
+    expect(fixture.calls).toEqual([]);
+  } finally { h.api.dispose(); }
 });

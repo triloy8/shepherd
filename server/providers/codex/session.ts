@@ -1,20 +1,27 @@
-import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../shared/protocol/user_questions.js";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import readline, { type Interface as ReadlineInterface } from "node:readline";
+import { codexProfileFromNative, codexProfileSettings, type NativeApprovalPolicy } from "./policy.js";
+import { assertThreadSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
+import { codexInput } from "./input.js";
+import type { NativeInput } from "./input.js";
+import { approvalChoices, type NativeApprovalChoice } from "../approval_choices.js";
+import { codexItemsView, codexPhase, historyItem, historyTurn, type NativeItemsView } from "./history.js";
+import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
+import { decodeResetOutcome } from "./account_usage.js";
+import { codexCapabilities } from "./capabilities.js";
+import type { ProviderSkillsRequest } from "../../ports/provider_session.js";
+import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
+import { CodexAppServer, type AppServerConnection, type RawServerRequest } from "./app_server.js";
 import { randomUUID } from "node:crypto";
 
-import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../shared/protocol/approvals.js";
+import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
   DynamicToolCallParams,
-  DynamicToolSpec,
   JsonValue,
-} from "../../shared/protocol/dynamic_tools.js";
-import type { BridgeEvent, BridgeEventType, MessagePhase } from "../../shared/protocol/events.js";
+} from "../../../shared/protocol/dynamic_tools.js";
+import { codexToolResponse, codexToolSpecs, type NativeToolSpec } from "./tools.js";
+import { codexTokenUsage } from "./token_usage.js";
+import { codexSkillConfig, codexSkills } from "./skills.js";
+import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType, type MessagePhase } from "../../../shared/protocol/events.js";
 import type {
-  ConsumeRateLimitResetRequest,
-  ApprovalPolicy,
-  CreateThreadRequest,
-  ForkThreadRequest,
   ListLoadedThreadsRequest,
   ListModelsRequest,
   ListThreadTurnsRequest,
@@ -23,47 +30,34 @@ import type {
   ListThreadItemsResponse,
   ListModelsResponse,
   ListStoredThreadsRequest,
-  ResumeThreadRequest,
   SkillsConfigWriteRequest,
   SkillsConfigWriteResponse,
-  SkillsListRequest,
-  SkillsListResponse,
-  ThreadTokenUsage,
-} from "../../shared/protocol/requests.js";
-import type { UserInput } from "../../shared/protocol/user_input.js";
+  SkillsListing,
+} from "../../../shared/protocol/requests.js";
+import type { ConsumeRateLimitResetRequest } from "./account_types.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
 import {
-  DynamicToolRegistry,
   InvalidDynamicToolCallError,
+  noProviderTools,
   UnknownDynamicToolError,
-} from "./dynamic_tool_registry.js";
-import { EventBus } from "./event_bus.js";
+  type ProviderTools,
+} from "../../ports/provider_tools.js";
+import type { ProviderThreadRequest, ThreadSession, ThreadBootstrapInfo, TurnSettings } from "../../ports/provider_session.js";
+import { EventBus } from "../event_bus.js";
 import {
-  extractCompletedAgentMessage,
-  extractGeneratedImageArtifact,
-  extractViewedImageArtifact,
+  deltaChannel,
   extractItemId,
   extractTextDelta,
   extractThreadId,
   extractTurnId,
-  mapTurnActivity,
   mapApprovalChoices,
-  mapApprovalPrompt,
-} from "./codex_rpc_mapper.js";
+  codexApprovalActivity,
+} from "./rpc_mapper.js";
 
 function getDefaultModel(): string {
   return process.env.CODEX_MODEL ?? "gpt-6.1-sol";
 }
 
-type PendingRequest = {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-};
-
-type RawServerRequest = {
-  id: string | number;
-  method: string;
-  params: unknown;
-};
 
 type AppServerRequestParams = {
   initialize: {
@@ -72,7 +66,7 @@ type AppServerRequestParams = {
   };
   "thread/start": {
     model: string;
-    approvalPolicy: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -82,11 +76,11 @@ type AppServerRequestParams = {
     modelProvider?: string;
     ephemeral?: boolean;
     serviceName?: string;
-    dynamicTools?: DynamicToolSpec[];
+    dynamicTools?: NativeToolSpec[];
   };
   "thread/resume": {
     threadId: string;
-    approvalPolicy?: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -98,7 +92,7 @@ type AppServerRequestParams = {
   };
   "thread/fork": {
     threadId: string;
-    approvalPolicy?: ApprovalPolicy;
+    approvalPolicy?: NativeApprovalPolicy;
     baseInstructions?: string;
     developerInstructions?: string;
     config?: Record<string, unknown>;
@@ -125,7 +119,7 @@ type AppServerRequestParams = {
     useStateDbOnly?: boolean;
   };
   "thread/loaded/list": { cursor: string | null; limit: number | null };
-  "thread/turns/list": ListThreadTurnsRequest & { threadId: string };
+  "thread/turns/list": Omit<ListThreadTurnsRequest, "itemsView"> & { threadId: string; itemsView?: NativeItemsView };
   "thread/items/list": ListThreadItemsRequest & { threadId: string };
   "thread/read": { threadId: string; includeTurns: boolean };
   "account/rateLimits/read": undefined;
@@ -135,14 +129,15 @@ type AppServerRequestParams = {
   "skills/config/write": { enabled: boolean; path: string };
   "turn/start": {
     threadId: string;
-    approvalPolicy: ApprovalPolicy;
-    input: UserInput[];
+    approvalPolicy?: NativeApprovalPolicy;
+    input: NativeInput[];
     model?: string;
-    effort?: string;
+    effort?: string | null;
     cwd?: string;
+    summary?: "auto" | "concise" | "detailed" | "none" | null;
   };
   "turn/interrupt": { threadId: string; turnId: string };
-  "turn/steer": { threadId: string; expectedTurnId: string; input: UserInput[] };
+  "turn/steer": { threadId: string; expectedTurnId: string; input: NativeInput[] };
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -185,14 +180,6 @@ function parseDynamicToolCallParams(value: unknown): DynamicToolCallParams {
   };
 }
 
-type ThreadBootstrapInfo = {
-  reasoningEffort: string | null;
-  threadId: string;
-  model: string | null;
-  modelProvider: string | null;
-  approvalPolicy: ApprovalPolicy;
-};
-
 function isContextLimitError(params: unknown): boolean {
   const error = asRecord(asRecord(params).error);
   const errorInfo = error.codexErrorInfo;
@@ -206,32 +193,6 @@ function isContextLimitError(params: unknown): boolean {
   return message.toLowerCase().includes("context") && message.toLowerCase().includes("window");
 }
 
-function asApprovalPolicy(value: unknown): ApprovalPolicy | null {
-  if (value === "untrusted" || value === "on-request" || value === "never") {
-    return value;
-  }
-  const record = asRecord(value);
-  const granular = asRecord(record.granular);
-  if (
-    typeof granular.sandbox_approval === "boolean" &&
-    typeof granular.rules === "boolean" &&
-    typeof granular.skill_approval === "boolean" &&
-    typeof granular.request_permissions === "boolean" &&
-    typeof granular.mcp_elicitations === "boolean"
-  ) {
-    return {
-      granular: {
-        sandbox_approval: granular.sandbox_approval,
-        rules: granular.rules,
-        skill_approval: granular.skill_approval,
-        request_permissions: granular.request_permissions,
-        mcp_elicitations: granular.mcp_elicitations,
-      },
-    };
-  }
-  return null;
-}
-
 function isApprovalServerRequest(method: string): boolean {
   const normalized = method.toLowerCase();
   return (
@@ -242,81 +203,63 @@ function isApprovalServerRequest(method: string): boolean {
   );
 }
 
-export class CodexSession {
+export class CodexSession implements ThreadSession {
+  readonly capabilities = codexCapabilities;
   readonly sessionId = randomUUID();
   readonly createdAt = new Date().toISOString();
 
   threadId: string | null = null;
   activeTurnId: string | null = null;
-  approvalPolicy: ApprovalPolicy;
+  /** The policy profile the thread runs with, or null for Codex's own configuration. */
+  profile: string | null = null;
   readonly eventBus = new EventBus();
 
-  private child: ChildProcessWithoutNullStreams | null = null;
-  private lineReader: ReadlineInterface | null = null;
-  private initialized = false;
-  private initPromise: Promise<void> | null = null;
-  private nextRequestId = 1;
-  private pendingRequests = new Map<number, PendingRequest>();
+  /** This session's share of the app-server process, which receives its thread's traffic. */
+  private connection: AppServerConnection | null = null;
+  private connecting: Promise<void> | null = null;
   private serverRequestsByApprovalId = new Map<string, RawServerRequest>();
+  private approvalReplies = new Map<string, Map<string, unknown>>();
   private messagePhaseByItemId = new Map<string, MessagePhase | null>();
   private eventCounter = 0;
+  private endedTurns = new Set<string>();
 
   constructor(
-    approvalPolicy: ApprovalPolicy,
-    private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
+    private readonly dynamicTools: ProviderTools = noProviderTools,
+    /** The provider's running sessions by thread, so it reaches a live thread through its session. */
+    private readonly liveSessions = new Map<string, CodexSession>(),
+    /** The provider's shared app-server; a session given none runs its own process. */
+    server?: CodexAppServer,
   ) {
-    this.approvalPolicy = approvalPolicy;
+    this.server = server ?? (this.ownServer = new CodexAppServer());
   }
 
+  private readonly server: CodexAppServer;
+  private ownServer: CodexAppServer | null = null;
+
   private stopped = false;
-
-  async start(): Promise<void> {
-    if (this.stopped) throw new Error("Codex session is stopped.");
-    if (this.child) return;
-
-    this.child = spawn("codex", ["app-server"], {
-      cwd: process.cwd(),
-      stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
-    });
-
-    this.lineReader = readline.createInterface({ input: this.child.stdout, crlfDelay: Infinity });
-    this.lineReader.on("line", (line) => this.onServerLine(line));
-
-    this.child.on("error", (error) => {
-      this.publish("session.error", "unbound", { message: `Failed to spawn codex app-server: ${error.message}` });
-    });
-
-    this.child.on("exit", (code, signal) => {
-      const message = `codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
-      this.publish("session.error", this.threadId ?? "unbound", { message });
-      this.cleanup();
-    });
-
-    this.child.stderr.on("data", (chunk: Buffer) => this.onServerStderr(chunk));
+  private cwd = process.cwd();
+  /** The model and effort turns run with, as last bootstrapped or requested. */
+  private model: string | null = null;
+  private effort: string | null = null;
+  setCwd(cwd: string): void {
+    this.cwd = cwd;
+    if (this.threadId) this.publishSettings(this.threadId);
   }
 
   async initialize(): Promise<void> {
     if (this.stopped) throw new Error("Codex session is stopped.");
-    if (this.initialized) return;
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = (async () => {
-      await this.start();
-      await this.sendRequest("initialize", {
-        capabilities: { experimentalApi: true },
-        clientInfo: { name: "shepherd", title: "Shepherd", version: "1.0.0" },
+    if (this.connection && !this.connection.closed) return;
+    this.connecting ??= (async () => {
+      const connection = await this.server.connect({
+        onNotification: (method, params) => this.onNotification(method, params),
+        onServerRequest: request => this.onServerRequest(request),
+        onClosed: message => { if (this.connection !== connection) return; this.publish("session.error", this.threadId ?? "unbound", { message }); this.cleanup(); },
       });
-      this.sendNotification("initialized");
-      this.initialized = true;
+      if (this.stopped) { connection.close(); throw new Error("Codex session is stopped."); }
+      this.connection = connection;
       this.publish("session.started", this.threadId ?? "unbound", { model: getDefaultModel() });
-    })();
-
-    try {
-      await this.initPromise;
-    } finally {
-      this.initPromise = null;
-    }
+    })().finally(() => { this.connecting = null; });
+    return this.connecting;
   }
 
   async ensureThread(): Promise<string> {
@@ -324,68 +267,49 @@ export class CodexSession {
     throw new Error("No active thread bound to this session.");
   }
 
-  async startThread(request: CreateThreadRequest): Promise<ThreadBootstrapInfo> {
+  async startThread(request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
-    this.approvalPolicy = request.approvalPolicy ?? this.approvalPolicy;
-    const dynamicTools = this.dynamicTools.specifications();
+    const dynamicTools = codexToolSpecs(this.dynamicTools.specifications());
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
-      approvalPolicy: this.approvalPolicy,
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      config: { model_reasoning_effort: "medium", ...request.config },
+      ...codexProfileSettings(request.profile ?? null),
+      config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.personality ? { personality: request.personality } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-      ...(request.ephemeral !== undefined ? { ephemeral: request.ephemeral } : {}),
-      ...(request.serviceName ? { serviceName: request.serviceName } : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
     });
 
-    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/start");
-    this.approvalPolicy = bootstrap.approvalPolicy;
-    this.publish("thread.started", bootstrap.threadId, { approvalPolicy: this.approvalPolicy });
+    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/start", request.profile ?? null);
+    this.publish("thread.started", bootstrap.threadId, {});
     return bootstrap;
   }
 
-  async resumeThread(threadId: string, request: ResumeThreadRequest): Promise<ThreadBootstrapInfo> {
+  async resumeThread(threadId: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     const result = await this.sendRequest("thread/resume", {
       threadId,
-      ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      ...(request.config ? { config: request.config } : {}),
+      ...codexProfileSettings(request.profile ?? null),
+      ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.personality ? { personality: request.personality } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
       ...(request.model ? { model: request.model } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
-    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/resume");
-    this.approvalPolicy = bootstrap.approvalPolicy;
-    return bootstrap;
+    return this.extractThreadBootstrapInfo(result, "thread/resume", request.profile ?? null);
   }
 
-  async forkThread(threadId: string, request: ForkThreadRequest): Promise<ThreadBootstrapInfo> {
+  async forkThread(threadId: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
+    assertThreadSupport("Codex", this.capabilities, request);
     await this.initialize();
     const result = await this.sendRequest("thread/fork", {
       threadId,
-      ...(request.approvalPolicy ? { approvalPolicy: request.approvalPolicy } : {}),
-      ...(request.baseInstructions ? { baseInstructions: request.baseInstructions } : {}),
-      ...(request.developerInstructions ? { developerInstructions: request.developerInstructions } : {}),
-      ...(request.config ? { config: request.config } : {}),
+      ...codexProfileSettings(request.profile ?? null),
+      ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
-      ...(request.sandbox ? { sandbox: request.sandbox } : {}),
       ...(request.model ? { model: request.model } : {}),
-      ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
     });
 
-    const bootstrap = this.extractThreadBootstrapInfo(result, "thread/fork");
-    this.approvalPolicy = bootstrap.approvalPolicy;
-    return bootstrap;
+    return this.extractThreadBootstrapInfo(result, "thread/fork", request.profile ?? null);
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -408,39 +332,40 @@ export class CodexSession {
     await this.sendRequest("thread/compact/start", { threadId });
   }
 
-  async revertThread(threadId: string, beforeTurnId: string): Promise<unknown> {
+  async revertThread(threadId: string, beforeTurnId: string) {
     await this.initialize();
-    return this.sendRequest("thread/revert", { threadId, beforeTurnId });
+    return revertResponse(await this.sendRequest("thread/revert", { threadId, beforeTurnId }));
   }
 
-  async listStoredThreads(request: ListStoredThreadsRequest): Promise<unknown> {
+  async listStoredThreads(request: ListStoredThreadsRequest) {
     await this.initialize();
-    return this.sendRequest("thread/list", {
+    return storedResponse(await this.sendRequest("thread/list", {
       archived: request.archived ?? null,
       cursor: request.cursor ?? null,
       cwd: request.cwd ?? null,
       limit: request.limit ?? null,
-      modelProviders: request.modelProviders ?? null,
+      modelProviders: null,
       searchTerm: request.searchTerm ?? null,
       sortDirection: request.sortDirection ?? null,
       sortKey: request.sortKey ?? null,
-      sourceKinds: request.sourceKinds ?? null,
-      ...(request.useStateDbOnly !== undefined ? { useStateDbOnly: request.useStateDbOnly } : {}),
-    });
+      sourceKinds: null,
+    }));
   }
 
-  async listLoadedThreads(request: ListLoadedThreadsRequest): Promise<unknown> {
+  async listLoadedThreads(request: ListLoadedThreadsRequest) {
     await this.initialize();
-    return this.sendRequest("thread/loaded/list", {
+    return loadedResponse(await this.sendRequest("thread/loaded/list", {
       cursor: request.cursor ?? null,
       limit: request.limit ?? null,
-    });
+    }));
   }
 
   async listThreadTurns(threadId: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
     await this.initialize();
     try {
-      return await this.sendRequest("thread/turns/list", { ...request, threadId }) as ListThreadTurnsResponse;
+      const { itemsView, ...rest } = request;
+      const page = asRecord(await this.sendRequest("thread/turns/list", { ...rest, ...(itemsView ? { itemsView: codexItemsView(itemsView) } : {}), threadId }));
+      return { data: (Array.isArray(page.data) ? page.data : []).map(historyTurn), nextCursor: asString(page.nextCursor), backwardsCursor: asString(page.backwardsCursor) };
     } catch (error) {
       // Codex does not persist a newly created thread until its first user message.
       // Only this explicit first-page condition means empty history; never hide
@@ -455,75 +380,80 @@ export class CodexSession {
 
   async listThreadItems(threadId: string, request: ListThreadItemsRequest): Promise<ListThreadItemsResponse> {
     await this.initialize();
-    return this.sendRequest("thread/items/list", { ...request, threadId }) as Promise<ListThreadItemsResponse>;
+    const page = asRecord(await this.sendRequest("thread/items/list", { ...request, threadId }));
+    return { data: (Array.isArray(page.data) ? page.data : []).map(raw => {
+      const entry = asRecord(raw), turnId = String(entry.turnId ?? "");
+      return { turnId, item: historyItem(entry.item, turnId) };
+    }), nextCursor: asString(page.nextCursor), backwardsCursor: asString(page.backwardsCursor) };
   }
 
-  async readThread(threadId: string, includeTurns: boolean): Promise<unknown> {
+  async readThread(threadId: string, includeTurns: boolean) {
     await this.initialize();
-    return this.sendRequest("thread/read", { threadId, includeTurns });
+    return readResponse(await this.sendRequest("thread/read", { threadId, includeTurns }));
   }
 
-  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest): Promise<unknown> {
+  async consumeRateLimitReset(request: ConsumeRateLimitResetRequest) {
     await this.initialize();
-    return this.sendRequest("account/rateLimitResetCredit/consume", request);
+    return decodeResetOutcome(await this.sendRequest("account/rateLimitResetCredit/consume", request));
   }
 
-  async readAccountRateLimits(): Promise<unknown> {
+  async readAccountRateLimits() {
     await this.initialize();
-    return this.sendRequest("account/rateLimits/read", undefined);
+    return accountResponse(await this.sendRequest("account/rateLimits/read", undefined));
   }
 
-  async listModels(request: ListModelsRequest): Promise<ListModelsResponse> {
+  async listModels(request: ListModelsRequest) {
     await this.initialize();
-    return this.sendRequest("model/list", {
+    return modelsResponse(await this.sendRequest("model/list", {
       cursor: request.cursor ?? null,
       limit: request.limit ?? null,
       includeHidden: request.includeHidden ?? null,
-    }) as Promise<ListModelsResponse>;
+    }));
   }
 
-  async listSkills(request: SkillsListRequest): Promise<SkillsListResponse> {
+  async listSkills(request: ProviderSkillsRequest): Promise<SkillsListing> {
     await this.initialize();
-    return this.sendRequest("skills/list", {
-      ...(request.cwds ? { cwds: request.cwds } : {}),
-      ...(request.forceReload !== undefined ? { forceReload: request.forceReload } : {}),
-    }) as Promise<SkillsListResponse>;
+    return codexSkills(await this.sendRequest("skills/list", {
+      cwds: [request.workspacePath],
+      ...(request.refresh !== undefined ? { forceReload: request.refresh } : {}),
+    }));
   }
 
   async writeSkillConfig(request: SkillsConfigWriteRequest): Promise<SkillsConfigWriteResponse> {
     await this.initialize();
-    return this.sendRequest("skills/config/write", {
+    return codexSkillConfig(await this.sendRequest("skills/config/write", {
       enabled: request.enabled,
       path: request.path,
-    }) as Promise<SkillsConfigWriteResponse>;
+    }));
   }
 
-  async startTurn(
-    input: UserInput[],
-    approvalPolicy?: ApprovalPolicy,
-    model?: string,
-    cwd?: string,
-    effort?: string,
-  ): Promise<string | null> {
+  async startTurn(input: UserInput[], { model, effort }: TurnSettings = {}): Promise<string | null> {
+    assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
-    if (approvalPolicy) {
-      this.approvalPolicy = approvalPolicy;
-    }
     this.messagePhaseByItemId.clear();
 
+    // Codex keeps a thread's workspace per turn; send the current one, which setCwd may have changed.
     const result = await this.sendRequest("turn/start", {
       threadId,
-      approvalPolicy: this.approvalPolicy,
-      input,
+      input: codexInput(input),
       ...(model ? { model } : {}),
-      ...(cwd ? { cwd } : {}),
-      ...(effort ? { effort } : {}),
+      cwd: this.cwd,
+      ...(effort !== undefined ? { effort } : {}),
+      // Codex writes no reasoning summaries unless asked; they are the reasoning surfaces show.
+      summary: "auto",
     });
 
     const turnId = extractTurnId(result);
+    if (model) this.model = model;
+    if (effort !== undefined) this.effort = effort;
     this.activeTurnId = turnId;
+    this.publishSettings(threadId);
     this.publish("turn.started", threadId, { turnId });
     return turnId;
+  }
+
+  private publishSettings(threadId: string): void {
+    this.publish("thread.settings.changed", threadId, { model: this.model, effort: this.effort, cwd: this.cwd, profile: this.profile });
   }
 
   async interruptTurn(turnId?: string): Promise<void> {
@@ -536,6 +466,7 @@ export class CodexSession {
   }
 
   async steerTurn(input: UserInput[], turnId?: string): Promise<string | null> {
+    assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
     const targetTurnId = turnId ?? this.activeTurnId;
     if (!targetTurnId) {
@@ -545,7 +476,7 @@ export class CodexSession {
     const result = await this.sendRequest("turn/steer", {
       threadId,
       expectedTurnId: targetTurnId,
-      input,
+      input: codexInput(input),
     });
     const returnedTurnId = extractTurnId(result) ?? targetTurnId;
     this.activeTurnId = returnedTurnId;
@@ -555,22 +486,25 @@ export class CodexSession {
   async applyApprovalDecision(
     approvalId: string,
     decision: ApprovalDecisionRequest,
-  ): Promise<{ method: string; approvalId: string }> {
+  ): Promise<{ approvalId: string }> {
     const rawRequest = this.serverRequestsByApprovalId.get(approvalId);
     if (!rawRequest) {
       throw new Error(`Unknown approval id: ${approvalId}`);
     }
 
+    const nativeDecision = this.approvalReplies.get(approvalId)?.get(decision.decision);
+    if (!nativeDecision) throw new Error("Decision must match an offered option.");
+    decision = { ...decision, decision: typeof nativeDecision === "string" ? nativeDecision : "" };
     const method = rawRequest.method;
     let payload: unknown;
     if (method === "item/tool/requestUserInput") {
       const input = parseUserQuestionRequest(rawRequest.params);
       if (decision.decision === "submit") {
         validateUserQuestionAnswers(input.questions, decision.answers);
-        payload = { answers: decision.answers };
+        payload = { answers: Object.fromEntries(Object.entries(decision.answers).map(([id, answers]) => [id, { answers }])) };
       } else if (decision.decision === "cancel") payload = { answers: {} };
       else throw new Error("Invalid user input decision.");
-    } else payload = this.mapDecisionPayload(method, decision);
+    } else payload = typeof nativeDecision === "string" ? this.mapDecisionPayload(method, decision) : nativeDecision;
     const envelope = {
       id: rawRequest.id,
       result: payload,
@@ -578,12 +512,19 @@ export class CodexSession {
 
     this.writeLine(envelope);
     this.serverRequestsByApprovalId.delete(approvalId);
-    return { method, approvalId };
+    this.approvalReplies.delete(approvalId);
+    return { approvalId };
   }
 
   stop(): void {
+    if (this.threadId && this.liveSessions.get(this.threadId) === this) this.liveSessions.delete(this.threadId);
     this.stopped = true;
+    // The process serves other threads; this one is released rather than the process stopped.
+    const connection = this.connection;
+    if (connection && this.threadId) connection.releaseThread(this.threadId);
+    connection?.close();
     this.cleanup();
+    this.ownServer?.stop();
   }
 
   private mustSetThreadIdFromResult(result: unknown, method: string): string {
@@ -591,20 +532,31 @@ export class CodexSession {
     if (!threadId) {
       throw new Error(`${method} returned an invalid thread id.`);
     }
+    if (this.threadId && this.liveSessions.get(this.threadId) === this) this.liveSessions.delete(this.threadId);
+    if (this.threadId && this.threadId !== threadId) this.connection?.unbind(this.threadId);
     this.threadId = threadId;
+    this.liveSessions.set(threadId, this);
+    this.connection?.bind(threadId);
     return threadId;
   }
 
-  private extractThreadBootstrapInfo(result: unknown, method: string): ThreadBootstrapInfo {
+  /** The thread's settings as Codex reports them; the profile is read back from its sandbox and
+   * approval settings when Codex reports them. */
+  private extractThreadBootstrapInfo(result: unknown, method: string, requested: string | null): ThreadBootstrapInfo {
     const threadId = this.mustSetThreadIdFromResult(result, method);
     const record = asRecord(result);
-    const thread = asRecord(record.thread);
+    const cwd = asString(record.cwd) ?? asString(asRecord(record.thread).cwd);
+    if (!cwd?.trim()) throw new Error(`${method} returned no workspace.`);
+    this.cwd = cwd;
+    this.model = asString(record.model);
+    this.effort = asString(record.reasoningEffort);
     return {
       threadId,
-      model: asString(record.model),
-      reasoningEffort: asString(record.reasoningEffort),
-      modelProvider: asString(record.modelProvider) ?? asString(thread.modelProvider),
-      approvalPolicy: asApprovalPolicy(record.approvalPolicy) ?? this.approvalPolicy,
+      cwd,
+      model: this.model,
+      effort: this.effort,
+      profile: this.profile = Object.hasOwn(record, "approvalPolicy") || Object.hasOwn(record, "sandbox")
+        ? codexProfileFromNative(record.approvalPolicy, record.sandbox) : requested,
     };
   }
 
@@ -638,24 +590,14 @@ export class CodexSession {
     throw new Error(`Unsupported server request method: ${method}`);
   }
 
+  /** Forgets the session's share of the process: requests in flight were rejected with it. */
   private cleanup(): void {
-    this.lineReader?.close();
-    this.lineReader = null;
-
-    if (this.child && !this.child.killed) {
-      this.child.kill("SIGTERM");
-    }
-    this.child = null;
-
-    for (const pending of this.pendingRequests.values()) {
-      pending.reject(new Error("Session terminated."));
-    }
-    this.pendingRequests.clear();
+    this.connection = null;
     for (const [approvalId, request] of this.serverRequestsByApprovalId) {
       if (request.method === "item/tool/requestUserInput") this.publish("approval.expired", asString(asRecord(request.params).threadId) ?? "unbound", { approvalId });
     }
     this.serverRequestsByApprovalId.clear();
-    this.initialized = false;
+    this.approvalReplies.clear();
     this.activeTurnId = null;
   }
 
@@ -663,68 +605,13 @@ export class CodexSession {
     method: M,
     params: AppServerRequestParams[M],
   ): Promise<unknown> {
-    const id = this.nextRequestId++;
-    this.writeLine({ id, method, params });
-
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
-    });
-  }
-
-  private sendNotification(method: "initialized"): void {
-    this.writeLine({ method });
+    if (!this.connection || this.connection.closed) throw new Error("codex app-server is not running.");
+    return this.connection.request(method, params);
   }
 
   private writeLine(payload: unknown): void {
-    if (!this.child?.stdin) {
-      throw new Error("codex app-server is not running.");
-    }
-    const line = `${JSON.stringify(payload)}\n`;
-    this.child.stdin.write(line, "utf8");
-  }
-
-  private onServerLine(line: string): void {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-
-    let message: unknown;
-    try {
-      message = JSON.parse(trimmed);
-    } catch {
-      this.publish("session.error", this.threadId ?? "unbound", { message: "Invalid JSON from app-server." });
-      return;
-    }
-
-    const record = asRecord(message);
-    const id = record.id;
-    const method = record.method;
-
-    if ((typeof id === "number" || typeof id === "string") && typeof method === "string") {
-      this.onServerRequest({ id, method, params: record.params ?? {} });
-      return;
-    }
-
-    if (typeof id === "number") {
-      const pending = this.pendingRequests.get(id);
-      if (!pending) return;
-      this.pendingRequests.delete(id);
-      if (record.error) {
-        const error = asRecord(record.error);
-        pending.reject(new Error((error.message as string) ?? "App-server request failed."));
-      } else {
-        pending.resolve(record.result);
-      }
-      return;
-    }
-
-    if (typeof method === "string") {
-      this.onNotification(method, record.params ?? {});
-    }
-  }
-
-  private onServerStderr(chunk: Buffer): void {
-    const text = chunk.toString("utf8").trim();
-    if (text) console.error(`codex app-server stderr: ${text}`);
+    if (!this.connection || this.connection.closed) throw new Error("codex app-server is not running.");
+    this.connection.write(payload);
   }
 
   private onServerRequest(request: RawServerRequest): void {
@@ -739,10 +626,10 @@ export class CodexSession {
         if (userInput.threadId !== this.threadId || userInput.turnId !== this.activeTurnId) throw new Error("User question targets a stale turn or the wrong thread.");
         const approvalId = randomUUID();
         this.serverRequestsByApprovalId.set(approvalId, request);
+        const offered = approvalChoices([{ value: "submit", label: "Submit answers", intent: "answer" }, { value: "cancel", label: "Skip questions", intent: "cancel" }]);
+        this.approvalReplies.set(approvalId, offered.replies);
         this.publish("approval.requested", userInput.threadId, {
-          approvalId, method: request.method, prompt: userInput.questions.map(q => q.question).join("\n\n"),
-          choices: [{ value: "submit", label: "Submit answers" }, { value: "cancel", label: "Skip questions" }],
-          params: request.params, userInput,
+          approvalId, kind: "question", choices: offered.choices, userInput,
         } satisfies ApprovalRequestPayload);
       } catch (error) {
         this.writeLine({ id: request.id, error: { code: -32602, message: (error as Error).message } });
@@ -764,14 +651,21 @@ export class CodexSession {
       return;
     }
 
+    const params = asRecord(request.params);
+    const threadId = asString(params.threadId) ?? asString(params.conversationId) ?? this.threadId ?? "unbound";
+    const turnId = asString(params.turnId) ?? this.activeTurnId;
+    if (threadId !== this.threadId || (turnId && this.endedTurns.has(turnId)) || (this.activeTurnId && turnId !== this.activeTurnId)) {
+      this.writeLine({ id: request.id, error: { code: -32602, message: "Approval targets an unavailable turn or thread." } }); return;
+    }
     const approvalId = randomUUID();
-    const threadId = this.threadId ?? "unbound";
+    const offered = approvalChoices(commandApprovalChoices(request.method, request.params));
+    this.approvalReplies.set(approvalId, offered.replies);
     const approvalPayload: ApprovalRequestPayload = {
       approvalId,
-      method: request.method,
-      prompt: mapApprovalPrompt(request.method, request.params),
-      choices: mapApprovalChoices(request.method),
-      params: request.params,
+      kind: "permission",
+      activity: codexApprovalActivity(request.method, request.params),
+      reason: asString(params.reason),
+      choices: offered.choices,
     };
 
     this.serverRequestsByApprovalId.set(approvalId, request);
@@ -791,7 +685,7 @@ export class CodexSession {
         if (params.turnId !== this.activeTurnId) {
           throw new InvalidDynamicToolCallError("Dynamic tool call targets a stale turn.");
         }
-        const result = await this.dynamicTools.execute(params);
+        const result = codexToolResponse(await this.dynamicTools.execute(params));
         this.writeLine({ id: request.id, result });
       } catch (error) {
         if (error instanceof InvalidDynamicToolCallError) {
@@ -829,8 +723,9 @@ export class CodexSession {
 
     if (lower === "serverrequest/resolved") {
       for (const [approvalId, request] of this.serverRequestsByApprovalId) {
-        if (request.method === "item/tool/requestUserInput" && request.id === payload.requestId && asRecord(request.params).threadId === threadId) {
+        if (request.id === payload.requestId && (asString(asRecord(request.params).threadId) ?? this.threadId) === threadId) {
           this.serverRequestsByApprovalId.delete(approvalId);
+          this.approvalReplies.delete(approvalId);
           this.publish("approval.expired", threadId, { approvalId });
         }
       }
@@ -839,9 +734,13 @@ export class CodexSession {
 
     if (lower === "turn/completed") {
       const turnId = extractTurnId(params) ?? this.activeTurnId;
-      this.activeTurnId = null;
+      if (turnId) { this.endedTurns.add(turnId); while (this.endedTurns.size > 1000) this.endedTurns.delete(this.endedTurns.values().next().value!); }
+      if (this.activeTurnId === turnId) this.activeTurnId = null;
       for (const [id, request] of this.serverRequestsByApprovalId) {
-        if (request.method === "item/tool/requestUserInput" && asRecord(request.params).turnId === turnId) this.serverRequestsByApprovalId.delete(id);
+        if ((asString(asRecord(request.params).turnId) ?? turnId) === turnId) {
+          this.serverRequestsByApprovalId.delete(id); this.approvalReplies.delete(id);
+          this.publish("approval.expired", threadId, { approvalId: id });
+        }
       }
       this.messagePhaseByItemId.clear();
       const turn = asRecord(payload.turn);
@@ -853,7 +752,7 @@ export class CodexSession {
         });
         return;
       }
-      this.publish("turn.completed", threadId, { turnId });
+      this.publish("turn.completed", threadId, { turnId, ...(turn.status === "interrupted" ? { interrupted: true } : {}) });
       return;
     }
 
@@ -874,7 +773,7 @@ export class CodexSession {
         return;
       }
       if (isContextLimitError(params)) {
-        this.publish("session.limit.context", threadId, { message, method });
+        this.publish("session.limit.context", threadId, { message });
       } else {
         this.publish("session.error", threadId, { message });
       }
@@ -882,7 +781,7 @@ export class CodexSession {
     }
 
     if (lower === "account/ratelimits/updated") {
-      this.publish("turn.notification", threadId, { method, params });
+      // Unrecognized native notifications remain private.
       return;
     }
 
@@ -892,7 +791,8 @@ export class CodexSession {
     }
 
     if (lower === "thread/status/changed") {
-      this.publish("thread.status.changed", threadId, { status: asRecord(params).status ?? null });
+      const status = asRecord(asRecord(params).status);
+      this.publish("thread.status.changed", threadId, { status: { state: status.type === "active" ? "active" : status.type === "systemError" ? "error" : "idle", backgroundTaskCount: 0 } });
       return;
     }
 
@@ -914,66 +814,51 @@ export class CodexSession {
     }
 
     if (lower === "thread/tokenusage/updated") {
-      const tokenUsage = payload.tokenUsage as ThreadTokenUsage | undefined;
       this.publish("thread.tokenUsage.updated", threadId, {
         turnId: asString(payload.turnId),
-        tokenUsage: tokenUsage ?? null,
+        tokenUsage: codexTokenUsage(payload.tokenUsage),
       });
       return;
     }
 
     if (lower === "item/started" || lower === "item/completed") {
       this.captureAgentMessagePhase(params);
-      if (lower === "item/completed") {
-        const message = extractCompletedAgentMessage(params);
-        if (message) {
-          this.publish("turn.message.completed", threadId, message);
-          return;
-        }
-        const generatedImage = extractGeneratedImageArtifact(params);
-        if (generatedImage) {
-          this.publish("turn.image.generated", threadId, generatedImage);
-        }
-        const viewedImage = extractViewedImageArtifact(params);
-        if (viewedImage) {
-          this.publish("turn.image.viewed", threadId, viewedImage);
-        }
-      }
-
-      const activity = mapTurnActivity(params, lower === "item/started" ? "started" : "completed");
-      if (activity) {
-        this.publish("turn.activity", threadId, activity);
-      }
-      this.publish("turn.notification", threadId, { method, params });
+      const native = asRecord(payload.item);
+      // Items without an identity cannot be reconciled with history.
+      if (!asString(native.id)) return;
+      const turnId = extractTurnId(params);
+      const lifecycle = lower === "item/started" ? "started" : "completed";
+      this.publish(lifecycle === "started" ? "item.started" : "item.completed", threadId, { turnId, item: historyItem(native, turnId ?? "", lifecycle) });
       return;
     }
 
-    const delta = extractTextDelta(method, params);
-    if (delta) {
+    const channel = deltaChannel(method);
+    const delta = channel ? extractTextDelta(params) : "";
+    if (channel && delta) {
       const itemId = extractItemId(params);
-      const phase = itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null;
-      this.publish("turn.stream.delta", threadId, {
-        method,
-        textDelta: delta,
-        itemId,
-        phase,
+      this.publish("item.delta", threadId, {
         turnId: extractTurnId(params) ?? this.activeTurnId,
+        itemId,
+        channel,
+        delta,
+        phase: channel === "message" && itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null,
+        ...(channel === "reasoning" ? { form: "summary" as const, ...(typeof asRecord(params).summaryIndex === "number" ? { part: asRecord(params).summaryIndex as number } : {}) } : {}),
       });
       return;
     }
 
-    this.publish("turn.notification", threadId, { method, params });
+    // Unrecognized native notifications remain private.
   }
 
-  private publish(type: BridgeEventType, threadId: string, payload: unknown): void {
-    const event: BridgeEvent = {
+  private publish<K extends BridgeEventType>(type: K, threadId: string, payload: BridgeEventPayloads[K]): void {
+    const event = bridgeEvent({
       id: `${this.sessionId}:${++this.eventCounter}`,
       type,
       threadId,
       sessionId: this.sessionId,
       ts: new Date().toISOString(),
       payload,
-    };
+    });
     this.eventBus.publish(event);
   }
 
@@ -994,9 +879,22 @@ export class CodexSession {
   }
 
   private parseMessagePhase(value: unknown): MessagePhase | null {
-    if (value === "commentary" || value === "final_answer") {
-      return value;
-    }
-    return null;
+    return codexPhase(value);
   }
+}
+
+function commandApprovalChoices(method: string, value: unknown): NativeApprovalChoice[] {
+  const choices: NativeApprovalChoice[] = mapApprovalChoices(method);
+  const params = asRecord(value);
+  if (method === "item/commandExecution/requestApproval") {
+    const exec = params.proposedExecpolicyAmendment;
+    if (Array.isArray(exec) && exec.length && exec.every(part => typeof part === "string") && JSON.stringify(exec).length <= 8192) {
+      choices.push({ label: `Always allow commands matching ${exec.join(" ")}`, intent: "allow", value: { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: exec } } } });
+    }
+    if (Array.isArray(params.proposedNetworkPolicyAmendments)) for (const amendment of params.proposedNetworkPolicyAmendments.slice(0, 20)) {
+      const rule = asRecord(amendment);
+      if (typeof rule.host === "string" && ["allow", "deny"].includes(String(rule.action))) choices.push({ label: `Always ${rule.action} network access to ${rule.host}`, intent: rule.action as "allow" | "deny", value: { decision: { applyNetworkPolicyAmendment: { network_policy_amendment: { host: rule.host, action: rule.action } } } } });
+    }
+  }
+  return choices;
 }

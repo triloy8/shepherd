@@ -15,7 +15,7 @@ describe("DynamicToolRegistry", () => {
       description: "Create a callback.",
       inputSchema: { type: "object", additionalProperties: false },
       async execute(params) {
-        return { success: true, contentItems: [{ type: "inputText", text: params.callId }] };
+        return { success: true, contentItems: [{ type: "text", text: params.callId }] };
       },
     });
 
@@ -39,7 +39,7 @@ describe("DynamicToolRegistry", () => {
       arguments: {},
     })).resolves.toEqual({
       success: true,
-      contentItems: [{ type: "inputText", text: "call-1" }],
+      contentItems: [{ type: "text", text: "call-1" }],
     });
 
     unregister();

@@ -1,18 +1,19 @@
 import { expect, test } from "bun:test";
-import { CodexSession } from "../server/core/codex_session.js";
+import { CodexSession } from "../server/providers/codex/session.js";
 import { webHarness } from "./helpers/web_harness.js";
+import { fakeAppServer } from "./helpers/fake_app_server.js";
 
 function transport() {
-  const session = new CodexSession("on-request");
-  session.initialize = async () => {};
   let failure: string | null = null;
   let data: unknown[] = [];
-  const raw = session as unknown as { writeLine: (request: { id: number; method: string }) => void; onServerLine: (line: string) => void };
-  raw.writeLine = (request) => {
-    queueMicrotask(() => raw.onServerLine(JSON.stringify({ id: request.id, ...(failure
-      ? { error: { code: -32600, message: failure } }
-      : { result: { data, nextCursor: null, backwardsCursor: null } }) })));
-  };
+  const fake = fakeAppServer(request => {
+    if (request.method === "initialize") return {};
+    if (failure) throw new Error(failure);
+    return { data, nextCursor: null, backwardsCursor: null };
+  });
+  const session = new CodexSession(undefined, undefined, fake.server);
+  const stop = session.stop.bind(session);
+  session.stop = () => { stop(); fake.server.stop(); };
   return { session, fail: (message: string | null) => { failure = message; }, data: (value: unknown[]) => { data = value; } };
 }
 const notMaterialized = (id: string) => `thread ${id} is not materialized yet; thread/turns/list is unavailable before first user message`;
@@ -24,7 +25,7 @@ test("new thread history is an empty page, then reads subsequent stored turns", 
     expect(await t.session.listThreadTurns("thread", { itemsView: "full" })).toEqual({ data: [], nextCursor: null, backwardsCursor: null });
     const data = [{ id: "turn", items: [], status: "completed" }];
     t.fail(null); t.data(data);
-    expect((await t.session.listThreadTurns("thread", { itemsView: "full" })).data).toEqual(data);
+    expect((await t.session.listThreadTurns("thread", { itemsView: "full" })).data).toMatchObject(data);
   } finally { t.session.stop(); }
 });
 

@@ -71,7 +71,7 @@ Legacy note:
 | `thread/turns/list` | Implemented | Core | Wrapped with cursors, direction, and items view; Discord `!history` uses five-turn summary pages |
 | `thread/items/list` | Partial | Core | Wrapped with string cursors, direction, and optional turn filter; the new object item-anchor cursor is not exposed; Discord history Items buttons and `!history items` show paginated excerpts with Read buttons for message text/activity summaries |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
-| `thread/unsubscribe` | Implemented | Core | A stopped session releases its thread so the shared process stops sending its notifications |
+| `thread/unsubscribe` | Implemented | Core | A stopped session releases its thread so the shared process stops sending its notifications. Codex subscribes the process's one client, so a session releases a thread only while it still runs it; a session that has since resumed the thread keeps it subscribed |
 | `hooks/list` | Missing | Maybe Later | Useful for admin diagnostics, but hook management is not part of the current Discord surface |
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
@@ -215,7 +215,7 @@ Legacy note:
 | `externalAgentConfig/import/progress` | Generic | Out of Scope (for now) |
 | `externalAgentConfig/import/completed` | Generic | Out of Scope (for now) |
 | `fs/changed` | Generic | Out of Scope (for now) |
-| `item/reasoning/summaryTextDelta` | `item.delta` on the `reasoning` channel with `form: "summary"` and `part` from `summaryIndex`; surfaces show it as a running step until the item completes | Implemented |
+| `item/reasoning/summaryTextDelta` | `item.delta` on the `reasoning` channel with `form: "summary"` and `part` from `summaryIndex`; surfaces show it as a running step until the item completes. Codex writes no summaries unless asked, so every `turn/start` sends `summary: "auto"`; the model may still write none | Implemented |
 | `item/reasoning/summaryPartAdded` | Generic | Maybe Later |
 | `item/reasoning/textDelta` | Private; history keeps summaries, not raw reasoning | Out of Scope (for now) |
 | `model/rerouted` | Generic | Maybe Later |

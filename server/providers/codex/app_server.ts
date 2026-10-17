@@ -20,6 +20,9 @@ export interface AppServerConnection {
   /** Routes the thread's notifications and requests to this connection. */
   bind(threadId: string): void;
   unbind(threadId: string): void;
+  /** Stops the thread's notifications if this connection still runs it. Codex subscribes the
+   * process's one client, so a session that resumed the thread since keeps it subscribed. */
+  releaseThread(threadId: string): void;
   close(): void;
 }
 
@@ -79,7 +82,11 @@ class AppServerProcess {
   }
 
   bind(threadId: string, connection: Connection): void { this.threads.set(threadId, connection); }
-  unbind(threadId: string, connection: Connection): void { if (this.threads.get(threadId) === connection) this.threads.delete(threadId); }
+  unbind(threadId: string, connection: Connection): boolean {
+    if (this.threads.get(threadId) !== connection) return false;
+    this.threads.delete(threadId);
+    return true;
+  }
   release(connection: Connection): void {
     this.connections.delete(connection);
     for (const [threadId, owner] of this.threads) if (owner === connection) this.threads.delete(threadId);
@@ -149,6 +156,10 @@ class Connection implements AppServerConnection {
   }
   bind(threadId: string): void { if (!this.closed) this.process.bind(threadId, this); }
   unbind(threadId: string): void { this.process.unbind(threadId, this); }
+  releaseThread(threadId: string): void {
+    if (this.closed || !this.process.unbind(threadId, this)) return;
+    void this.process.request("thread/unsubscribe", { threadId }).catch(() => {});
+  }
   close(): void { if (!this.closed) { this.closed = true; this.process.release(this); } }
   end(message: string): void { this.closed = true; this.client.onClosed(message); }
 }

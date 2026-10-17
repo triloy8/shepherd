@@ -134,6 +134,7 @@ type AppServerRequestParams = {
     model?: string;
     effort?: string | null;
     cwd?: string;
+    summary?: "auto" | "concise" | "detailed" | "none" | null;
   };
   "turn/interrupt": { threadId: string; turnId: string };
   "turn/steer": { threadId: string; expectedTurnId: string; input: NativeInput[] };
@@ -438,6 +439,8 @@ export class CodexSession implements ThreadSession {
       ...(model ? { model } : {}),
       cwd: this.cwd,
       ...(effort !== undefined ? { effort } : {}),
+      // Codex writes no reasoning summaries unless asked; they are the reasoning surfaces show.
+      summary: "auto",
     });
 
     const turnId = extractTurnId(result);
@@ -518,7 +521,7 @@ export class CodexSession implements ThreadSession {
     this.stopped = true;
     // The process serves other threads; this one is released rather than the process stopped.
     const connection = this.connection;
-    if (connection && !connection.closed && this.threadId) void connection.request("thread/unsubscribe", { threadId: this.threadId }).catch(() => {});
+    if (connection && this.threadId) connection.releaseThread(this.threadId);
     connection?.close();
     this.cleanup();
     this.ownServer?.stop();

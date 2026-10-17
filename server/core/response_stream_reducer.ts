@@ -35,6 +35,8 @@ export type ResponseStreamReduction =
   | {
       type: "finish";
       failed: boolean;
+      /** The turn was stopped before it finished; its text so far is a partial response. */
+      interrupted: boolean;
       state: ResponseStreamState | null;
       completedInterim: AccumulatedMessage | null;
     };
@@ -214,6 +216,7 @@ export function reduceResponseStream(
       return {
         type: "finish",
         failed: event.type === "turn.failed",
+        interrupted: event.type === "turn.completed" && event.payload.interrupted === true,
         state: null,
         completedInterim: null,
       };
@@ -222,6 +225,7 @@ export function reduceResponseStream(
     return {
       type: "finish",
       failed: event.type === "turn.failed",
+      interrupted: event.type === "turn.completed" && event.payload.interrupted === true,
       state: completed.state,
       completedInterim: completed.completedInterim,
     };

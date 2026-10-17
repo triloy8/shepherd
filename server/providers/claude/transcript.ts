@@ -84,7 +84,7 @@ export class ClaudeTranscript {
         const index = this.thinkingBlocks.get(messageId) ?? 0;
         this.thinkingBlocks.set(messageId, index + 1);
         this.flush(turn, "interim");
-        this.complete(turn, { id: `${messageId}:thinking:${index}`, type: "reasoning", form: "full", parts: [bounded(block.thinking)] });
+        this.complete(turn, { id: `${messageId}:thinking:${index}`, type: "reasoning", form: "summary", parts: [bounded(block.thinking)] });
       }
       if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
         this.flush(turn, "interim");
@@ -121,7 +121,7 @@ export class ClaudeTranscript {
         if (block.text) this.complete(turn, { id: textItemId(messageId, index), type: "assistant_message", text: block.text, phase: "interim", parentItemId });
       }
       if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
-        this.complete(turn, { id: `${messageId}:thinking:${next("thinking")}`, type: "reasoning", form: "full", parts: [bounded(block.thinking)], parentItemId });
+        this.complete(turn, { id: `${messageId}:thinking:${next("thinking")}`, type: "reasoning", form: "summary", parts: [bounded(block.thinking)], parentItemId });
       }
       if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
         const item: HistoryItem = { id: block.id, type: "activity", status: "started", activity: claudeActivity(block.name, claudeActivityFields(block.input)), parentItemId };
@@ -190,7 +190,7 @@ function seconds(value: unknown, fallback: number): number {
  * transcripts are stored separately; they are merged in by time, as they streamed live. */
 export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurnId: string | null = null, subagentEntries: readonly TranscriptEntry[] = []): { turns: HistoryTurn[]; model: string | null; usage: unknown } {
   const transcript = new ClaudeTranscript();
-  let model: string | null = null, usage: unknown = null, last = 0;
+  let model: string | null = null, usage: unknown = null, last = 0, waking = false;
   // An entry without a time takes the time before it, so it keeps its place; main entries come first on ties.
   const timed = (list: readonly TranscriptEntry[], offset: number) => { let at = 0; return list.map((entry, index) => ({ entry, index: offset + index, at: at = seconds(entry.timestamp, at) })); };
   const ordered = [...timed(entries, 0), ...timed(subagentEntries, entries.length)].sort((a, b) => a.at - b.at || a.index - b.index).map(({ entry }) => entry);
@@ -216,10 +216,16 @@ export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurn
       transcript.answered();
       transcript.steer(entry.uuid, promptContent(message.content));
     } else if (entry.type === "user") {
-      // A turn ends with its last entry, before the next prompt.
-      transcript.finish("completed", last);
-      const background = record(entry.origin).kind === "task-notification";
-      transcript.beginTurn(entry.uuid, at, background ? null : promptContent(message.content));
+      const origin = record(entry.origin);
+      const background = origin.kind === "task-notification";
+      // Notifications that arrive together wake one turn. A wake turn is named by the task run
+      // whose notification started it, as the live stream names it.
+      if (!(background && waking && transcript.current?.items.length === 0)) {
+        // A turn ends with its last entry, before the next prompt.
+        transcript.finish("completed", last);
+        transcript.beginTurn(background && typeof origin.runId === "string" && origin.runId ? origin.runId : entry.uuid, at, background ? null : promptContent(message.content));
+        waking = background;
+      }
     }
     last = at;
   }

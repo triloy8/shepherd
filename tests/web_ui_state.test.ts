@@ -318,3 +318,12 @@ test("a running step shows its latest output, which history does not keep", () =
   expect(state.messages[0]!.output).toBeUndefined();
   expect(reduceBridge(state, event("o3", "item.delta", { turnId: "turn", itemId: "cmd", channel: "output", delta: "late", phase: null })).messages[0]!.output).toBeUndefined();
 });
+
+test("an interrupted turn is labelled interrupted as soon as it ends", () => {
+  let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "turn" }));
+  state = reduceBridge(state, event("end", "turn.completed", { turnId: "turn", interrupted: true }));
+  expect(state.turns.turn?.status).toBe("interrupted");
+  expect(state.activeTurnId).toBeNull();
+  const completed = reduceBridge(reduceBridge(emptyChat(), event("s2", "turn.started", { turnId: "other" })), event("e2", "turn.completed", { turnId: "other" }));
+  expect(completed.turns.other?.status).toBe("in_progress");
+});

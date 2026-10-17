@@ -749,7 +749,7 @@ export class CodexSession implements ThreadSession {
         });
         return;
       }
-      this.publish("turn.completed", threadId, { turnId });
+      this.publish("turn.completed", threadId, { turnId, ...(turn.status === "interrupted" ? { interrupted: true } : {}) });
       return;
     }
 

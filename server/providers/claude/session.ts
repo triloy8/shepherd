@@ -85,6 +85,9 @@ export class ClaudeSession implements ThreadSession {
   private stopped = false;
   private counter = 0;
   private interrupted = false;
+  /** The task run whose notification wakes the next turn. Claude records that notification with
+   * the run's ID, so the wake turn has the same ID after a reload. */
+  private wakeRunId: string | null = null;
   private steeredMessages = 0;
   private requestUsage: RequestUsage | null = null;
   private runningTools: string | null = null;
@@ -169,6 +172,8 @@ export class ClaudeSession implements ThreadSession {
       ...(claudeExecutablePath() ? { pathToClaudeCodeExecutable: claudeExecutablePath() } : {}),
       // Subagents' text and thinking are forwarded so their work appears inside the delegation.
       includePartialMessages: true, forwardSubagentText: true, settingSources: ["user", "project", "local"],
+      // Thinking text is omitted unless requested; summaries are what these models return.
+      extraArgs: { "thinking-display": "summarized" },
       systemPrompt: { type: "preset", preset: "claude_code" },
       ...claudePermissionOptions(this.profile),
       canUseTool: (name, args, context) => this.requestApproval(name, args, context),
@@ -180,7 +185,7 @@ export class ClaudeSession implements ThreadSession {
     thread.cwd = options.cwd!; thread.model = options.model!; thread.effort = options.effort;
     // The prompt's ID is recorded in Claude's transcript, so the turn has the same ID after a reload.
     const turn = this.transcript.beginTurn(message.uuid!, Date.now() / 1000, promptContent(message.message.content));
-    this.input = queue; this.running = running; this.activeTurnId = turn.id; this.interrupted = false; this.steeredMessages = 0;
+    this.input = queue; this.running = running; this.activeTurnId = turn.id; this.interrupted = false; this.steeredMessages = 0; this.wakeRunId = null;
     this.publishSettings();
     this.publish("turn.started", { turnId: turn.id });
     queue.push(message);
@@ -220,6 +225,7 @@ export class ClaudeSession implements ThreadSession {
           }).catch(() => {});
           continue;
         }
+        if (message.type === "system" && message.subtype === "task_notification" && message.run_id && !message.skip_transcript && !this.transcript.current) this.wakeRunId ??= message.run_id;
         if (this.backgroundTasks.accept(message)) this.publish("thread.status.changed", { status: { state: this.activeTurnId ? "active" : "idle", backgroundTaskCount: this.backgroundTaskCount } });
         if (!this.transcript.current && ((message.type === "stream_event" && !message.parent_tool_use_id && message.event.type === "message_start") || (message.type === "assistant" && !message.parent_tool_use_id))) {
           this.beginWakeTurn();
@@ -238,7 +244,7 @@ export class ClaudeSession implements ThreadSession {
             thinking.text += event.delta.thinking;
             const first = !thinking.itemId && !!thinking.text.trim();
             if (first) thinking.itemId = `${streamMessageId}:thinking:${streamThinkingBlocks++}`;
-            if (thinking.itemId) this.publish("item.delta", { turnId: turn.id, itemId: thinking.itemId, channel: "reasoning", form: "full", delta: first ? thinking.text : event.delta.thinking, phase: null });
+            if (thinking.itemId) this.publish("item.delta", { turnId: turn.id, itemId: thinking.itemId, channel: "reasoning", form: "summary", delta: first ? thinking.text : event.delta.thinking, phase: null });
           }
           if (event.type === "message_delta" && this.requestUsage) {
             for (const [key, value] of Object.entries(event.usage ?? {})) if (typeof value === "number") (this.requestUsage as Record<string, number>)[key] = value;
@@ -302,7 +308,8 @@ export class ClaudeSession implements ThreadSession {
    * has that notification's ID. */
   private beginWakeTurn(): void {
     if (this.transcript.current) return;
-    const turn = this.transcript.beginTurn(randomUUID(), Date.now() / 1000, null);
+    const turn = this.transcript.beginTurn(this.wakeRunId ?? randomUUID(), Date.now() / 1000, null);
+    this.wakeRunId = null;
     this.activeTurnId = turn.id; this.interrupted = false;
     this.publish("turn.started", { turnId: turn.id });
   }
@@ -313,7 +320,7 @@ export class ClaudeSession implements ThreadSession {
     const turn = this.transcript.finish(status, Date.now() / 1000, message)!;
     if (!this.stopped) {
       if (turn.status === "failed") this.publish("turn.failed", { turnId: turn.id, message: turn.error?.message ?? "Turn failed." });
-      else this.publish("turn.completed", { turnId: turn.id });
+      else this.publish("turn.completed", { turnId: turn.id, ...(turn.status === "interrupted" ? { interrupted: true } : {}) });
     }
   }
   private contextWindow(usage: Record<string, ModelUsage>): number | null {

@@ -3,16 +3,21 @@ import type { Provider } from "../../ports/provider_session.js";
 import { noProviderTools, type ProviderTools } from "../../ports/provider_tools.js";
 import { codexCapabilities } from "./capabilities.js";
 import { CodexSession } from "./session.js";
+import { CodexAppServer } from "./app_server.js";
 
-/** Codex app-server. A thread one of this provider's sessions is running is served by that
- * session's process, so its notifications reach the conversation; other history and discovery
- * use one app-server process with no thread bound. */
+/** Codex app-server. Every thread, history read and discovery request shares one process, which
+ * routes each thread's notifications to the session running it. A thread one of this provider's
+ * sessions is running is read through that session; everything else through one reader session
+ * with no thread bound. */
 export class CodexProvider implements Provider {
   readonly capabilities = codexCapabilities;
   private readonly live = new Map<string, CodexSession>();
   private client: Promise<CodexSession> | null = null;
-  constructor(private readonly createClient: () => CodexSession = () => new CodexSession(noProviderTools)) {}
-  openSession(tools: ProviderTools): CodexSession { return new CodexSession(tools, this.live); }
+  constructor(
+    private readonly createClient: () => CodexSession = () => new CodexSession(noProviderTools, undefined, this.server),
+    private readonly server = new CodexAppServer(),
+  ) {}
+  openSession(tools: ProviderTools): CodexSession { return new CodexSession(tools, this.live, this.server); }
   /** The process for provider-wide requests, started on first use and replaced if it fails to start. */
   private history(threadId?: string): Promise<CodexSession> {
     const live = threadId ? this.live.get(threadId) : undefined;
@@ -33,5 +38,6 @@ export class CodexProvider implements Provider {
   stop(): void {
     const client = this.client; this.client = null;
     void client?.then(session => session.stop(), () => {});
+    this.server.stop();
   }
 }

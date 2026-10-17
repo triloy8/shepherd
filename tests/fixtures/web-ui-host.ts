@@ -124,7 +124,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   }
   if (text.includes("live steps")) {
     // Reasoning and command output stream into running steps before their items complete.
-    const reasoning = { id: `reasoning-${sequence}`, type: "reasoning" as const, summary: ["Reading the failing test.", "Running it again."] };
+    const reasoning = { id: `reasoning-${sequence}`, type: "reasoning" as const, form: "summary" as const, parts: ["Reading the failing test.", "Running it again."] };
     const command = { id: `command-${sequence}`, type: "activity" as const, activity: { kind: "command" as const, command: "bun test", cwd: null } };
     later(50, () => {
       publish(threadId, "item.delta", { turnId, itemId: reasoning.id, channel: "reasoning", delta: "Reading the ", phase: null, part: 0 });

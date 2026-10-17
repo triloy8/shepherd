@@ -15,7 +15,7 @@ import {
 import { WorkspaceProvisioner, type WorkspaceReservation } from "./workspace_provisioner.js";
 import { assertProviderOperation, UnsupportedProviderOperationError } from "../../shared/protocol/provider_support.js";
 
-/** Host approval and sandbox defaults are applied per provider by the conversation service. */
+/** The host execution policy is resolved to each provider's profile by the conversation service. */
 export type SurfaceConversationOrchestratorOptions = {
   adapter: string;
   projectTargetResolver?: ProjectTargetResolver;

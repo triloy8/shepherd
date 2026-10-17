@@ -839,7 +839,7 @@ export class CodexSession implements ThreadSession {
         channel,
         delta,
         phase: channel === "message" && itemId ? (this.messagePhaseByItemId.get(itemId) ?? null) : null,
-        ...(channel === "reasoning" && typeof asRecord(params).summaryIndex === "number" ? { part: asRecord(params).summaryIndex as number } : {}),
+        ...(channel === "reasoning" ? { form: "summary" as const, ...(typeof asRecord(params).summaryIndex === "number" ? { part: asRecord(params).summaryIndex as number } : {}) } : {}),
       });
       return;
     }

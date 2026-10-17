@@ -354,12 +354,14 @@ type HistoryItemBody =
   | { id: string; type: "user_message"; content: HistoryContentPart[] }
   | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }
   | { id: string; type: "plan"; text: string }
-  | { id: string; type: "reasoning"; summary: string[] }
+  | { id: string; type: "reasoning"; form: ReasoningForm; parts: string[] }
   | { id: string; type: "activity"; status: import("./activity.js").ActivityStatus; activity: import("./activity.js").Activity }
   | { id: string; type: "image"; image: HistoryImage }
   | { id: string; type: "other" };
 
 export type HistoryItemType = HistoryItem["type"];
+/** Whether reasoning text is a summary the provider wrote of its reasoning, or the reasoning itself. */
+export type ReasoningForm = "summary" | "full";
 
 export interface HistoryTurn {
   id: string;

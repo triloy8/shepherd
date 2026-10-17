@@ -40,7 +40,7 @@ export type ConversationSurface = {
   surfaceId: string;
 };
 
-/** Host approval and sandbox defaults are applied by the session manager, per provider. */
+/** The host execution policy is resolved to each provider's profile by the session manager. */
 export type ConversationRoutingServiceOptions = {
   autoCreateIfMissing?: boolean;
   exclusiveThreadBinding?: boolean;

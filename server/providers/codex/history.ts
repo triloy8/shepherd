@@ -37,7 +37,8 @@ export function historyItem(value: unknown, turnId: string, lifecycle?: "started
     return { id, type: "assistant_message", text: String(item.text ?? ""), ...(phase ? { phase } : {}) };
   }
   if (item.type === "plan") return { id, type: "plan", text: String(item.text ?? "") };
-  if (item.type === "reasoning") return { id, type: "reasoning", summary: Array.isArray(item.summary) ? item.summary.filter((text: unknown): text is string => typeof text === "string") : [] };
+  // Codex keeps its raw reasoning private; only the summaries it writes reach history.
+  if (item.type === "reasoning") return { id, type: "reasoning", form: "summary", parts: Array.isArray(item.summary) ? item.summary.filter((text: unknown): text is string => typeof text === "string") : [] };
   const stage = lifecycle ?? (item.status === "inProgress" ? "started" : "completed");
   // An image is presented once it exists; until then its generation or viewing is an activity.
   const generated = stage === "completed" ? extractGeneratedImageArtifact({ turnId, item }) : null;

@@ -62,3 +62,8 @@ export function describePermission(activity: Activity): ActivityDescription {
     case "other": return { title: `Allow: ${activity.title}?`, detail };
   }
 }
+
+/** The title surfaces show for reasoning: a provider's summary of its reasoning is not the reasoning itself. */
+export function reasoningTitle(form: import("./requests.js").ReasoningForm): string {
+  return form === "summary" ? "Reasoning summary" : "Reasoning";
+}

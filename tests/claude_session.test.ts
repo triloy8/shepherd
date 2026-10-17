@@ -587,8 +587,9 @@ test("Claude history records thinking as reasoning and proposed plans as plans, 
     const items = (await session.listThreadTurns(threadId, {})).data[0]!.items;
     expect(items.map(item => item.type)).toEqual(["user_message", "assistant_message", "reasoning", "reasoning", "plan", "activity", "assistant_message"]);
     expect(items[1]).toMatchObject({ text: "Looking first.", phase: "interim" });
-    expect(items[2]).toMatchObject({ summary: ["The parser drops empty lines."] });
-    expect((items[3] as { summary: string[] }).summary[0]).toEndWith("[1000 characters omitted]");
+    // Claude's thinking is the reasoning itself, not a summary of it.
+    expect(items[2]).toMatchObject({ form: "full", parts: ["The parser drops empty lines."] });
+    expect((items[3] as { parts: string[] }).parts[0]).toEndWith("[1000 characters omitted]");
     expect(items[4]).toMatchObject({ type: "plan", text: "1. Fix the parser.\n2. Add a test." });
     expect(new Set(items.map(item => item.id)).size).toBe(items.length);
     expect((await session.listThreadTurns(threadId, { itemsView: "summary" })).data[0]!.items.map(item => item.type)).toEqual(["user_message", "assistant_message"]);
@@ -707,10 +708,11 @@ test("thinking streams as reasoning under the item ID history records it with", 
   const reasoning = events.flatMap(event => event.type === "item.delta" && event.payload.channel === "reasoning" ? [event.payload] : []);
   expect(reasoning.map(delta => [delta.itemId, delta.delta])).toEqual([["m:thinking:0", "\nCheck"], ["m:thinking:0", " the logs."]]);
   const history = (await session.listThreadTurns(threadId, {})).data[0]!.items;
-  expect(history.filter(item => item.type === "reasoning")).toEqual([{ id: "m:thinking:0", type: "reasoning", summary: ["\nCheck the logs."] }]);
+  expect(history.filter(item => item.type === "reasoning")).toEqual([{ id: "m:thinking:0", type: "reasoning", form: "full", parts: ["\nCheck the logs."] }]);
   // The web view shows the reasoning while it streams, then the canonical item in its place.
   const chat = events.reduce(reduceBridge, emptyChat());
-  expect(chat.messages.filter(message => message.id === "m:thinking:0").map(message => message.activity?.status)).toEqual(["completed"]);
+  expect(chat.messages.filter(message => message.id === "m:thinking:0").map(message => [message.activity?.status, message.activity?.activity.kind === "other" ? message.activity.activity.title : null])).toEqual([["completed", "Reasoning"]]);
+  expect(reasoning.every(delta => delta.form === "full")).toBe(true);
   session.stop();
 });
 

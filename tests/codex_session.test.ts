@@ -477,7 +477,7 @@ describe("CodexSession app-server contract", () => {
     ]);
     // A reasoning delta names the summary part it extends.
     internals(session).onNotification("item/reasoning/summaryTextDelta", { threadId: "thread-1", turnId: "turn-1", itemId: "reason-1", delta: "second", summaryIndex: 1 });
-    expect(events.at(-1)?.payload).toMatchObject({ channel: "reasoning", delta: "second", part: 1 });
+    expect(events.at(-1)?.payload).toMatchObject({ channel: "reasoning", delta: "second", part: 1, form: "summary" });
   });
 
   test("attaches turn and captured phase metadata to agent deltas", () => {

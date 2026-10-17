@@ -238,7 +238,7 @@ export class ClaudeSession implements ThreadSession {
             thinking.text += event.delta.thinking;
             const first = !thinking.itemId && !!thinking.text.trim();
             if (first) thinking.itemId = `${streamMessageId}:thinking:${streamThinkingBlocks++}`;
-            if (thinking.itemId) this.publish("item.delta", { turnId: turn.id, itemId: thinking.itemId, channel: "reasoning", delta: first ? thinking.text : event.delta.thinking, phase: null });
+            if (thinking.itemId) this.publish("item.delta", { turnId: turn.id, itemId: thinking.itemId, channel: "reasoning", form: "full", delta: first ? thinking.text : event.delta.thinking, phase: null });
           }
           if (event.type === "message_delta" && this.requestUsage) {
             for (const [key, value] of Object.entries(event.usage ?? {})) if (typeof value === "number") (this.requestUsage as Record<string, number>)[key] = value;

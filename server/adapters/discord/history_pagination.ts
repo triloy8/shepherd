@@ -9,7 +9,7 @@ import type { HistoryContentPart, HistoryItem } from "../../../shared/protocol/r
 import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.js";
 import { DISCORD_LIST_PAGE_SIZE, navigationRow } from "./list_pagination.js";
 import { formatActivityLine } from "./message_renderer.js";
-import { describeActivity } from "../../../shared/protocol/activity.js";
+import { describeActivity, reasoningTitle } from "../../../shared/protocol/activity.js";
 import { chunkForDiscord } from "./chunking.js";
 import { normalizeDiscordMarkdown } from "./markdown_normalizer.js";
 
@@ -60,7 +60,7 @@ function ownLabel(item: HistoryItem): string {
     case "user_message": return "User message";
     case "assistant_message": return "Assistant message";
     case "plan": return "Plan";
-    case "reasoning": return "Reasoning summary";
+    case "reasoning": return reasoningTitle(item.form);
     case "activity": return describeActivity(item.activity).title;
     case "image": return item.image.kind === "generated" ? "Generated image" : "Viewed image";
     default: return "Activity";
@@ -82,7 +82,7 @@ function itemText(item: HistoryItem): string {
     case "user_message": return item.content.map(contentLabel).join(" ");
     case "assistant_message":
     case "plan": return item.text;
-    case "reasoning": return item.summary.join(" ");
+    case "reasoning": return item.parts.join(" ");
     case "activity": return formatActivityLine(item);
     case "image": return item.image.prompt ?? item.image.path;
     default: return item.type;

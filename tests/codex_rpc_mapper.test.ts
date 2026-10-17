@@ -118,7 +118,7 @@ describe("Codex RPC activity mapping", () => {
     expect(historyItem({ type: "agentMessage", id: "message-1", phase: "final_answer", text: "Canonical final answer" }, "turn-1", "completed"))
       .toEqual({ id: "message-1", type: "assistant_message", text: "Canonical final answer", phase: "final" });
     expect(historyItem({ type: "reasoning", id: "reason-1", summary: ["Checked"] }, "turn-1", "completed"))
-      .toEqual({ id: "reason-1", type: "reasoning", summary: ["Checked"] });
+      .toEqual({ id: "reason-1", type: "reasoning", form: "summary", parts: ["Checked"] });
   });
 
   test("an image is an activity until it exists", () => {

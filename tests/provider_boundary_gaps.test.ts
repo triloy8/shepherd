@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { toTextUserInput } from "../shared/protocol/user_input.js";
 import { sessionProvider } from "./helpers/session_providers.js";
 import { noProviderTools } from "../server/ports/provider_tools.js";
 import { mkdtempSync, rmSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
@@ -494,4 +495,27 @@ test("config notices validate arbitrary provider registrations, including provid
     expect.stringContaining("An unrelated agent has no mode within SHEPHERD_POLICY (writes=any, network=any, review=risky)"),
   ]);
   expect(describeThreadDefaults({ policy: null }, [registration()])).toEqual([]);
+});
+
+test("while a restart drains, new turns wait but running turns can be steered and interrupted", async () => {
+  const sessions: IndependentSession[] = [];
+  const services = assembleProviderServices([{ ...registration(), provider: sessionProvider(() => { const session = new IndependentSession(); sessions.push(session); return session; }, descriptor.capabilities)}], directory(), descriptor.id);
+  const conversation = new ConversationService({ providers: services });
+  try {
+    const running = (await conversation.createThread({})).threadId;
+    const idle = (await conversation.createThread({})).threadId;
+    await conversation.submitTurn(running, { input: [toTextUserInput("long task")] });
+    conversation.pauseNewTurns();
+    // Conversations can still be opened; only starting work waits.
+    const opened = (await conversation.createThread({})).threadId;
+    await expect(conversation.submitTurn(idle, { input: [toTextUserInput("new work")] })).rejects.toMatchObject({ failure: { code: "restart_pending" } });
+    await expect(conversation.submitTurn(opened, { input: [toTextUserInput("new work")] })).rejects.toMatchObject({ failure: { code: "restart_pending" } });
+    await conversation.steerTurn(running, { input: [toTextUserInput("also this")] });
+    expect(conversation.getRuntimeActivity().activeTurnThreadIds).toEqual([running]);
+    await conversation.interruptTurn(running, {});
+    expect(conversation.getRuntimeActivity().activeTurnThreadIds).toEqual([]);
+    conversation.resumeNewTurns();
+    await conversation.submitTurn(idle, { input: [toTextUserInput("new work")] });
+    expect(conversation.getRuntimeActivity().activeTurnThreadIds).toEqual([idle]);
+  } finally { conversation.stopAll(); }
 });

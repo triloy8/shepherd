@@ -105,6 +105,8 @@ export class SessionManager {
   private readonly applicationEvents = new Map<ProviderSession, EventBus>();
   private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
   private stopped = false;
+  /** New turns wait while a restart lets running work finish. */
+  private newTurnsPaused = false;
 
   constructor(
     private readonly dynamicTools: DynamicToolRegistry = new DynamicToolRegistry(),
@@ -304,6 +306,7 @@ export class SessionManager {
   }
 
   async compactThread(threadId: string): Promise<CompactThreadResponse> {
+    this.assertAdmitting();
     this.requireCapability(threadId, "compact");
     const session = this.mustGet(threadId).session;
     if (!session.compactThread) throw new UnsupportedProviderOperationError(this.threadProvider(threadId), "compact");
@@ -464,6 +467,7 @@ export class SessionManager {
   }
 
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
+    this.assertAdmitting();
     const managed = this.mustGet(threadId);
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     const modelState = this.modelStateByThread.get(threadId);
@@ -570,6 +574,14 @@ export class SessionManager {
     this.modelStateByThread.clear();
     this.effortStateByThread.clear();
     this.runtimeByThread.clear();
+  }
+
+  /** Pauses new turns until resumed. Running turns, steering, interrupts and approvals continue. */
+  pauseNewTurns(): void { this.newTurnsPaused = true; }
+  resumeNewTurns(): void { this.newTurnsPaused = false; }
+
+  private assertAdmitting(): void {
+    if (this.newTurnsPaused) throw new ApplicationActionError({ code: "restart_pending" });
   }
 
   private assertRunning(): void {

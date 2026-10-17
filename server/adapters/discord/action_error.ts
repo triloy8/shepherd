@@ -11,6 +11,7 @@ export function formatActionFailure(error: ActionFailure): string {
     case "unknown_model": return `Unknown model: \`${error.requestedModel}\`. Use \`!models\` to inspect available models.`;
     case "invalid_skill": return "Invalid skill name or path.";
     case "skill_not_found": return `No loaded skill matches \`${error.requestedSkill}\`. Use \`!skills\` to inspect available names.`;
+    case "restart_pending": return "Shepherd is restarting once running work finishes. Send this again after it is back.";
     case "skill_ambiguous": return `Multiple skills match \`${error.requestedSkill}\`: ${error.candidates.map(({ name, scope }) => `${name} [${scope}]`).join(", ")}. Use the full path.`;
   }
 }

@@ -341,25 +341,28 @@ async function replyRuntimeLifecycleResult(
     return;
   }
 
-  const activity = formatRuntimeActivity(result.activity);
-  if (result.action === "deploy" && result.stage === "after-quiescing" && result.deployment) {
-    await reporter.show({
-      title: "Deployment validated; restart deferred",
-      tone: "warning",
-      text: [
-        `Validated commit \`${result.deployment.deployedCommit.slice(0, 7)}\` from \`${deploymentTargetLabel(result.deployment.target)}\`, but Agent work started during deployment.`,
-        activity,
-        "Run `!restart` when the work is complete.",
-      ].filter(Boolean).join("\n"),
-    });
-    return;
-  }
-
+  // Running work did not finish in time; new turns are accepted again and nothing restarted.
   await reporter.show({
-    title: `${result.action === "restart" ? "Restart" : "Deployment"} refused`,
+    title: result.deployment ? "Deployment validated; restart not done" : "Restart not done",
     tone: "warning",
-    text: `Agent work is active.\n${activity}`,
+    text: [
+      result.deployment ? `Validated commit \`${result.deployment.deployedCommit.slice(0, 7)}\` from \`${deploymentTargetLabel(result.deployment.target)}\`.` : "",
+      "Agent work did not finish in time, so Shepherd kept running and accepts new turns again.",
+      formatRuntimeActivity(result.activity),
+      "Run `!restart` when the work is complete.",
+    ].filter(Boolean).join("\n"),
   });
+}
+
+/** Shows what a restart is waiting for while new turns are paused. */
+function drainingReporter(reporter: RuntimeSurfaceReporter) {
+  return async (activity: RuntimeActivity) => {
+    await reporter.show({
+      title: "Waiting for running work",
+      tone: "working",
+      text: ["Shepherd restarts once this work finishes. New turns wait until it is back; interrupts and approvals still work.", formatRuntimeActivity(activity)].filter(Boolean).join("\n"),
+    });
+  };
 }
 
 async function listStoredThreads(message: Message, context: CommandContext, archived: boolean): Promise<void> {
@@ -598,6 +601,7 @@ export async function handleMessage(
 
     const reporter = new RuntimeSurfaceReporter(message);
     const result = await context.runtimeLifecycle.restart({
+      onDraining: drainingReporter(reporter),
       announce: async () => {
         await reporter.show({
           title: "Restarting Shepherd",
@@ -638,6 +642,7 @@ export async function handleMessage(
     const reporter = new RuntimeSurfaceReporter(message);
     const result = await context.runtimeLifecycle.deploy({
       target,
+      onDraining: drainingReporter(reporter),
       onDeploymentStarted: async () => {
         await reporter.show({
           title: "Checking deployment",

@@ -336,6 +336,7 @@ export class WebSurfaceApi {
       if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");
       if (error instanceof ThreadBindingConflictError) return fail(409, "thread_in_use", error.message);
       if (error instanceof ApprovalDecisionError) return fail(error.code === "approval_not_found" ? 404 : error.code === "invalid_decision" ? 400 : 409, error.code, error.message);
+      if (error instanceof ApplicationActionError && error.failure.code === "restart_pending") return fail(503, "restart_pending", "Shepherd is restarting once running work finishes. Send this again after it is back.");
       if (error instanceof ApplicationActionError && error.failure.code === "workspace_unavailable") return fail(409, "workspace_unavailable", "The conversation’s saved workspace is missing or unavailable. Restore its original directory before resuming.");
       if (error instanceof ApplicationActionError) return fail(409, error.failure.code, "An application prerequisite is not satisfied.");
       console.error("Web API operation failed:", error);

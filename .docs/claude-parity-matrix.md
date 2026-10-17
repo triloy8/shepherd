@@ -116,7 +116,7 @@ login, not a blanket approval for distributing a subscription login product.
 | Structured JSON output schemas | Missing | No exposed SDK `outputFormat` configuration. |
 | Web response formatting | Implemented | Shared Markdown, tables, code highlighting, math, and Mermaid rendering applies to normalized Claude text. |
 | Generated/viewed image artifact presentation | Partial | Shared MCP tool results can contain media, but Claude root tool records do not produce the dedicated `imageView`/image-generation events used by the scoped artifact viewer. Image input previews are separate. |
-| Reasoning and plan history | Partial | Root thinking blocks are saved as `reasoning` items (bounded to 8,000 characters each; redacted thinking is skipped), and an `ExitPlanMode` plan is saved as a `plan` item before its tool activity. Thinking streams live as `reasoning` deltas under the item ID history records it with; plans appear when their tool call arrives. |
+| Reasoning and plan history | Partial | Root thinking blocks are saved as `reasoning` items with `form: "full"`, since thinking is the reasoning itself rather than a summary (bounded to 8,000 characters each; redacted thinking is skipped), and an `ExitPlanMode` plan is saved as a `plan` item before its tool activity. Thinking streams live as `reasoning` deltas under the item ID history records it with; plans appear when their tool call arrives. |
 | Native diagnostic event UI | Missing | No UI for all native system events or the raw SDK message union. |
 | Compiled executable | Implemented | Standalone Shepherd embeds the platform SDK executable; `CLAUDE_EXECUTABLE` can override it. Installing Shepherd does not install a `claude` CLI command on PATH. |
 

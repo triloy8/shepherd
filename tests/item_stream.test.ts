@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { reasoningTitle } from "../shared/protocol/activity";
 import { answerMessages, appendOutput, OUTPUT_TAIL_LIMIT, streamedItem } from "../shared/protocol/item_stream";
 
 const delta = (channel: "plan" | "reasoning" | "output" | "message", text: string, part?: number) => ({ turnId: "turn", itemId: "item", channel, delta: text, phase: null, ...(part === undefined ? {} : { part }) });
@@ -11,7 +12,13 @@ test("plan and reasoning deltas build the item they extend", () => {
   // A named part starts a new summary paragraph; unnamed deltas extend the last.
   reasoning = streamedItem(reasoning!, "item", delta("reasoning", "Second", 1));
   reasoning = streamedItem(reasoning!, "item", delta("reasoning", " part"));
-  expect(reasoning).toEqual({ id: "item", type: "reasoning", summary: ["First part", "Second part"] });
+  expect(reasoning).toEqual({ id: "item", type: "reasoning", form: "summary", parts: ["First part", "Second part"] });
+  // The delta states the form of reasoning it starts; an item keeps its form.
+  const full = streamedItem(undefined, "item", { ...delta("reasoning", "Raw"), form: "full" });
+  expect(full).toEqual({ id: "item", type: "reasoning", form: "full", parts: ["Raw"] });
+  expect(streamedItem(full!, "item", { ...delta("reasoning", " thought"), form: "summary" })).toEqual({ id: "item", type: "reasoning", form: "full", parts: ["Raw thought"] });
+  expect(reasoningTitle("summary")).toBe("Reasoning summary");
+  expect(reasoningTitle("full")).toBe("Reasoning");
   expect(streamedItem(undefined, "item", delta("message", "text"))).toBeNull();
   expect(streamedItem(undefined, "item", delta("output", "text"))).toBeNull();
 });

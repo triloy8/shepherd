@@ -84,7 +84,7 @@ export class ClaudeTranscript {
         const index = this.thinkingBlocks.get(messageId) ?? 0;
         this.thinkingBlocks.set(messageId, index + 1);
         this.flush(turn, "interim");
-        this.complete(turn, { id: `${messageId}:thinking:${index}`, type: "reasoning", summary: [bounded(block.thinking)] });
+        this.complete(turn, { id: `${messageId}:thinking:${index}`, type: "reasoning", form: "full", parts: [bounded(block.thinking)] });
       }
       if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
         this.flush(turn, "interim");
@@ -121,7 +121,7 @@ export class ClaudeTranscript {
         if (block.text) this.complete(turn, { id: textItemId(messageId, index), type: "assistant_message", text: block.text, phase: "interim", parentItemId });
       }
       if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
-        this.complete(turn, { id: `${messageId}:thinking:${next("thinking")}`, type: "reasoning", summary: [bounded(block.thinking)], parentItemId });
+        this.complete(turn, { id: `${messageId}:thinking:${next("thinking")}`, type: "reasoning", form: "full", parts: [bounded(block.thinking)], parentItemId });
       }
       if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
         const item: HistoryItem = { id: block.id, type: "activity", status: "started", activity: claudeActivity(block.name, claudeActivityFields(block.input)), parentItemId };

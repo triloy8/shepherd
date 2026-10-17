@@ -10,12 +10,12 @@ export type StreamedItem = Extract<HistoryItem, { type: "plan" | "reasoning" }>;
 export function streamedItem(previous: HistoryItem | undefined, itemId: string, delta: ItemDelta): StreamedItem | null {
   if (delta.channel === "plan") return { id: itemId, type: "plan", text: `${previous?.type === "plan" ? previous.text : ""}${delta.delta}` };
   if (delta.channel !== "reasoning") return null;
-  const summary = previous?.type === "reasoning" ? [...previous.summary] : [];
-  // A delta names its summary part when the provider has several; otherwise it extends the last.
-  const part = delta.part ?? Math.max(0, summary.length - 1);
-  while (summary.length <= part) summary.push("");
-  summary[part] += delta.delta;
-  return { id: itemId, type: "reasoning", summary };
+  const parts = previous?.type === "reasoning" ? [...previous.parts] : [];
+  // A delta names its part when the provider has several; otherwise it extends the last.
+  const part = delta.part ?? Math.max(0, parts.length - 1);
+  while (parts.length <= part) parts.push("");
+  parts[part] += delta.delta;
+  return { id: itemId, type: "reasoning", form: previous?.type === "reasoning" ? previous.form : delta.form ?? "summary", parts };
 }
 
 /** Which of a turn's assistant messages answer it: those marked final, or without phase

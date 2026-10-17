@@ -296,9 +296,9 @@ test("plans and reasoning stream as running steps until their canonical item com
   expect(state.messages).toHaveLength(1);
   expect(state.messages[0]!.activity).toEqual({ status: "started", activity: { kind: "other", title: "Reasoning summary", detail: "Checking the logs\n\nThen tests" } });
   // A history snapshot taken mid-stream does not drop what streamed.
-  state = mergeHistory(state, [{ id: "turn", items: [{ id: "reason", type: "reasoning", summary: ["Check"] }], status: "in_progress", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null }]);
+  state = mergeHistory(state, [{ id: "turn", items: [{ id: "reason", type: "reasoning", form: "summary", parts: ["Check"] }], status: "in_progress", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null }]);
   expect(state.messages[0]!.activity?.activity).toMatchObject({ detail: "Checking the logs\n\nThen tests" });
-  state = reduceBridge(state, event("done", "item.completed", { turnId: "turn", item: { id: "reason", type: "reasoning", summary: ["Checked the logs."] } }));
+  state = reduceBridge(state, event("done", "item.completed", { turnId: "turn", item: { id: "reason", type: "reasoning", form: "summary", parts: ["Checked the logs."] } }));
   expect(state.messages).toHaveLength(1);
   expect(state.messages[0]!.activity).toEqual({ status: "completed", activity: { kind: "other", title: "Reasoning summary", detail: "Checked the logs." } });
   expect(state.messages[0]!.streamed).toBeUndefined();

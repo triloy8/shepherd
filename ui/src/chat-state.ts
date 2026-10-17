@@ -1,10 +1,10 @@
 import { imageDataParts, WEB_IMAGE_MAX_COUNT } from "../../shared/protocol/image_input";
-import { describeActivity } from "../../shared/protocol/activity";
+import { describeActivity, reasoningTitle } from "../../shared/protocol/activity";
 import type { WebBridgeEvent, WebHistoryItem, WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryItem, HistoryTurn } from "../../shared/protocol/requests";
 import { appendOutput, streamedItem, type StreamedItem } from "../../shared/protocol/item_stream";
 
-/** A progress row: a tool call, or a plan or reasoning summary shown like one. */
+/** A progress row: a tool call, or a plan or reasoning shown like one. */
 export type ActivityStep = Pick<Extract<HistoryItem, { type: "activity" }>, "status" | "activity">;
 
 export type ChatMessage = { optimistic?: boolean; anonymous?: boolean; anonymousBaseline?: string[]; localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: ActivityStep; phase?: "interim" | "final";
@@ -47,9 +47,9 @@ function ownItemMessage(item: WebHistoryItem, turnId: string, stage: "started" |
     }
     case "assistant_message": return { id: item.id, turnId, role: "assistant", text: item.text, attachments: [], phase: phase(item.phase), complete };
     case "plan": case "reasoning": {
-      if (item.type === "reasoning" && !item.summary.some(part => part.trim())) return null;
+      if (item.type === "reasoning" && !item.parts.some(part => part.trim())) return null;
       return { id: item.id, turnId, role: "assistant", text: "", complete, activity: {
-        status: stage, activity: { kind: "other", title: item.type === "plan" ? "Plan" : "Reasoning summary", detail: item.type === "plan" ? item.text : item.summary.join("\n\n") },
+        status: stage, activity: { kind: "other", title: item.type === "plan" ? "Plan" : reasoningTitle(item.form), detail: item.type === "plan" ? item.text : item.parts.join("\n\n") },
       } };
     }
     case "image": return { id: item.id, turnId, role: "assistant", text: "", complete: true, image: item.webImage };

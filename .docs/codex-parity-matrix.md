@@ -215,7 +215,7 @@ Legacy note:
 | `externalAgentConfig/import/progress` | Generic | Out of Scope (for now) |
 | `externalAgentConfig/import/completed` | Generic | Out of Scope (for now) |
 | `fs/changed` | Generic | Out of Scope (for now) |
-| `item/reasoning/summaryTextDelta` | `item.delta` on the `reasoning` channel; surfaces show the completed item | Partial |
+| `item/reasoning/summaryTextDelta` | `item.delta` on the `reasoning` channel with `form: "summary"` and `part` from `summaryIndex`; surfaces show it as a running step until the item completes | Implemented |
 | `item/reasoning/summaryPartAdded` | Generic | Maybe Later |
 | `item/reasoning/textDelta` | Private; history keeps summaries, not raw reasoning | Out of Scope (for now) |
 | `model/rerouted` | Generic | Maybe Later |

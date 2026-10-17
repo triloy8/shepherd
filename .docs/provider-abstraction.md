@@ -45,7 +45,9 @@ both adapters. Deltas name their `channel` (`message`, `plan`, `reasoning`, `out
 method. `shared/protocol/item_stream.ts` holds the rules every surface shares: how plan and
 reasoning deltas build their item until the canonical item replaces it, and which messages answer
 a turn (those marked final, or else the last unphased one). Output deltas are a running step's
-latest output; history keeps none, so surfaces drop it when the step completes. Reasoning items state their `form`: Codex keeps raw reasoning private and sends `summary`
+latest output. A finished command keeps the end of what it printed, bounded to 4 KB by
+`commandResult`, and its exit code when the provider reports one, as `result`: Codex records
+both, and Claude records its Bash output and a failed command's exit code. Reasoning items state their `form`: Codex keeps raw reasoning private and sends `summary`
 reasoning; Claude returns summaries of its thinking, also `summary`. `full` is for a provider
 that exposes reasoning itself. `tests/provider_neutral_layers.test.ts`
 fails if a provider name or an adapter import appears in core, ports, surfaces, shared protocol or UI.

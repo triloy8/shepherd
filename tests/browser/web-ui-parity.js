@@ -11,7 +11,7 @@ async (page) => {
   await page.locator('.progress-disclosure > summary').first().waitFor();
   await page.getByText('Second final answer part.', { exact: true }).waitFor();
   await page.locator('.progress-disclosure').filter({ hasText: '1 failed step' }).locator(':scope > summary').click();
-  await page.getByText('Running command · Failed', { exact: true }).waitFor();
+  await page.getByText('Running command · Failed · exit 1', { exact: true }).waitFor();
   if (await page.getByRole('button', { name: 'Copy response', exact: true }).count() !== 3) throw Error('Missing final answer copy controls');
   await page.getByRole('img', { name: 'Fixture image' }).waitFor();
   await page.waitForFunction(() => { const img = document.querySelector('img'); return img?.complete && img.naturalWidth > 0; });
@@ -20,7 +20,10 @@ async (page) => {
   await page.reload();
   await page.getByText('Second final answer part.', { exact: true }).waitFor();
   await page.locator('.progress-disclosure').filter({ hasText: '1 failed step' }).locator(':scope > summary').click();
-  await page.getByText('Running command · Failed', { exact: true }).waitFor();
+  await page.getByText('Running command · Failed · exit 1', { exact: true }).waitFor();
+  // A finished command keeps what it printed after a reload.
+  await page.getByText('Running command · Failed · exit 1', { exact: true }).click();
+  await page.getByLabel('Output', { exact: true }).getByText('1 fail: parser drops empty lines', { exact: false }).waitFor();
   await page.getByRole('img', { name: 'Fixture image' }).waitFor();
   await page.waitForFunction(() => { const img = document.querySelector('img'); return img?.complete && img.naturalWidth > 0; });
   if (await page.getByText('I’ll check the project first.', { exact: true }).isVisible()) throw Error('Reload failed to fold progress');

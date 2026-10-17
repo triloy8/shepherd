@@ -1,5 +1,6 @@
 import type { HistoryContentPart, HistoryItem, HistoryTurn, TurnStatus } from "../../../shared/protocol/requests.js";
 import { claudeActivity, claudeActivityFields } from "./activity.js";
+import { commandResult } from "../../../shared/protocol/activity.js";
 
 /* Claude's transcript is authoritative. One decoder turns its messages into application turns
  * and items, both for the live SDK stream and for stored sessions, so an item delivered live is
@@ -11,6 +12,16 @@ const interruptedMarker = /^\[Request interrupted/;
 type Block = { type?: unknown; [key: string]: unknown };
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const blocks = (content: unknown): Block[] => typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content.map(record) : [];
+
+/** A command keeps the end of what it printed. Claude reports a failed command's exit code on the
+ * result's first line; other tools' results stay out of history. */
+function withResult(activity: import("../../../shared/protocol/activity.js").Activity, block: Block) {
+  if (activity.kind !== "command") return activity;
+  const output = blocks(block.content).flatMap(part => part.type === "text" && typeof part.text === "string" ? [part.text] : []).join("\n");
+  const exit = block.is_error ? /^Exit code (\d+)/.exec(output) : null;
+  const result = commandResult(output, exit ? Number(exit[1]) : null);
+  return result ? { ...activity, result } : activity;
+}
 
 /** The CLI writes one transcript entry per content block. Later text blocks of one API message
  * need distinct item IDs, numbered the same way live and in history. */
@@ -137,7 +148,7 @@ export class ClaudeTranscript {
       const index = turn.items.findIndex(item => item.id === block.tool_use_id && item.type === "activity");
       const item = turn.items[index];
       if (item?.type !== "activity") continue;
-      const completed: HistoryItem = { ...item, status: block.is_error ? "failed" : "completed" };
+      const completed: HistoryItem = { ...item, status: block.is_error ? "failed" : "completed", activity: withResult(item.activity, block) };
       turn.items[index] = completed;
       this.listener("completed", turn.id, completed);
     }

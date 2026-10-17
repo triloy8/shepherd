@@ -780,7 +780,7 @@ test("forking a Claude session lets the SDK find its transcript, and the fork re
   source.stop(); fork.stop();
 });
 
-test("activities come from a bounded subset of tool arguments; tool results never reach history", async () => {
+test("activities come from a bounded subset of tool arguments; only command results reach history", async () => {
   const fake = sdk(async function* (_input, options) {
     yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage;
     for (let index = 0; index < 2; index++) {
@@ -797,6 +797,31 @@ test("activities come from a bounded subset of tool arguments; tool results neve
   expect(JSON.stringify(items)).not.toContain("secret body");
   expect(JSON.stringify(items)).not.toContain("private result");
   expect(items[2]!.type === "activity" && items[2]!.activity.kind === "file_change" && items[2]!.activity.paths[0]!.length).toBeLessThan(8_100);
+  session.stop();
+});
+
+test("a command keeps the end of its output and a failed command its exit code, live and in history", async () => {
+  const fake = sdk(async function* (input) {
+    for await (const _ of input) break;
+    const run = (id: string, command: string, content: unknown, isError: boolean) => [
+      { type: "assistant", parent_tool_use_id: null, message: { id: `m-${id}`, content: [{ type: "tool_use", id, name: "Bash", input: { command } }] } },
+      { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] } },
+    ] as SDKMessage[];
+    yield* run("ok", "ls", [{ type: "text", text: "a.txt\nb.txt" }], false);
+    yield* run("bad", "bun test", `Exit code 2\n${"x".repeat(5000)}2 failed`, true);
+    yield result;
+  });
+  const session = new ClaudeSession(undefined, fake);
+  const { threadId } = await session.startThread({});
+  const live: BridgeEvent[] = []; session.eventBus.subscribe(event => live.push(event), { replay: false });
+  await session.startTurn([toTextUserInput("run")]); await done(session);
+  const items = (await session.listThreadTurns(threadId, {})).data[0]!.items.filter(item => item.type === "activity");
+  expect(items[0]).toMatchObject({ id: "ok", status: "completed", activity: { kind: "command", command: "ls", result: { output: "a.txt\nb.txt", exitCode: null } } });
+  expect(items[1]).toMatchObject({ id: "bad", status: "failed", activity: { kind: "command", result: { exitCode: 2 } } });
+  const output = (items[1] as { activity: { result: { output: string } } }).activity.result.output;
+  expect(output.length).toBe(4097); expect(output.endsWith("2 failed")).toBe(true);
+  // The record completed live is the record history returns.
+  expect(live.flatMap(event => event.type === "item.completed" && event.payload.item.type === "activity" ? [event.payload.item] : [])).toEqual(items);
   session.stop();
 });
 

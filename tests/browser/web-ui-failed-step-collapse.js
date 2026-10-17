@@ -6,7 +6,7 @@ async (page) => {
   const work = page.locator('.progress-disclosure').filter({ hasText: '1 failed step' });
   const summary = work.locator(':scope > summary');
   await page.getByText('1 failed step', { exact: false }).waitFor();
-  const failure = page.getByText('Running command · Failed', { exact: true });
+  const failure = page.getByText('Running command · Failed · exit 1', { exact: true });
   if (await failure.isVisible()) throw Error('Failed step prevented work from collapsing');
   await summary.click();
   await failure.waitFor({ state: 'visible' });

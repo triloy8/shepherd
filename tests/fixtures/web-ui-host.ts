@@ -191,7 +191,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     }
     if (text.includes("parity")) {
       const tool = { id: `tool-${sequence}`, command: "bun test" };
-      complete(threadId, turn, { id: tool.id, type: "activity", status: "failed", activity: { kind: "command", command: tool.command, cwd: null } });
+      complete(threadId, turn, { id: tool.id, type: "activity", status: "failed", activity: { kind: "command", command: tool.command, cwd: null, result: { output: "1 pass\n1 fail: parser drops empty lines", exitCode: 1 } } });
       const image = { id: `image-${sequence}`, prompt: "Fixture image" };
       complete(threadId, turn, { id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, prompt: image.prompt, kind: "generated" } });
       complete(threadId, turn, { id: `final-${sequence}`, type: "assistant_message", phase: "final", text: "Second final answer part." });

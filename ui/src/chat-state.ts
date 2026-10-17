@@ -137,7 +137,15 @@ export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = 
   // Keep previously loaded older pages in front of refreshed recent history.
   const prefix = older ? [] : overlap >= 0 ? retained.slice(0, overlap) : retained.filter((message) => message.complete && !message.optimistic);
   const prefixIds = new Set(prefix.map(messageKey));
-  const order = [...prefix, ...incoming, ...retained.filter((message) => !incomingIds.has(messageKey(message)) && !prefixIds.has(messageKey(message)))];
+  // Live rows history lacks stay in their own turn: a message streamed live but never recorded, as
+  // when a restart cuts a turn off, must not move below later turns. Rows of a turn history does
+  // not include yet, such as one still streaming, follow it.
+  const extras = retained.filter((message) => !incomingIds.has(messageKey(message)) && !prefixIds.has(messageKey(message)));
+  const historyTurns = new Set(incoming.map((message) => message.turnId));
+  const byTurn = new Map<string, ChatMessage[]>();
+  for (const message of extras) if (historyTurns.has(message.turnId)) byTurn.set(message.turnId, [...byTurn.get(message.turnId) ?? [], message]);
+  const placed = incoming.flatMap((message, index) => incoming[index + 1]?.turnId === message.turnId ? [message] : [message, ...byTurn.get(message.turnId) ?? []]);
+  const order = [...prefix, ...placed, ...extras.filter((message) => !historyTurns.has(message.turnId))];
   const ids = [...new Set(order.map(messageKey))];
   return { ...state, turns: { ...state.turns, ...Object.fromEntries(turns.map((turn) => [turn.id, { status: turn.status, durationMs: turn.durationMs }])) }, messages: ids.map((id) => existing.get(id)!) };
 }

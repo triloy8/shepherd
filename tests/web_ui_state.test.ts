@@ -327,3 +327,23 @@ test("an interrupted turn is labelled interrupted as soon as it ends", () => {
   const completed = reduceBridge(reduceBridge(emptyChat(), event("s2", "turn.started", { turnId: "other" })), event("e2", "turn.completed", { turnId: "other" }));
   expect(completed.turns.other?.status).toBe("in_progress");
 });
+
+test("a live message history lacks stays in its own turn rather than moving below later turns", () => {
+  const user = (turnId: string, text: string) => ({ id: `user-${turnId}`, type: "user_message" as const, content: [{ type: "text" as const, text }] });
+  const turnOf = (id: string, items: HistoryTurn["items"]): HistoryTurn => ({ id, items, status: "completed", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null });
+  // The first turn's answer streamed live, but a restart cut the turn off before it was recorded.
+  let state = mergeHistory(emptyChat(), [{ ...turnOf("t1", [user("t1", "merge it")]), status: "in_progress" }]);
+  state = reduceBridge(state, event("s1", "turn.started", { turnId: "t1" }));
+  state = reduceBridge(state, event("a1", "item.completed", { turnId: "t1", item: { id: "lost", type: "assistant_message", text: "Merged.", phase: "final" } }));
+  state = reduceBridge(state, event("e1", "turn.completed", { turnId: "t1" }));
+  state = mergeHistory(state, [
+    turnOf("t2", [user("t2", "what next?"), { id: "next", type: "assistant_message", text: "Discord.", phase: "final" }]),
+    turnOf("t1", [user("t1", "merge it"), { id: "placeholder", type: "assistant_message", text: "No response requested.", phase: "final" }]),
+  ]);
+  expect(state.messages.map((message) => message.id)).toEqual(["user-t1", "placeholder", "lost", "user-t2", "next"]);
+  // A turn history does not include yet still follows the history it has.
+  state = reduceBridge(state, event("s3", "turn.started", { turnId: "t3" }));
+  state = reduceBridge(state, event("d3", "item.delta", { turnId: "t3", itemId: "streaming", channel: "message", delta: "Work", phase: null }));
+  state = mergeHistory(state, [turnOf("t2", [user("t2", "what next?"), { id: "next", type: "assistant_message", text: "Discord.", phase: "final" }])]);
+  expect(state.messages.at(-1)?.id).toBe("streaming");
+});

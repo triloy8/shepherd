@@ -875,6 +875,9 @@ test("stored transcripts decode prompts, steering, interruptions and background 
     entry("assistant", { id: "m2", content: [{ type: "text", text: "Fixed it." }], usage: { input_tokens: 5, output_tokens: 2, cache_read_input_tokens: 1, cache_creation_input_tokens: 0 } }),
     entry("user", { role: "user", content: [{ type: "text", text: "Also run tests" }] }, { uuid: "steer-1", isQueuedCommand: true }),
     entry("assistant", { id: "m3", content: [{ type: "text", text: "Tests pass." }] }),
+    // A background notification queued during the turn is not the user's words.
+    entry("user", { role: "user", content: "<task-notification>done</task-notification>" }, { uuid: "queued-wake", isQueuedCommand: true, origin: { kind: "task-notification", runId: "run-q" } }),
+    entry("assistant", { id: "m3b", content: [{ type: "text", text: "The check passed." }] }),
     entry("user", { role: "user", content: "Deploy it" }, { uuid: "prompt-2" }),
     entry("assistant", { id: "m4", content: [{ type: "text", text: "Starting." }] }),
     entry("user", { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] }),
@@ -888,8 +891,9 @@ test("stored transcripts decode prompts, steering, interruptions and background 
     ["prompt-1", "user_message", null], ["m1:thinking:0", "reasoning", null], ["m1", "assistant_message", "interim"], ["t1", "activity", "failed"], ["sub", "assistant_message", "interim"],
     // Steering is recorded once the response before it has finished, so that response's text answered it.
     ["m2", "assistant_message", "final"], ["steer-1", "user_message", null], ["m3", "assistant_message", "final"],
+    ["m3b", "assistant_message", "final"],
   ]);
-  expect(turns[0]!.durationMs).toBe(8_000);
+  expect(turns[0]!.durationMs).toBe(10_000);
   expect(turns[1]!.items).toEqual([{ id: "prompt-2", type: "user_message", content: [{ type: "text", text: "Deploy it" }] }, { id: "m4", type: "assistant_message", text: "Starting.", phase: "interim" }]);
   // Background notifications are not the user's words; the turn says background work started it.
   expect(turns[2]!.items).toEqual([{ id: "m5", type: "assistant_message", text: "The task finished.", phase: "final" }]);

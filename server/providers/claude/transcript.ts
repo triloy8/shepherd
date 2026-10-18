@@ -60,9 +60,10 @@ export class ClaudeTranscript {
     return turn?.status === "in_progress" ? turn : null;
   }
 
-  /** A prompt begins a turn. Background task notifications begin one without a user message. */
+  /** A prompt begins a turn. Background task notifications begin one without a user message,
+   * marked as started by background work. */
   beginTurn(id: string, startedAt: number, content: HistoryContentPart[] | null): HistoryTurn {
-    const turn: HistoryTurn = { id, items: [], itemsView: "full", status: "in_progress", error: null, startedAt, completedAt: null, durationMs: null };
+    const turn: HistoryTurn = { id, ...(content ? {} : { trigger: "background" as const }), items: [], itemsView: "full", status: "in_progress", error: null, startedAt, completedAt: null, durationMs: null };
     this.turns.push(turn);
     if (content) turn.items.push({ id, type: "user_message", content });
     return turn;

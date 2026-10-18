@@ -14,7 +14,7 @@ export type ChatMessage = { optimistic?: boolean; anonymous?: boolean; anonymous
   streamed?: StreamedItem;
   /** The latest output of a running step. History records no output, so it shows only while the step runs. */
   output?: string };
-export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs">;
+export type TurnSummary = Pick<HistoryTurn, "status" | "durationMs" | "trigger">;
 export type ChatState = { endedTurns: string[]; turns: Record<string, TurnSummary>; messages: ChatMessage[]; activeTurnId: string | null; activity: string | null; error: string | null; seen: string[] };
 export const emptyChat = (): ChatState => ({ endedTurns: [], turns: {}, messages: [], activeTurnId: null, activity: null, error: null, seen: [] });
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -147,7 +147,7 @@ export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = 
   const placed = incoming.flatMap((message, index) => incoming[index + 1]?.turnId === message.turnId ? [message] : [message, ...byTurn.get(message.turnId) ?? []]);
   const order = [...prefix, ...placed, ...extras.filter((message) => !historyTurns.has(message.turnId))];
   const ids = [...new Set(order.map(messageKey))];
-  return { ...state, turns: { ...state.turns, ...Object.fromEntries(turns.map((turn) => [turn.id, { status: turn.status, durationMs: turn.durationMs }])) }, messages: ids.map((id) => existing.get(id)!) };
+  return { ...state, turns: { ...state.turns, ...Object.fromEntries(turns.map((turn) => [turn.id, { status: turn.status, durationMs: turn.durationMs, ...(turn.trigger ? { trigger: turn.trigger } : {}) }])) }, messages: ids.map((id) => existing.get(id)!) };
 }
 
 function reconcileText(snapshot: string, stream: string): string {
@@ -174,7 +174,7 @@ export function reduceBridge(state: ChatState, event: WebBridgeEvent): ChatState
   const subagent = !!item?.parentItemId;
   if (!subagent && (event.type.startsWith("turn.") || event.type.startsWith("item.")) && ((state.activeTurnId && (turnId !== state.activeTurnId) && event.type !== "turn.started") ||
     (ended && (progress || ["turn.started", "turn.completed", "turn.failed"].includes(event.type))))) return next;
-  if (event.type === "turn.started") return { ...next, endedTurns: state.activeTurnId && state.activeTurnId !== turnId ? [...new Set([...state.endedTurns, state.activeTurnId])] : state.endedTurns, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "in_progress", durationMs: null } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
+  if (event.type === "turn.started") return { ...next, endedTurns: state.activeTurnId && state.activeTurnId !== turnId ? [...new Set([...state.endedTurns, state.activeTurnId])] : state.endedTurns, turns: { ...state.turns, ...(turnId ? { [turnId]: { status: "in_progress", durationMs: null, ...(event.payload.trigger ? { trigger: event.payload.trigger } : {}) } } : {}) }, activeTurnId: turnId || state.activeTurnId, activity: "Thinking", error: null };
   // An interrupted turn is labelled as such at once, before history confirms it.
   const interrupted = event.type === "turn.completed" && event.payload.interrupted === true && turnId ? { turns: { ...state.turns, [turnId]: { status: "interrupted" as const, durationMs: state.turns[turnId]?.durationMs ?? null } } } : {};
   if (["turn.completed", "turn.failed"].includes(event.type)) return { ...next, ...interrupted, endedTurns: turnId ? [...new Set([...state.endedTurns, turnId])] : state.endedTurns, messages: next.messages.map((message) => message.turnId === turnId ? { ...message, complete: true } : message), activeTurnId: null, activity: null, error: event.type === "turn.failed" ? text(payload.message) || "The turn failed." : state.error };

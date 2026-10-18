@@ -51,6 +51,10 @@ both, and Claude records its Bash output and a failed command's exit code. Reaso
 reasoning; Claude returns summaries of its thinking, also `summary`. `full` is for a provider
 that exposes reasoning itself. `tests/provider_neutral_layers.test.ts`
 fails if a provider name or an adapter import appears in core, ports, surfaces, shared protocol or UI.
+A turn that was not a person's message names its `trigger`, which the provider declares in
+`turnTriggers`: Claude reports `background` when its own background work wakes a
+conversation; Codex reports none, so its turns stay unmarked. Shepherd's signal turns are not
+marked: the agents record their input as an ordinary message.
 Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
 Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
 An item a subagent produced names its delegation activity in `parentItemId`. It belongs to the

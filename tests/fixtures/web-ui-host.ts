@@ -196,6 +196,18 @@ h.context.ingress.submitTurn = async (threadId, request) => {
       complete(threadId, turn, { id: image.id, type: "image", image: { itemId: image.id, turnId, path: imagePath, prompt: image.prompt, kind: "generated" } });
       complete(threadId, turn, { id: `final-${sequence}`, type: "assistant_message", phase: "final", text: "Second final answer part." });
     }
+    if (text.includes("background wake")) {
+      // After this turn ends, the agent's background work wakes the conversation on its own.
+      later(500, () => {
+        const wakeId = `wake-${sequence}`;
+        const wake: HistoryTurn = { id: wakeId, trigger: "background", status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [] };
+        histories.get(threadId)!.push(wake);
+        h.active.set(threadId, wakeId);
+        publish(threadId, "turn.started", { turnId: wakeId, trigger: "background" });
+        complete(threadId, wake, { id: `wake-answer-${sequence}`, type: "assistant_message", phase: "final", text: "Background result ready." });
+        finish(threadId, "completed", wakeId);
+      });
+    }
     if (text.includes("subagent")) {
       // A background subagent reports inside its delegation, including after the turn ends.
       const parentItemId = `agent-${sequence}`;

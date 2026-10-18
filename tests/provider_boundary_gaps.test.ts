@@ -560,3 +560,10 @@ test("a thread no surface uses releases its session once idle, and resuming it o
     expect(sessions.at(-1)).not.toBe(idleSession);
   } finally { conversation.stopAll(); }
 });
+
+test("providers declare the turn triggers they report; one that reports none leaves turns unmarked", async () => {
+  const { claudeCapabilities } = await import("../server/providers/claude/capabilities.js");
+  const { codexCapabilities } = await import("../server/providers/codex/capabilities.js");
+  expect(claudeCapabilities.turnTriggers).toEqual(["background"]);
+  expect(codexCapabilities.turnTriggers).toBeUndefined();
+});

@@ -363,8 +363,15 @@ export type HistoryItemType = HistoryItem["type"];
 /** Whether reasoning text is a summary the provider wrote of its reasoning, or the reasoning itself. */
 export type ReasoningForm = "summary" | "full";
 
+/** What started a turn when it was not a person's message. `background`: the agent's own
+ * background work finished and woke it. More triggers can be added as providers report them. */
+export type TurnTrigger = "background";
+
 export interface HistoryTurn {
   id: string;
+  /** Absent for a person's turn, and for every turn of a provider that reports no triggers
+   * (its capabilities list the triggers it reports). */
+  trigger?: TurnTrigger;
   items: HistoryItem[];
   itemsView: HistoryItemsView;
   status: TurnStatus;

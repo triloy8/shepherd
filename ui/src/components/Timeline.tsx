@@ -25,9 +25,12 @@ export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true
   }, [chat.messages, groups]);
   // A conversation opens on its newest turns, then renders the older ones as a transition React
   // can interrupt, so opening a long conversation never blocks scrolling or input.
+  // The limit applies once, to the history the conversation opens with; afterwards every group
+  // shows, so turns arriving later never push earlier ones out.
   const [limit, setLimit] = useState(FIRST_GROUPS);
   useEffect(() => {
-    if (limit === Infinity || groups.length <= limit) return;
+    if (limit === Infinity || groups.length === 0) return;
+    if (groups.length <= limit) { setLimit(Infinity); return; }
     const frame = requestAnimationFrame(() => startTransition(() => setLimit(Infinity)));
     return () => cancelAnimationFrame(frame);
   }, [limit, groups.length]);

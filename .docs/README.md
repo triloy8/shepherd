@@ -6,49 +6,64 @@ archive when historical reasoning is useful.
 
 ## Maintained references
 
-- [Surface parity matrix](surface-parity-matrix.md) — feature-by-feature Discord
-  and web support, interaction differences and recovery limits.
+Start here:
 
-- [Answering questions](user-questions.md) — structured Codex and Claude
-  questions, web and Discord answer workflows, limits, and desktop/mobile screenshots.
+- [Architecture](architecture.md) — the layers (protocol, ports, providers, core,
+  surfaces, composition), what each owns, the main runtime flows, and the tests that
+  enforce them.
 
-- [Web API](web-api.md) — setup, private access, HTTP request shapes, event
-  recovery, and limits.
-- [Web UI](web-ui.md) — what the built-in browser client shows and how its
-  controls behave.
+Agents:
 
-- [Surface launch and lifecycle](surface-launch.md) — selection, shared host ownership, adapter health, and startup/shutdown behavior.
+- [Provider adapters](provider-abstraction.md) — the shared boundary every agent
+  implements: sessions, history, events, approvals, policy profiles and capabilities.
+- [Codex parity matrix](codex-parity-matrix.md) — coverage of the generated Codex
+  app-server surface.
+- [Claude parity matrix](claude-parity-matrix.md) — Claude Agent SDK and subscription
+  support, native behavior, missing controls, and verification limits.
 
-- [Shared skills installation](shared-skills-location.md) — host setup,
-  private policy migration, discovery checks, and recovery.
+Surfaces:
 
-- [Architecture](architecture.md) — current adapter, application-core,
-  runtime-core, and provider-layer ownership boundaries and flows.
-- [Codex parity matrix](codex-parity-matrix.md) — coverage of the generated
-  Codex app-server surface.
-- [Claude parity matrix](claude-parity-matrix.md) — Claude Agent SDK and
-  subscription support, native behavior, missing controls, and verification limits.
+- [Web API](web-api.md) — setup, private access, HTTP request shapes, event recovery,
+  and limits.
+- [Web UI](web-ui.md) — what the built-in browser client shows and how its controls
+  behave.
+- [Surface parity matrix](surface-parity-matrix.md) — feature-by-feature Discord and
+  web support, interaction differences and recovery limits.
+- [Answering questions](user-questions.md) — structured agent questions and how web and
+  Discord answer them.
+- [Signal callbacks](volatile-webhook-signals.md) — callback allocation, routed
+  loopback ingress, and delivery.
+
+Operations:
+
+- [Surface launch and lifecycle](surface-launch.md) — selection, shared host
+  ownership, adapter health, and startup/shutdown.
+- [Shared skills installation](shared-skills-location.md) — host setup, discovery
+  checks, and recovery.
 - [Known errors](errors.md) — diagnosed errors, their impact, and recovery.
-- [Future implementations](future-implementations.md) — proposed work that has
-  not been accepted as current behavior.
-- [Volatile signal callbacks](volatile-webhook-signals.md) — implemented
-  dynamic callback allocation, routed loopback ingress, and delivery semantics.
+- [Future implementations](future-implementations.md) — proposed work that has not
+  been accepted as current behavior.
 
-## Provider boundary
+## Archive
 
-- [Provider adapters](provider-abstraction.md) — the implemented shared session,
-  account, history, event, approval, and capability boundary (PR #90).
+Superseded descriptions, completed plans and resolved issues, kept for their reasoning:
 
-## Historical design material
-
-- [Provider architecture audit](archive/provider-architecture-audit.md) —
-  findings and structure from the first provider-separation pass on PR #90.
-- [Adapter-to-core refactor map](archive/adapter-to-core-refactor-map.md) —
-  original extraction plan that led to the current architecture.
-- [Discord adapter review](archive/discord-review.md) — point-in-time review of
-  the Discord-to-Codex path.
-- [Discord formatting plan](archive/discord-formatting-plan.md) — formatting
-  options and the completed Plan A implementation checklist.
+- [Architecture before the layers](archive/architecture-before-layers.md) — the
+  architecture as described before core was split into enforced layers.
+- [Signal callbacks: design record](archive/signal-callbacks-design.md) — the
+  problem, decisions, implementation checklist and acceptance criteria behind
+  signal callbacks.
+- [Shared skills migration](archive/shared-skills-migration.md) — the completed move
+  from vendored skills to the shared checkout.
+- [Resolved errors](archive/resolved-errors.md) — fixed issues and their diagnosis.
+- [Provider architecture audit](archive/provider-architecture-audit.md) — findings from
+  the first provider-separation pass on PR #90.
+- [Adapter-to-core refactor map](archive/adapter-to-core-refactor-map.md) — the
+  original extraction plan that led to core.
+- [Discord adapter review](archive/discord-review.md) — a point-in-time review of the
+  Discord path.
+- [Discord formatting plan](archive/discord-formatting-plan.md) — formatting options
+  and the completed implementation checklist.
 
 ## Maintenance conventions
 

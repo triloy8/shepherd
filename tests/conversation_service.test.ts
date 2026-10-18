@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { ConversationService } from "../server/core/conversation_service.js";
+import { ConversationService } from "../server/core/conversation/conversation_service.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 
 type FakeManager = {

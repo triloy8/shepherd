@@ -1,10 +1,10 @@
 import { startWebhookSignalServer, type WebhookSignalServer } from "../adapters/webhook/server.js";
 import type { SignalRuntimeConfig } from "../config/signal_environment.js";
-import { ConversationSignalExecutor } from "../core/conversation_signal_executor.js";
-import { SignalDispatcher, type SignalDispatcherOptions } from "../core/signal_dispatcher.js";
-import { SignalRegistry } from "../core/signal_registry.js";
-import { SignalRouteRegistry } from "../core/signal_route_registry.js";
-import { SignalRouteService } from "../core/signal_route_service.js";
+import { ConversationSignalExecutor } from "../core/signals/conversation_signal_executor.js";
+import { SignalDispatcher, type SignalDispatcherOptions } from "../core/signals/signal_dispatcher.js";
+import { SignalRegistry } from "../core/signals/signal_registry.js";
+import { SignalRouteRegistry } from "../core/signals/signal_route_registry.js";
+import { SignalRouteService } from "../core/signals/signal_route_service.js";
 import { createResearchStateChangedDefinition } from "../signals/research_state_changed.js";
 import type { ShepherdRuntime } from "./shepherd_runtime.js";
 

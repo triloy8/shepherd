@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { DynamicToolRegistry } from "../server/core/dynamic_tool_registry.js";
+import { DynamicToolRegistry } from "../server/core/conversation/dynamic_tool_registry.js";
 import { shepherdMcpServers } from "../server/providers/claude/mcp_bridge.js";
 import { codexToolResponse } from "../server/providers/codex/tools.js";
 import type { DynamicToolCallResponse } from "../shared/protocol/dynamic_tools.js";

@@ -1,6 +1,6 @@
-import type { BridgeEvent } from "../../shared/protocol/events.js";
-import type { SubmitTurnResponse } from "../../shared/protocol/requests.js";
-import type { UserInput } from "../../shared/protocol/user_input.js";
+import type { BridgeEvent } from "../../../shared/protocol/events.js";
+import type { SubmitTurnResponse } from "../../../shared/protocol/requests.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
 import type { ResolvedSignalTarget, SignalExecutor } from "./signal_dispatcher.js";
 import type { SignalTarget } from "./signal_registry.js";
 

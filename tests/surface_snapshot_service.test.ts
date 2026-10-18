@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery, type SurfaceStatusReader } from "../server/core/surface_snapshot_service.js";
+import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery, type SurfaceStatusReader } from "../server/core/surface/surface_snapshot_service.js";
 
 function reader(threadId: string | null): SurfaceStatusReader {
   return {

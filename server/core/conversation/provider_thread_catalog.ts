@@ -1,6 +1,6 @@
-import type { AgentProvider, ListStoredThreadsRequest, ListStoredThreadsResponse, ThreadRecord } from "../../shared/protocol/requests.js";
-import type { StoredThreadPage } from "../ports/provider_session.js";
-import type { ThreadProviderDirectory } from "../ports/provider_services.js";
+import type { AgentProvider, ListStoredThreadsRequest, ListStoredThreadsResponse, ThreadRecord } from "../../../shared/protocol/requests.js";
+import type { StoredThreadPage } from "../../ports/provider_session.js";
+import type { ThreadProviderDirectory } from "../../ports/provider_services.js";
 
 const prefix = "shepherd-providers:";
 type Position = { cursor?: string; skip: number; done: boolean; unavailable?: boolean; size?: number };

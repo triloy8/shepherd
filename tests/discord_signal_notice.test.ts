@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ComponentType } from "discord.js";
 
-import type { RegisteredSignal } from "../server/core/signal_registry.js";
+import type { RegisteredSignal } from "../server/core/signals/signal_registry.js";
 import {
   SURFACE_COLORS,
 } from "../server/adapters/discord/components_renderer.js";

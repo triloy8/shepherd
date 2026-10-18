@@ -1,4 +1,4 @@
-import type { ProjectTarget } from "./project_target_service.js";
+import type { ProjectTarget } from "../workspace/project_target_service.js";
 
 export type SurfaceListeningMode = "mention" | "open" | "paused";
 

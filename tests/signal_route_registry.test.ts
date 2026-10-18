@@ -4,7 +4,7 @@ import {
   SignalRouteCapacityError,
   SignalRouteRateLimitError,
   SignalRouteRegistry,
-} from "../server/core/signal_route_registry.js";
+} from "../server/core/signals/signal_route_registry.js";
 
 const target = {
   type: "conversation" as const,

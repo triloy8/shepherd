@@ -324,8 +324,8 @@ Shepherd's control. No real banked reset was consumed during validation.
 
 Sources: [generated provider documentation](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt),
 [session bridge](../server/providers/codex/session.ts),
-[session manager](../server/core/session_manager.ts),
-[shared controls](../server/core/control_actions_service.ts),
+[session manager](../server/core/conversation/session_manager.ts),
+[shared controls](../server/core/surface/control_actions_service.ts),
 [web limits route](../server/adapters/web/api.ts),
 [Discord commands](../server/adapters/discord/commands.ts), and
 [web limits rendering](../ui/src/components/Usage.tsx).

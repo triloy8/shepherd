@@ -1,7 +1,7 @@
-import type { AgentProvider } from "../../shared/protocol/requests.js";
+import type { AgentProvider } from "../../../shared/protocol/requests.js";
 import type { ApplicationConversation } from "./conversation_ports.js";
 import type { SurfaceListeningMode } from "./surface_state_service.js";
-import type { RuntimeLifecycleOrchestrator } from "./runtime_lifecycle_orchestrator.js";
+import type { RuntimeLifecycleOrchestrator } from "../lifecycle/runtime_lifecycle_orchestrator.js";
 
 /** Adapter-scoped application ports, assembled by createSurfaceRuntime. */
 export type SurfaceApplicationContext = {

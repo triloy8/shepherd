@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { executeTurnRouting } from "../server/core/turn_routing_service.js";
+import { executeTurnRouting } from "../server/core/surface/turn_routing_service.js";
 import { toTextUserInput } from "../shared/protocol/user_input.js";
 
 function makeInput(overrides?: Partial<Parameters<typeof executeTurnRouting>[1]>) {

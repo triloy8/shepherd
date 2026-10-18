@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import {
   describeProjectTarget,
   resolveProjectTarget,
-} from "../server/core/project_target_service.js";
+} from "../server/core/workspace/project_target_service.js";
 
 describe("ProjectTargetService", () => {
   test("resolves ~ to the default local workspace root", async () => {

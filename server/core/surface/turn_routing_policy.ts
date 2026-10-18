@@ -1,4 +1,4 @@
-import type { UserInput } from "../../shared/protocol/user_input.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
 
 export type NormalizedSurfaceInput = {
   adapter: string;

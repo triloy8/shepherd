@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ApprovalsStore } from "../server/core/approvals.js";
+import { ApprovalsStore } from "../server/core/conversation/approvals.js";
 
 test("invalid or cross-thread decisions leave an approval pending and the first valid decision wins", () => {
   const store = new ApprovalsStore();

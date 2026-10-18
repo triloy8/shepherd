@@ -1,7 +1,7 @@
 import { account } from "./helpers/account";
 import { describe, expect, test } from "bun:test";
 
-import { executeControlAction, type ControlActionsContext } from "../server/core/control_actions_service.js";
+import { executeControlAction, type ControlActionsContext } from "../server/core/surface/control_actions_service.js";
 
 function makeContext(overrides?: {
   currentRepo?: string | null;
@@ -559,7 +559,7 @@ test("effort actions require a binding and return full core state", async () => 
 });
 
 test("effort action preserves structured failures and propagates infrastructure errors", async () => {
-  const { ApplicationActionError } = await import("../server/core/action_error.js");
+  const { ApplicationActionError } = await import("../server/core/common/action_error.js");
   const { context } = makeContext();
   context.conversation.getThreadEffort = async () => { throw new ApplicationActionError({ code: "model_unavailable" }); };
   expect(await executeControlAction(context, { type: "effort.get", surfaceId: "terminal" }))

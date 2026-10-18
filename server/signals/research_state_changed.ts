@@ -3,7 +3,7 @@ import { toTextUserInput } from "../../shared/protocol/user_input.js";
 import {
   InvalidSignalError,
   type SignalDefinition,
-} from "../core/signal_registry.js";
+} from "../core/signals/signal_registry.js";
 
 const PAYLOAD_KEYS = new Set(["state", "verified", "researchProject"]);
 const TERMINAL_STATES = new Set([

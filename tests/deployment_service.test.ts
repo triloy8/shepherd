@@ -4,7 +4,7 @@ import {
   DEFAULT_DEPLOYMENT_COMMAND_TIMEOUT_MS,
   DeploymentService,
   type DeploymentCommandRunner,
-} from "../server/core/deployment_service.js";
+} from "../server/core/lifecycle/deployment_service.js";
 
 function makeRunner(options?: {
   status?: string;

@@ -1,7 +1,7 @@
-import type { ProviderServices } from "../ports/provider_services.js";
-import type { AgentProvider, EffortSelection } from "../../shared/protocol/requests.js";
-import type { ApprovalDecisionRequest, ApprovalRecord } from "../../shared/protocol/approvals.js";
-import type { BridgeEvent } from "../../shared/protocol/events.js";
+import type { ProviderServices } from "../../ports/provider_services.js";
+import type { AgentProvider, EffortSelection } from "../../../shared/protocol/requests.js";
+import type { ApprovalDecisionRequest, ApprovalRecord } from "../../../shared/protocol/approvals.js";
+import type { BridgeEvent } from "../../../shared/protocol/events.js";
 import type {
 
 
@@ -39,8 +39,8 @@ import type {
   SubmitTurnResponse,
   ThreadModelState,
   ThreadEffortState,
-} from "../../shared/protocol/requests.js";
-import type { UserInput } from "../../shared/protocol/user_input.js";
+} from "../../../shared/protocol/requests.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
 import {
   ConversationRoutingService,
   type ConversationSurface,
@@ -53,7 +53,7 @@ import {
   type DynamicToolRegistration,
 } from "./dynamic_tool_registry.js";
 import { SessionManager } from "./session_manager.js";
-import { UnsupportedProviderOperationError } from "../ports/provider_session.js";
+import { UnsupportedProviderOperationError } from "../../ports/provider_session.js";
 import type { RuntimeActivity, ThreadDefaults } from "./session_manager.js";
 
 type EventCursorOptions = string | { afterId?: string; replay?: boolean } | undefined;
@@ -262,7 +262,7 @@ export class ConversationService {
     if (!reader) throw new UnsupportedProviderOperationError(provider, "account reporting");
     return reader.read(refresh);
   }
-  async resetAccount(provider: string, input: import("../../shared/protocol/account_limits.js").AccountResetRequest) {
+  async resetAccount(provider: string, input: import("../../../shared/protocol/account_limits.js").AccountResetRequest) {
     const account = this.providerServices?.accounts.get(provider);
     // Registration guarantees that accountReset is declared exactly when reset is implemented.
     if (!account?.reset) throw new Error("Provider resets are unavailable.");

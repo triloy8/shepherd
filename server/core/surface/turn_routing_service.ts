@@ -2,8 +2,8 @@ import type {
   GetThreadStateResponse,
   SteerTurnResponse,
   SubmitTurnResponse,
-} from "../../shared/protocol/requests.js";
-import type { UserInput } from "../../shared/protocol/user_input.js";
+} from "../../../shared/protocol/requests.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { decideTurnRouting, type NormalizedSurfaceInput, type TurnRoutingDecision } from "./turn_routing_policy.js";
 
 export type TurnRoutingExecutionInput = {

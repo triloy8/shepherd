@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   RuntimeLifecycleOrchestrator,
   type RuntimeRestartAnnouncement,
-} from "../server/core/runtime_lifecycle_orchestrator.js";
-import type { RuntimeActivity } from "../server/core/session_manager.js";
+} from "../server/core/lifecycle/runtime_lifecycle_orchestrator.js";
+import type { RuntimeActivity } from "../server/core/conversation/session_manager.js";
 
 const IDLE: RuntimeActivity = {
   activeTurnThreadIds: [],

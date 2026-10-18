@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { SignalRegistry } from "../server/core/signal_registry.js";
+import { SignalRegistry } from "../server/core/signals/signal_registry.js";
 import { createResearchStateChangedDefinition } from "../server/signals/research_state_changed.js";
 
 describe("research.state-changed signal", () => {

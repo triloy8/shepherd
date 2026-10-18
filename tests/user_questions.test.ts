@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CodexSession } from "../server/providers/codex/session.js";
-import { ApprovalsStore } from "../server/core/approvals";
+import { ApprovalsStore } from "../server/core/conversation/approvals";
 import type { ApprovalRequestPayload, ApprovalRecord } from "../shared/protocol/approvals";
 import type { BridgeEvent } from "../shared/protocol/events";
 import { UserQuestions } from "../ui/src/components/UserQuestions";
@@ -178,7 +178,7 @@ test("waiting questions replace working and writing indicators in the timeline",
 });
 
 test("SessionManager expires pending questions when the turn ends or the session stops", async () => {
-  const { SessionManager } = await import("../server/core/session_manager");
+  const { SessionManager } = await import("../server/core/conversation/session_manager");
   for (const end of ["turn", "stop"] as const) {
     let raw!: ReturnType<typeof sessionHarness>["raw"];
     const manager = new SessionManager(undefined, sessionProviders(() => {

@@ -1,4 +1,4 @@
-import type { UserInput } from "../../shared/protocol/user_input.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
 import type { RegisteredSignal, SignalTarget } from "./signal_registry.js";
 
 export type ResolvedSignalTarget = {

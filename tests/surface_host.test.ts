@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { createSurfaceHost } from "../server/runtime/surface_host.js";
 import { createHostRuntime } from "../server/runtime/host_runtime.js";
 import { readRuntimeConfig } from "../server/config/runtime_environment.js";
-import type { PreparedSurface, SurfaceAdapterContext } from "../server/core/surface_adapter.js";
-import type { RegisteredSignal } from "../server/core/signal_registry.js";
+import type { PreparedSurface, SurfaceAdapterContext } from "../server/core/surface/surface_adapter.js";
+import type { RegisteredSignal } from "../server/core/signals/signal_registry.js";
 
 function harness(surfaces: PreparedSurface[], failSignals = false) {
   const calls: string[] = [];

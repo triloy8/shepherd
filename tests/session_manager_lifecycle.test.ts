@@ -2,7 +2,7 @@ import { CodexProvider } from "../server/providers/codex/provider.js";
 import { expect, test } from "bun:test";
 import { sessionProviders } from "./helpers/session_providers.js";
 import { CodexSession } from "../server/providers/codex/session.js";
-import { SessionManager } from "../server/core/session_manager.js";
+import { SessionManager } from "../server/core/conversation/session_manager.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

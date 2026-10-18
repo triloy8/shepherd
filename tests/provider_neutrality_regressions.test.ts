@@ -5,10 +5,10 @@ import { promisify } from "node:util";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionManager } from "../server/core/session_manager.js";
-import { executeControlAction } from "../server/core/control_actions_service.js";
-import { listProviderThreads } from "../server/core/provider_thread_catalog.js";
-import { memoryProviderDirectory } from "../server/core/provider_directory.js";
+import { SessionManager } from "../server/core/conversation/session_manager.js";
+import { executeControlAction } from "../server/core/surface/control_actions_service.js";
+import { listProviderThreads } from "../server/core/conversation/provider_thread_catalog.js";
+import { memoryProviderDirectory } from "../server/core/conversation/provider_directory.js";
 import { IndependentSession } from "./helpers/independent_provider.js";
 import { codexTokenUsage } from "../server/providers/codex/token_usage.js";
 import { validateSubmitTurnRequest } from "../shared/protocol/validation.js";
@@ -130,7 +130,7 @@ test("Codex decodes reported cache writes and leaves absent or invalid counts un
 test("production Claude listings settle when Codex cannot be spawned", async () => {
   const directory = mkdtempSync(join(tmpdir(), "shepherd-provider-isolation-"));
   try {
-    const code = `const {createProviderServices}=await import('./server/runtime/provider_services.ts'); const {ConversationService}=await import('./server/core/conversation_service.ts'); const c=new ConversationService({providers:createProviderServices('claude')}); try {console.log(JSON.stringify({stored:await c.listStoredThreads({}),loaded:await c.listLoadedThreads({})}));} finally {c.stopAll();}`;
+    const code = `const {createProviderServices}=await import('./server/runtime/provider_services.ts'); const {ConversationService}=await import('./server/core/conversation/conversation_service.ts'); const c=new ConversationService({providers:createProviderServices('claude')}); try {console.log(JSON.stringify({stored:await c.listStoredThreads({}),loaded:await c.listLoadedThreads({})}));} finally {c.stopAll();}`;
     const { stdout } = await promisify(execFile)(process.execPath, ["-e", code], {
       cwd: join(import.meta.dir, ".."), timeout: 5_000,
       env: { ...process.env, PATH: directory, SHEPHERD_PROVIDER_STATE_DIR: join(directory, "providers"), CLAUDE_CONFIG_DIR: join(directory, "claude") },

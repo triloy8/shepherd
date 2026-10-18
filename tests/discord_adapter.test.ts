@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { createDiscordAdapter } from "../server/adapters/discord/bot.js";
-import type { SurfaceAdapterContext, SurfaceHealth } from "../server/core/surface_adapter.js";
+import type { SurfaceAdapterContext, SurfaceHealth } from "../server/core/surface/surface_adapter.js";
 
 function fixture() {
   const client = Object.assign(new EventEmitter(), {

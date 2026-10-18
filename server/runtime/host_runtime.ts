@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readRuntimeConfig, type RuntimeConfig } from "../config/runtime_environment.js";
-import { DeploymentService } from "../core/deployment_service.js";
+import { DeploymentService } from "../core/lifecycle/deployment_service.js";
 import { ShepherdRuntime } from "./shepherd_runtime.js";
 
 const execFileAsync = promisify(execFile);

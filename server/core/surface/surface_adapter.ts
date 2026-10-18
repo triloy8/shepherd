@@ -1,8 +1,8 @@
-import type { BridgeEvent } from "../../shared/protocol/events.js";
+import type { BridgeEvent } from "../../../shared/protocol/events.js";
 import type { SurfaceApplicationContext } from "./surface_application_context.js";
 import type { ApprovalConversation, InteractionConversation } from "./conversation_ports.js";
 import type { TurnRoutingConversation } from "./turn_routing_service.js";
-import type { RegisteredSignal } from "./signal_registry.js";
+import type { RegisteredSignal } from "../signals/signal_registry.js";
 
 export type SurfaceHealth = {
   state: "starting" | "ready" | "degraded" | "stopped";

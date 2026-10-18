@@ -6,7 +6,7 @@ import {
   SignalRegistry,
   UnknownSignalKindError,
   UnsupportedSignalVersionError,
-} from "../server/core/signal_registry.js";
+} from "../server/core/signals/signal_registry.js";
 
 const target = {
   type: "conversation" as const,

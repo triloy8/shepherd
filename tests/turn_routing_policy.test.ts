@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { classifySurfaceInput, decideTurnRouting } from "../server/core/turn_routing_policy.js";
+import { classifySurfaceInput, decideTurnRouting } from "../server/core/surface/turn_routing_policy.js";
 import { toTextUserInput } from "../shared/protocol/user_input.js";
 
 describe("TurnRoutingPolicy", () => {

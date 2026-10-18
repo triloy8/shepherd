@@ -1,5 +1,5 @@
 import type { TurnRoutingConversation } from "./turn_routing_service.js";
-import type { ConversationService } from "./conversation_service.js";
+import type { ConversationService } from "../conversation/conversation_service.js";
 
 const readMethods = [
   "getThreadState", "listProviders", "readAccount", "resetAccount",

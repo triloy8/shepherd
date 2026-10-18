@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { SignalRuntime } from "../server/runtime/signal_runtime.js";
 import { ShepherdRuntime } from "../server/runtime/shepherd_runtime.js";
-import type { DynamicToolRegistration } from "../server/core/dynamic_tool_registry.js";
+import type { DynamicToolRegistration } from "../server/core/conversation/dynamic_tool_registry.js";
 import type { WebhookSignalServerOptions } from "../server/adapters/webhook/server.js";
 
 function harness() {

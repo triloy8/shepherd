@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { ConversationService } from "../server/core/conversation_service.js";
-import { createApplicationConversation } from "../server/core/conversation_ports.js";
+import { ConversationService } from "../server/core/conversation/conversation_service.js";
+import { createApplicationConversation } from "../server/core/surface/conversation_ports.js";
 
 class TestConversation extends ConversationService {
   readonly marker = "bound-model";

@@ -3,10 +3,10 @@ import { expect, test } from "bun:test";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import type { UserInput } from "../shared/protocol/user_input.js";
 import { startWebhookSignalServer } from "../server/adapters/webhook/server.js";
-import { ConversationSignalExecutor } from "../server/core/conversation_signal_executor.js";
-import { SignalDispatcher } from "../server/core/signal_dispatcher.js";
-import { SignalRegistry } from "../server/core/signal_registry.js";
-import { SignalRouteRegistry } from "../server/core/signal_route_registry.js";
+import { ConversationSignalExecutor } from "../server/core/signals/conversation_signal_executor.js";
+import { SignalDispatcher } from "../server/core/signals/signal_dispatcher.js";
+import { SignalRegistry } from "../server/core/signals/signal_registry.js";
+import { SignalRouteRegistry } from "../server/core/signals/signal_route_registry.js";
 import { createResearchStateChangedDefinition } from "../server/signals/research_state_changed.js";
 
 async function waitFor(predicate: () => boolean): Promise<void> {

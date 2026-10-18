@@ -3,7 +3,7 @@ import { sessionProviders } from "./helpers/session_providers.js";
 import type { TurnSettings } from "../server/ports/provider_session.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../shared/protocol/model_capabilities.js";
 import type { ModelSummary } from "../shared/protocol/requests.js";
-import { SessionManager } from "../server/core/session_manager.js";
+import { SessionManager } from "../server/core/conversation/session_manager.js";
 import { modelsResponse } from "../server/providers/codex/responses.js";
 import { claudeModelCatalog } from "../server/providers/claude/model_catalog.js";
 import { IndependentSession } from "./helpers/independent_provider.js";

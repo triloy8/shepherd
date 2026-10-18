@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DynamicToolCallParams } from "../shared/protocol/dynamic_tools.js";
-import { SignalRouteRegistry } from "../server/core/signal_route_registry.js";
-import { SignalRouteService } from "../server/core/signal_route_service.js";
-import { SignalRegistry } from "../server/core/signal_registry.js";
+import { SignalRouteRegistry } from "../server/core/signals/signal_route_registry.js";
+import { SignalRouteService } from "../server/core/signals/signal_route_service.js";
+import { SignalRegistry } from "../server/core/signals/signal_registry.js";
 import { createResearchStateChangedDefinition } from "../server/signals/research_state_changed.js";
 
 function params(overrides: Partial<DynamicToolCallParams> = {}): DynamicToolCallParams {

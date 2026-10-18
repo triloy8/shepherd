@@ -1,14 +1,14 @@
-import { createApplicationConversation } from "../core/conversation_ports.js";
+import { createApplicationConversation } from "../core/surface/conversation_ports.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { AgentProvider } from "../../shared/protocol/requests.js";
-import type { SurfaceApplicationContext } from "../core/surface_application_context.js";
-import { SurfaceConversationOrchestrator } from "../core/surface_conversation_orchestrator.js";
-import { SurfaceStateService } from "../core/surface_state_service.js";
+import type { SurfaceApplicationContext } from "../core/surface/surface_application_context.js";
+import { SurfaceConversationOrchestrator } from "../core/surface/surface_conversation_orchestrator.js";
+import { SurfaceStateService } from "../core/surface/surface_state_service.js";
 import {
   WorkspaceProvisioner,
   type WorkspaceProvisionerOptions,
-} from "../core/workspace_provisioner.js";
-import type { ConversationService } from "../core/conversation_service.js";
+} from "../core/workspace/workspace_provisioner.js";
+import type { ConversationService } from "../core/conversation/conversation_service.js";
 
 export type SurfaceRuntimeOptions = {
   adapter: string;

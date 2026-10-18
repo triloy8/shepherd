@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { toTextUserInput } from "../shared/protocol/user_input.js";
-import type { SignalDispatchResult } from "../server/core/signal_dispatcher.js";
-import { SignalRegistry, type RegisteredSignal } from "../server/core/signal_registry.js";
-import { SignalRouteRegistry } from "../server/core/signal_route_registry.js";
+import type { SignalDispatchResult } from "../server/core/signals/signal_dispatcher.js";
+import { SignalRegistry, type RegisteredSignal } from "../server/core/signals/signal_registry.js";
+import { SignalRouteRegistry } from "../server/core/signals/signal_route_registry.js";
 import {
   startWebhookSignalServer,
   type WebhookSignalServer,

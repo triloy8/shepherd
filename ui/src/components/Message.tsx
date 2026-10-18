@@ -1,5 +1,5 @@
 import { imageDataParts } from "../../../shared/protocol/image_input";
-import { createContext, isValidElement, memo, useDeferredValue, useContext, useId, useState, type MouseEvent, type ReactNode } from "react";
+import { createContext, isValidElement, memo, useDeferredValue, useContext, useState, type MouseEvent, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkChatMath from "../remark-chat-math";
@@ -65,12 +65,36 @@ const markdownComponents: Components = {
 };
 
 const emptyImages: readonly WebImage[] = [];
+
+/** Rendered Markdown by footnote prefix and text, most recently used last. Parsing is the
+ * costliest part of showing a conversation, so returning to one reuses its rendered answers.
+ * Images resolve through context when rendering, so they need no part in the key. */
+const renderedMarkdown = new Map<string, ReactNode>();
+const RENDERED_MARKDOWN_LIMIT = 400;
+function renderMarkdown(text: string, prefix: string, cache: boolean): ReactNode {
+  const key = `${prefix}\u0000${text}`;
+  const cached = renderedMarkdown.get(key);
+  if (cached !== undefined) { renderedMarkdown.delete(key); renderedMarkdown.set(key, cached); return cached; }
+  const rendered = Markdown({ remarkPlugins: [remarkGfm, remarkChatMath], rehypePlugins: [rehypeKatex], remarkRehypeOptions: { clobberPrefix: prefix, footnoteBackContent: "↩\uFE0E" }, components: markdownComponents, children: text });
+  // Text still streaming changes with every update; only finished text is worth keeping.
+  if (!cache) return rendered;
+  renderedMarkdown.set(key, rendered);
+  if (renderedMarkdown.size > RENDERED_MARKDOWN_LIMIT) renderedMarkdown.delete(renderedMarkdown.keys().next().value!);
+  return rendered;
+}
+
+/** A footnote prefix from the message's own identity, unique on the page and stable across
+ * visits, so its rendered Markdown can be reused. */
+function footnotePrefix(message: ChatMessage): string {
+  let hash = 2166136261;
+  for (const char of `${message.turnId}\u0000${message.id}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return `message-${(hash >>> 0).toString(36)}-`;
+}
 // History snapshots recreate objects. Compare text and artifact metadata so
 // unchanged Markdown stays cached while new image references still resolve.
-export const MessageMarkdown = memo(function MessageMarkdown({ text, images, prefix }: { text: string; images: readonly WebImage[]; prefix: string }) {
-  return <MessageImages.Provider value={images}><FootnotePrefix.Provider value={prefix}><div className="prose-chat"><Markdown remarkPlugins={[remarkGfm, remarkChatMath]} rehypePlugins={[rehypeKatex]}
-    remarkRehypeOptions={{ clobberPrefix: prefix, footnoteBackContent: "↩\uFE0E" }} components={markdownComponents}>{text}</Markdown></div></FootnotePrefix.Provider></MessageImages.Provider>;
-}, (previous, next) => previous.text === next.text && previous.prefix === next.prefix &&
+export const MessageMarkdown = memo(function MessageMarkdown({ text, images, prefix, complete = true }: { text: string; images: readonly WebImage[]; prefix: string; complete?: boolean }) {
+  return <MessageImages.Provider value={images}><FootnotePrefix.Provider value={prefix}><div className="prose-chat">{renderMarkdown(text, prefix, complete)}</div></FootnotePrefix.Provider></MessageImages.Provider>;
+}, (previous, next) => previous.text === next.text && previous.prefix === next.prefix && previous.complete === next.complete &&
   previous.images.length === next.images.length && previous.images.every((image, index) => {
     const other = next.images[index]!;
     return image === other || (image.url === other.url && image.path === other.path && image.name === other.name && image.prompt === other.prompt && image.kind === other.kind);
@@ -85,7 +109,7 @@ const AttachedImage = memo(function AttachedImage({ url, index }: { url: string;
 export function Message({ message, images = emptyImages, progress = false, showAuthor = true, showCopy = true, writingPaused = false, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showAuthor?: boolean; showCopy?: boolean; writingPaused?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
-  const footnotePrefix = `message-${useId()}-`;
+  const prefix = footnotePrefix(message);
   const renderedText = useDeferredValue(message.text);
   return <article className={`message timeline-entry ${message.role === "user" ? "message-user" : "message-assistant"}`}>
     {!progress && showAuthor && <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
@@ -95,7 +119,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
-      : <MessageMarkdown text={renderedText} images={images} prefix={footnotePrefix} />}
+      : <MessageMarkdown text={renderedText} images={images} prefix={prefix} complete={message.complete && renderedText === message.text} />}
     {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
       {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {
         void navigator.clipboard.writeText(message.text).then(() => { setCopied(true); setCopyError(false); }, () => setCopyError(true));

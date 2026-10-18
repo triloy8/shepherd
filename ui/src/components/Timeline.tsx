@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { memo, startTransition, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type { WebImage } from "../../../shared/protocol/web";
 import type { TurnTrigger } from "../../../shared/protocol/requests";
 import { RevertDialog } from "./RevertDialog";
@@ -7,6 +7,9 @@ import { timelineGroups, type TimelineGroup } from "../timeline";
 import { ImageArtifact } from "./ImageArtifact";
 import { Message } from "./Message";
 import { describeActivity } from "../../../shared/protocol/activity";
+
+/** Groups a conversation opens with: enough to fill the screen at once. */
+const FIRST_GROUPS = 6;
 
 export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true, onRevert, onReload }: { chat: ChatState; waitingForAnswer?: boolean; revertDisabled?: boolean; onRevert?: (turnId: string) => Promise<void>; onReload?: () => Promise<void> }) {
   const [target, setTarget] = useState<ChatMessage | null>(null);
@@ -20,7 +23,16 @@ export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true
     for (const message of chat.messages) if (message.parentId) rows.set(key(message.turnId, message.parentId), [...rows.get(key(message.turnId, message.parentId)) ?? [], message]);
     return groups.map((group) => group.messages.flatMap((message) => rows.get(key(message.turnId, message.id)) ?? []));
   }, [chat.messages, groups]);
-  return <><div className="space-y-8">{groups.map((group, index) => <TimelineGroupView key={messageKey(group.messages[0]!)} group={group} subagentRows={subagentRows[index]!} images={images}
+  // A conversation opens on its newest turns, then renders the older ones as a transition React
+  // can interrupt, so opening a long conversation never blocks scrolling or input.
+  const [limit, setLimit] = useState(FIRST_GROUPS);
+  useEffect(() => {
+    if (limit === Infinity || groups.length <= limit) return;
+    const frame = requestAnimationFrame(() => startTransition(() => setLimit(Infinity)));
+    return () => cancelAnimationFrame(frame);
+  }, [limit, groups.length]);
+  const first = Math.max(0, groups.length - limit);
+  return <><div className="space-y-8">{groups.map((group, index) => index < first ? null : <TimelineGroupView key={messageKey(group.messages[0]!)} group={group} subagentRows={subagentRows[index]!} images={images}
     waiting={waitingForAnswer && group.messages[0]!.turnId === chat.activeTurnId} turnStatus={chat.turns[group.messages[0]!.turnId]?.status}
     trigger={groups[index - 1]?.messages[0]?.turnId === group.messages[0]!.turnId ? undefined : chat.turns[group.messages[0]!.turnId]?.trigger} revertDisabled={revertDisabled} canRevert={!!onRevert} setTarget={setTarget} />)}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
     available={!!target && chat.messages.some((message) => message.id === target.id && message.turnId === target.turnId)}

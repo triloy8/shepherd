@@ -1,4 +1,4 @@
-import { readProviderDefaults } from "../runtime/provider_defaults.js";
+import { readProviderDefaults } from "./provider_defaults.js";
 import type { ExecutionPolicy } from "../../shared/protocol/execution_policy.js";
 import { readSignalRuntimeConfig, type SignalRuntimeConfig } from "./signal_environment.js";
 

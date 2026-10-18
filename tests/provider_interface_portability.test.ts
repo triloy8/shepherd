@@ -418,7 +418,7 @@ test("a provider with unknown effort metadata preserves inherited effort and acc
 });
 
 for (const id of ["vendor/agent", "agent:variant", "agent with spaces", "代理"]) test(`opaque provider ${id} can be the configured default`, async () => {
-  const { readProviderDefaults } = await import("../server/runtime/provider_defaults.js");
+  const { readProviderDefaults } = await import("../server/config/provider_defaults.js");
   const requested = readProviderDefaults({ SHEPHERD_DEFAULT_PROVIDER: id });
   expect(requested.defaultProvider).toBe(id);
   const h = registration(id); const conversation = new ConversationService({ providers: assembleProviderServices([h.entry], directory(), requested.defaultProvider!) });

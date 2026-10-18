@@ -1,4 +1,4 @@
-import { detectImageMimeType } from "../../core/image_media.js";
+import { detectImageMimeType } from "../../core/surface_api.js";
 import { Buffer } from "node:buffer";
 
 export const DISCORD_IMAGE_MAX_BYTES = 10 * 1024 * 1024;

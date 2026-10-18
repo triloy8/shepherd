@@ -4,7 +4,7 @@ import {
   createResponseStreamState,
   getFinalResponseText,
   reduceResponseStream,
-} from "../server/core/response_stream_reducer.js";
+} from "../server/adapters/shared/response_stream_reducer.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 
 function makeEvent<K extends BridgeEvent["type"]>(type: K, payload: import("../shared/protocol/events.js").BridgeEventPayloads[K]): import("../shared/protocol/events.js").BridgeEventOf<K> {

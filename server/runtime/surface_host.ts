@@ -3,7 +3,7 @@ import { createApprovalConversation, createIngressConversation, createInteractio
 import { createHostRuntime } from "./host_runtime.js";
 import { SignalRuntime } from "./signal_runtime.js";
 import { createSurfaceRuntime } from "./surface_runtime.js";
-import type { PreparedSurface, SurfaceAdapter, SurfaceHealth } from "./surface_adapter.js";
+import type { PreparedSurface, SurfaceAdapter, SurfaceHealth } from "../core/surface_api.js";
 
 type SignalPresenter = NonNullable<SurfaceAdapter["presentSignal"]>;
 type HostSignals = Pick<SignalRuntime, "start" | "stop" | "url">;

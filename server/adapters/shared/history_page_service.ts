@@ -1,7 +1,7 @@
 import type {
   ListThreadItemsRequest, ListThreadItemsResponse,
   ListThreadTurnsRequest, ListThreadTurnsResponse,
-} from "../../shared/protocol/requests.js";
+} from "../../../shared/protocol/requests.js";
 
 export interface HistoryPageRequest {
   threadId: string;

@@ -10,7 +10,7 @@ import {
 } from "discord.js";
 
 import { readBoolean } from "../../config/environment.js";
-import type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition } from "../../runtime/surface_adapter.js";
+import type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition } from "../../core/surface_api.js";
 import { handleInteraction, handleModalInteraction } from "./interactions.js";
 import { processDiscordMessage } from "./message_ingress.js";
 import { presentDiscordSignalNotice } from "./signal_notice.js";

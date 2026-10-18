@@ -1,5 +1,5 @@
-import type { BridgeEvent, MessagePhase } from "../../shared/protocol/events.js";
-import { answerMessages } from "../../shared/protocol/item_stream.js";
+import type { BridgeEvent, MessagePhase } from "../../../shared/protocol/events.js";
+import { answerMessages } from "../../../shared/protocol/item_stream.js";
 
 export type AccumulatedMessage = {
   itemId: string | null;

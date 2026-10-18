@@ -18,7 +18,7 @@ function assertBoundaries(context: SurfaceApplicationContext, interaction: Inter
 }
 void assertBoundaries;
 
-import type { SurfaceAdapterContext } from "../server/runtime/surface_adapter.js";
+import type { SurfaceAdapterContext } from "../server/core/surface_adapter.js";
 function assertLauncherBoundary(adapter: SurfaceAdapterContext) {
   // @ts-expect-error Only the host can stop the process runtime.
   adapter.shepherd.shutdown();

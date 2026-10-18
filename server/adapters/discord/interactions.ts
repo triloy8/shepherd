@@ -1,7 +1,7 @@
-import { loadSkillsPage } from "../../core/skills_page_service.js";
+import { loadSkillsPage } from "../shared/skills_page_service.js";
 import { MessageFlags, ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle, type ModalSubmitInteraction, type ButtonInteraction } from "discord.js";
 
-import type { InteractionConversation } from "../../core/conversation_ports.js";
+import type { InteractionConversation } from "../../core/surface_api.js";
 import {
   buildCardPages,
   buildMarkdownPages,

@@ -3,7 +3,30 @@
 This document describes the current ownership boundaries between Shepherd's
 Discord, web API and webhook adapters, application core, and runtime core.
 
-Reviewed against the code on 2026-09-13. The provider boundary was consolidated on 2026-10-10 (PR #90).
+Reviewed against the code on 2026-09-13. The provider boundary was consolidated on 2026-10-10 (PR #90), and the layers below are enforced since 2026-10-18.
+
+## Layers
+
+Every import points down these layers; `tests/architecture_layers.test.ts` fails on any that
+doesn't, naming the file and both layers.
+
+| Layer | Paths | May import |
+| --- | --- | --- |
+| Composition | `server/main.ts`, `server/runtime/`, `server/surface_definitions.ts` | everything: it wires the concretes |
+| Surfaces | `server/adapters/{discord,web,webhook}/`, `ui/src/` (protocol only) | surface support, core API, ports, config, protocol |
+| Surface support | `server/adapters/shared/` | core API, ports, protocol |
+| Core API | `server/core/surface_api.ts` | core, ports, protocol |
+| Core | `server/core/` | ports, protocol |
+| Signals | `server/signals/` | core, protocol |
+| Providers | `server/providers/{claude,codex}/` and the shared provider files beside them | provider support, ports, protocol |
+| Storage, config | `server/storage/`, `server/config/` | ports and protocol; protocol |
+| Ports | `server/ports/` | protocol |
+| Protocol | `shared/protocol/` | nothing |
+
+Providers and core never import each other: both depend on the provider port. Surfaces
+reach core only through its front door, `core/surface_api.ts`, so the rest of core is internal.
+`tests/provider_neutral_layers.test.ts` also keeps provider names out of every layer between
+the providers and the protocol.
 
 ## Boundary
 
@@ -11,7 +34,8 @@ The adapter paths are split along this rule:
 
 - `server/adapters/discord/*` owns Discord transport, Discord event parsing, Discord rendering, and Discord delivery/runtime glue
 - `server/adapters/web/*` owns browser-origin checks, HTTP routing and bounded SSE replay. It uses shared application, ingress and approval ports.
-- `server/adapters/http/*` owns reusable bounded body parsing.
+- `server/adapters/shared/*` holds presentation helpers surfaces share: bounded body parsing, the
+  streamed-answer reducer, history and skills paging, and generated-image loading.
 - `server/adapters/webhook/*` owns loopback HTTP parsing, route validation, limits, and response mapping; callbacks are unauthenticated
 - `server/core/*` owns reusable policy, action semantics, state, and orchestration
 - `server/runtime/*` assembles shared services and owns process lifecycle; it may wire ingress adapters but must not depend on Discord
@@ -79,8 +103,9 @@ These modules own authoritative state or state transitions that other layers sho
 
 - `server/core/surface_state_service.ts`
   Owns surface-scoped project binding and listening-mode state.
-- `server/core/response_stream_reducer.ts`
-  Owns logical streamed-response state transitions from `BridgeEvent`s.
+- `server/adapters/shared/response_stream_reducer.ts`
+  Owns logical streamed-response state transitions from `BridgeEvent`s for surfaces that post
+  a turn's answer.
 
 These are also functional modules. They are the source of truth for those state transitions.
 
@@ -105,13 +130,13 @@ These are the workflow modules. They do not just expose interfaces; they execute
 
 ## Shared list and history pages
 
-Two application services supply plain data to adapters:
+Two surface helpers supply plain data to adapters:
 
-- `server/core/skills_page_service.ts` loads a thread's skills inventory and
+- `server/adapters/shared/skills_page_service.ts` loads a thread's skills inventory and
   selects a local page. `selectSkillsPage` can also page an inventory already
   fetched by a caller. Skills and discovery errors retain their cwd, original
   metadata, and ordering. An empty or shrunken inventory clamps to a valid page.
-- `server/core/history_page_service.ts` loads turn summaries or turn items from
+- `server/adapters/shared/history_page_service.ts` loads turn summaries or turn items from
   the conversation provider's paginated history. It owns cursor navigation and the original thread
   context, including returning from a turn's items to the parent turn page.
 
@@ -131,12 +156,12 @@ remain available to callers.
 For example, a future adapter can load these without importing Discord:
 
 ```ts
-import { loadSkillsPage } from "../core/skills_page_service.js";
+import { loadSkillsPage } from "../shared/skills_page_service.js";
 import {
   initialHistoryPage,
   loadHistoryPage,
   openHistoryTurn,
-} from "../core/history_page_service.js";
+} from "../shared/history_page_service.js";
 
 const skills = await loadSkillsPage(conversation, {
   threadId, page: 1, pageSize: 20,
@@ -183,8 +208,6 @@ These files are also in `server/core/*`, but they are better understood as runti
 - `server/core/deployment_service.ts`
   Git checkout update, dependency validation, and rollback infrastructure used
   by runtime deployment orchestration.
-- `server/core/types.ts`
-  Shared runtime types.
 - `server/runtime/shepherd_runtime.ts`
   Shared conversation, quiescing, restart, and adapter-shutdown lifecycle.
 

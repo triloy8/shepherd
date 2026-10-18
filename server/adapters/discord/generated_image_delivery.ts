@@ -1,4 +1,4 @@
-import { loadGeneratedImage, GENERATED_IMAGE_MAX_BYTES } from "../../core/generated_image.js";
+import { loadGeneratedImage, GENERATED_IMAGE_MAX_BYTES } from "../shared/generated_image.js";
 import { MediaGalleryBuilder, MessageFlags } from "discord.js";
 
 import type {

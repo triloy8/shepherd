@@ -386,12 +386,12 @@ codex app-server generate-json-schema --out ./schemas
 | `server/providers/` | Native Codex and Claude SDK adapters |
 | `server/ports/` | Storage contracts for native adapters |
 | `server/storage/` | File storage and provider identity bindings |
-| `server/core/` | Shared policy, actions, conversation state, workspaces, and orchestration |
+| `server/core/` | Shared policy, actions, conversation state, workspaces, and orchestration; surfaces use it only through `surface_api.ts` |
 | `server/runtime/` | Surface assembly and process lifecycle |
 | `server/adapters/discord/` | Discord input, commands, rendering, and delivery |
 | `server/adapters/web/` | Built-in UI serving, private HTTP API, and SSE events |
 | `ui/` | React, TypeScript, and Tailwind UI built with Vite |
-| `server/adapters/http/` | Shared bounded HTTP body parsing |
+| `server/adapters/shared/` | Presentation helpers surfaces share: body parsing, answer streaming, paging, image loading |
 | `server/adapters/webhook/`, `server/signals/` | Local signal ingress and registered signal kinds |
 | `shared/protocol/`, `schemas/` | Application contracts and generated provider schemas |
 | `server/config/`, `envs/` | Runtime configuration loading and templates |

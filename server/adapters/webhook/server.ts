@@ -1,9 +1,9 @@
-import { BodyTooLargeError, readBoundedJson } from "../http/body.js";
-import type { SignalDispatchResult } from "../../core/signal_dispatcher.js";
+import { BodyTooLargeError, readBoundedJson } from "../shared/body.js";
+import type { SignalDispatchResult } from "../../core/surface_api.js";
 import {
   SignalRouteRateLimitError,
   type SignalRoute,
-} from "../../core/signal_route_registry.js";
+} from "../../core/surface_api.js";
 import {
   InvalidSignalError,
   parseSignalEnvelope,
@@ -11,7 +11,7 @@ import {
   UnsupportedSignalVersionError,
   type RegisteredSignal,
   type SignalTarget,
-} from "../../core/signal_registry.js";
+} from "../../core/surface_api.js";
 import type { SignalEnvelope } from "../../../shared/protocol/signals.js";
 
 const DEFAULT_HOSTNAME = "127.0.0.1";

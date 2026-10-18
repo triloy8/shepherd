@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { loadSkillsPage, selectSkillsPage } from "../server/core/skills_page_service.js";
+import { loadSkillsPage, selectSkillsPage } from "../server/adapters/shared/skills_page_service.js";
 import type { SkillsListResponse } from "../shared/protocol/requests.js";
 
 const inventory: SkillsListResponse = {

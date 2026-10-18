@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   initialHistoryPage, loadHistoryPage, openHistoryTurn, returnToHistoryTurns,
   type HistoryPageSource,
-} from "../server/core/history_page_service.js";
+} from "../server/adapters/shared/history_page_service.js";
 import type { ListThreadItemsRequest, ListThreadTurnsRequest } from "../shared/protocol/requests.js";
 
 function source() {

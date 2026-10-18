@@ -4,7 +4,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import {
   initialHistoryPage, loadHistoryPage as loadHistoryPageData, openHistoryTurn, returnToHistoryTurns,
   type HistoryPage, type HistoryPageRequest, type HistoryPageSource,
-} from "../../core/history_page_service.js";
+} from "../shared/history_page_service.js";
 import type { HistoryContentPart, HistoryItem } from "../../../shared/protocol/requests.js";
 import { buildCardPages, type DiscordSurfacePage } from "./components_renderer.js";
 import { DISCORD_LIST_PAGE_SIZE, navigationRow } from "./list_pagination.js";

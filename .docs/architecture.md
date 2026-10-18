@@ -16,8 +16,11 @@ doesn't, naming the file and both layers.
 | Surfaces | `server/adapters/{discord,web,webhook}/`, `ui/src/` (protocol only) | surface support, core API, ports, config, protocol |
 | Surface support | `server/adapters/shared/` | core API, ports, protocol |
 | Core API | `server/core/surface_api.ts` | core, ports, protocol |
-| Core | `server/core/` | ports, protocol |
-| Signals | `server/signals/` | core, protocol |
+| Core: surface | `server/core/surface/` | the core sub-layers below, ports, protocol |
+| Core: signals, lifecycle | `server/core/signals/`, `server/core/lifecycle/` | conversation, common, ports, protocol |
+| Core: conversation, workspace | `server/core/conversation/`, `server/core/workspace/` | common, ports, protocol |
+| Core: common | `server/core/common/` | ports, protocol |
+| Signals | `server/signals/` | core signals, protocol |
 | Providers | `server/providers/{claude,codex}/` and the shared provider files beside them | provider support, ports, protocol |
 | Storage, config | `server/storage/`, `server/config/` | ports and protocol; protocol |
 | Ports | `server/ports/` | protocol |
@@ -75,11 +78,11 @@ These roles describe ownership within core; they do not require separate directo
 
 These modules decide what should happen, what inputs are valid, and how ambiguous cases are resolved.
 
-- `server/core/project_target_service.ts`
+- `server/core/workspace/project_target_service.ts`
   Policy + normalization for repo/project targets such as `owner/repo`, `~`, and `~/path`.
-- `server/core/skill_resolution_service.ts`
+- `server/core/surface/skill_resolution_service.ts`
   Policy + resolution for skill names and paths with shared ambiguity behavior.
-- `server/core/turn_routing_policy.ts`
+- `server/core/surface/turn_routing_policy.ts`
   Owns normalized surface-input classification and `submit` vs `steer` policy.
 
 These are functional modules, not just abstractions. If they make the wrong decision, Shepherd behaves incorrectly.
@@ -88,11 +91,11 @@ These are functional modules, not just abstractions. If they make the wrong deci
 
 These modules define what an operator action means after the adapter parses the surface syntax.
 
-- `server/core/control_actions_service.ts`
+- `server/core/surface/control_actions_service.ts`
   Owns action semantics for repo, model, effort, skill, thread, limits, and context controls.
-- `server/core/surface_actions_service.ts`
+- `server/core/surface/surface_actions_service.ts`
   Owns normalized listening and detach actions.
-- `server/core/action_error.ts`
+- `server/core/common/action_error.ts`
   Defines structured application failures, leaving surface instructions to adapters.
 
 This is the application command layer. Discord parses commands like `!repo` or `!model`, but this service decides what those commands actually do.
@@ -101,7 +104,7 @@ This is the application command layer. Discord parses commands like `!repo` or `
 
 These modules own authoritative state or state transitions that other layers should not reimplement.
 
-- `server/core/surface_state_service.ts`
+- `server/core/surface/surface_state_service.ts`
   Owns surface-scoped project binding and listening-mode state.
 - `server/adapters/shared/response_stream_reducer.ts`
   Owns logical streamed-response state transitions from `BridgeEvent`s for surfaces that post
@@ -113,16 +116,16 @@ These are also functional modules. They are the source of truth for those state 
 
 These modules coordinate multi-step workflows across policy, state, and lower-level services.
 
-- `server/core/workspace_provisioner.ts`
+- `server/core/workspace/workspace_provisioner.ts`
   Owns workspace provisioning and `cwd` selection.
-- `server/core/surface_conversation_orchestrator.ts`
+- `server/core/surface/surface_conversation_orchestrator.ts`
   Owns create/bind/resume/fork/switch/ensure thread orchestration for a surface.
-- `server/core/turn_routing_service.ts`
+- `server/core/surface/turn_routing_service.ts`
   Owns active-turn lookup plus `submitTurn`/`steerTurn` dispatch.
-- `server/core/runtime_lifecycle_orchestrator.ts`
+- `server/core/lifecycle/runtime_lifecycle_orchestrator.ts`
   Owns restart/deploy eligibility, deployment sequencing, runtime quiescing,
   recovery announcement ordering, and shutdown requests.
-- `server/core/signal_dispatcher.ts`
+- `server/core/signals/signal_dispatcher.ts`
   Owns bounded in-memory queuing, coalescing, per-thread serialization, and
   signal-turn sequencing.
 
@@ -191,21 +194,21 @@ This extraction adds no web adapter, network listener, or new Codex API method.
 
 These files are also in `server/core/*`, but they are better understood as runtime infrastructure than as part of the four application buckets:
 
-- `server/core/conversation_service.ts`
+- `server/core/conversation/conversation_service.ts`
   Surface-facing conversation API over the lower runtime stack.
-- `server/core/conversation_routing_service.ts`
+- `server/core/conversation/conversation_routing_service.ts`
   Surface/thread route resolution and default-thread binding infrastructure.
-- `server/core/session_manager.ts`
+- `server/core/conversation/session_manager.ts`
   Session lifecycle, thread/session lookup, event subscription, and session bookkeeping.
-- `server/core/signal_registry.ts`
+- `server/core/signals/signal_registry.ts`
   Versioned signal-kind registration, envelope parsing, payload validation, and
   trusted target/input resolution.
-- `server/core/conversation_signal_executor.ts`
+- `server/core/signals/conversation_signal_executor.ts`
   Resolves live surface bindings and bridges dispatcher work into agent turns on the
   conversation's provider.
-- `server/core/approvals.ts`
+- `server/core/conversation/approvals.ts`
   Pending approval and structured-question record storage, validation, and lifecycle support.
-- `server/core/deployment_service.ts`
+- `server/core/lifecycle/deployment_service.ts`
   Git checkout update, dependency validation, and rollback infrastructure used
   by runtime deployment orchestration.
 - `server/runtime/shepherd_runtime.ts`
@@ -286,15 +289,15 @@ See [Provider adapters](provider-abstraction.md) for the complete boundary and
   Defines the first typed signal kind and its bounded research-inspection input.
 - `server/config/signal_environment.ts`
   Loads stable opt-in listener, body-limit, and queue configuration.
-- `server/core/dynamic_tool_registry.ts`
+- `server/core/conversation/dynamic_tool_registry.ts`
   Advertises and dispatches explicitly registered application tools through the
   `ProviderTools` port (`server/ports/provider_tools.ts`). Codex declares them as
   dynamic tools; Claude exposes them through an in-process MCP server. The registry
   validates tool media as base64 `data` plus a matching `mimeType`; adapters encode
   it into Codex data URLs or MCP media blocks. Remote tool media URLs are unsupported.
-- `server/core/signal_route_registry.ts`
+- `server/core/signals/signal_route_registry.ts`
   Owns bounded, expiring, process-local callback routes.
-- `server/core/signal_route_service.ts`
+- `server/core/signals/signal_route_service.ts`
   Converts trusted `item/tool/call` context into a callback URL.
 
 ## Main Runtime Flows

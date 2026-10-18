@@ -1,9 +1,9 @@
 import { WebSurfaceApi } from "../../server/adapters/web/api.js";
 import { readWebConfig } from "../../server/adapters/web/config.js";
-import { ApprovalsStore } from "../../server/core/approvals.js";
-import { ThreadBindingConflictError } from "../../server/core/conversation_routing_service.js";
-import type { SurfaceAdapterContext } from "../../server/core/surface_adapter.js";
-import type { SurfaceApplicationContext } from "../../server/core/surface_application_context.js";
+import { ApprovalsStore } from "../../server/core/conversation/approvals.js";
+import { ThreadBindingConflictError } from "../../server/core/conversation/conversation_routing_service.js";
+import type { SurfaceAdapterContext } from "../../server/core/surface/surface_adapter.js";
+import type { SurfaceApplicationContext } from "../../server/core/surface/surface_application_context.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
 export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtimeLifecycle"]) {

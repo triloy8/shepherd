@@ -1,19 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { ApplicationActionError } from "./action_error.js";
-import type { BridgeEvent } from "../../shared/protocol/events.js";
-import type { AgentProvider } from "../../shared/protocol/requests.js";
-import { ConversationService } from "./conversation_service.js";
+import { ApplicationActionError } from "../common/action_error.js";
+import type { BridgeEvent } from "../../../shared/protocol/events.js";
+import type { AgentProvider } from "../../../shared/protocol/requests.js";
+import { ConversationService } from "../conversation/conversation_service.js";
 import {
   describeProjectTarget,
   resolveProjectTarget,
   type ProjectTargetResolver,
-} from "./project_target_service.js";
+} from "../workspace/project_target_service.js";
 import {
   SurfaceStateService,
   type SurfaceListeningMode,
 } from "./surface_state_service.js";
-import { WorkspaceProvisioner, type WorkspaceReservation } from "./workspace_provisioner.js";
-import { assertProviderOperation, UnsupportedProviderOperationError } from "../../shared/protocol/provider_support.js";
+import { WorkspaceProvisioner, type WorkspaceReservation } from "../workspace/workspace_provisioner.js";
+import { assertProviderOperation, UnsupportedProviderOperationError } from "../../../shared/protocol/provider_support.js";
 
 /** The host execution policy is resolved to each provider's profile by the conversation service. */
 export type SurfaceConversationOrchestratorOptions = {

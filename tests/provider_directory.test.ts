@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileThreadProviderDirectory } from "../server/storage/thread_provider_directory.js";
-import { memoryProviderDirectory } from "../server/core/provider_directory.js";
-import { listProviderThreads } from "../server/core/provider_thread_catalog.js";
+import { memoryProviderDirectory } from "../server/core/conversation/provider_directory.js";
+import { listProviderThreads } from "../server/core/conversation/provider_thread_catalog.js";
 import type { AgentProvider, ThreadRecord } from "../shared/protocol/requests.js";
 
 const directories: string[] = [];

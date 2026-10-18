@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createSurfaceRuntime } from "../server/runtime/surface_runtime.js";
-import { executeSurfaceAction } from "../server/core/surface_actions_service.js";
-import { ApplicationActionError } from "../server/core/action_error.js";
+import { executeSurfaceAction } from "../server/core/surface/surface_actions_service.js";
+import { ApplicationActionError } from "../server/core/common/action_error.js";
 
 for (const adapter of ["discord", "terminal"]) {
   test(`${adapter} shares listening prerequisites, pause/resume and detach semantics`, async () => {

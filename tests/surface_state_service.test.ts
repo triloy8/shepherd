@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { SurfaceStateService } from "../server/core/surface_state_service.js";
+import { SurfaceStateService } from "../server/core/surface/surface_state_service.js";
 
 describe("SurfaceStateService", () => {
   test("stores project targets per adapter/surface pair", () => {

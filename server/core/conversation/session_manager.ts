@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
-import type { BridgeEvent } from "../../shared/protocol/events.js";
-import type { ProviderCapabilities, ProviderOperation } from "../../shared/protocol/provider_capabilities.js";
-import { assertThreadSupport, assertInputSupport, assertProviderOperation, resolveThreadProfile, threadPolicy, type ThreadDefaults } from "../../shared/protocol/provider_support.js";
-import { unsupportedModelInput, UnsupportedModelInputError } from "../../shared/protocol/model_capabilities.js";
+import type { BridgeEvent } from "../../../shared/protocol/events.js";
+import type { ProviderCapabilities, ProviderOperation } from "../../../shared/protocol/provider_capabilities.js";
+import { assertThreadSupport, assertInputSupport, assertProviderOperation, resolveThreadProfile, threadPolicy, type ThreadDefaults } from "../../../shared/protocol/provider_support.js";
+import { unsupportedModelInput, UnsupportedModelInputError } from "../../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
-import { ApplicationActionError } from "./action_error.js";
+import { ApplicationActionError } from "../common/action_error.js";
 import type {
   ApprovalDecisionRequest,
   ApprovalRecord,
   ApprovalRequestPayload,
-} from "../../shared/protocol/approvals.js";
-import type { ThreadTokenUsageUpdatedEvent } from "../../shared/protocol/events.js";
+} from "../../../shared/protocol/approvals.js";
+import type { ThreadTokenUsageUpdatedEvent } from "../../../shared/protocol/events.js";
 import type {
 
 
@@ -56,13 +56,13 @@ import type {
   SubmitTurnResponse,
   ThreadTokenUsage,
   UnarchiveThreadResponse,
-} from "../../shared/protocol/requests.js";
+} from "../../../shared/protocol/requests.js";
 import { ApprovalsStore } from "./approvals.js";
-import { UnsupportedProviderOperationError, type Provider, type ProviderThreadRequest, type ThreadSession as ProviderSession, type LoadedThreadPage } from "../ports/provider_session.js";
-import type { ThreadProviderDirectory, ProviderLookup } from "../ports/provider_services.js";
+import { UnsupportedProviderOperationError, type Provider, type ProviderThreadRequest, type ThreadSession as ProviderSession, type LoadedThreadPage } from "../../ports/provider_session.js";
+import type { ThreadProviderDirectory, ProviderLookup } from "../../ports/provider_services.js";
 import { missingProviders, memoryProviderDirectory } from "./provider_directory.js";
 import { DynamicToolRegistry } from "./dynamic_tool_registry.js";
-import { EventBus } from "../ports/event_bus.js";
+import { EventBus } from "../../ports/event_bus.js";
 
 interface ManagedSession {
   session: ProviderSession;
@@ -402,7 +402,7 @@ export class SessionManager {
     }
   }
 
-  private assertModelInput(model: ModelSummary, input: readonly import("../../shared/protocol/user_input.js").UserInput[]): void {
+  private assertModelInput(model: ModelSummary, input: readonly import("../../../shared/protocol/user_input.js").UserInput[]): void {
     const modality = unsupportedModelInput(model, input);
     if (modality) throw new UnsupportedModelInputError(model.id, modality);
   }
@@ -459,7 +459,7 @@ export class SessionManager {
 
   subscribeToThreadEvents(
     threadId: string,
-    listener: (event: import("../../shared/protocol/events.js").BridgeEvent) => void,
+    listener: (event: import("../../../shared/protocol/events.js").BridgeEvent) => void,
     cursorOrOptions?: string | { afterId?: string; replay?: boolean },
   ): () => void {
     const managed = this.mustGet(threadId);

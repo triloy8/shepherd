@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { toTextUserInput } from "../shared/protocol/user_input.js";
-import type { RegisteredSignal } from "../server/core/signal_registry.js";
-import { SignalDispatcher, type SignalExecutor } from "../server/core/signal_dispatcher.js";
+import type { RegisteredSignal } from "../server/core/signals/signal_registry.js";
+import { SignalDispatcher, type SignalExecutor } from "../server/core/signals/signal_dispatcher.js";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve = (): void => {};

@@ -1,4 +1,4 @@
-import { ApplicationActionError } from "../server/core/action_error.js";
+import { ApplicationActionError } from "../server/core/common/action_error.js";
 import { account } from "./helpers/account";
 import { describe, expect, test } from "bun:test";
 import { ComponentType, type MessageCreateOptions, type MessageEditOptions } from "discord.js";

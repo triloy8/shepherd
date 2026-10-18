@@ -1,6 +1,6 @@
 import type {
   ResumeThreadRequest,
-} from "../../shared/protocol/requests.js";
+} from "../../../shared/protocol/requests.js";
 import type { SessionManager } from "./session_manager.js";
 
 export class ThreadBindingConflictError extends Error {

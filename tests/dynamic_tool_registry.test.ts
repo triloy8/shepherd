@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DynamicToolRegistry,
   UnknownDynamicToolError,
-} from "../server/core/dynamic_tool_registry.js";
+} from "../server/core/conversation/dynamic_tool_registry.js";
 
 describe("DynamicToolRegistry", () => {
   test("groups namespaced registrations and unregisters by identity", async () => {

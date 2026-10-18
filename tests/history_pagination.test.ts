@@ -4,7 +4,7 @@ import { initialHistoryRequest, loadHistoryPage } from "../server/adapters/disco
 import { handleInteraction } from "../server/adapters/discord/interactions.js";
 import { handleMessage } from "../server/adapters/discord/commands.js";
 import { CodexSession } from "../server/providers/codex/session.js";
-import { SessionManager } from "../server/core/session_manager.js";
+import { SessionManager } from "../server/core/conversation/session_manager.js";
 
 function button(page: unknown, label: string): any {
   return JSON.parse(JSON.stringify(page)).components[0].components

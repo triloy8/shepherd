@@ -2,8 +2,8 @@ import { describe, expect, spyOn, test } from "bun:test";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import { CodexSession } from "../server/providers/codex/session.js";
-import { DynamicToolRegistry } from "../server/core/dynamic_tool_registry.js";
-import { extractThreadSummary } from "../server/core/session_manager.js";
+import { DynamicToolRegistry } from "../server/core/conversation/dynamic_tool_registry.js";
+import { extractThreadSummary } from "../server/core/conversation/session_manager.js";
 import { fakeAppServer } from "./helpers/fake_app_server.js";
 
 type SessionInternals = {

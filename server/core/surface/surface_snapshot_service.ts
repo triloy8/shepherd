@@ -1,4 +1,4 @@
-import type { ThreadModelState } from "../../shared/protocol/requests.js";
+import type { ThreadModelState } from "../../../shared/protocol/requests.js";
 import type { SurfaceListeningMode } from "./surface_state_service.js";
 
 export type SurfaceBindingReader = {

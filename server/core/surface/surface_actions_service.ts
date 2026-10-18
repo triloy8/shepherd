@@ -1,4 +1,4 @@
-import { ApplicationActionError, type ActionFailure } from "./action_error.js";
+import { ApplicationActionError, type ActionFailure } from "../common/action_error.js";
 import type { SurfaceListeningMode } from "./surface_state_service.js";
 
 export type SurfaceActionsContext = {

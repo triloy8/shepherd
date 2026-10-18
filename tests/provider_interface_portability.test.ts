@@ -3,15 +3,15 @@ import { sessionProvider } from "./helpers/session_providers.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConversationService } from "../server/core/conversation_service.js";
-import { executeControlAction } from "../server/core/control_actions_service.js";
+import { ConversationService } from "../server/core/conversation/conversation_service.js";
+import { executeControlAction } from "../server/core/surface/control_actions_service.js";
 import { assembleProviderServices, type ProviderRegistration } from "../server/runtime/provider_registration.js";
 import { scopedThreadId } from "../server/runtime/provider_thread_identity.js";
 import { LocalSession, capabilities, model } from "./helpers/portable_provider.js";
 import { noProviderTools } from "../server/ports/provider_tools.js";
 import { codexTokenUsage } from "../server/providers/codex/token_usage.js";
 import { claudeModelCatalog } from "../server/providers/claude/model_catalog.js";
-import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
+import { WorkspaceProvisioner } from "../server/core/workspace/workspace_provisioner.js";
 import type { ProviderCapabilities } from "../shared/protocol/provider_capabilities.js";
 import type { ThreadTokenUsage } from "../shared/protocol/requests.js";
 
@@ -428,7 +428,7 @@ for (const id of ["vendor/agent", "agent:variant", "agent with spaces", "代理"
 });
 
 test("independent provider null-ID completion releases consecutive real signal turns", async () => {
-  const { ConversationSignalExecutor } = await import("../server/core/conversation_signal_executor.js");
+  const { ConversationSignalExecutor } = await import("../server/core/signals/conversation_signal_executor.js");
   let turns = 0;
   const h = registration("signal-provider", session => {
     session.startTurn = async () => {

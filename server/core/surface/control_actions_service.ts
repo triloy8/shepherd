@@ -1,4 +1,4 @@
-import { ApplicationActionError, type ActionFailure } from "./action_error.js";
+import { ApplicationActionError, type ActionFailure } from "../common/action_error.js";
 import type {
   ListModelsResponse,
   ReadThreadTokenUsageResponse,
@@ -9,16 +9,16 @@ import type {
   SkillsListResponse,
   ThreadModelState,
   ThreadEffortState,
-} from "../../shared/protocol/requests.js";
+} from "../../../shared/protocol/requests.js";
 import { resolveSkillPathFromList } from "./skill_resolution_service.js";
-import type { ProviderAccountLimits, AccountResetRequest, AccountResetResponse } from "../../shared/protocol/account_limits.js";
-import type { ProviderDescriptor } from "../../shared/protocol/providers.js";
-import type { AgentProvider, EffortSelection } from "../../shared/protocol/requests.js";
-import { assertProviderOperation } from "../../shared/protocol/provider_support.js";
+import type { ProviderAccountLimits, AccountResetRequest, AccountResetResponse } from "../../../shared/protocol/account_limits.js";
+import type { ProviderDescriptor } from "../../../shared/protocol/providers.js";
+import type { AgentProvider, EffortSelection } from "../../../shared/protocol/requests.js";
+import { assertProviderOperation } from "../../../shared/protocol/provider_support.js";
 
 type ControlConversation = {
-  getThreadState: (threadId: string) => import("../../shared/protocol/requests.js").GetThreadStateResponse;
-  getThreadProvider: (threadId: string) => import("../../shared/protocol/requests.js").AgentProvider;
+  getThreadState: (threadId: string) => import("../../../shared/protocol/requests.js").GetThreadStateResponse;
+  getThreadProvider: (threadId: string) => import("../../../shared/protocol/requests.js").AgentProvider;
   getThreadEffort: (threadId: string, model?: string) => Promise<ThreadEffortState>;
   setThreadEffort: (threadId: string, effort: EffortSelection) => Promise<ThreadEffortState>;
   listSkills: (threadId: string, request: Record<string, never>) => Promise<SkillsListResponse>;
@@ -26,7 +26,7 @@ type ControlConversation = {
     threadId: string,
     request: { path: string; enabled: boolean },
   ) => Promise<SkillsConfigWriteResponse>;
-  listModels: (request: import("../../shared/protocol/requests.js").ListModelsRequest) => Promise<ListModelsResponse>;
+  listModels: (request: import("../../../shared/protocol/requests.js").ListModelsRequest) => Promise<ListModelsResponse>;
   getThreadModel: (threadId: string) => ThreadModelState;
   setThreadModel: (threadId: string, model: string) => ThreadModelState;
   listProviders: () => ProviderDescriptor[];

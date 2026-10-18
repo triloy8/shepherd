@@ -1,10 +1,10 @@
 import { createProviderServices } from "./provider_services.js";
 import type { ExecutionPolicy } from "../../shared/protocol/execution_policy.js";
-import { ConversationService } from "../core/conversation_service.js";
+import { ConversationService } from "../core/conversation/conversation_service.js";
 import {
   RuntimeLifecycleOrchestrator,
   type RuntimeDeploymentPort,
-} from "../core/runtime_lifecycle_orchestrator.js";
+} from "../core/lifecycle/runtime_lifecycle_orchestrator.js";
 
 type ShutdownHook = () => void | Promise<void>;
 

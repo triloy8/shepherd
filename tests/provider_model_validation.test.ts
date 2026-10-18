@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { sessionProviders } from "./helpers/session_providers.js";
-import { SessionManager } from "../server/core/session_manager.js";
+import { SessionManager } from "../server/core/conversation/session_manager.js";
 import { IndependentSession } from "./helpers/independent_provider.js";
 import { CodexSession } from "../server/providers/codex/session.js";
 import type { ModelSummary } from "../shared/protocol/requests.js";

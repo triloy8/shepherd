@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { validateUserQuestionAnswers } from "../../shared/protocol/user_questions.js";
+import { validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import type {
   ApprovalDecisionRequest,
   ApprovalRecord,
   ApprovalRequestPayload,
   ApprovalState,
-} from "../../shared/protocol/approvals.js";
+} from "../../../shared/protocol/approvals.js";
 
 export class ApprovalDecisionError extends Error {
   constructor(readonly code: "approval_not_found" | "approval_decided" | "invalid_decision", message: string) {

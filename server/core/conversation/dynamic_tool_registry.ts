@@ -3,11 +3,11 @@ import type {
   DynamicToolCallResponse,
   DynamicToolSpec,
   JsonValue,
-} from "../../shared/protocol/dynamic_tools.js";
+} from "../../../shared/protocol/dynamic_tools.js";
 
-import { assertDynamicToolResponse } from "../../shared/protocol/dynamic_tools.js";
+import { assertDynamicToolResponse } from "../../../shared/protocol/dynamic_tools.js";
 
-import { InvalidDynamicToolCallError, UnknownDynamicToolError, type ProviderTools } from "../ports/provider_tools.js";
+import { InvalidDynamicToolCallError, UnknownDynamicToolError, type ProviderTools } from "../../ports/provider_tools.js";
 
 export { InvalidDynamicToolCallError, UnknownDynamicToolError };
 

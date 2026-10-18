@@ -1,5 +1,5 @@
-import type { SurfaceApplicationContext } from "../server/core/surface_application_context.js";
-import type { InteractionConversation } from "../server/core/conversation_ports.js";
+import type { SurfaceApplicationContext } from "../server/core/surface/surface_application_context.js";
+import type { InteractionConversation } from "../server/core/surface/conversation_ports.js";
 import type { DiscordMessageIngressDeps } from "../server/adapters/discord/message_ingress.js";
 
 // Compiled by bun run check. No runtime calls or external services.
@@ -18,7 +18,7 @@ function assertBoundaries(context: SurfaceApplicationContext, interaction: Inter
 }
 void assertBoundaries;
 
-import type { SurfaceAdapterContext } from "../server/core/surface_adapter.js";
+import type { SurfaceAdapterContext } from "../server/core/surface/surface_adapter.js";
 function assertLauncherBoundary(adapter: SurfaceAdapterContext) {
   // @ts-expect-error Only the host can stop the process runtime.
   adapter.shepherd.shutdown();

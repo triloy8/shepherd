@@ -12,10 +12,17 @@ const layers: Array<{ name: string; paths: string[]; may: string[] }> = [
   { name: "provider:codex", paths: ["server/providers/codex"], may: ["provider-support", "ports", "protocol"] },
   { name: "config", paths: ["server/config"], may: ["protocol"] },
   { name: "storage", paths: ["server/storage"], may: ["ports", "protocol"] },
-  { name: "core", paths: ["server/core"], may: ["ports", "protocol"] },
-  { name: "signals", paths: ["server/signals"], may: ["core", "protocol"] },
+  // Core's sub-layers, lowest first. Conversation is the heart; signals and lifecycle build on
+  // it, and the surface sub-layer serves surfaces from all of them.
+  { name: "core:common", paths: ["server/core/common"], may: ["ports", "protocol"] },
+  { name: "core:conversation", paths: ["server/core/conversation"], may: ["core:common", "ports", "protocol"] },
+  { name: "core:workspace", paths: ["server/core/workspace"], may: ["core:common", "ports", "protocol"] },
+  { name: "core:signals", paths: ["server/core/signals"], may: ["core:conversation", "core:common", "ports", "protocol"] },
+  { name: "core:lifecycle", paths: ["server/core/lifecycle"], may: ["core:conversation", "core:common", "ports", "protocol"] },
+  { name: "core:surface", paths: ["server/core/surface"], may: ["core:signals", "core:lifecycle", "core:workspace", "core:conversation", "core:common", "ports", "protocol"] },
   // Core's front door: surfaces reach core only through it, so everything else in core is internal.
-  { name: "core-api", paths: ["server/core/surface_api.ts"], may: ["core", "ports", "protocol"] },
+  { name: "core-api", paths: ["server/core/surface_api.ts"], may: ["core:surface", "core:signals", "core:lifecycle", "core:workspace", "core:conversation", "core:common", "ports", "protocol"] },
+  { name: "signals", paths: ["server/signals"], may: ["core:signals", "protocol"] },
   { name: "surface-support", paths: ["server/adapters/shared"], may: ["core-api", "ports", "protocol"] },
   { name: "surface:discord", paths: ["server/adapters/discord"], may: ["surface-support", "core-api", "ports", "config", "protocol"] },
   { name: "surface:web", paths: ["server/adapters/web/"], may: ["surface-support", "core-api", "ports", "config", "protocol"] },

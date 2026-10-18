@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveSkillPathFromList } from "../server/core/skill_resolution_service.js";
+import { resolveSkillPathFromList } from "../server/core/surface/skill_resolution_service.js";
 
 const listed = {
   workspacePath: "/home/tadhiel/shepherd",

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { FileThreadProviderDirectory } from "../server/storage/thread_provider_directory.js";
 import { assembleProviderServices, describeThreadDefaults } from "../server/runtime/provider_registration.js";
 import { assertDefaultProviderAcceptsThreadDefaults, assertInstalledProvider, threadDefaultNotices } from "../server/runtime/provider_services.js";
-import { ConversationService } from "../server/core/conversation_service.js";
+import { ConversationService } from "../server/core/conversation/conversation_service.js";
 import { IndependentSession, descriptor } from "./helpers/independent_provider.js";
 import { account } from "./helpers/account.js";
 import { CodexSession } from "../server/providers/codex/session.js";

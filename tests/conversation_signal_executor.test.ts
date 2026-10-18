@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { BridgeEvent, BridgeEventType } from "../shared/protocol/events.js";
 import { toTextUserInput } from "../shared/protocol/user_input.js";
-import { ConversationSignalExecutor } from "../server/core/conversation_signal_executor.js";
+import { ConversationSignalExecutor } from "../server/core/signals/conversation_signal_executor.js";
 
 function makeEvent(type: BridgeEventType, turnId: string | null): BridgeEvent {
   return {

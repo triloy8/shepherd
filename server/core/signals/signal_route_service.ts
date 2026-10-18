@@ -2,10 +2,10 @@ import type {
   DynamicToolCallParams,
   DynamicToolCallResponse,
   JsonValue,
-} from "../../shared/protocol/dynamic_tools.js";
-import type { GetThreadStateResponse } from "../../shared/protocol/requests.js";
-import type { ConversationSurface } from "./conversation_routing_service.js";
-import type { DynamicToolRegistration } from "./dynamic_tool_registry.js";
+} from "../../../shared/protocol/dynamic_tools.js";
+import type { GetThreadStateResponse } from "../../../shared/protocol/requests.js";
+import type { ConversationSurface } from "../conversation/conversation_routing_service.js";
+import type { DynamicToolRegistration } from "../conversation/dynamic_tool_registry.js";
 import {
   SignalRouteCapacityError,
   type SignalRouteRegistry,

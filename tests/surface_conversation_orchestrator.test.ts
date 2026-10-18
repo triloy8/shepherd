@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
-import { SurfaceConversationOrchestrator } from "../server/core/surface_conversation_orchestrator.js";
-import { SurfaceStateService } from "../server/core/surface_state_service.js";
-import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
+import { SurfaceConversationOrchestrator } from "../server/core/surface/surface_conversation_orchestrator.js";
+import { SurfaceStateService } from "../server/core/surface/surface_state_service.js";
+import { WorkspaceProvisioner } from "../server/core/workspace/workspace_provisioner.js";
 
 function makeHarness(options: { provisioningFailures?: number; workspaceChange?: boolean } = {}) {
   const calls = {

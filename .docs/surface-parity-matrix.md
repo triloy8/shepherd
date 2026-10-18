@@ -74,7 +74,7 @@ channel conversation's agent, otherwise the default agent.
 
 Sources: [Discord commands](../server/adapters/discord/commands.ts),
 [web app](../ui/src/App.tsx), [conversation actions](../ui/src/components/ConversationActions.tsx),
-[web routes](../server/adapters/web/api.ts), [shared controls](../server/core/control_actions_service.ts).
+[web routes](../server/adapters/web/api.ts), [shared controls](../server/core/surface/control_actions_service.ts).
 
 ## Input, routing and approvals
 

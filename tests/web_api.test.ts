@@ -1,4 +1,4 @@
-import { ApplicationActionError } from "../server/core/action_error.js";
+import { ApplicationActionError } from "../server/core/common/action_error.js";
 import { expect, test } from "bun:test";
 import { webHarness } from "./helpers/web_harness.js";
 import { readWebConfig } from "../server/adapters/web/config.js";

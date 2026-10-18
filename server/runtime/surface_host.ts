@@ -1,5 +1,5 @@
 import type { RuntimeConfig } from "../config/runtime_environment.js";
-import { createApprovalConversation, createIngressConversation, createInteractionConversation } from "../core/conversation_ports.js";
+import { createApprovalConversation, createIngressConversation, createInteractionConversation } from "../core/surface/conversation_ports.js";
 import { createHostRuntime } from "./host_runtime.js";
 import { SignalRuntime } from "./signal_runtime.js";
 import { createSurfaceRuntime } from "./surface_runtime.js";

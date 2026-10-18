@@ -1,4 +1,4 @@
-import { ApplicationActionError } from "./action_error.js";
+import { ApplicationActionError } from "../common/action_error.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { homedir } from "node:os";

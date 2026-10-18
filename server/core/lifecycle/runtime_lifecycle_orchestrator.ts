@@ -4,7 +4,7 @@ import {
   type DeploymentStatus,
   type DeploymentTarget,
 } from "./deployment_service.js";
-import type { RuntimeActivity } from "./session_manager.js";
+import type { RuntimeActivity } from "../conversation/session_manager.js";
 
 export type RuntimeLifecycleAction = "restart" | "deploy";
 

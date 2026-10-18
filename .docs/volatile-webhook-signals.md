@@ -545,9 +545,9 @@ Existing signal components remain:
 
 ```text
 shared/protocol/signals.ts
-server/core/signal_registry.ts
-server/core/signal_dispatcher.ts
-server/core/conversation_signal_executor.ts
+server/core/signals/signal_registry.ts
+server/core/signals/signal_dispatcher.ts
+server/core/signals/conversation_signal_executor.ts
 server/adapters/webhook/server.ts
 server/signals/research_state_changed.ts
 server/runtime/shepherd_runtime.ts
@@ -556,14 +556,14 @@ server/runtime/shepherd_runtime.ts
 The narrowly scoped routing components are:
 
 ```text
-server/core/dynamic_tool_registry.ts
+server/core/conversation/dynamic_tool_registry.ts
   validate and dispatch explicitly registered application tools (Codex
   item/tool/call requests and Claude MCP tool calls)
 
-server/core/signal_route_registry.ts
+server/core/signals/signal_route_registry.ts
   create, resolve, expire, revoke, and bound opaque routes
 
-server/core/signal_route_service.ts
+server/core/signals/signal_route_service.ts
   convert trusted tool-call context into a route and complete callback URL
 ```
 

@@ -1,5 +1,5 @@
-import type { UserInput } from "../../shared/protocol/user_input.js";
-import type { SignalEnvelope, SignalSubject } from "../../shared/protocol/signals.js";
+import type { UserInput } from "../../../shared/protocol/user_input.js";
+import type { SignalEnvelope, SignalSubject } from "../../../shared/protocol/signals.js";
 
 const SIGNAL_KIND_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
 const ENVELOPE_KEYS = new Set(["kind", "version", "subject", "payload"]);

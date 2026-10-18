@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { WorkspaceProvisioner } from "../server/core/workspace_provisioner.js";
+import { WorkspaceProvisioner } from "../server/core/workspace/workspace_provisioner.js";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

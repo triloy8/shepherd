@@ -1,5 +1,5 @@
 import { account } from "./account";
-import { ApplicationActionError } from "../../server/core/action_error";
+import { ApplicationActionError } from "../../server/core/common/action_error";
 import type { ThreadModelState, ThreadEffortState, ModelSummary, EffortSelection } from "../../shared/protocol/requests";
 import type { webHarness } from "./web_harness";
 

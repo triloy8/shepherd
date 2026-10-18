@@ -1,5 +1,5 @@
-import type { ActionFailure } from "./action_error.js";
-import type { SkillsListing } from "../../shared/protocol/requests.js";
+import type { ActionFailure } from "../common/action_error.js";
+import type { SkillsListing } from "../../../shared/protocol/requests.js";
 
 export type ResolvedSkillPath =
   | { path: string }

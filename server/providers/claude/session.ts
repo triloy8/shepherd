@@ -1,5 +1,5 @@
 import { assertThreadSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
-import { approvalChoices } from "../approval_choices.js";
+import { approvalChoices } from "../shared/approval_choices.js";
 import { ClaudeTranscript, decodeTranscript, promptContent, textItemId } from "./transcript.js";
 import { itemPage, paginate, sessionInfo, storedTurns, threadRecord, turnPage } from "./history.js";
 import { claudeDefaults, claudeEffortLevels, isClaudeEffort, type ClaudeEffort } from "./defaults.js";
@@ -25,7 +25,7 @@ import { noProviderTools, type ProviderTools } from "../../ports/provider_tools.
 import { claudeExecutablePath } from "./claude_executable.js";
 import { claudeAuthenticationOptions } from "./authentication.js";
 import type { ClaudeLimitsObserver } from "./account_limits.js";
-import { EventBus } from "../event_bus.js";
+import { EventBus } from "../../ports/event_bus.js";
 
 type RequestUsage = { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
 

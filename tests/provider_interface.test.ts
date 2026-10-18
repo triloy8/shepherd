@@ -2,7 +2,7 @@ import { sessionProviders } from "./helpers/session_providers.js";
 import { expect, test } from "bun:test";
 import { ConversationService } from "../server/core/conversation/conversation_service";
 import { memoryProviderDirectory } from "../server/core/conversation/provider_directory";
-import { EventBus } from "../server/providers/event_bus";
+import { EventBus } from "../server/ports/event_bus.js";
 import type { ProviderSession } from "../server/ports/provider_session";
 import type { ProviderServices } from "../server/ports/provider_services";
 import type { ProviderDescriptor } from "../shared/protocol/providers";

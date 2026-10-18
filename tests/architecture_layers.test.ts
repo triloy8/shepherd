@@ -65,7 +65,6 @@ const knownViolations: string[] = [
   "server/adapters/webhook/server.ts -> server/core/signal_dispatcher (surface:webhook -> core)",
   "server/adapters/webhook/server.ts -> server/core/signal_registry (surface:webhook -> core)",
   "server/adapters/webhook/server.ts -> server/core/signal_route_registry (surface:webhook -> core)",
-  "server/config/runtime_environment.ts -> server/runtime/provider_defaults (config -> composition)",
 ];
 
 function files(directory: string): string[] {

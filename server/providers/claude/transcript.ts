@@ -224,9 +224,11 @@ export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurn
     } else if (entry.type === "user" && content.some(block => block.type === "text" && typeof block.text === "string" && interruptedMarker.test(block.text))) {
       transcript.finish("interrupted", at);
     } else if (entry.type === "user" && entry.isQueuedCommand === true && transcript.current) {
-      // Claude records queued input when it reads it, after answering the input before it.
+      // Claude records queued input when it reads it, after answering the input before it. A
+      // background task's notification can be queued too; it is not the user's words, so the
+      // turn continues without a message from them.
       transcript.answered();
-      transcript.steer(entry.uuid, promptContent(message.content));
+      if (record(entry.origin).kind !== "task-notification") transcript.steer(entry.uuid, promptContent(message.content));
     } else if (entry.type === "user") {
       const origin = record(entry.origin);
       const background = origin.kind === "task-notification";

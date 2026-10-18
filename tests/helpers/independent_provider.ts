@@ -1,5 +1,5 @@
 import { bridgeEvent, type BridgeEventType, type BridgeEventPayloads } from "../../shared/protocol/events.js";
-import { EventBus } from "../../server/providers/event_bus.js";
+import { EventBus } from "../../server/ports/event_bus.js";
 import type { ProviderThreadRequest, TurnSettings } from "../../server/ports/provider_session.js";
 import type { TestSession as ProviderSession } from "./session_providers.js";
 import type { ProviderDescriptor } from "../../shared/protocol/providers.js";

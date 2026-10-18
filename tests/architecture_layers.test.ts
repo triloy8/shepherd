@@ -7,7 +7,7 @@ import { dirname, join, normalize } from "node:path";
 const layers: Array<{ name: string; paths: string[]; may: string[] }> = [
   { name: "protocol", paths: ["shared/protocol"], may: [] },
   { name: "ports", paths: ["server/ports"], may: ["protocol"] },
-  { name: "provider-support", paths: ["server/providers/approval_choices.ts", "server/providers/event_bus.ts"], may: ["ports", "protocol"] },
+  { name: "provider-support", paths: ["server/providers/shared"], may: ["ports", "protocol"] },
   { name: "provider:claude", paths: ["server/providers/claude"], may: ["provider-support", "ports", "protocol"] },
   { name: "provider:codex", paths: ["server/providers/codex"], may: ["provider-support", "ports", "protocol"] },
   { name: "config", paths: ["server/config"], may: ["protocol"] },

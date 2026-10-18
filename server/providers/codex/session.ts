@@ -2,7 +2,7 @@ import { codexProfileFromNative, codexProfileSettings, type NativeApprovalPolicy
 import { assertThreadSupport, assertInputSupport } from "../../../shared/protocol/provider_support.js";
 import { codexInput } from "./input.js";
 import type { NativeInput } from "./input.js";
-import { approvalChoices, type NativeApprovalChoice } from "../approval_choices.js";
+import { approvalChoices, type NativeApprovalChoice } from "../shared/approval_choices.js";
 import { codexItemsView, codexPhase, historyItem, historyTurn, type NativeItemsView } from "./history.js";
 import { readResponse, revertResponse, storedResponse, loadedResponse, accountResponse, modelsResponse } from "./responses.js";
 import { decodeResetOutcome } from "./account_usage.js";
@@ -43,7 +43,7 @@ import {
   type ProviderTools,
 } from "../../ports/provider_tools.js";
 import type { ProviderThreadRequest, ThreadSession, ThreadBootstrapInfo, TurnSettings } from "../../ports/provider_session.js";
-import { EventBus } from "../event_bus.js";
+import { EventBus } from "../../ports/event_bus.js";
 import {
   deltaChannel,
   extractItemId,

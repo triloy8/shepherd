@@ -144,7 +144,8 @@ const nativeFields = new Set([
 /** Codex app-server JSON-RPC methods, such as thread/start or item/tool/requestUserInput. */
 const nativeMethod = /^(?:thread|turn|item|account|model|skills|config|review|fs|command|mcpServer)\/[A-Za-z]/;
 /** New provider directories automatically join the guard, along with SDK vendor names. */
-const providerNames = ["anthropic", "openai", ...(await readdir(path.join(root, "server/providers"), { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name)];
+// Each provider folder names a provider; `shared` holds support code every provider uses.
+const providerNames = ["anthropic", "openai", ...(await readdir(path.join(root, "server/providers"), { withFileTypes: true })).filter(entry => entry.isDirectory() && entry.name !== "shared").map(entry => entry.name)];
 const providerName = new RegExp(providerNames.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i");
 
 function vocabularyViolations(source: ts.SourceFile): string[] {

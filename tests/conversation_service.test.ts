@@ -9,6 +9,7 @@ type FakeManager = {
     listener: (event: BridgeEvent) => void,
     cursorOrOptions?: string | { afterId?: string; replay?: boolean },
   ) => () => void;
+  releaseWhenIdle: (threadId: string, stillUnused: () => boolean) => void;
 };
 
 type FakeRouting = {
@@ -34,8 +35,10 @@ function makeServiceHarness() {
   const surfaceThreads = new Map<string, string | null>();
   const subscribeCalls: Array<{ threadId: string; cursorOrOptions: unknown }> = [];
   let unsubscribeCalls = 0;
+  const releases: Array<{ threadId: string; stillUnused: () => boolean }> = [];
 
   const manager: FakeManager = {
+    releaseWhenIdle(threadId, stillUnused) { releases.push({ threadId, stillUnused }); },
     subscribeToThreadEvents(threadId, _listener, cursorOrOptions) {
       subscribeCalls.push({ threadId, cursorOrOptions });
       return () => {
@@ -89,6 +92,7 @@ function makeServiceHarness() {
     service,
     subscribeCalls,
     getUnsubscribeCalls: () => unsubscribeCalls,
+    releases,
   };
 }
 
@@ -107,6 +111,11 @@ describe("ConversationService surface subscriptions", () => {
     expect(h.getUnsubscribeCalls()).toBe(1);
     expect(h.subscribeCalls).toHaveLength(2);
     expect(h.subscribeCalls[1]?.threadId).toBe("thread-b");
+    // The thread the surface left releases its session once idle, unless a surface takes it up again.
+    expect(h.releases.map((release) => release.threadId)).toEqual(["thread-a"]);
+    expect(h.releases[0]!.stillUnused()).toBe(true);
+    await h.service.bindSurfaceToThread("discord", "chan-2", "thread-a");
+    expect(h.releases[0]!.stillUnused()).toBe(false);
   });
 
   test("bind to same thread does not duplicate subscription", async () => {
@@ -128,6 +137,7 @@ describe("ConversationService surface subscriptions", () => {
 
     h.service.clearSurfaceBinding("discord", "chan-1");
     expect(h.getUnsubscribeCalls()).toBe(1);
+    expect(h.releases.map((release) => release.threadId)).toEqual(["thread-a"]);
   });
 
   test("replacing surface listener unsubscribes prior listener", async () => {

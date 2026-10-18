@@ -91,6 +91,8 @@ export type { ThreadDefaults };
 
 export class SessionManager {
   private sessionsByThread = new Map<string, ManagedSession>();
+  /** Threads whose session stops once their running work finishes, if still unused then. */
+  private pendingReleases = new Map<string, () => boolean>();
   private approvals = new ApprovalsStore();
   private tokenUsageByThread = new Map<string, ThreadTokenUsage>();
   private cwdByThread = new Map<string, string>();
@@ -567,6 +569,7 @@ export class SessionManager {
 
   stopAll(): void {
     this.stopped = true;
+    this.pendingReleases.clear();
     for (const session of this.ownedSessions) this.releaseSession(session);
     this.sessionsByThread.clear();
     this.tokenUsageByThread.clear();
@@ -574,6 +577,30 @@ export class SessionManager {
     this.modelStateByThread.clear();
     this.effortStateByThread.clear();
     this.runtimeByThread.clear();
+  }
+
+  /** Stops a thread's session once it has no running turn, background work or pending approval,
+   * releasing the agent's resources. History, workspace and ownership stay; resuming the thread
+   * opens a new session. `stillUnused` is asked again when running work finishes, so a thread
+   * taken up again meanwhile keeps its session. */
+  releaseWhenIdle(threadId: string, stillUnused: () => boolean): void {
+    if (!this.sessionsByThread.has(threadId)) return;
+    this.pendingReleases.set(threadId, stillUnused);
+    this.settleRelease(threadId);
+  }
+
+  private settleRelease(threadId: string): void {
+    const stillUnused = this.pendingReleases.get(threadId);
+    if (!stillUnused) return;
+    const managed = this.sessionsByThread.get(threadId);
+    if (!managed || !stillUnused()) { this.pendingReleases.delete(threadId); return; }
+    const runtime = this.runtimeByThread.get(threadId);
+    const busy = !!runtime && (runtime.activeTurnId !== null || runtime.backgroundTaskCount > 0);
+    if (busy || this.approvals.listByThread(threadId).some((approval) => approval.status === "pending")) return;
+    this.pendingReleases.delete(threadId);
+    this.discardThreadSession(threadId);
+    // A session another thread still uses stays running.
+    if (![...this.sessionsByThread.values()].some((other) => other.session === managed.session)) this.releaseSession(managed.session);
   }
 
   /** Pauses new turns until resumed. Running turns, steering, interrupts and approvals continue. */
@@ -714,6 +741,8 @@ export class SessionManager {
       if (runtime && (event.payload.turnId === null || event.payload.turnId === runtime.activeTurnId)) runtime.activeTurnId = null;
     }
     if (event.type === "thread.status.changed" && runtime) runtime.backgroundTaskCount = event.payload.status.backgroundTaskCount;
+    // Work finishing may let a thread no surface uses release its session.
+    if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "thread.status.changed") queueMicrotask(() => this.settleRelease(event.threadId));
     if (event.type === "thread.settings.changed") {
       const { model, effort, cwd, profile } = event.payload;
       if (runtime) runtime.profile = profile;

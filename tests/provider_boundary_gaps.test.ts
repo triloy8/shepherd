@@ -519,3 +519,44 @@ test("while a restart drains, new turns wait but running turns can be steered an
     expect(conversation.getRuntimeActivity().activeTurnThreadIds).toEqual([idle]);
   } finally { conversation.stopAll(); }
 });
+
+test("a thread no surface uses releases its session once idle, and resuming it opens a new one", async () => {
+  const sessions: IndependentSession[] = [];
+  const services = assembleProviderServices([{ ...registration(), provider: sessionProvider(() => { const session = new IndependentSession(); sessions.push(session); return session; }, descriptor.capabilities)}], directory(), descriptor.id);
+  const conversation = new ConversationService({ providers: services });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  try {
+    // An idle thread releases its session as soon as its surface leaves.
+    const idle = (await conversation.createThread({})).threadId;
+    await conversation.bindSurfaceToThread("web", "tab-1", idle);
+    const idleSession = sessions.at(-1)!;
+    conversation.releaseSurface("web", "tab-1");
+    expect(idleSession.stopped).toBe(true);
+    expect(() => conversation.getThreadState(idle)).toThrow();
+
+    // A busy thread keeps its session until its turn ends.
+    const busy = (await conversation.createThread({})).threadId;
+    await conversation.bindSurfaceToThread("web", "tab-2", busy);
+    const busySession = sessions.at(-1)!;
+    await conversation.submitTurn(busy, { input: [toTextUserInput("long task")] });
+    conversation.clearSurfaceBinding("web", "tab-2");
+    expect(busySession.stopped).toBe(false);
+    await conversation.interruptTurn(busy); await settle();
+    expect(busySession.stopped).toBe(true);
+
+    // A thread taken up again before its work ends keeps its session.
+    const kept = (await conversation.createThread({})).threadId;
+    await conversation.bindSurfaceToThread("web", "tab-3", kept);
+    const keptSession = sessions.at(-1)!;
+    await conversation.submitTurn(kept, { input: [toTextUserInput("long task")] });
+    conversation.clearSurfaceBinding("web", "tab-3");
+    await conversation.bindSurfaceToThread("web", "tab-4", kept);
+    await conversation.interruptTurn(kept); await settle();
+    expect(keptSession.stopped).toBe(false);
+
+    // A released thread resumes in a new session.
+    await conversation.resumeThread(idle, {});
+    expect(sessions.at(-1)!.stopped).toBe(false);
+    expect(sessions.at(-1)).not.toBe(idleSession);
+  } finally { conversation.stopAll(); }
+});

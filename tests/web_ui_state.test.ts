@@ -347,3 +347,14 @@ test("a live message history lacks stays in its own turn rather than moving belo
   state = mergeHistory(state, [turnOf("t2", [user("t2", "what next?"), { id: "next", type: "assistant_message", text: "Discord.", phase: "final" }])]);
   expect(state.messages.at(-1)?.id).toBe("streaming");
 });
+
+test("a turn remembers what started it, live and from history", () => {
+  let state = reduceBridge(emptyChat(), event("start", "turn.started", { turnId: "wake", trigger: "background" }));
+  expect(state.turns.wake?.trigger).toBe("background");
+  state = reduceBridge(state, event("own", "turn.started", { turnId: "mine" }));
+  expect(state.turns.mine?.trigger).toBeUndefined();
+  const turn = (id: string, trigger?: "background"): HistoryTurn => ({ id, ...(trigger ? { trigger } : {}), items: [], status: "completed", itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: null });
+  const loaded = mergeHistory(emptyChat(), [turn("later", "background"), turn("first")]);
+  expect(loaded.turns.later?.trigger).toBe("background");
+  expect(loaded.turns.first?.trigger).toBeUndefined();
+});

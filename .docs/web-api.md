@@ -258,7 +258,10 @@ History items have an application `type`: `user_message` (with `content` parts `
 `phase` of `interim` or `final`), `plan`, `reasoning` (with `parts` and a `form`: `summary` when
 the provider wrote a summary of its reasoning, `full` when it is the reasoning itself),
 `activity`, `image`, or `other`.
-Turn `status` is `completed`, `interrupted`, `failed`, or `in_progress`. Live, an interrupted
+Turn `status` is `completed`, `interrupted`, `failed`, or `in_progress`. A turn that was not a
+person's message carries `trigger` (today only `background`: the agent's own background work
+woke it), in history and on `turn.started`. A provider's capabilities list the triggers it
+reports in `turnTriggers`; for a provider that lists none, an unmarked turn means unknown. Live, an interrupted
 turn ends with `turn.completed` carrying `interrupted: true`.
 Activity items carry `status` (`started`, `completed` or `failed`) and a typed `activity`.
 Image items carry `webImage: { url, prompt, name, path, kind }` instead of a server path.

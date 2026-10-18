@@ -1,5 +1,6 @@
 import type { PolicyProfile } from "./execution_policy.js";
 import type { UserInput } from "./user_input.js";
+import type { TurnTrigger } from "./requests.js";
 
 /** Adapter transport and operation support. Selected-model constraints live in ModelCapabilities. */
 export interface ProviderCapabilities {
@@ -30,6 +31,9 @@ export interface ProviderCapabilities {
    * restrictive one within the requested policy. */
   policyProfiles: readonly PolicyProfile[];
   inputKinds: readonly UserInput["type"][];
+  /** The turn triggers this provider reports. A provider that lists none leaves every turn
+   * unmarked, which means unknown rather than started by a person. */
+  turnTriggers?: readonly TurnTrigger[];
   imageDetail: boolean;
 }
 

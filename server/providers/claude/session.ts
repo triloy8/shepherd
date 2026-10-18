@@ -311,7 +311,7 @@ export class ClaudeSession implements ThreadSession {
     const turn = this.transcript.beginTurn(this.wakeRunId ?? randomUUID(), Date.now() / 1000, null);
     this.wakeRunId = null;
     this.activeTurnId = turn.id; this.interrupted = false;
-    this.publish("turn.started", { turnId: turn.id });
+    this.publish("turn.started", { turnId: turn.id, trigger: "background" });
   }
   private finishTurn(status: "completed" | "interrupted" | "failed", error?: unknown): void {
     if (!this.transcript.current) return;

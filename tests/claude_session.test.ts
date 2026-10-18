@@ -416,7 +416,7 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   await expect(session.startTurn([toTextUserInput("change")], { model: "opus" })).rejects.toThrow("Wait for background tasks");
   expect(fake.calls).toHaveLength(callsBeforeResult);
   const started = waitFor("turn.started"); const completed = waitFor("turn.completed");
-  const liveTurns: string[] = []; session.eventBus.subscribe(event => { if (event.type === "turn.started") liveTurns.push(event.payload.turnId!); }, { replay: false });
+  const liveTurns: string[] = []; const liveTriggers: unknown[] = []; session.eventBus.subscribe(event => { if (event.type === "turn.started") { liveTurns.push(event.payload.turnId!); liveTriggers.push(event.payload.trigger); } }, { replay: false });
   // Two notifications arriving together wake one turn, named by the first task run.
   events.push({ type: "system", subtype: "task_notification", task_id: "task-1", run_id: "run-1", status: "completed", output_file: "", summary: "done" } as SDKMessage);
   events.push({ type: "system", subtype: "task_notification", task_id: "task-2", run_id: "run-2", status: "completed", output_file: "", summary: "done" } as SDKMessage);
@@ -426,6 +426,8 @@ test("background tasks retain the SDK stream, prevent restart, and record later 
   expect(await turns()).toHaveLength(2);
   // History names the wake turn as the live stream did.
   expect((await turns())[1]!.id).toBe("run-1"); expect((await turns())[1]!.status).toBe("completed");
+  // The wake turn says background work started it, live and in history.
+  expect(liveTriggers).toEqual(["background"]); expect((await turns())[1]!.trigger).toBe("background"); expect((await turns())[0]!.trigger).toBeUndefined();
   expect((await turns())[1]!.items).toMatchObject([{ type: "assistant_message", text: "Background result" }]);
   const cleared = waitFor("thread.status.changed");
   events.push({ type: "system", subtype: "background_tasks_changed", tasks: [] } as SDKMessage); await cleared;
@@ -889,8 +891,9 @@ test("stored transcripts decode prompts, steering, interruptions and background 
   ]);
   expect(turns[0]!.durationMs).toBe(8_000);
   expect(turns[1]!.items).toEqual([{ id: "prompt-2", type: "user_message", content: [{ type: "text", text: "Deploy it" }] }, { id: "m4", type: "assistant_message", text: "Starting.", phase: "interim" }]);
-  // Background notifications are not the user's words.
+  // Background notifications are not the user's words; the turn says background work started it.
   expect(turns[2]!.items).toEqual([{ id: "m5", type: "assistant_message", text: "The task finished.", phase: "final" }]);
+  expect(turns.map(turn => turn.trigger ?? null)).toEqual([null, null, "background"]);
   // A turn still running in this process stays in progress, with its text not yet classified.
   const running = decodeTranscript([entry("user", { role: "user", content: "Go" }, { uuid: "live" }), entry("assistant", { id: "m6", content: [{ type: "text", text: "Working" }] })], "live");
   expect(running.turns).toMatchObject([{ id: "live", status: "in_progress", items: [{ type: "user_message" }, { id: "m6", text: "Working" }] }]);

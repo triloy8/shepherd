@@ -1,5 +1,5 @@
 import type { ApprovalRecord, ApprovalRequestPayload } from "./approvals.js";
-import type { HistoryItem, ReasoningForm, ThreadTokenUsage } from "./requests.js";
+import type { HistoryItem, ReasoningForm, ThreadTokenUsage, TurnTrigger } from "./requests.js";
 
 /** Interim text reports progress during a turn; final text answers it. */
 export type MessagePhase = "interim" | "final";
@@ -27,7 +27,8 @@ export interface BridgeEventPayloads {
   "thread.reverted": Record<string, never>;
   "thread.unarchived": Record<string, never>;
   "thread.tokenUsage.updated": { turnId: string | null; tokenUsage: ThreadTokenUsage | null };
-  "turn.started": { turnId: string | null };
+  /** `trigger` says what started a turn that was not a person's message, as history reports it. */
+  "turn.started": { turnId: string | null; trigger?: TurnTrigger };
   /** `interrupted` marks a turn stopped before it finished, as history then reports it. */
   "turn.completed": { turnId: string | null; interrupted?: boolean };
   "turn.failed": { message: string; turnId: string | null };

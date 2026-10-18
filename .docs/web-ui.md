@@ -15,7 +15,8 @@ turn completes.
 Completed work remains collapsible even when a tool step failed. The work summary
 shows the number of failed steps; expand it to inspect their details. Failed or
 interrupted turns themselves retain expanded progress, and an interrupted turn is
-labelled **Interrupted work** as soon as it stops.
+labelled **Interrupted work** as soon as it stops. A turn the agent's own background work
+started, with no message from you, opens with **Started when background work finished**.
 
 Steps show their progress while they run. A plan and the agent's reasoning appear as
 running steps that fill in as they stream: **Reasoning summary** when the agent

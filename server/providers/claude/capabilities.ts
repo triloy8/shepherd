@@ -7,5 +7,7 @@ export const claudeCapabilities: ProviderCapabilities = Object.freeze({
   skillConfig: false, questions: true, skills: false, compact: false, revert: false, fork: true, accountReset: false,
   policyProfiles: claudeProfiles,
   inputKinds: Object.freeze(["text", "image"] as const),
+  // Claude Code records when its own background work wakes a conversation.
+  turnTriggers: Object.freeze(["background"] as const),
   imageDetail: false,
 });

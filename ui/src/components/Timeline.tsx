@@ -1,5 +1,6 @@
 import { memo, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type { WebImage } from "../../../shared/protocol/web";
+import type { TurnTrigger } from "../../../shared/protocol/requests";
 import { RevertDialog } from "./RevertDialog";
 import { messageKey, type ActivityStep as Step, type ChatMessage, type ChatState } from "../chat-state";
 import { timelineGroups, type TimelineGroup } from "../timeline";
@@ -20,13 +21,16 @@ export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true
     return groups.map((group) => group.messages.flatMap((message) => rows.get(key(message.turnId, message.id)) ?? []));
   }, [chat.messages, groups]);
   return <><div className="space-y-8">{groups.map((group, index) => <TimelineGroupView key={messageKey(group.messages[0]!)} group={group} subagentRows={subagentRows[index]!} images={images}
-    waiting={waitingForAnswer && group.messages[0]!.turnId === chat.activeTurnId} turnStatus={chat.turns[group.messages[0]!.turnId]?.status} revertDisabled={revertDisabled} canRevert={!!onRevert} setTarget={setTarget} />)}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
+    waiting={waitingForAnswer && group.messages[0]!.turnId === chat.activeTurnId} turnStatus={chat.turns[group.messages[0]!.turnId]?.status}
+    trigger={groups[index - 1]?.messages[0]?.turnId === group.messages[0]!.turnId ? undefined : chat.turns[group.messages[0]!.turnId]?.trigger} revertDisabled={revertDisabled} canRevert={!!onRevert} setTarget={setTarget} />)}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
     available={!!target && chat.messages.some((message) => message.id === target.id && message.turnId === target.turnId)}
     onClose={() => setTarget(null)} revert={onRevert} reload={onReload} />}</>;
 }
 
-const TimelineGroupView = memo(function TimelineGroupView({ group, subagentRows, images, waiting, turnStatus, revertDisabled, canRevert, setTarget }: {
-  group: TimelineGroup; subagentRows: readonly ChatMessage[]; images: readonly WebImage[]; waiting: boolean; turnStatus?: string; revertDisabled: boolean; canRevert: boolean;
+const TimelineGroupView = memo(function TimelineGroupView({ group, subagentRows, images, waiting, turnStatus, trigger, revertDisabled, canRevert, setTarget }: {
+  group: TimelineGroup; subagentRows: readonly ChatMessage[]; images: readonly WebImage[]; waiting: boolean; turnStatus?: string;
+  /** What started this turn when it was not a person's message; shown on the turn's first group. */
+  trigger?: TurnTrigger; revertDisabled: boolean; canRevert: boolean;
   setTarget: Dispatch<SetStateAction<ChatMessage | null>>;
 }) {
     if (group.messages[0]!.role === "user") return <Message message={group.messages[0]!} revertDisabled={revertDisabled} onRevert={canRevert ? () => setTarget(group.messages[0]!) : undefined} />;
@@ -42,6 +46,7 @@ const TimelineGroupView = memo(function TimelineGroupView({ group, subagentRows,
       {subagentRows.some((row) => row.parentId === message.id && row.turnId === message.turnId) && <SubagentRows rows={subagentRows.filter((row) => row.parentId === message.id && row.turnId === message.turnId)} images={images} turnStatus={turnStatus} />}
     </ActivityStep> : <Message key={message.id} message={message} images={images} writingPaused={waiting} progress showCopy={false} />)}</div>;
     return <section className="timeline-entry space-y-5" aria-label="Assistant turn">
+      {trigger === "background" && <p className="turn-trigger text-xs text-muted">Started when background work finished</p>}
       {progress.length > 0 && (group.settled ?
         <DeferredDetails summary={<>{group.label}{failures > 0 && <span className="text-amber-400"> · {failures} failed {failures === 1 ? "step" : "steps"}</span>}</>} >{updates}</DeferredDetails> :
         <div><p className="mb-3 text-xs text-muted">{waiting ? "Waiting for your answer…" : group.label}</p>{updates}</div>)}
@@ -50,7 +55,7 @@ const TimelineGroupView = memo(function TimelineGroupView({ group, subagentRows,
         {finals.map((message) => message.image ? <ImageArtifact key={message.id} image={message.image} collapsePrompt /> : <Message key={message.id} message={message} images={images} writingPaused={waiting} showAuthor={!hasGeneratedImage} showCopy={group.settled} />)}
       </div>}
     </section>;
-}, (previous, next) => previous.waiting === next.waiting && previous.turnStatus === next.turnStatus && previous.revertDisabled === next.revertDisabled && previous.canRevert === next.canRevert &&
+}, (previous, next) => previous.waiting === next.waiting && previous.turnStatus === next.turnStatus && previous.trigger === next.trigger && previous.revertDisabled === next.revertDisabled && previous.canRevert === next.canRevert &&
   previous.group.settled === next.group.settled && previous.group.label === next.group.label &&
   previous.group.finalIds.length === next.group.finalIds.length && previous.group.finalIds.every((id, index) => id === next.group.finalIds[index]) &&
   previous.group.messages.length === next.group.messages.length && previous.group.messages.every((message, index) => message === next.group.messages[index]) &&

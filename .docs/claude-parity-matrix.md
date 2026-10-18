@@ -61,7 +61,7 @@ login, not a blanket approval for distributing a subscription login product.
 | Preserve provider identity | Implemented | Explicit persistent thread/provider binding; resume and fork retain the provider. No in-place provider migration. |
 | Start a Claude session | Implemented | SDK `query()` with a session ID Shepherd chooses, which is the conversation ID. A rename or archive requested before Claude creates the session is applied once it exists. |
 | Continue across turns | Implemented | Keeps the query/input stream open; resumes the native session when a query must restart. |
-| Resume after process restart | Implemented | Reads the session and its workspace through the SDK (`getSessionInfo`, `getSessionMessages`) and resumes it with the model Claude last used. Preserve Claude's storage and Shepherd's provider bindings. Claude does not record Shepherd's approval mode or effort, so a resumed conversation uses the requested values or the host defaults. |
+| Resume after process restart | Implemented | Reads the session and its workspace through the SDK (`getSessionInfo`, `getSessionMessages`) and resumes it with the model Claude last used. Preserve Claude's storage and Shepherd's provider bindings. Claude does not record the policy profile or effort, so a resumed conversation runs within the requested policy or the host's, with the requested or host effort. |
 | Fork | Implemented | SDK `forkSession()` for materialized sessions, searching every project directory because a thread's workspace can move after its transcript was written; a fresh ID for a thread not yet materialized. Overrides apply to the fork only. |
 | Rename, archive, restore | Implemented | SDK `renameSession()` sets the session title; archiving sets the session tag to `archived` (`tagSession()`), which replaces any other tag on that session. |
 | Stored thread listing/filtering/pagination | Implemented | SDK `listSessions()`: every Claude Code session, including ones started outside Shepherd, with title/prompt search, cwd/archive filters and sorting. |
@@ -183,7 +183,7 @@ Primary implementation sources:
 Regression evidence:
 [session tests](../tests/claude_session.test.ts),
 [account limits tests](../tests/claude_account_limits.test.ts),
-[account service/API tests](../tests/provider_account_limits.test.ts),
+[account API tests](../tests/web_settings.test.ts),
 [authentication tests](../tests/claude_authentication.test.ts),
 [background tests](../tests/claude_background_tasks.test.ts),
 [architecture tests](../tests/architecture_boundaries.test.ts).

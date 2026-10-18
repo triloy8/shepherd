@@ -14,7 +14,20 @@ turn completes.
 
 Completed work remains collapsible even when a tool step failed. The work summary
 shows the number of failed steps; expand it to inspect their details. Failed or
-interrupted turns themselves retain expanded progress.
+interrupted turns themselves retain expanded progress, and an interrupted turn is
+labelled **Interrupted work** as soon as it stops.
+
+Steps show their progress while they run. A plan and the agent's reasoning appear as
+running steps that fill in as they stream: **Reasoning summary** when the agent
+reports a summary of its reasoning, as both Codex and Claude do, or **Reasoning** for
+reasoning itself. A running command shows its output so far. A finished command keeps
+the end of what it printed (its last 4 KB), and a failed one names its exit code, such
+as **Running command · Failed · exit 1**; both survive a reload.
+
+Work a delegated agent does appears inside its **Delegating to an agent** step: its
+reasoning, tool calls and report, never as the conversation's answer. A background
+agent that finishes after its turn still reports inside that step, and its result
+then starts a new turn.
 
 Completed Codex `imageView` items expose the existing local image, including
 Playwright screenshots opened with `view_image`. Viewed images (`kind: "viewed"`)
@@ -200,7 +213,11 @@ The sidebar’s **Host controls** opens host status, running and checkout commit
 remote refs, restart, and deploy. These controls work without selecting a conversation.
 Both actions require confirmation because they affect every surface. Leave the
 branch blank for stable main or enter a preview branch; deploy main to return to
-stable. Shared lifecycle guards refuse actions while turns or approvals are active.
+stable. Either may be started while agents work. A restart, and a deploy once it
+validates, waits for running turns, background tasks and pending approvals, showing
+what it waits for; new messages are refused meanwhile with a "restarting" message,
+while reading, interrupting and answering approvals keep working. If the work has not
+finished after 30 minutes, Shepherd keeps running and accepts new turns again.
 
 Deployment runs in the background and status polls show validation progress,
 validation failure/restoration details, or restart. Command output is rendered as

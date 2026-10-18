@@ -218,7 +218,7 @@ and the browser uses the appropriate set to gate image attachments.
 Core learns a thread's state from its adapter's events, never by reading adapter fields:
 `turn.started` and `turn.completed`/`turn.failed` give the running turn,
 `thread.status.changed` the background task count, and `thread.settings.changed` the model,
-effort, workspace and approval mode the thread now runs with. Bootstrap reports the
+effort, workspace and policy profile the thread now runs with. Bootstrap reports the
 initial settings; every turn start and workspace change publishes `thread.settings.changed`.
 A pending model or effort selection is settled when the adapter reports applying it, so a
 failed start leaves it pending and retryable, and a selection made while a turn starts
@@ -273,8 +273,8 @@ not public fields. Their native configuration remains provider-owned. Unknown re
 fields are rejected, not ignored. Model backend configuration belongs in the provider's
 native settings. List sorting uses creation or update time across every provider.
 
-Descriptors advertise approval modes, sandbox modes, input kinds,
-and image-detail controls, alongside operation capabilities.
+Descriptors advertise policy profiles, input kinds and image-detail controls, alongside
+operation capabilities.
 Core checks these before bootstrap, submit, or steer, and adapters enforce them for direct
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
 local-file, audio, skill-reference, or image-detail support. Model/effort
@@ -319,8 +319,7 @@ For an unbound stored conversation, registered adapters identify ownership from 
 records; exactly one match is required and the binding is then persisted. Unknown or
 ambiguous identities fail rather than guessing a default provider or inspecting an ID
 prefix in shared code. Existing bindings remain immutable. Claude's session does not record
-Shepherd's approval mode, so resume and fork use the requested mode or the host's configured
-mode. Provider-native transcripts remain adapter-owned. Web navigation
+the policy profile, so resume and fork run within the requested policy or the host's. Provider-native transcripts remain adapter-owned. Web navigation
 handles and SSE replay are volatile; persisted history is the recovery source. Reconnecting
 never automatically resends a prompt.
 

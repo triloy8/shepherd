@@ -15,6 +15,9 @@ see [provider configuration](.docs/provider-abstraction.md#configuration-and-per
 
 - Create and resume conversations in GitHub checkouts or local directories.
 - Stream responses, separate progress from final answers, and display tool activity.
+- Watch plans, reasoning summaries and command output as they stream; finished commands
+  keep their output and exit code.
+- See delegated agents' work inside the step that started them, including background agents.
 - Send PNG, JPEG, GIF, and WebP images and view generated images.
 - Render Mermaid diagrams in web responses and draft previews using fenced `mermaid` code blocks, with source viewing and copying.
 - Steer an active turn with a follow-up or interrupt it.
@@ -22,7 +25,8 @@ see [provider configuration](.docs/provider-abstraction.md#configuration-and-per
 - Rename, fork, archive, restore, compact, and roll back conversations.
 - Select models and reasoning effort; inspect context usage and account limits.
 - Discover skills, reload them, and enable or disable them.
-- Restart Shepherd or deploy a branch with build and test validation.
+- Restart Shepherd or deploy a branch with build and test validation; both wait for
+  running work to finish.
 
 The [surface parity matrix](.docs/surface-parity-matrix.md) lists support and
 limitations for Discord and web. Their interfaces differ: Discord binds channels
@@ -331,8 +335,11 @@ Use `!help` for the command list:
 ## Restart and deployment
 
 Use Discord commands or **Host controls** in the web sidebar. These operations affect
-all surfaces. Active turns, pending approvals, and pending user questions block
-restart/deployment.
+all surfaces. Either may be started while agents work: a restart, and a deploy once it
+validates, waits for active turns, background tasks, pending approvals and pending user
+questions to finish. New turns are refused meanwhile, while interrupts and approvals keep
+working. If the work has not finished after 30 minutes, Shepherd keeps running and accepts
+new turns again.
 
 Deploy requires a clean checkout. It fetches `origin/main` by default, or the
 selected branch, checks out the fetched commit, and runs:
@@ -383,22 +390,26 @@ codex app-server generate-json-schema --out ./schemas
 
 | Path | Responsibility |
 | --- | --- |
-| `server/providers/` | Native Codex and Claude SDK adapters |
-| `server/ports/` | Storage contracts for native adapters |
-| `server/storage/` | File storage and provider identity bindings |
-| `server/core/` | Shared policy, actions, conversation state, workspaces, and orchestration; surfaces use it only through `surface_api.ts` |
-| `server/runtime/` | Surface assembly and process lifecycle |
+Listed from the top layer down; each layer imports only the ones below it.
+
+| Path | Responsibility |
+| --- | --- |
+| `server/main.ts`, `server/runtime/` | Composition: wires surfaces, core and providers; process lifecycle |
 | `server/adapters/discord/` | Discord input, commands, rendering, and delivery |
 | `server/adapters/web/` | Built-in UI serving, private HTTP API, and SSE events |
 | `ui/` | React, TypeScript, and Tailwind UI built with Vite |
-| `server/adapters/shared/` | Presentation helpers surfaces share: body parsing, answer streaming, paging, image loading |
 | `server/adapters/webhook/`, `server/signals/` | Local signal ingress and registered signal kinds |
+| `server/adapters/shared/` | Presentation helpers surfaces share: body parsing, answer streaming, paging, image loading |
+| `server/core/` | Conversations, workspaces, signals, lifecycle and surface services, in sub-layers; surfaces use it only through `surface_api.ts` |
+| `server/providers/` | Native Codex and Claude adapters, and support they share |
+| `server/ports/` | The provider port: what core needs from an agent |
+| `server/config/`, `server/storage/`, `envs/` | Configuration loading, provider identity bindings, and templates |
 | `shared/protocol/`, `schemas/` | Application contracts and generated provider schemas |
-| `server/config/`, `envs/` | Runtime configuration loading and templates |
 | `deploy/` | Host setup, supervisors, and optional networking setup |
 
-Adapters own transport and presentation. Shared behavior belongs in the core;
-one surface does not call another surface's command handlers.
+Adapters own transport and presentation. Shared behavior belongs in the core; one surface
+does not call another surface's command handlers. See [Architecture](.docs/architecture.md)
+for the layers and the tests that enforce them.
 
 ## Local signals
 

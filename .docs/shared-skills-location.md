@@ -5,8 +5,9 @@ Shepherd's generic `github` and `playwright-cli` skills are maintained in
 installed at `~/.agents/skills`. Shepherd no longer vendors these skills.
 Project-specific skills remain in their project repositories.
 
-This guide covers the host deployment launched from `~/shepherd`. Docker is
-outside this migration's scope.
+This guide covers the host deployment launched from `~/shepherd`; Docker is out of
+scope. The one-time move from vendored skills is archived in
+[shared skills migration](archive/shared-skills-migration.md).
 
 ## Install
 
@@ -132,32 +133,6 @@ The output must include `github` and `playwright-cli`. With a custom
 `SHEPHERD_SKILLS_DIR` or `CLAUDE_CONFIG_DIR`, the block uses those configured
 directories. An already-running session must be reopened to load the new link.
 
-## Migrate an existing host
-
-1. Record the old skills revision and local changes. Privately back up
-   `~/shepherd/.agents/skills/github/local.env` outside Git.
-2. Install the shared checkout and confirm its ignore rule before restoring
-   the existing private policy into `~/.agents/skills/github/local.env`.
-   Preserve the policy values; do not replace them with the example template.
-3. Verify discovery in a thread targeting a different repository with
-   `!skills reload`. Both skills must be enabled and resolve to their shared
-   paths. Also verify the GitHub skill can load the policy without printing it.
-4. Apply the Shepherd revision that removes the tracked vendored skills.
-   Remove the old private policy after successful verification. Preserve any
-   unrelated local files. Retire old generic skill copies in active workspaces
-   too, so they do not cause duplicate-name ambiguity.
-5. Create the Claude Code link described in
-   [Claude Code discovery](#claude-code-discovery) and verify it.
-6. Reload skills for the Shepherd repository and active workspaces. Expect
-   exactly one `github` and one `playwright-cli`, both from the shared location.
-   Codex watches skill changes; open a fresh thread if an existing context
-   still advertises the retired paths.
-
-The underlying verification API is `skills/list` with the target repository in
-`cwds` and `forceReload: true`, which is also what `!skills reload` requests.
-[Codex skill discovery documentation](https://developers.openai.com/codex/skills)
-describes the user directory, symlinks, and automatic change detection.
-
 ## Updates and recovery
 
 Keep generic skill edits in the skills repository, including the GitHub skill's
@@ -168,8 +143,7 @@ Record the installed version with `git -C ~/.agents/skills rev-parse HEAD`.
 Review and install updates deliberately; Shepherd does not update skills at
 startup. Preserve ignored policy and local changes during upgrades.
 
-If verification fails, keep or restore the previous checkout and private policy
-and restore any previous launcher override. Do not remove the only working
-installation. Dispose of temporary private backups after verifying the completed
-migration. A successful host migration has one discoverable copy of each generic
-skill, a `~/.claude/skills` link to the shared checkout, preserved Git history, and one readable, ignored private policy file.
+If verification fails, keep or restore the previous checkout and private policy.
+Do not remove the only working installation. A healthy host has one discoverable copy
+of each generic skill, a `~/.claude/skills` link to the shared checkout, and one
+readable, ignored private policy file.

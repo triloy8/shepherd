@@ -1,14 +1,11 @@
 # Architecture
 
-This document describes the current ownership boundaries between Shepherd's
-Discord, web API and webhook adapters, application core, and runtime core.
-
-Reviewed against the code on 2026-09-13. The provider boundary was consolidated on 2026-10-10 (PR #90), and the layers below are enforced since 2026-10-18.
+Shepherd connects surfaces (the web UI, Discord and a local webhook) to coding agents
+(Codex and Claude) through one core. The code is stratified: protocol at the bottom, then
+ports, then providers and core side by side, then the surfaces, and composition on top
+wiring them together. Every import points down, and tests enforce it.
 
 ## Layers
-
-Every import points down these layers; `tests/architecture_layers.test.ts` fails on any that
-doesn't, naming the file and both layers.
 
 | Layer | Paths | May import |
 | --- | --- | --- |
@@ -21,528 +18,199 @@ doesn't, naming the file and both layers.
 | Core: conversation, workspace | `server/core/conversation/`, `server/core/workspace/` | common, ports, protocol |
 | Core: common | `server/core/common/` | ports, protocol |
 | Signals | `server/signals/` | core signals, protocol |
-| Providers | `server/providers/{claude,codex}/` and the shared provider files beside them | provider support, ports, protocol |
+| Providers | `server/providers/{claude,codex}/` | provider support, ports, protocol |
+| Provider support | `server/providers/shared/` | ports, protocol |
 | Storage, config | `server/storage/`, `server/config/` | ports and protocol; protocol |
 | Ports | `server/ports/` | protocol |
 | Protocol | `shared/protocol/` | nothing |
 
-Providers and core never import each other: both depend on the provider port. Surfaces
-reach core only through its front door, `core/surface_api.ts`, so the rest of core is internal.
-`tests/provider_neutral_layers.test.ts` also keeps provider names out of every layer between
-the providers and the protocol.
-
-## Boundary
-
-The adapter paths are split along this rule:
-
-- `server/adapters/discord/*` owns Discord transport, Discord event parsing, Discord rendering, and Discord delivery/runtime glue
-- `server/adapters/web/*` owns browser-origin checks, HTTP routing and bounded SSE replay. It uses shared application, ingress and approval ports.
-- `server/adapters/shared/*` holds presentation helpers surfaces share: bounded body parsing, the
-  streamed-answer reducer, history and skills paging, and generated-image loading.
-- `server/adapters/webhook/*` owns loopback HTTP parsing, route validation, limits, and response mapping; callbacks are unauthenticated
-- `server/core/*` owns reusable policy, action semantics, state, and orchestration
-- `server/runtime/*` assembles shared services and owns process lifecycle; it may wire ingress adapters but must not depend on Discord
-- `shared/protocol/*` owns data contracts and validation, with no adapter dependencies
-
-## Core Model
-
-The core is easiest to understand as two layers:
-
-- `Application Core`
-  Owns application behavior. This is where the four main buckets live:
-  policy, action semantics, state, and orchestration.
-- `Runtime Core`
-  Owns session/runtime infrastructure such as conversation routing, session management,
-  provider sessions, approvals plumbing, and event fanout.
-
-Application services build on the runtime infrastructure. Adapters use those services instead of reconstructing workflows or prerequisites.
-
-### Application Core
-
-Inside the application core, the main buckets are:
-
-- `policy`
-  Chooses what should happen.
-- `action semantics`
-  Defines what user/operator actions mean.
-- `state`
-  Owns authoritative app state and state transitions.
-- `orchestration`
-  Coordinates multi-step workflows across services.
-
-These roles describe ownership within core; they do not require separate directory layers.
-
-## Core Modules
-
-### 1. Policy
-
-These modules decide what should happen, what inputs are valid, and how ambiguous cases are resolved.
-
-- `server/core/workspace/project_target_service.ts`
-  Policy + normalization for repo/project targets such as `owner/repo`, `~`, and `~/path`.
-- `server/core/surface/skill_resolution_service.ts`
-  Policy + resolution for skill names and paths with shared ambiguity behavior.
-- `server/core/surface/turn_routing_policy.ts`
-  Owns normalized surface-input classification and `submit` vs `steer` policy.
-
-These are functional modules, not just abstractions. If they make the wrong decision, Shepherd behaves incorrectly.
-
-### 2. Action Semantics
-
-These modules define what an operator action means after the adapter parses the surface syntax.
-
-- `server/core/surface/control_actions_service.ts`
-  Owns action semantics for repo, model, effort, skill, thread, limits, and context controls.
-- `server/core/surface/surface_actions_service.ts`
-  Owns normalized listening and detach actions.
-- `server/core/common/action_error.ts`
-  Defines structured application failures, leaving surface instructions to adapters.
-
-This is the application command layer. Discord parses commands like `!repo` or `!model`, but this service decides what those commands actually do.
-
-### 3. State
-
-These modules own authoritative state or state transitions that other layers should not reimplement.
-
-- `server/core/surface/surface_state_service.ts`
-  Owns surface-scoped project binding and listening-mode state.
-- `server/adapters/shared/response_stream_reducer.ts`
-  Owns logical streamed-response state transitions from `BridgeEvent`s for surfaces that post
-  a turn's answer.
-
-These are also functional modules. They are the source of truth for those state transitions.
-
-### 4. Orchestration
-
-These modules coordinate multi-step workflows across policy, state, and lower-level services.
-
-- `server/core/workspace/workspace_provisioner.ts`
-  Owns workspace provisioning and `cwd` selection.
-- `server/core/surface/surface_conversation_orchestrator.ts`
-  Owns create/bind/resume/fork/switch/ensure thread orchestration for a surface.
-- `server/core/surface/turn_routing_service.ts`
-  Owns active-turn lookup plus `submitTurn`/`steerTurn` dispatch.
-- `server/core/lifecycle/runtime_lifecycle_orchestrator.ts`
-  Owns restart/deploy eligibility, deployment sequencing, runtime quiescing,
-  recovery announcement ordering, and shutdown requests.
-- `server/core/signals/signal_dispatcher.ts`
-  Owns bounded in-memory queuing, coalescing, per-thread serialization, and
-  signal-turn sequencing.
-
-These are the workflow modules. They do not just expose interfaces; they execute coordinated behavior that spans multiple underlying operations.
-
-## Shared list and history pages
-
-Two surface helpers supply plain data to adapters:
-
-- `server/adapters/shared/skills_page_service.ts` loads a thread's skills inventory and
-  selects a local page. `selectSkillsPage` can also page an inventory already
-  fetched by a caller. Skills and discovery errors retain their cwd, original
-  metadata, and ordering. An empty or shrunken inventory clamps to a valid page.
-- `server/adapters/shared/history_page_service.ts` loads turn summaries or turn items from
-  the conversation provider's paginated history. It owns cursor navigation and the original thread
-  context, including returning from a turn's items to the parent turn page.
-
-Both accept a caller-selected page size; five entries is the Discord adapter's
-choice. Their return values preserve full source data, with no Markdown,
-truncation, components, user IDs, button IDs, or Discord imports.
-
-History starts with `initialHistoryPage(threadId, pageSize)`. Pass the returned
-state to `loadHistoryPage(conversation, state)`; its `first`, `previous`, and
-`next` fields contain complete navigation requests. Previous navigation reuses
-a visited forward cursor rather than reversing direction through an inclusive
-anchor. `openHistoryTurn(page.request, turnId)` carries the parent turn page;
-`returnToHistoryTurns(itemsPage.request)` restores it. Turn lists are newest
-first, while item lists are chronological. Returned API cursors and raw records
-remain available to callers.
-
-For example, a future adapter can load these without importing Discord:
-
-```ts
-import { loadSkillsPage } from "../shared/skills_page_service.js";
-import {
-  initialHistoryPage,
-  loadHistoryPage,
-  openHistoryTurn,
-} from "../shared/history_page_service.js";
-
-const skills = await loadSkillsPage(conversation, {
-  threadId, page: 1, pageSize: 20,
-});
-const history = await loadHistoryPage(conversation, initialHistoryPage(threadId, 20));
-if (history.next) {
-  const older = await loadHistoryPage(conversation, history.next);
-}
-const items = await loadHistoryPage(conversation, openHistoryTurn(history.request, turnId));
-```
-
-The adapter must still authenticate callers, authorize thread access, validate
-transport input, and retain or protect navigation state. The page services
-validate page numbers and cursor continuity, but are not HTTP endpoints or an
-authorization boundary. Navigation state has no core persistence or expiry.
-
-Discord's `history_pagination.ts` is now a renderer and transport wrapper:
-`loadHistoryPage` delegates to core, while `buildHistoryPage` renders an already
-loaded page. It retains requester checks through the interaction handler,
-bounded expiring control IDs, message excerpts, Read buttons, and Discord-sized
-text pages. Skills command and button handlers use the shared loader, then pass
-its result to `buildSkillsListPage` for rendering.
-
-This extraction adds no web adapter, network listener, or new Codex API method.
-
-## Runtime Core
-
-These files are also in `server/core/*`, but they are better understood as runtime infrastructure than as part of the four application buckets:
-
-- `server/core/conversation/conversation_service.ts`
-  Surface-facing conversation API over the lower runtime stack.
-- `server/core/conversation/conversation_routing_service.ts`
-  Surface/thread route resolution and default-thread binding infrastructure.
-- `server/core/conversation/session_manager.ts`
-  Session lifecycle, thread/session lookup, event subscription, and session bookkeeping.
-- `server/core/signals/signal_registry.ts`
-  Versioned signal-kind registration, envelope parsing, payload validation, and
-  trusted target/input resolution.
-- `server/core/signals/conversation_signal_executor.ts`
-  Resolves live surface bindings and bridges dispatcher work into agent turns on the
-  conversation's provider.
-- `server/core/conversation/approvals.ts`
-  Pending approval and structured-question record storage, validation, and lifecycle support.
-- `server/core/lifecycle/deployment_service.ts`
-  Git checkout update, dependency validation, and rollback infrastructure used
-  by runtime deployment orchestration.
-- `server/runtime/shepherd_runtime.ts`
-  Shared conversation, quiescing, restart, and adapter-shutdown lifecycle.
-
-So the simplest mental model is:
-
-- `Application Core` = policy, action semantics, state, orchestration
-- `Runtime Core` = routing, sessions, approvals, event infrastructure
-- `Provider layer` = ports in core, native adapters outside it
-
-## Provider boundary
-
-The production application uses `server/ports/provider_session.ts` and
-`server/ports/provider_services.ts`. They define providers, their thread sessions,
-capabilities, optional features, account readers/resets, factories, and persisted
-thread ownership. Core never imports a provider implementation or branches on
-Codex/Claude identity. Runtime composition registers the installed adapters.
-
-Native input, history, events, approvals, and account quotas are translated under
-`server/providers/`. Application history carries message content, activities, and
-image artifacts. Assistant deltas have a semantic kind. Approval choices have
-opaque tokens and shared intent; exact native replies remain adapter-private.
-Unsupported features are omitted and rejected through capabilities.
-
-The web UI and Discord consume the same application records through one service.
-The HTTP API is `/api`; there is no parallel migration API or compatibility facade.
-The restored main chat presentation and recent-first pagination remain in use.
-See [Provider adapters](provider-abstraction.md) for the complete boundary and
-[Web API](web-api.md) for the transport contract.
-
-## Discord Adapter Modules
-
-### Bootstrap and registration
-
-- `server/adapters/discord/bot.ts`
-  Starts the client, loads environment, builds the Discord runtime, and registers Discord listeners.
-
-### Command handling
-
-- `server/adapters/discord/commands.ts`
-  Parses Discord text commands and formats Discord replies. Semantics are delegated into core services.
-
-### Message ingress
-
-- `server/adapters/discord/message_ingress.ts`
-  Applies mention/open/paused attention policy before attachment downloads, then handles normalization, command delegation, and routing handoff.
-
-### Surface runtime composition
-
-- `server/runtime/surface_runtime.ts` assembles the shared surface context (see
-  [Surface action entry points](#surface-action-entry-points)). In Discord,
-  `commands.ts` aliases it as `CommandContext`.
-
-### Thread event runtime
-
-- `server/adapters/discord/thread_event_handler.ts`
-  Handles thread-event runtime on the Discord side: reducer integration, flush scheduling, approval rendering, and event-line delivery.
-
-### Delivery and rendering
-
-- `server/adapters/discord/chunking.ts`
-  Owns Discord-aware chunk planning, including character and soft-line limits,
-  long-line splitting, and fenced-code-block balancing.
-- `server/adapters/discord/stream_delivery.ts`
-  Applies the chunk plan and owns Discord message edit/send reconciliation.
-- `server/adapters/discord/message_renderer.ts`
-  Owns Discord-specific text formatting and approval button id encoding.
-- `server/adapters/discord/interactions.ts`
-  Owns Discord button and user-question modal interaction handling.
-
-## Webhook Signal Modules
-
-- `server/adapters/webhook/server.ts`
-  Exposes routed `POST /signals/:routeId` callbacks and `GET /health` through a
-  bounded loopback-only Bun HTTP server.
-- `server/signals/research_state_changed.ts`
-  Defines the first typed signal kind and its bounded research-inspection input.
-- `server/config/signal_environment.ts`
-  Loads stable opt-in listener, body-limit, and queue configuration.
-- `server/core/conversation/dynamic_tool_registry.ts`
-  Advertises and dispatches explicitly registered application tools through the
-  `ProviderTools` port (`server/ports/provider_tools.ts`). Codex declares them as
-  dynamic tools; Claude exposes them through an in-process MCP server. The registry
-  validates tool media as base64 `data` plus a matching `mimeType`; adapters encode
-  it into Codex data URLs or MCP media blocks. Remote tool media URLs are unsupported.
-- `server/core/signals/signal_route_registry.ts`
-  Owns bounded, expiring, process-local callback routes.
-- `server/core/signals/signal_route_service.ts`
-  Converts trusted `item/tool/call` context into a callback URL.
-
-## Main Runtime Flows
-
-### Message ingress
-
-1. `bot.ts` receives `messageCreate`
-2. `message_ingress.ts` applies the surface listening mode before downloading attachments, then sanitizes/normalizes accepted input
-3. `commands.ts` handles Discord command syntax if applicable
-4. `turn_routing_service.ts` executes routing using core policy
-5. `ConversationService` and lower layers talk to the conversation's provider session
-
-### Thread events back to Discord
-
-1. `ConversationService` emits thread events
-2. `server/runtime/surface_runtime.ts` wires those events to the Discord thread-event handler
-3. `thread_event_handler.ts` feeds events into `response_stream_reducer.ts`
-4. `stream_delivery.ts` updates Discord messages
-5. `message_renderer.ts` handles event/approval text formatting
-
-### Structured user questions
-
-1. The provider asks. Codex: app-server sends `item/tool/requestUserInput`; `CodexSession` validates the active thread/turn and questions, retains the original RPC ID, and emits `approval.requested` with typed `userInput` metadata. Claude: the SDK calls `canUseTool` for `AskUserQuestion`; `ClaudeSession` converts the questions with `questions.ts` and emits the same event.
-2. `SessionManager` creates a pending record in `ApprovalsStore`. The existing routing delivers it to the selected surface.
-3. Web renders `UserQuestions`; Discord renders a question card and opens a text modal for supported requests. The provider's `isBlocking` flag distinguishes waiting from background questions.
-4. The surface submits `decision: "submit"` plus the question-ID answer map through the bound decision port. Core validates every answer before consuming the pending record; explicit `cancel` returns an empty map.
-5. The provider session answers exactly once: `CodexSession` resolves the retained RPC ID; `ClaudeSession` resolves the `canUseTool` callback with the answers keyed by question text. Answer text is not copied into decision records or bridge events.
-6. Codex `serverRequest/resolved`, a Claude abort signal, and session cleanup expire pending question records through `approval.expired`; turn completion/failure also expires their pending state. Stale answers cannot resolve another request.
-
-`shared/protocol/user_questions.ts` owns adapter-independent question/answer
-contracts and validation. Question handling reuses the existing pending decision
-API, routing, and lifecycle guards; it is distinct from command/file-change
-permission decisions and unsupported MCP elicitation. The narrower interaction
-capability includes `listApprovals` so Discord can load a pending question form.
-See [question workflows](user-questions.md) and the [wire contract](web-api.md#structured-user-questions).
-
-### Local webhook signals
-
-1. During a live turn, the agent calls `shepherd.get_signal_callback` for a registered kind and version: Codex as a dynamic tool, Claude through Shepherd's MCP server
-2. Codex app-server sends `item/tool/call`, or the Claude MCP bridge receives the call; Shepherd validates the active thread and turn, captures its live surface, and returns a fresh opaque URL
-3. The agent passes that URL to the detached producer as a CLI argument
-4. The producer posts a typed envelope to `POST /signals/:routeId`
-5. The webhook adapter applies availability, route, content-type, size, and payload checks
-6. `signal_dispatcher.ts` queues or coalesces the signal in memory without steering an active turn
-7. `conversation_signal_executor.ts` verifies the captured thread, workspace, and surface, then starts a turn on that conversation's provider
-8. The existing surface subscription delivers the agent's events and final response to the surface
-
-### Runtime restart and deployment
-
-1. `commands.ts` parses `!restart` or `!deploy` and supplies Discord announcement callbacks
-2. `runtime_lifecycle_orchestrator.ts` coordinates the workflow; agent activity is active turns, pending approvals, and Claude background tasks
-3. Before its first asynchronous progress callback, the deploy branch claims an
-   in-process lifecycle lock that rejects concurrent deploy and restart requests
-4. The deploy branch delegates Git/Bun validation, command timeouts, and
-   rollback to `deployment_service.ts`
-5. The orchestrator pauses new turns in core (`restart_pending`) and waits for agent
-   activity to finish, reporting what it waits for; it gives up after 30 minutes and
-   resumes new turns
-6. Once idle, it asks the lifecycle port in `ShepherdRuntime` to quiesce all ingress;
-   after a final activity check, it awaits the recovery announcement
-7. `ShepherdRuntime` runs registered signal/adapter shutdown hooks, stops provider sessions and account readers, then exits for the external supervisor to restart
-
-## What Still Lives In `bot.ts`
-
-What remains in `server/adapters/discord/bot.ts` is mostly legitimate adapter work:
-
-- Discord client construction
-- Discord configuration validation
-- supported-channel filtering
-- event listener registration
-- adapter health and resource cleanup
-
-## Practical Outcome
-
-Core owns the following reusable behavior:
-
-- project target resolution
-- skill resolution
-- normalized action semantics and prerequisites
-- workspace provisioning
-- thread orchestration policy
-- input routing policy
-- stream reduction state machine
-- skills inventory page selection
-- history fetching and cursor navigation
-
-The adapter still owns:
-
-- Discord SDK interaction
-- Discord-specific parsing/rendering
-- Discord delivery mechanics
-- Discord adapter lifecycle
-
-That is the intended end state from the historical
-[adapter-to-core refactor map](archive/adapter-to-core-refactor-map.md).
-
-## Application failures
-
-Control actions identify their target with `surfaceId` and return structured
-`ActionFailure` values for expected prerequisite and selection failures. Core
-orchestration throws `ApplicationActionError` when a prerequisite prevents a
-workflow from starting. Adapters render these codes and their data; Discord's
-`action_error.ts` owns command hints and Markdown, including effort validation
-and unavailable-model guidance. Unexpected infrastructure
-errors still propagate to the adapter's error boundary.
-
-## Surface action entry points
-
-`server/runtime/surface_runtime.ts` assembles an adapter-scoped
-`SurfaceApplicationContext` from the same state service, workspace provisioner,
-and conversation orchestrator for every surface. The shared host supplies
-the selected adapter name. Callers supply workspace infrastructure and an event
-sink; no Discord types are involved in shared composition.
-
-- `executeControlAction` handles repo, model, effort, skills, and thread controls.
-- `executeSurfaceAction` handles listening reads/transitions and detach.
-- History and skills page services remain dedicated read APIs.
-- `RuntimeLifecycleOrchestrator` remains the process restart/deploy API.
-
-Explicitly selecting open listening requires an attached thread. The application action rejects
-missing bindings before mutation, and the orchestrator enforces the same rule
-for direct callers, including resume when its saved mode is open. A lost binding
-leaves the paused state intact until a thread is attached. Detach removes the binding and subscription and resets
-listening state while retaining the project selection and agent thread.
-Discord still maps mentions, direct messages, command syntax, and result data
-into its own interaction and presentation conventions.
-
-## Signal runtime composition
-
-`server/runtime/signal_runtime.ts` owns signal registration, callback routes,
-dynamic-tool registration, dispatching, and the webhook listener lifecycle. It
-is registered for cleanup by the host; repeated start/stop calls do not create
-additional listeners or repeat cleanup. Listener startup remains explicit so
-an application can connect its delivery surfaces before accepting callbacks.
-The default registry contains the research signal; alternate compositions may
-supply their own registry. Surfaces supply a `beforeExecute` delivery hook.
-Discord uses that hook for its research notice and reply target, and retains
-its existing best-effort notice-delivery behavior.
-
-
-## Maintenance checks
-
-`tests/architecture_boundaries.test.ts` checks static imports, re-exports,
-import types, literal dynamic imports/requires, and command hints in core
-string literals. Core and protocol cannot
-import adapters or runtime composition; shared runtime cannot import Discord.
-Provider rules: core does not import native provider modules, storage
-implementations, or SDK packages, and storage does not import an SDK.
-Surface action tests exercise identical transitions through Discord and a
-synthetic terminal adapter, without connecting either transport. Keep those
-checks alongside behavior tests when adding application primitives.
-
-This is an internal TypeScript API, not a new network API. Transport parsing,
-caller authorization, and delivery remain adapter responsibilities. Existing
-runtime diagnostics and dedicated page reads can call their core services
-directly; identical behavior does not require routing every read through one
-dispatcher. Authentication policy remains proposed in `future-implementations.md`.
-
-## Host composition
-
-`createHostRuntime` in `server/runtime/host_runtime.ts` assembles the process
-runtime, deployment service, and GitHub workspace ports. Shared runtime config
-is parsed by `server/config/runtime_environment.ts`; invalid sandbox names and
-nonpositive deployment timeouts fail before startup. The launcher loads isolated
-configuration for each selected adapter, which parses only its transport settings. GitHub execution
-uses argument arrays and the configured host checkout directory.
-
-## Status and recovery data
-
-`surface_snapshot_service.ts` provides binding and status snapshots without
-Markdown or command syntax. Status retains current and pending model values,
-configured listening mode, and active-turn identity. Discord derives its DM
-presentation from the configured mode. Recovery plans contain ordered project,
-thread, and open-listening actions; they do not persist state or execute it.
-Paused surfaces retain the existing recovery behavior (no automatic open), and
-an unbound surface is never instructed to enable open listening.
-
-## Adapter capability interfaces
-
-`conversation_ports.ts` defines application reads/controls and the narrower
-list/approval interaction interface. Shared surface composition exposes a
-bound capability object rather than the entire `ConversationService` instance;
-process shutdown, tool registration, raw surface binding, and turn submission
-are absent from that object. Message ingress receives only the turn-routing
-interface. Runtime composition retains the complete service for assembly.
-
-`bun run check` compiles `tests/adapter_ports.typecheck.ts` as well as the server.
-Its negative type assertions detect accidental widening of these boundaries.
-Runtime tests verify method binding and omission of process-level capabilities.
-These interfaces guide implementation; they are not a security sandbox.
-
-
-## Selected surface startup
-
-`server/main.ts` is the sole process entrypoint. It loads shared configuration,
-prepares selected surface definitions, and creates one `surface_host.ts` host.
-That host owns one Shepherd runtime and signal runtime, adapter-scoped application
-contexts, health reporting, and orderly cleanup. Adapters receive bound ingress,
-interaction and application capabilities rather than the raw runtime. Process
-signals live in `process_lifecycle.ts`; adapters never install exit handlers.
-
-The root registry in `server/surface_definitions.ts` imports only selected
-transports. Shared runtime selection validates those definitions without importing
-Discord or web themselves. Signal
-presentation is dispatched to its target adapter; a delivery error does not
-cancel signal execution. Exclusive thread binding remains enabled, so multiple
-adapters running does not imply simultaneous attachment to the same thread.
-See [surface launch](surface-launch.md) for the operational contract.
-
-
-## Web conversation API
-
-The optional `web` surface exposes `/api` on loopback. Shared contracts live in
-`shared/protocol/`. Project targeting, conversation controls, and thread
-orchestration use the application ports. The adapter owns navigation handles,
-origin checks, request serialization, image presentation, and bounded event feeds.
-Native policy and SDK decoding stay inside provider adapters.
-
-A web conversation handle maps to an exclusive core surface binding. Detaching
-releases subscriptions, routing and navigation state without terminating the
-underlying session. Handles and replay buffers are volatile; stored thread
-history is the recovery source. Browser reconnects do not submit prompts again.
-
-SessionManager owns sessions from allocation, including pending bootstrap, and
-rejects late startup completion after shutdown. It reads history and provider-wide
-catalogs from providers and never opens a session to do so; concurrent resumes of the
-same thread share a bootstrap. Failed startup releases the allocated session. An explicitly stopped session cannot start its native
-process or queries again.
-
-See [web API setup and contract](web-api.md) for the operator trust boundary,
-request shapes, event recovery, limits and private network access.
-
-
-## Built-in browser interface
-
-`ui/` is a React + TypeScript client styled with Tailwind and built by Vite. It
-imports shared protocol types, never the server core or transport implementations.
-The API client handles typed HTTP errors and bounded SSE framing; the conversation
-hook owns reconnect, request state and history refresh; the pure chat reducer
-reconciles history, live deltas and canonical completion. Components render that
-state without making core policy decisions.
-
-The web adapter serves known assets and both API versions from one loopback
-listener. Source startup snapshots `ui/dist` into memory; the compiled binary
-embeds the same assets. Host and Origin checks use only explicit configuration
-and actual loopback listener addresses, never reflected request headers.
-Deployment validation builds both sides and rollback rebuilds the restored
-revision. See [web UI](web-ui.md) for lifecycle and validation details.
+Providers and core never import each other: both depend on the provider port, and
+composition registers the providers. Surfaces reach core only through its front door,
+`core/surface_api.ts`, so the rest of core is internal.
+
+## Protocol
+
+`shared/protocol/` holds the contracts every layer shares, with no dependencies of its own:
+
+- `requests.ts`: API requests and history records. A turn's items (`HistoryItem`) are user
+  and assistant messages, plans, reasoning (with its `form`), typed activities and images;
+  an item a subagent produced names its delegation in `parentItemId`.
+- `events.ts`: `BridgeEvent`s. Items stream as `item.started`, `item.delta` (channels
+  `message`, `plan`, `reasoning`, `output`) and `item.completed` with the canonical item.
+- `activity.ts`: the activity union (command, file change, tool, web, delegation, image,
+  wait, other), the bounded command `result`, and every label surfaces show.
+- `item_stream.ts`: the rules all surfaces share for streamed plans and reasoning and for
+  which messages answer a turn.
+- `execution_policy.ts`: the three restrictions (`writes`, `network`, `review`), presets,
+  and resolution to a provider's least restrictive profile within them.
+- `approvals.ts`, `user_questions.ts`, `provider_capabilities.ts`, `validation.ts` and the
+  rest: approval choices, structured questions, capabilities and request validation.
+
+## Ports
+
+`server/ports/` is the provider port: what core needs from an agent.
+
+- `provider_session.ts`: a `Provider` per agent (history, catalog, `openSession`) and the
+  `ThreadSession` it opens to run one thread (turns, steering, interrupts, approvals,
+  workspace changes, compaction, skills).
+- `provider_services.ts`: registration, account reading and resets, and thread ownership.
+- `provider_tools.ts`: application tools an agent can call (the signal callback).
+- `event_bus.ts`: the replaying event bus sessions publish on.
+
+## Providers
+
+Everything native lives here; nothing above names a provider.
+
+- **Codex** (`providers/codex/`): one shared `codex app-server` process
+  (`app_server.ts`) serves every thread, history read and account request, routing each
+  thread's notifications to the session running it. `session.ts` drives a thread over
+  JSON-RPC; `history.ts` and `history_presentation.ts` decode native items for live
+  delivery and history alike; `policy.ts` maps policy profiles to sandbox and approval
+  settings.
+- **Claude** (`providers/claude/`): `session.ts` drives one Claude Agent SDK query per
+  conversation; `transcript.ts` is the one decoder for the live stream and for stored
+  sessions, so live items equal history items. History, rename, archive and fork use
+  Claude's own sessions (`history.ts`, `native_sessions.ts`); subagent transcripts join
+  their delegation. `permissions.ts` maps profiles to permission modes, and
+  `mcp_bridge.ts` exposes application tools.
+- **Provider support** (`providers/shared/`): approval choice tokens.
+
+See [provider adapters](provider-abstraction.md) for the complete boundary, and the
+[Codex](codex-parity-matrix.md) and [Claude](claude-parity-matrix.md) parity matrices.
+
+## Core
+
+Core's sub-layers, lowest first:
+
+- **`common/`**: `action_error.ts` (expected application failures, such as
+  `restart_pending`, that surfaces present) and `image_media.ts`.
+- **`conversation/`**: the heart of Shepherd.
+  - `session_manager.ts` owns sessions from allocation to stop, learns each thread's
+    state from its events, checks capabilities, resolves execution policy, and pauses
+    new turns while a restart drains.
+  - `conversation_service.ts` is the conversation API over it, and
+    `conversation_routing_service.ts` binds surfaces to threads.
+  - `approvals.ts` stores pending approvals and questions. `dynamic_tool_registry.ts`
+    registers application tools. `provider_directory.ts` and
+    `provider_thread_catalog.ts` resolve thread owners and list stored threads across
+    providers.
+- **`workspace/`**: project targets (`owner/repo`, `~/path`) and workspace provisioning.
+- **`signals/`**: the signal registry, the dispatcher (bounded queueing, coalescing,
+  per-thread serialization), callback routes, and the executor that starts a signal's
+  turn.
+- **`lifecycle/`**: `deployment_service.ts` (Git checkout, validation, rollback) and
+  `runtime_lifecycle_orchestrator.ts` (restart and deploy: validate, drain, restart).
+- **`surface/`**: what surfaces act through. Surface state (project binding, listening
+  mode), snapshots and recovery plans, surface and control actions, turn routing
+  (`submit` or `steer`), thread orchestration, and the surface contract
+  (`surface_adapter.ts`, `surface_application_context.ts`, `conversation_ports.ts`).
+- **`surface_api.ts`**: the front door, exporting exactly what surfaces may use.
+
+Control actions return structured `ActionFailure`s for expected prerequisite failures;
+orchestration throws `ApplicationActionError`. Surfaces render these codes in their own
+words. Unexpected errors reach the surface's error boundary.
+
+## Surface support
+
+`server/adapters/shared/` holds presentation helpers surfaces share, using core only
+through its front door:
+
+- `response_stream_reducer.ts` follows a turn's streamed answer for surfaces that post one.
+- `history_page_service.ts` and `skills_page_service.ts` page history and skills with
+  cursor navigation; they return plain data with no transport formatting.
+- `generated_image.ts` loads generated images; `body.ts` parses bounded HTTP bodies.
+
+## Surfaces
+
+- **Web** (`adapters/web/`): the private loopback `/api` (`api.ts`), its server and asset
+  serving (`server.ts`, `ui_assets.ts`), the bounded SSE feed (`event_feed.ts`), history
+  presentation with scoped image URLs (`history.ts`, `images.ts`) and host controls
+  (`host_controls.ts`). Live items are presented exactly as history presents them.
+- **UI** (`ui/src/`): React, built by Vite, importing only the protocol. `chat-state.ts`
+  reconciles history, live deltas and canonical completion; `timeline.ts` groups work and
+  answers; `use-conversation.ts` owns reconnects and history refresh.
+- **Discord** (`adapters/discord/`): `bot.ts` (client and listeners), `message_ingress.ts`
+  (attention policy, attachments), `commands.ts` (`!` commands), `thread_event_handler.ts`
+  (progress lines and answer delivery through the stream reducer), `stream_delivery.ts`,
+  `chunking.ts` and `message_renderer.ts` (message editing and formatting), and
+  `interactions.ts` (buttons and question forms).
+- **Webhook** (`adapters/webhook/server.ts`): loopback `POST /signals/:routeId` callbacks.
+
+See [web API](web-api.md), [web UI](web-ui.md) and the
+[surface parity matrix](surface-parity-matrix.md).
+
+## Composition
+
+- `server/main.ts` loads configuration and starts one surface host for the selected
+  surfaces (`surface_definitions.ts`).
+- `runtime/surface_host.ts` owns the Shepherd runtime, signal runtime, per-surface
+  application contexts, health and orderly shutdown; `process_lifecycle.ts` owns process
+  signals.
+- `runtime/shepherd_runtime.ts` builds the conversation service and the lifecycle
+  orchestrator, and implements restart, quiescing and the new-turn pause.
+- `runtime/provider_services.ts` installs Codex and Claude; `provider_registration.ts`
+  checks each provider's capabilities against the methods it implements;
+  `provider_thread_identity.ts` scopes thread IDs where a provider needs it.
+- `runtime/surface_runtime.ts` assembles a surface's application context;
+  `signal_runtime.ts` wires signals, callback routes and the webhook listener.
+- `config/` parses the environment (`SHEPHERD_POLICY`, surfaces, signals);
+  `storage/thread_provider_directory.ts` persists thread owners.
+
+See [surface launch](surface-launch.md) for selection, startup and shutdown.
+
+## Runtime flows
+
+### A message becomes a turn
+
+1. The surface receives input (an HTTP request, or a Discord message past its attention
+   policy) and hands it to turn routing through the core API.
+2. Turn routing submits a new turn, or steers the running one.
+3. The conversation service starts it on the thread's provider session, within the
+   thread's execution policy profile.
+
+### Events reach the surfaces
+
+1. The provider session publishes `BridgeEvent`s; each item it completes live is the record
+   history returns.
+2. The web surface presents each item as history does and streams it over SSE; the UI
+   folds work and shows answers.
+3. Discord posts progress lines for the conversation's own steps and delivers the answer
+   through the stream reducer; an interrupted turn posts a partial response.
+
+### Structured questions
+
+The provider asks (a Codex `item/tool/requestUserInput`, or Claude's `AskUserQuestion`
+through `canUseTool`) and emits `approval.requested` with typed questions. Core stores a
+pending record; the surface renders a form and submits the answers, which core validates
+before the session answers exactly once. Expiry and turn end clear pending records. See
+[answering questions](user-questions.md).
+
+### Signals
+
+During a turn the agent asks for a callback URL and gives it to a detached operation. The
+operation posts to the webhook; core validates, queues and coalesces the signal, then
+starts a turn on the originating conversation, whose surface receives it as usual. See
+[signal callbacks](volatile-webhook-signals.md).
+
+### Restart and deploy
+
+1. A surface requests a restart or deploy through the lifecycle orchestrator.
+2. A deploy validates the target first (install, build, configuration check, tests) and
+   rolls back on failure.
+3. The orchestrator pauses new turns and waits for running turns, background tasks and
+   pending approvals, reporting what it waits for; after 30 minutes it gives up and
+   resumes new turns.
+4. Once idle, the runtime quiesces every surface, runs shutdown hooks, stops the provider
+   sessions and exits for the supervisor to start the new code.
+
+## Checks that keep this true
+
+- `tests/architecture_layers.test.ts` fails on any import that points up the layers.
+- `tests/provider_neutral_layers.test.ts` fails if a provider name or adapter import
+  appears in core, ports, surfaces, the protocol or the UI.
+- `tests/architecture_boundaries.test.ts` checks deeper import forms and keeps provider
+  wire vocabulary out of shared code.
+- `tests/adapter_ports.typecheck.ts` (compiled by `bun run check`) keeps the capability
+  interfaces surfaces receive from widening.
+- Each provider's tests check that items completed live equal the history it returns, and
+  the browser suite (`tests/browser/`) exercises the web UI against a fixture host.

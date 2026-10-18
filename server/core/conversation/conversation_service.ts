@@ -116,13 +116,25 @@ export class ConversationService {
   resumeNewTurns(): void { this.manager.resumeNewTurns(); }
 
   async bindSurfaceToThread(adapter: string, surfaceId: string, threadId: string): Promise<string> {
+    const previous = this.routing.getDefaultThread(adapter, surfaceId);
     const resolvedThreadId = await this.routing.setDefaultThread(adapter, surfaceId, threadId);
     this.rebindSurfaceSubscription(adapter, surfaceId, resolvedThreadId);
+    if (previous !== resolvedThreadId) this.releaseIfUnbound(previous);
     return resolvedThreadId;
   }
 
+  /** A thread no surface uses releases its session once idle; a surface binding it again first
+   * keeps the session. */
+  private releaseIfUnbound(threadId: string | null): void {
+    if (!threadId) return;
+    const unbound = () => this.routing.getSurfaceForThread(threadId) === null;
+    if (unbound()) this.manager.releaseWhenIdle(threadId, unbound);
+  }
+
   clearSurfaceBinding(adapter: string, surfaceId: string): void {
+    const previous = this.routing.getDefaultThread(adapter, surfaceId);
     this.routing.clearDefaultThread(adapter, surfaceId);
+    this.releaseIfUnbound(previous);
     const key = toSurfaceKey(adapter, surfaceId);
     const subscription = this.subscriptionsBySurface.get(key);
     if (!subscription) return;
@@ -134,8 +146,10 @@ export class ConversationService {
   }
 
   releaseSurface(adapter: string, surfaceId: string): void {
+    const previous = this.routing.getDefaultThread(adapter, surfaceId);
     this.unsubscribeSurfaceEvents(adapter, surfaceId);
     this.routing.releaseSurface(adapter, surfaceId);
+    this.releaseIfUnbound(previous);
   }
 
   subscribeSurfaceEvents(

@@ -63,7 +63,7 @@ export function ConversationControls({ conversation, capabilities, activeTurnId,
     </div>
     <dialog ref={previewDialog} className="project-dialog settings-dialog draft-preview" aria-labelledby={previewId} onCancel={close} onClose={() => { if (panel === "preview") close(); }}>
       <div className="mb-5 flex items-center justify-between"><h2 id={previewId} className="text-lg font-medium">Draft preview</h2><button className="icon-button" aria-label="Close draft preview" onClick={close}><Icon name="close" /></button></div>
-      {panel === "preview" && <MessageMarkdown text={draft} images={noImages} prefix={`preview-${previewId}-`} />}
+      {panel === "preview" && <MessageMarkdown text={draft} images={noImages} prefix={`preview-${previewId}-`} complete={false} />}
       <button className="button-secondary mt-5" onClick={() => { returnFocus.current = modelTrigger.current?.closest(".composer-dock")?.querySelector<HTMLTextAreaElement>("textarea") ?? previewTrigger.current; close(); }}>Back to editing</button>
     </dialog>
     {panel === "model" && <Suspense fallback={null}><ConversationSettings modelCatalogAuthoritative={capabilities?.modelCatalogAuthoritative !== false} modelCatalog={capabilities?.modelCatalog === true} modelSelection={capabilities?.modelSelection === true} effortSelection={capabilities?.effortSelection === true} id={conversation.id} activeTurnId={activeTurnId} disabled={disabled} open onOpenChange={value => { if (!value) close(); }} onSaved={() => { setRevision(value => value + 1); void onHistoryChange(); }} /></Suspense>}

@@ -64,16 +64,21 @@ export default function App() {
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
+    // Viewport events fire on every scroll frame. Writing a property on the root restyles the
+    // whole page, so write only values that changed.
+    const write = (style: CSSStyleDeclaration, name: string, value: string | null) => {
+      if (style.getPropertyValue(name) === (value ?? "")) return;
+      if (value === null) style.removeProperty(name); else style.setProperty(name, value);
+    };
     const size = () => {
       const style = document.documentElement.style;
       if (viewport.scale === 1) {
         // Safari can pan the visual viewport as well as shrink it for the keyboard.
         // Keep the fixed app inside that visible rectangle instead of moving it twice.
-        style.setProperty("--app-height", `${viewport.height}px`);
-        style.setProperty("--app-top", `${viewport.offsetTop}px`);
+        write(style, "--app-height", `${viewport.height}px`);
+        write(style, "--app-top", `${viewport.offsetTop}px`);
         // The keyboard already separates the composer from the home indicator.
-        if (viewport.height < document.documentElement.clientHeight - 100) style.setProperty("--composer-bottom-gap", "4px");
-        else style.removeProperty("--composer-bottom-gap");
+        write(style, "--composer-bottom-gap", viewport.height < window.innerHeight - 100 ? "4px" : null);
       } else {
         style.removeProperty("--app-height");
         style.removeProperty("--app-top");
@@ -302,7 +307,10 @@ export default function App() {
         }} />
       </div>
     </aside>
-    <main className="main-pane" inert={!desktop && drawer}>
+    {/* The open drawer is a modal dialog: it takes focus, traps Tab, closes on Escape, and its
+        backdrop blocks the content behind it. Marking that content inert as well restyles the
+        whole transcript on every open and close, which stutters on phones. */}
+    <main className="main-pane">
       <header className="main-header">
         <button ref={sidebarTrigger} className="icon-button" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
         {!selected && <><div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">Workspace</h1></div><HostBattery /></>}

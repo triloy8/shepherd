@@ -1,22 +1,22 @@
 import { opaqueArgument, quotedArguments } from "./command_arguments.js";
-import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery } from "../../core/surface_snapshot_service.js";
-import type { SurfaceApplicationContext } from "../../core/surface_application_context.js";
-import { executeSurfaceAction } from "../../core/surface_actions_service.js";
+import { readSurfaceStatus, readSurfaceBinding, planSurfaceRecovery } from "../../core/surface_api.js";
+import type { SurfaceApplicationContext } from "../../core/surface_api.js";
+import { executeSurfaceAction } from "../../core/surface_api.js";
 import { formatActionFailure } from "./action_error.js";
-import { loadSkillsPage } from "../../core/skills_page_service.js";
+import { loadSkillsPage } from "../shared/skills_page_service.js";
 import { MessageFlags, type Message, type MessageEditOptions } from "discord.js";
 
-import { executeControlAction } from "../../core/control_actions_service.js";
+import { executeControlAction } from "../../core/surface_api.js";
 import {
   deploymentTargetLabel,
   type DeploymentStatus,
   type DeploymentTarget,
-} from "../../core/deployment_service.js";
+} from "../../core/surface_api.js";
 import type {
   RuntimeLifecycleResult,
-} from "../../core/runtime_lifecycle_orchestrator.js";
-import type { RuntimeActivity } from "../../core/session_manager.js";
-import type { SurfaceListeningMode } from "../../core/surface_state_service.js";
+} from "../../core/surface_api.js";
+import type { RuntimeActivity } from "../../core/surface_api.js";
+import type { SurfaceListeningMode } from "../../core/surface_api.js";
 import { UnsupportedProviderOperationError } from "../../../shared/protocol/provider_support.js";
 import type { ProviderCapabilities, ProviderOperation } from "../../../shared/protocol/provider_capabilities.js";
 import type { ThreadModelState } from "../../../shared/protocol/requests.js";

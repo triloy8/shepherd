@@ -1,4 +1,4 @@
-import type { SkillErrorInfo, SkillMetadata, SkillsListRequest, SkillsListResponse } from "../../shared/protocol/requests.js";
+import type { SkillErrorInfo, SkillMetadata, SkillsListRequest, SkillsListResponse } from "../../../shared/protocol/requests.js";
 
 export type SkillsPageEntry =
   | { kind: "skill"; skill: SkillMetadata }

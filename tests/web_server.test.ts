@@ -4,7 +4,7 @@ import { webHarness } from "./helpers/web_harness.js";
 import { createSurfaceHost } from "../server/runtime/surface_host.js";
 import { createHostRuntime } from "../server/runtime/host_runtime.js";
 import { readRuntimeConfig } from "../server/config/runtime_environment.js";
-import type { SurfaceAdapterContext } from "../server/runtime/surface_adapter.js";
+import type { SurfaceAdapterContext } from "../server/core/surface_adapter.js";
 
 const assets = async () => new Map([["/index.html", { body: new TextEncoder().encode("<!doctype html><title>Shepherd</title>"), contentType: "text/html" }]]);
 const headers = { "content-type": "application/json" };

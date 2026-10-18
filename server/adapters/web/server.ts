@@ -1,5 +1,5 @@
 import { WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
-import type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition } from "../../runtime/surface_adapter.js";
+import type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition } from "../../core/surface_api.js";
 import { readWebConfig, type WebConfig } from "./config.js";
 import { WebSurfaceApi } from "./api.js";
 import { loadUiAssets, serveUiAsset, type UiAssets } from "./ui_assets.js";

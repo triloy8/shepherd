@@ -1,5 +1,5 @@
 import { readSurfaceEnvironment } from "../config/environment.js";
-import type { PreparedSurface, SurfaceDefinition } from "./surface_adapter.js";
+import type { PreparedSurface, SurfaceDefinition } from "../core/surface_api.js";
 
 export type SurfaceRegistry = ReadonlyMap<string, () => Promise<SurfaceDefinition>>;
 

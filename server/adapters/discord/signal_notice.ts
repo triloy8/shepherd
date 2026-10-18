@@ -1,4 +1,4 @@
-import type { RegisteredSignal } from "../../core/signal_registry.js";
+import type { RegisteredSignal } from "../../core/surface_api.js";
 import {
   buildCardPages,
   type DiscordSurfacePage,

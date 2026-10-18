@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebHostAction, WebHostOperation, WebHostStatus } from "../../../shared/protocol/host.js";
-import type { SurfaceApplicationContext } from "../../core/surface_application_context.js";
-import type { RuntimeLifecycleResult } from "../../core/runtime_lifecycle_orchestrator.js";
+import type { SurfaceApplicationContext } from "../../core/surface_api.js";
+import type { RuntimeLifecycleResult } from "../../core/surface_api.js";
 import { WebRequestError } from "./errors.js";
 
 function outcome(result: RuntimeLifecycleResult): string {
@@ -51,13 +51,13 @@ export class WebHostControls {
 
   private async run(request: WebHostAction, operation: WebHostOperation): Promise<void> {
     try {
-      const announce = async (value: import("../../core/runtime_lifecycle_orchestrator.js").RuntimeRestartAnnouncement) => {
+      const announce = async (value: import("../../core/surface_api.js").RuntimeRestartAnnouncement) => {
         operation.phase = "restarting";
         operation.message = value.action === "deploy"
           ? `Validated ${value.deployment.deployedCommit}. Restarting Shepherd.`
           : "Restarting Shepherd.";
       };
-      const onDraining = async (activity: import("../../core/session_manager.js").RuntimeActivity) => {
+      const onDraining = async (activity: import("../../core/surface_api.js").RuntimeActivity) => {
         operation.phase = "draining";
         const waiting = [
           activity.activeTurnThreadIds.length ? `${activity.activeTurnThreadIds.length} running ${activity.activeTurnThreadIds.length === 1 ? "conversation" : "conversations"}` : "",

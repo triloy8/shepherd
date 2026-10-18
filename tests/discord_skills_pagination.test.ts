@@ -1,4 +1,4 @@
-import { selectSkillsPage } from "../server/core/skills_page_service.js";
+import { selectSkillsPage } from "../server/adapters/shared/skills_page_service.js";
 import { expect, test } from "bun:test";
 import { buildSkillsListPage, decodeDiscordListPageId } from "../server/adapters/discord/list_pagination.js";
 import { handleInteraction } from "../server/adapters/discord/interactions.js";

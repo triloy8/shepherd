@@ -1,4 +1,4 @@
-import { ApplicationActionError, type ActionFailure } from "../../core/action_error.js";
+import { ApplicationActionError, type ActionFailure } from "../../core/surface_api.js";
 
 export function formatActionFailure(error: ActionFailure): string {
   switch (error.code) {

@@ -1,4 +1,4 @@
-import { executeControlAction, type ControlActionsContext, type ControlActionRequest } from "../../core/control_actions_service.js";
+import { executeControlAction, type ControlActionsContext, type ControlActionRequest } from "../../core/surface_api.js";
 import { WebRequestError } from "./errors.js";
 
 /** Shared semantics; this adapter only translates expected failures to HTTP. */

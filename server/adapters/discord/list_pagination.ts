@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { SkillsPage } from "../../core/skills_page_service.js";
+import type { SkillsPage } from "../shared/skills_page_service.js";
 import {
   ActionRowBuilder,
   ButtonBuilder,

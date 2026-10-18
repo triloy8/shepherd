@@ -1,4 +1,4 @@
-import { detectImageMimeType } from "./image_media.js";
+import { detectImageMimeType } from "../../core/surface_api.js";
 import { Buffer } from "node:buffer";
 import { open } from "node:fs/promises";
 import path from "node:path";

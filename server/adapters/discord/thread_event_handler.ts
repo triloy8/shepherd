@@ -14,7 +14,7 @@ import {
   reduceResponseStream,
   type AccumulatedMessage,
   type ResponseStreamState,
-} from "../../core/response_stream_reducer.js";
+} from "../shared/response_stream_reducer.js";
 import {
   createDiscordEditableSurfaceState,
   createDiscordPreviewState,

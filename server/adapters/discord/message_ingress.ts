@@ -1,12 +1,12 @@
 import type { Attachment, Message } from "discord.js";
 
 import { toTextUserInput, type UserInput } from "../../../shared/protocol/user_input.js";
-import type { TurnRoutingConversation } from "../../core/turn_routing_service.js";
+import type { TurnRoutingConversation } from "../../core/surface_api.js";
 import {
   classifySurfaceInput,
   type SurfaceInputClassification,
-} from "../../core/turn_routing_policy.js";
-import { executeTurnRouting } from "../../core/turn_routing_service.js";
+} from "../../core/surface_api.js";
+import { executeTurnRouting } from "../../core/surface_api.js";
 import { handleMessage, type CommandContext } from "./commands.js";
 import {
   isDiscordAudioAttachment,

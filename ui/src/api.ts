@@ -23,7 +23,10 @@ async function request<T>(path: string, method = "GET", body?: unknown, signal?:
   return (await checked(response)).json() as Promise<T>;
 }
 const conversationPath = (id: string) => `/conversations/${encodeURIComponent(id)}`;
-const page = (cursor?: string) => `?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+const page = (cursor?: string, limit = 30) => `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+/** Turns per history page. A turn can hold hundreds of items, so pages stay small; earlier turns
+ * load as the reader asks for them. */
+const HISTORY_PAGE_TURNS = 10;
 export const api = {
   providers: (signal?: AbortSignal) => request<{ providers: ProviderDescriptor[] }>("/providers", "GET", undefined, signal),
   account: (provider: string, signal?: AbortSignal, refresh = false) => request<ProviderAccountLimits>(`/limits?provider=${encodeURIComponent(provider)}${refresh ? "&refresh=true" : ""}`, "GET", undefined, signal),
@@ -45,7 +48,7 @@ export const api = {
   threads: (cursor?: string, signal?: AbortSignal, archived = false) => request<WebThreadsResponse>(`/threads${page(cursor)}&archived=${archived}`, "GET", undefined, signal),
   create: (input: WebCreateConversation) => request<WebConversation>("/conversations", "POST", input),
   state: (id: string, signal?: AbortSignal) => request<WebConversationState>(conversationPath(id), "GET", undefined, signal),
-  history: (id: string, cursor?: string, signal?: AbortSignal) => request<WebHistoryResponse>(`${conversationPath(id)}/turns${page(cursor)}`, "GET", undefined, signal),
+  history: (id: string, cursor?: string, signal?: AbortSignal) => request<WebHistoryResponse>(`${conversationPath(id)}/turns${page(cursor, HISTORY_PAGE_TURNS)}`, "GET", undefined, signal),
   approvals: (id: string, signal?: AbortSignal) => request<WebApprovalsResponse>(`${conversationPath(id)}/approvals`, "GET", undefined, signal),
   send: (id: string, text: string, images: string[] = []) => request<WebMessageResponse>(`${conversationPath(id)}/messages`, "POST", { text, images }),
   interrupt: (id: string) => request(`${conversationPath(id)}/interrupt`, "POST", {}),

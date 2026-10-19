@@ -1,4 +1,4 @@
-import { memo, startTransition, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type { WebImage } from "../../../shared/protocol/web";
 import type { TurnTrigger } from "../../../shared/protocol/requests";
 import { RevertDialog } from "./RevertDialog";
@@ -35,7 +35,47 @@ export function Timeline({ chat, waitingForAnswer = false, revertDisabled = true
     return () => cancelAnimationFrame(frame);
   }, [limit, groups.length]);
   const first = Math.max(0, groups.length - limit);
-  return <><div className="space-y-8">{groups.map((group, index) => index < first ? null : <TimelineGroupView key={messageKey(group.messages[0]!)} group={group} subagentRows={subagentRows[index]!} images={images}
+  // Keep the reader's place: whatever changes size above the first entry starting in view (turns
+  // added above, an image above finishing loading), the content in view stays still. Shepherd does
+  // this itself because Safari has no scroll anchoring. Entries render at their real height, never a
+  // placeholder, so scrolling itself never moves them: correcting mid-flick would stop iOS momentum.
+  const list = useRef<HTMLDivElement>(null);
+  const place = useRef<{ element: Element; top: number } | null>(null);
+  const keepPlace = useRef<(restore: boolean) => void>(() => {});
+  keepPlace.current = (restore) => {
+    const container = list.current;
+    const scroller = container?.closest(".chat-scroll");
+    if (!container || !scroller) return;
+    const offset = (element: Element) => element.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    const previous = place.current;
+    if (restore && previous?.element.isConnected) {
+      const moved = offset(previous.element) - previous.top;
+      if (moved !== 0) scroller.scrollTop += moved;
+    }
+    // The first entry starting in view, or the one filling it.
+    const viewTop = scroller.getBoundingClientRect().top;
+    const entries = container.querySelectorAll(".timeline-entry");
+    let low = 0, high = entries.length - 1;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (entries[middle]!.getBoundingClientRect().top >= viewTop) high = middle; else low = middle + 1;
+    }
+    const anchor = entries[low];
+    place.current = anchor ? { element: anchor, top: offset(anchor) } : null;
+  };
+  useLayoutEffect(() => keepPlace.current(true));
+  useEffect(() => {
+    const container = list.current;
+    const scroller = container?.closest(".chat-scroll");
+    if (!container || !scroller) return;
+    // Reading moves the place; a resize keeps it.
+    const remember = () => keepPlace.current(false);
+    const resized = new ResizeObserver(() => keepPlace.current(true));
+    resized.observe(container);
+    scroller.addEventListener("scroll", remember, { passive: true });
+    return () => { resized.disconnect(); scroller.removeEventListener("scroll", remember); };
+  }, []);
+  return <><div ref={list} className="space-y-8">{groups.map((group, index) => index < first ? null : <TimelineGroupView key={messageKey(group.messages[0]!)} group={group} subagentRows={subagentRows[index]!} images={images}
     waiting={waitingForAnswer && group.messages[0]!.turnId === chat.activeTurnId} turnStatus={chat.turns[group.messages[0]!.turnId]?.status}
     trigger={groups[index - 1]?.messages[0]?.turnId === group.messages[0]!.turnId ? undefined : chat.turns[group.messages[0]!.turnId]?.trigger} revertDisabled={revertDisabled} canRevert={!!onRevert} setTarget={setTarget} />)}</div>{onRevert && onReload && <RevertDialog target={target} disabled={revertDisabled}
     available={!!target && chat.messages.some((message) => message.id === target.id && message.turnId === target.turnId)}

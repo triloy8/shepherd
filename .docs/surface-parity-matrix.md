@@ -144,7 +144,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Research signal notice | Yes — research state-change card | Partial — signal event triggers state refresh | No dedicated web signal notice card |
 | Background conversation working/unread badges | Client notifications; no Shepherd overview | No | Web attachment dot means attached, not working/unread |
 | Jump-to-latest control | Client | No | Web follows output while near the bottom |
-| Persist reading position per conversation | Client | No explicit web persistence | Browser scroll anchoring is not a saved position feature |
+| Persist reading position per conversation | Client | No explicit web persistence | The timeline keeps the reader's place while it changes, but saves no position |
 
 Sources: [Discord event presentation](../server/adapters/discord/thread_event_handler.ts),
 [Codex activity mapping](../server/providers/codex/history_presentation.ts), [web timeline](../ui/src/components/Timeline.tsx),

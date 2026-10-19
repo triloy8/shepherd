@@ -107,7 +107,12 @@ async (page) => {
   // Revert from an older page and clear every subsequent page, including the oldest turn.
   await page.getByRole('button', { name: 'Paginated history', exact: true }).click();
   await page.getByText('Connected', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Load earlier messages', exact: true }).click();
+  // Turn 2 is several pages back.
+  const earlier = page.getByRole('button', { name: 'Load earlier messages', exact: true });
+  while (!(await user('History turn 2').count())) {
+    await earlier.click();
+    await earlier.or(user('History turn 2')).first().waitFor();
+  }
   await user('History turn 2').waitFor();
   await revert('History turn 2').click();
   await page.setViewportSize({ width: 390, height: 844 });

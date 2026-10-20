@@ -69,6 +69,21 @@ export class ClaudeTranscript {
     return turn;
   }
 
+  /** Claude compacted the conversation: it continues from a summary of everything before. The
+   * summary is Claude's, not the user's, so it is a step of the turn that was running. A stored
+   * session begins at its last compaction, without the prompt of that turn, so there the step
+   * begins a turn of its own. */
+  compacted(id: string, summary: unknown, at: number): void {
+    let turn = this.current;
+    if (!turn) {
+      turn = { id, items: [], itemsView: "full", status: "in_progress", error: null, startedAt: at, completedAt: null, durationMs: null };
+      this.turns.push(turn);
+    }
+    this.flush(turn, "interim");
+    const text = blocks(summary).flatMap(block => block.type === "text" && typeof block.text === "string" ? [block.text] : []).join("\n");
+    this.complete(turn, { id, type: "activity", status: "completed", activity: { kind: "other", title: "Context compacted", detail: text || null } });
+  }
+
   /** Input sent while a turn runs joins that turn. */
   steer(id: string, content: HistoryContentPart[]): void {
     this.current?.items.push({ id, type: "user_message", content });
@@ -188,7 +203,7 @@ export class ClaudeTranscript {
 /** A stored transcript entry, as `getSessionMessages` returns it. */
 export type TranscriptEntry = {
   type: "user" | "assistant" | "system"; uuid: string; message: unknown; parent_tool_use_id: string | null;
-  timestamp?: unknown; isQueuedCommand?: unknown; origin?: unknown;
+  timestamp?: unknown; isQueuedCommand?: unknown; origin?: unknown; isCompactSummary?: unknown;
 };
 
 function seconds(value: unknown, fallback: number): number {
@@ -219,6 +234,8 @@ export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurn
       if (typeof message.model === "string") model = message.model;
       if (message.usage) usage = message.usage;
       transcript.assistant(message);
+    } else if (entry.type === "user" && entry.isCompactSummary === true) {
+      transcript.compacted(entry.uuid, message.content, at);
     } else if (entry.type === "user" && content.some(block => block.type === "tool_result")) {
       transcript.toolResults(content);
     } else if (entry.type === "user" && content.some(block => block.type === "text" && typeof block.text === "string" && interruptedMarker.test(block.text))) {

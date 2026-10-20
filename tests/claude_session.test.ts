@@ -41,7 +41,8 @@ function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) =>
     clock += 1000;
     session.entries.push({ ...entry, session_id: sessionId, timestamp: new Date(clock).toISOString() });
     session.info.lastModified = clock;
-    const text = entry.type === "user" ? (entry.message as { content: Array<{ type: string; text?: string }> }).content.find(block => block.type === "text")?.text : undefined;
+    const content = entry.type === "user" ? (entry.message as { content: string | Array<{ type: string; text?: string }> }).content : [];
+    const text = entry.isCompactSummary ? undefined : typeof content === "string" ? content : content.find(block => block.type === "text")?.text;
     if (text && !session.info.firstPrompt) session.info = { ...session.info, firstPrompt: text, summary: text };
   };
   const queryFn = (({ prompt, options }: Parameters<typeof query>[0]) => {
@@ -77,6 +78,10 @@ function sdk(script: (input: AsyncIterable<SDKUserMessage>, options: Options) =>
         // Claude Code records a background task's notification as the input that wakes the next turn.
         if (message.type === "system" && message.subtype === "task_notification" && message.run_id) {
           record(sessionId, options!.cwd, { type: "user", uuid: randomUUID(), message: { role: "user", content: [{ type: "text", text: `<task-notification>${message.summary}</task-notification>` }] }, parent_tool_use_id: null, origin: { kind: "task-notification", runId: message.run_id } });
+        }
+        // Claude Code stores the summary a compaction continues from as a user entry marked as such.
+        if (message.type === "user" && message.isSynthetic && !message.parent_tool_use_id) {
+          record(sessionId, options!.cwd, { type: "user", uuid: message.uuid!, message: message.message, parent_tool_use_id: null, isCompactSummary: true });
         }
         if (message.type === "result") busy = false;
         yield message;
@@ -148,6 +153,45 @@ test("Claude streams common events and resumes the native session from its trans
   await resumed.setThreadName(created.threadId, "Saved");
   expect(await resumed.readThread(created.threadId, false)).toMatchObject({ thread: { name: "Saved", cwd: "/project" } });
   session.stop(); resumed.stop();
+});
+
+test("a compaction is a step of the running turn, live as in history, and never the user's message", async () => {
+  const summary = "This session is being continued from a previous conversation.\n\nSummary: fixed the build.";
+  const fake = sdk(async function* (input, options) {
+    for await (const _message of input) break;
+    yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage;
+    yield { type: "assistant", parent_tool_use_id: null, message: { id: "before", content: [{ type: "text", text: "Working on it." }] } } as SDKMessage;
+    yield { type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 900_000 } } as SDKMessage;
+    yield { type: "user", uuid: "summary-1", isSynthetic: true, parent_tool_use_id: null, message: { role: "user", content: summary } } as SDKMessage;
+    yield { type: "assistant", parent_tool_use_id: null, message: { id: "after", content: [{ type: "text", text: "Done." }] } } as SDKMessage;
+    yield result;
+  });
+  const session = new ClaudeSession(undefined, fake);
+  const { threadId } = await session.startThread({ cwd: "/project" });
+  const completed: BridgeEvent[] = []; session.eventBus.subscribe(event => { if (event.type === "item.completed") completed.push(event); }, { replay: false });
+  await session.startTurn([toTextUserInput("fix the build")]); await done(session);
+  const step = { id: "summary-1", type: "activity", status: "completed", activity: { kind: "other", title: "Context compacted", detail: summary } };
+  expect(completed.map(event => (event.payload as { item: unknown }).item)).toContainEqual(step);
+  const [turn] = (await session.listThreadTurns(threadId, {})).data;
+  expect(turn!.items.map(item => item.id)).toEqual([expect.any(String), "before", "summary-1", "after"]);
+  expect(turn!.items[2]).toEqual(step);
+  expect(turn!.items.filter(item => item.type === "user_message")).toHaveLength(1);
+  session.stop();
+});
+
+test("a stored session that begins at its last compaction opens with the compaction step, not a message from the user", () => {
+  let clock = 0;
+  const entry = (type: "user" | "assistant", message: unknown, extra: Partial<TranscriptEntry> = {}): TranscriptEntry => ({ type, uuid: extra.uuid ?? randomUUID(), message, parent_tool_use_id: null, timestamp: new Date(++clock * 1000).toISOString(), ...extra });
+  const { turns } = decodeTranscript([
+    entry("user", { role: "user", content: "Summary: fixed the build." }, { uuid: "summary-1", isCompactSummary: true }),
+    entry("assistant", { id: "m1", content: [{ type: "text", text: "Continuing." }] }),
+    entry("user", { role: "user", content: "Thanks" }, { uuid: "prompt-2" }),
+  ]);
+  expect(turns.map(turn => [turn.id, turn.trigger ?? null, turn.status])).toEqual([["summary-1", null, "completed"], ["prompt-2", null, "completed"]]);
+  expect(turns[0]!.items).toEqual([
+    { id: "summary-1", type: "activity", status: "completed", activity: { kind: "other", title: "Context compacted", detail: "Summary: fixed the build." } },
+    { id: "m1", type: "assistant_message", text: "Continuing.", phase: "final" },
+  ]);
 });
 
 test("Claude approvals apply decisions and interruption clears pending manager approvals", async () => {

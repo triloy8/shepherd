@@ -72,6 +72,7 @@ login, not a blanket approval for distributing a subscription login product.
 | Change model/cwd/policy/effort | Partial | Restarts/resumes the query when needed. Settings changes wait for background work; cwd changes wait for active work. |
 | Shutdown / query failure | Implemented | Closes owned queries, settles pending approvals, records interrupted/failed turns and clears runtime activity. |
 | Manual context compaction | Unsupported | Hidden in capability-aware web controls; adapter rejects the operation. Native automatic context management is separate. |
+| Automatic context compaction | Supported | Claude compacts on its own; the summary it continues from is a "Context compacted" step of the running turn, live and in history. A stored session begins at its last compaction, so earlier turns are not shown. |
 | Conversation revert | Unsupported | No Claude translation of Shepherd's turn-based revert operation. |
 | File checkpointing / file rewind | Missing | SDK facilities are not enabled or wrapped. Neither fork nor conversation history implies file rollback. |
 | Ephemeral threads | Unsupported | Adapter rejects the request. |

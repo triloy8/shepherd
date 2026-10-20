@@ -212,6 +212,7 @@ export class ClaudeSession implements ThreadSession {
     // Thinking streams as reasoning. History records only thinking with text, so an item ID is
     // assigned, in the decoder's order, once a block's text is more than whitespace.
     let streamThinkingBlocks = 0, thinking: { itemId: string | null; text: string } | null = null;
+    let summaryExpected = false;
     const scope = this.accountLimits?.scope();
     const account = this.accountLimits && typeof running.accountInfo === "function"
       ? running.accountInfo().catch(() => null) : Promise.resolve(null);
@@ -255,7 +256,12 @@ export class ClaudeSession implements ThreadSession {
           if (!this.requestUsage && message.message.usage) this.requestUsage = { ...message.message.usage };
           this.transcript.assistant(message.message);
         }
-        if (message.type === "user" && !message.parent_tool_use_id) this.transcript.toolResults(message.message.content);
+        // After a compaction Claude continues from a summary, which arrives as a synthetic user message.
+        if (message.type === "system" && message.subtype === "compact_boundary") summaryExpected = true;
+        else if (message.type === "user" && !message.parent_tool_use_id && summaryExpected && message.isSynthetic) {
+          summaryExpected = false;
+          if (turn && message.uuid) this.transcript.compacted(message.uuid, message.message.content, Date.now() / 1000);
+        } else if (message.type === "user" && !message.parent_tool_use_id) this.transcript.toolResults(message.message.content);
         if ((message.type === "assistant" || message.type === "user") && message.parent_tool_use_id) this.transcript.subagent(message.parent_tool_use_id, message.type, message.message);
         if (message.type === "result") {
           // A result ends the response to the queued input, so its last text is an answer.

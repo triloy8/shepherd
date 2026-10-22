@@ -7,7 +7,7 @@ STATE_DIR="${HOME}/.local/state/tailscale"
 INSTALL_DIR="${HOME}/.local/lib/tailscale"
 SESSION_NAME="shepherd-tailscale"
 SOCKET="${STATE_DIR}/tailscaled.sock"
-VERSION="1.102.4"
+VERSION="1.104.2"
 
 binaries() {
   case "$(uname -m)" in

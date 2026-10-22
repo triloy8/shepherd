@@ -132,7 +132,7 @@ On an already provisioned host, install only Tailscale without sudo:
 ./deploy/ubuntu/tailscale.sh login
 ```
 
-The installer downloads the official Tailscale `1.102.4` static archive for
+The installer downloads the official Tailscale `1.104.2` static archive for
 ARM64 or AMD64, verifies its published SHA-256 checksum, and enables startup
 only after successful installation. Downloads happen only during explicit
 installation, never at boot. Existing version directories are reused; an

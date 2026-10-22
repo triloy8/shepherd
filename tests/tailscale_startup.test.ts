@@ -12,7 +12,7 @@ function fixture() {
   mkdirSync(bin, { recursive: true });
   mkdirSync(state, { recursive: true });
   const arch = process.arch === "arm64" ? "arm64" : "amd64";
-  const installed = join(home, `.local/lib/tailscale/tailscale_1.102.4_${arch}`);
+  const installed = join(home, `.local/lib/tailscale/tailscale_1.104.2_${arch}`);
   mkdirSync(installed, { recursive: true });
   const executable = (path: string, body: string) => writeFileSync(path, `#!/bin/bash\n${body}\n`, { mode: 0o755 });
   executable(join(bin, "tmux"), 'echo "$*" >> "$HOME/tmux.calls"; [[ "$1" != has-session ]]');

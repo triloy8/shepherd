@@ -104,6 +104,17 @@ test("unphased legacy history uses the last message; commentary-only turns have 
   expect(render(state)).not.toContain('aria-label="Copy response"');
 });
 
+test("a running turn without phases shows its trailing text as the answer until another step starts", () => {
+  const running = turn("in_progress");
+  for (const item of running.items) delete item.phase;
+  let state = mergeHistory(emptyChat(), [running]);
+  state.activeTurnId = "turn";
+  expect(timelineGroups(state)[1]).toMatchObject({ finalIds: ["answer"], settled: false });
+  expect(render(state)).not.toContain('aria-label="Copy response"');
+  state = reduceBridge(state, event("step", "item.started", { turnId: "turn", item: { id: "step", type: "activity", status: "started", activity: { kind: "command", command: "ls", cwd: null } } }));
+  expect(timelineGroups(state).flatMap(group => group.finalIds)).toEqual([]);
+});
+
 test("user follow-ups stay outside progress and preserve timeline order", () => {
   const history = turn();
   history.items.splice(2, 0, { id: "followup", type: "user_message", content: [{ type: "text", text: "Also this" }] });

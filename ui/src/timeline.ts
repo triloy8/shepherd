@@ -10,9 +10,13 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
   // A subagent's rows render inside their delegation step, not as the turn's own progress.
   const own = chat.messages.filter(message => !message.parentId);
   const texts = new Map<string, ChatMessage[]>();
-  for (const message of own) if (message.role === "assistant" && !message.activity && !message.image) texts.set(message.turnId, [...texts.get(message.turnId) ?? [], message]);
+  const lastIds = new Map<string, string>();
+  for (const message of own) {
+    lastIds.set(message.turnId, message.id);
+    if (message.role === "assistant" && !message.activity && !message.image) texts.set(message.turnId, [...texts.get(message.turnId) ?? [], message]);
+  }
   // Messages marked final answer their turn. Without phase metadata the last text is the answer,
-  // which is known only once the turn has settled.
+  // which is known once the turn has settled; until then, provisionally, text after its last step.
   const explicitFinals = new Map<string, Set<string>>();
   const implicitFinals = new Map<string, Set<string>>();
   for (const [turnId, messages] of texts) {
@@ -36,7 +40,9 @@ export function timelineGroups(chat: ChatState): TimelineGroup[] {
     // Message completion is not turn completion. Wait for canonical history
     // before folding, including on reconnect and when a turn was interrupted.
     group.settled = !active && turn?.status === "completed";
-    const finalTextIds = explicitFinals.get(first.turnId) ?? (group.settled ? implicitFinals.get(first.turnId) : undefined);
+    // While the turn runs, text after its last step reads as the answer; a later step folds it back.
+    const trailing = active && !!implicitFinals.get(first.turnId)?.has(lastIds.get(first.turnId)!);
+    const finalTextIds = explicitFinals.get(first.turnId) ?? (group.settled || trailing ? implicitFinals.get(first.turnId) : undefined);
     group.finalIds = group.messages.filter((message) => (message.image && message.image.kind !== "viewed") || !!finalTextIds?.has(message.id)).map((message) => message.id);
     group.label = active ? "Working…" : turn?.status === "interrupted" ? "Interrupted work" : turn?.status === "failed" ? "Failed work" : group.settled ?
       (turn.durationMs != null ? `Worked for ${Math.max(1, Math.round(turn.durationMs / 1000))}s` : "Work completed") : "Progress";

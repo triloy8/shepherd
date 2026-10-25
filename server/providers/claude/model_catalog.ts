@@ -16,7 +16,10 @@ export function claudeModelCatalog(models: ModelInfo[], defaults: ReturnType<typ
       defaultEffort: efforts?.includes(defaults.effort) ? defaults.effort : null,
       supportedEfforts: efforts?.map(value => ({ value, description: "" })) ?? null };
   }
-  for (const model of models) {
+  // Claude lists its own default first, under a generic name, resolving to the same ID as a
+  // named alias. The named entry names the model; "default" stays a hidden alias.
+  const named = [...models.filter(model => model.value !== "default"), ...models.filter(model => model.value === "default")];
+  for (const model of named) {
     const id = model.resolvedModel ?? model.value;
     if (!rows.has(id)) rows.set(id, row(model, id, false));
   }

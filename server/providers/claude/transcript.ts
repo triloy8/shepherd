@@ -220,7 +220,10 @@ export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurn
   let model: string | null = null, usage: unknown = null, last = 0, waking = false;
   // An entry without a time takes the time before it, so it keeps its place; main entries come first on ties.
   const timed = (list: readonly TranscriptEntry[], offset: number) => { let at = 0; return list.map((entry, index) => ({ entry, index: offset + index, at: at = seconds(entry.timestamp, at) })); };
-  const ordered = [...timed(entries, 0), ...timed(subagentEntries, entries.length)].sort((a, b) => a.at - b.at || a.index - b.index).map(({ entry }) => entry);
+  // A forked skill's subagent records no delegation to join, so its entries arrive unlinked. They
+  // are its own brief and work, never the conversation's, and are left out.
+  const linked = subagentEntries.filter(entry => entry.parent_tool_use_id);
+  const ordered = [...timed(entries, 0), ...timed(linked, entries.length)].sort((a, b) => a.at - b.at || a.index - b.index).map(({ entry }) => entry);
   for (const entry of ordered) {
     // Subagent work joins the delegation that started it; the subagent's own prompt is that delegation's input.
     if (entry.parent_tool_use_id) {

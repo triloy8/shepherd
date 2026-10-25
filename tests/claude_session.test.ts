@@ -946,6 +946,18 @@ test("stored transcripts decode prompts, steering, interruptions and background 
   const running = decodeTranscript([entry("user", { role: "user", content: "Go" }, { uuid: "live" }), entry("assistant", { id: "m6", content: [{ type: "text", text: "Working" }] })], "live");
   expect(running.turns).toMatchObject([{ id: "live", status: "in_progress", items: [{ type: "user_message" }, { id: "m6", text: "Working" }] }]);
   expect(running.turns[0]!.items[1]).not.toHaveProperty("phase");
+  // A forked skill's subagent records no delegation: its brief is not the user's and its work
+  // does not join the conversation.
+  const forked = decodeTranscript([
+    entry("user", { role: "user", content: "Review it" }, { uuid: "review" }),
+    entry("assistant", { id: "m7", content: [{ type: "tool_use", id: "skill", name: "Skill", input: { skill: "code-review" } }] }),
+    entry("user", { role: "user", content: [{ type: "tool_result", tool_use_id: "skill", content: "No findings." }] }),
+    entry("assistant", { id: "m8", content: [{ type: "text", text: "Clean." }] }),
+  ], null, [
+    entry("user", { role: "user", content: "Review target: `main...feature`\n\n## Phase 0" }, { uuid: "brief" }),
+    entry("assistant", { id: "fork", content: [{ type: "text", text: "No findings." }] }),
+  ]);
+  expect(forked.turns.map(turn => turn.items.map(item => item.id))).toEqual([["review", "skill", "m8"]]);
 });
 
 test("conversation listing reads Claude's sessions, filters archived and search, and sorts", async () => {

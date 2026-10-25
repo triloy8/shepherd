@@ -25,6 +25,13 @@ test("catalog resolves explicit IDs while retaining aliases for saved conversati
   expect(claudeModelCatalog(models, claudeDefaults({ CLAUDE_MODEL: "sonnet" })).find(row => row.isDefault)!.id).toBe("claude-sonnet-5-5");
 });
 
+test("Claude's own default does not hide the model it resolves to", () => {
+  const rows = claudeModelCatalog([{ value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", description: "Opus 5.5" }, ...models], claudeDefaults({}));
+  expect(rows.filter(row => !row.hidden).map(row => row.displayName)).toEqual(["Opus 5.5", "Sonnet 5.5"]);
+  expect(rows.find(row => row.isDefault)!.displayName).toBe("Opus 5.5");
+  expect(rows.find(row => row.id === "default")).toMatchObject({ hidden: true });
+});
+
 test("catalog avoids duplicate IDs and does not advertise an unsupported default effort", () => {
   const rows = claudeModelCatalog([...models, { ...models[0]!, value: "claude-opus-5-5" }], claudeDefaults({}));
   expect(rows.filter(row => row.id === "claude-opus-5-5")).toHaveLength(1);

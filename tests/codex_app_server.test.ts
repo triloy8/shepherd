@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 import { CodexProvider } from "../server/providers/codex/provider.js";
+import { codexAppServerArgs } from "../server/providers/codex/app_server.js";
 import { noProviderTools } from "../server/ports/provider_tools.js";
 import { fakeAppServer } from "./helpers/fake_app_server.js";
 
@@ -89,4 +90,10 @@ test("a stopped session leaves a thread another session has since resumed subscr
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(h.fake.received()).toContainEqual({ id: expect.any(Number), method: "thread/unsubscribe", params: { threadId: a.threadId } });
   h.provider.stop();
+});
+
+test("CODEX_SUBAGENTS=disabled starts the app-server with subagent tools removed", () => {
+  expect(codexAppServerArgs({})).toEqual(["app-server"]);
+  expect(codexAppServerArgs({ CODEX_SUBAGENTS: " disabled " })).toEqual(["-c", "agents.enabled=false", "-c", "features.multi_agent_v2=false", "app-server"]);
+  expect(() => codexAppServerArgs({ CODEX_SUBAGENTS: "off" })).toThrow("CODEX_SUBAGENTS");
 });

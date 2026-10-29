@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { claudeDefaults } from "../server/providers/claude/defaults.js";
+import { claudeDefaults, claudeSubagentsEnabled } from "../server/providers/claude/defaults.js";
 import { claudeModelCatalog } from "../server/providers/claude/model_catalog.js";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 
@@ -13,6 +13,12 @@ test("Claude defaults pin Opus 5.5 and medium independently of Codex configurati
   expect(claudeDefaults({ CLAUDE_MODEL: " sonnet ", CLAUDE_EFFORT: " high " })).toEqual({ model: "sonnet", effort: "high" });
   expect(claudeDefaults({ CLAUDE_MODEL: " ", CLAUDE_EFFORT: "" })).toEqual({ model: "claude-opus-5-5", effort: "medium" });
   expect(() => claudeDefaults({ CLAUDE_EFFORT: "invalid" })).toThrow("CLAUDE_EFFORT");
+});
+
+test("Claude subagents stay enabled unless CLAUDE_SUBAGENTS disables them", () => {
+  expect(claudeSubagentsEnabled({})).toBe(true);
+  expect(claudeSubagentsEnabled({ CLAUDE_SUBAGENTS: " disabled " })).toBe(false);
+  expect(() => claudeSubagentsEnabled({ CLAUDE_SUBAGENTS: "off" })).toThrow("CLAUDE_SUBAGENTS");
 });
 
 test("catalog resolves explicit IDs while retaining aliases for saved conversations", () => {

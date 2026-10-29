@@ -2,7 +2,7 @@ import { assertThreadSupport, assertInputSupport } from "../../../shared/protoco
 import { approvalChoices } from "../shared/approval_choices.js";
 import { ClaudeTranscript, decodeTranscript, promptContent, textItemId } from "./transcript.js";
 import { itemPage, paginate, sessionInfo, storedTurns, threadRecord, turnPage } from "./history.js";
-import { claudeDefaults, claudeEffortLevels, isClaudeEffort, type ClaudeEffort } from "./defaults.js";
+import { claudeDefaults, claudeEffortLevels, claudeSubagentsEnabled, isClaudeEffort, type ClaudeEffort } from "./defaults.js";
 import { claudeModelCatalog } from "./model_catalog.js";
 import { BackgroundTasks } from "./background_tasks.js";
 import { shepherdMcpServers } from "./mcp_bridge.js";
@@ -176,6 +176,8 @@ export class ClaudeSession implements ThreadSession {
       extraArgs: { "thinking-display": "summarized" },
       systemPrompt: { type: "preset", preset: "claude_code" },
       ...claudePermissionOptions(this.profile),
+      // A denied tool is removed whatever the profile or Claude's settings allow.
+      ...(claudeSubagentsEnabled() ? {} : { disallowedTools: ["Agent"] }),
       canUseTool: (name, args, context) => this.requestApproval(name, args, context),
       mcpServers: shepherdMcpServers(this.dynamicTools, () => this.activeTurnId ? { threadId: thread.id, turnId: this.activeTurnId } : null),
     };

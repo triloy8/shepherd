@@ -105,6 +105,13 @@ Discord's `!newthread` uses it when no agent is named. Core/API callers can pass
 `provider: "claude"` in `CreateThreadRequest`.
 Model backend configuration stays in the provider’s native settings.
 
+`CODEX_SUBAGENTS=disabled` and `CLAUDE_SUBAGENTS=disabled` stop conversations from
+starting subagents; both default to `enabled`. Codex receives `agents.enabled=false`
+(with `features.multi_agent_v2=false`, which would otherwise override it), which removes
+the subagent tools even from models that turn them on themselves; `features.multi_agent=false`
+alone does not. Claude has its `Agent` tool removed. Restart Shepherd after changing either.
+Claude skills that run in a forked context still run as a subagent.
+
 Claude defaults to subscription authentication (`CLAUDE_AUTH_MODE=subscription`).
 Use your Claude Pro or Max account. On the machine running Shepherd, authenticate
 with Claude Code as the same operating-system user that runs Shepherd. A saved
@@ -144,6 +151,8 @@ Optional shared environment settings are:
 ```env
 CLAUDE_MODEL=claude-opus-5-5
 CLAUDE_EFFORT=medium
+# disabled removes the Agent tool, so conversations cannot start subagents:
+# CLAUDE_SUBAGENTS=enabled
 # Optional override of the SDK's bundled executable:
 # CLAUDE_EXECUTABLE=/absolute/path/to/claude
 ```

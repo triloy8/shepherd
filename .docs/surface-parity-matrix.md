@@ -142,6 +142,7 @@ Sources: [Discord ingress](../server/adapters/discord/message_ingress.ts),
 | Raw turn-item inspection | Yes — `!history items <turn-id> [thread-id]` | No | Web inspector intentionally removed in PR #70 |
 | History page navigation | Yes — history controls | Yes — prepend older transcript pages | No separate web history panel |
 | Research signal notice | Yes — research state-change card | Partial — signal event triggers state refresh | No dedicated web signal notice card |
+| Thread watch notice (experimental) | Yes — delegated agent card with group state counts | Partial — signal event triggers state refresh | No dedicated web card; see [thread watches](thread-watch.md) |
 | Background conversation working/unread badges | Client notifications; no Shepherd overview | No | Web attachment dot means attached, not working/unread |
 | Jump-to-latest control | Client | No | Web follows output while near the bottom |
 | Persist reading position per conversation | Client | No explicit web persistence | The timeline keeps the reader's place while it changes, but saves no position |

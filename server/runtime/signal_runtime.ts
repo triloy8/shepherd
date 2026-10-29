@@ -5,6 +5,7 @@ import { SignalDispatcher, type SignalDispatcherOptions } from "../core/signals/
 import { SignalRegistry } from "../core/signals/signal_registry.js";
 import { SignalRouteRegistry } from "../core/signals/signal_route_registry.js";
 import { SignalRouteService } from "../core/signals/signal_route_service.js";
+import { ThreadWatchService } from "../core/signals/thread_watch_service.js";
 import { createResearchStateChangedDefinition } from "../signals/research_state_changed.js";
 import type { ShepherdRuntime } from "./shepherd_runtime.js";
 
@@ -22,6 +23,8 @@ export class SignalRuntime {
   private readonly routes: SignalRouteRegistry;
   private readonly dispatcher: SignalDispatcher;
   private readonly unregisterTool: () => void;
+  private readonly watches: ThreadWatchService | null;
+  private readonly unregisterWatchTools: Array<() => void>;
   private stopPromise: Promise<void> | null = null;
 
   constructor(private readonly shepherd: ShepherdRuntime, private readonly options: SignalRuntimeOptions) {
@@ -43,6 +46,11 @@ export class SignalRuntime {
     this.unregisterTool = options.config.enabled
       ? shepherd.conversation.registerDynamicTool(routeService.registration())
       : () => {};
+    // Watches need no listener: Shepherd observes the watched turns itself.
+    this.watches = options.config.threadWatchEnabled
+      ? new ThreadWatchService({ conversation: shepherd.conversation, dispatcher: this.dispatcher })
+      : null;
+    this.unregisterWatchTools = this.watches?.registrations().map((tool) => shepherd.conversation.registerDynamicTool(tool)) ?? [];
   }
 
   get url(): string | null {
@@ -67,6 +75,8 @@ export class SignalRuntime {
     // Defer cleanup so the guard is installed even when a shutdown operation throws.
     this.stopPromise = Promise.resolve().then(async () => {
       this.unregisterTool();
+      for (const unregister of this.unregisterWatchTools) unregister();
+      this.watches?.dispose();
       this.routes.dispose();
       this.dispatcher.dispose();
       const server = this.server;

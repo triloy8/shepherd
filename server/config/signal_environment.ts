@@ -6,6 +6,7 @@ export type SignalRuntimeConfig = {
   port: number;
   maxBodyBytes: number;
   queueCapacity: number;
+  threadWatchEnabled: boolean;
 };
 
 function readInteger(
@@ -58,6 +59,11 @@ export function readSignalRuntimeConfig(
       100,
       1,
       10_000,
+    ),
+    threadWatchEnabled: readBoolean(
+      environment.SHEPHERD_THREAD_WATCH_ENABLED,
+      "SHEPHERD_THREAD_WATCH_ENABLED",
+      false,
     ),
   };
 }

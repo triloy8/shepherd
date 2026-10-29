@@ -96,8 +96,8 @@ Core's sub-layers, lowest first:
     providers.
 - **`workspace/`**: project targets (`owner/repo`, `~/path`) and workspace provisioning.
 - **`signals/`**: the signal registry, the dispatcher (bounded queueing, coalescing,
-  per-thread serialization), callback routes, and the executor that starts a signal's
-  turn.
+  per-thread serialization), callback routes, the executor that starts a signal's
+  turn, and thread watches that signal a conversation when the ones it watches finish.
 - **`lifecycle/`**: `deployment_service.ts` (Git checkout, validation, rollback) and
   `runtime_lifecycle_orchestrator.ts` (restart and deploy: validate, drain, restart).
 - **`surface/`**: what surfaces act through. Surface state (project binding, listening
@@ -152,7 +152,8 @@ See [web API](web-api.md), [web UI](web-ui.md) and the
   checks each provider's capabilities against the methods it implements;
   `provider_thread_identity.ts` scopes thread IDs where a provider needs it.
 - `runtime/surface_runtime.ts` assembles a surface's application context;
-  `signal_runtime.ts` wires signals, callback routes and the webhook listener.
+  `signal_runtime.ts` wires signals, callback routes, thread watches and the webhook
+  listener.
 - `config/` parses the environment (`SHEPHERD_POLICY`, surfaces, signals);
   `storage/thread_provider_directory.ts` persists thread owners.
 
@@ -191,6 +192,10 @@ During a turn the agent asks for a callback URL and gives it to a detached opera
 operation posts to the webhook; core validates, queues and coalesces the signal, then
 starts a turn on the originating conversation, whose surface receives it as usual. See
 [signal callbacks](volatile-webhook-signals.md).
+
+A conversation can also watch other conversations it delegated work to. Core observes
+their turns and sends the same kind of signal to the watcher when one ends or waits for
+a decision, with no callback involved. See [thread watches](thread-watch.md).
 
 ### Restart and deploy
 

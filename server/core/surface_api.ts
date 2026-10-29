@@ -31,3 +31,4 @@ export { deploymentTargetLabel, type DeploymentStatus, type DeploymentTarget } f
 export { parseSignalEnvelope, InvalidSignalError, UnknownSignalKindError, UnsupportedSignalVersionError, type RegisteredSignal, type SignalTarget } from "./signals/signal_registry.js";
 export type { SignalDispatchResult } from "./signals/signal_dispatcher.js";
 export { SignalRouteRateLimitError, type SignalRoute } from "./signals/signal_route_registry.js";
+export { THREAD_WATCH_SIGNAL_KIND, type ThreadWatchAgent, type ThreadWatchPayload, type ThreadWatchState } from "./signals/thread_watch_service.js";

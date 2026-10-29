@@ -164,13 +164,23 @@ class Connection implements AppServerConnection {
   end(message: string): void { this.closed = true; this.client.onClosed(message); }
 }
 
+/** The app-server command line. `agents.enabled=false` is the only setting that removes the
+ * subagent tools from models that declare their own multi-agent version, and it applies to every
+ * thread the process starts, resumes or forks. An enabled `features.multi_agent_v2` would take
+ * precedence over it, so it is pinned off too. */
+export function codexAppServerArgs(environment: Record<string, string | undefined> = process.env): string[] {
+  const value = environment.CODEX_SUBAGENTS?.trim() || "enabled";
+  if (value !== "enabled" && value !== "disabled") throw new Error("CODEX_SUBAGENTS must be enabled or disabled.");
+  return value === "enabled" ? ["app-server"] : ["-c", "agents.enabled=false", "-c", "features.multi_agent_v2=false", "app-server"];
+}
+
 /** The Codex app-server every Codex thread, history read and account request shares. It starts
  * on first use and again on the next use after it exits; threads loaded in an ended process must
  * be resumed in the new one. */
 export class CodexAppServer {
   private current: AppServerProcess | null = null;
   private stopped = false;
-  constructor(private readonly spawnProcess: () => ChildProcessWithoutNullStreams = () => spawn("codex", ["app-server"], { stdio: ["pipe", "pipe", "pipe"], env: process.env })) {}
+  constructor(private readonly spawnProcess: () => ChildProcessWithoutNullStreams = () => spawn("codex", codexAppServerArgs(), { stdio: ["pipe", "pipe", "pipe"], env: process.env })) {}
 
   async connect(client: AppServerClient): Promise<AppServerConnection> {
     if (this.stopped) throw new Error("Codex app-server is stopped.");

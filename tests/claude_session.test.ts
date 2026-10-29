@@ -131,6 +131,7 @@ test("Claude streams common events and resumes the native session from its trans
   const events: BridgeEvent[] = []; session.eventBus.subscribe((event) => events.push(event), { replay: false });
   const turnId = await session.startTurn([toTextUserInput("hello")]); await done(session);
   expect(fake.calls[0]!.options.env).toBeDefined();
+  expect(fake.calls[0]!.options.disallowedTools).toBeUndefined();
   if (process.env.CLAUDE_AUTH_MODE !== "api") {
     expect(fake.calls[0]!.options.env!.ANTHROPIC_API_KEY).toBe("");
     expect(fake.calls[0]!.options.settings).toMatchObject({ forceLoginMethod: "claudeai", apiKeyHelper: "" });
@@ -153,6 +154,24 @@ test("Claude streams common events and resumes the native session from its trans
   await resumed.setThreadName(created.threadId, "Saved");
   expect(await resumed.readThread(created.threadId, false)).toMatchObject({ thread: { name: "Saved", cwd: "/project" } });
   session.stop(); resumed.stop();
+});
+
+test("CLAUDE_SUBAGENTS=disabled removes the Agent tool from Claude's turns", async () => {
+  const previous = process.env.CLAUDE_SUBAGENTS;
+  process.env.CLAUDE_SUBAGENTS = "disabled";
+  try {
+    const fake = sdk(async function* (input, options) {
+      for await (const _message of input) break;
+      yield { type: "system", subtype: "init", session_id: options.resume ?? options.sessionId } as SDKMessage;
+      yield result;
+    });
+    const session = new ClaudeSession(undefined, fake);
+    await session.startThread({ cwd: "/project" });
+    await session.startTurn([toTextUserInput("hello")]); await done(session);
+    expect(fake.calls[0]!.options.disallowedTools).toEqual(["Agent"]);
+  } finally {
+    if (previous === undefined) delete process.env.CLAUDE_SUBAGENTS; else process.env.CLAUDE_SUBAGENTS = previous;
+  }
 });
 
 test("a compaction is a step of the running turn, live as in history, and never the user's message", async () => {

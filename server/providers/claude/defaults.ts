@@ -14,3 +14,10 @@ export function claudeDefaults(environment: Record<string, string | undefined> =
   if (!isClaudeEffort(effort)) throw new Error(`CLAUDE_EFFORT must be one of ${claudeEffortLevels.join(", ")}.`);
   return { model: environment.CLAUDE_MODEL?.trim() || "claude-opus-5-5", effort };
 }
+
+/** Whether Claude conversations may delegate to subagents through the Agent tool. */
+export function claudeSubagentsEnabled(environment: Record<string, string | undefined> = process.env): boolean {
+  const value = environment.CLAUDE_SUBAGENTS?.trim() || "enabled";
+  if (value !== "enabled" && value !== "disabled") throw new Error("CLAUDE_SUBAGENTS must be enabled or disabled.");
+  return value === "enabled";
+}

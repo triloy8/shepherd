@@ -3,9 +3,13 @@
 This document inventories the Codex app-server protocol only. For Claude Agent
 SDK and subscription coverage, see the [Claude parity matrix](claude-parity-matrix.md).
 For Discord and web controls, see the [surface parity matrix](surface-parity-matrix.md).
-The provider split was reviewed on 2026-10-10; the generated Codex baseline and
-its earlier review dates below are unchanged. No schemas were regenerated for
-this documentation change.
+Implementation notes reviewed: 2026-10-31 against `0475c5e` on `main`.
+The generated Codex baseline and its earlier review dates below are historical;
+generated schemas are absent from this checkout, so their inventory was not
+reverified. No schemas were regenerated for this documentation change.
+
+Unmapped notifications marked `Private` stay inside the adapter and are not
+published as generic application events.
 
 Status legend:
 
@@ -40,7 +44,7 @@ Legacy note:
 
 | Method | Status | Scope Recommendation | Notes |
 |---|---|---|---|
-| `initialize` | Implemented | Core | Generated request and notification envelope shapes are enforced; `experimentalApi` is enabled for dynamic tools. One process serves every thread, history read and account request; notifications and server requests are routed by `threadId`, notifications without one reach every session, and requests for a thread no session runs are refused. If the process exits, every session reports it and the next use starts a new process |
+| `initialize` | Implemented | Core | Native request and notification envelopes are decoded inside the adapter; `experimentalApi` is enabled for dynamic tools. One process serves every thread, history read and account request; notifications and server requests are routed by `threadId`, notifications without one reach every session, and requests for a thread no session runs are refused. If the process exits, every session reports it and the next use starts a new process |
 | `thread/start` | Partial | Core | Adapter encodes shared model, effort, workspace, the policy profile's sandbox and approval settings, and registered dynamic tools. `developerInstructions`, `baseInstructions`, and `ephemeral` are not exposed, so configured instructions apply. Raw SDK config/backend/style/analytics selectors are private native settings; no public pass-through. Missing `serviceTier`, `approvalsReviewer`, `sessionStartSource`, and `threadSource` |
 | `thread/resume` | Partial | Core | Shared typed overrides only; effort maps to native configuration privately. Missing `serviceTier`, `approvalsReviewer`, and `excludeTurns` |
 | `thread/fork` | Partial | Core | Shared typed overrides only; native fields are not exposed wholesale. Missing `lastTurnId`, `serviceTier`, `approvalsReviewer`, `ephemeral`, `threadSource`, and `excludeTurns` |
@@ -76,7 +80,7 @@ Legacy note:
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports URL/local image, audio, text, and skill input (application `image_file`/`audio_file` encode to `localImage`/`localAudio`); mention input and text elements are not exposed; missing the new image `fileId` variant. Supports `model`, `effort` (Discord `!effort`), and the thread workspace as `cwd`; the policy profile is set on `thread/start`/`resume`/`fork`, not per turn; missing disabled plugin IDs, client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, summary, personality, and output schema |
+| `turn/start` | Partial | Core | Supports URL/local image, audio, text, and skill input (application `image_file`/`audio_file` encode to `localImage`/`localAudio`); mention input and text elements are not exposed; missing the new image `fileId` variant. Supports `model`, `effort` (Discord `!effort`), and the thread workspace as `cwd`; the policy profile is set on `thread/start`/`resume`/`fork`, not per turn; missing disabled plugin IDs, client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, configurable summary, personality, and output schema; every turn requests reasoning summaries with `summary: "auto"` |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
@@ -135,8 +139,8 @@ Legacy note:
 | `account/gatewayOAuth/login` | Missing | Out of Scope (for now) | Explicit gateway authorization; initialize also adds `explicitGatewayOauth` |
 | `account/gatewayOAuth/cancel` | Missing | Out of Scope (for now) | Cancels gateway authorization |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
-| `account/rateLimits/read` | Partial | Core | Discord `!limits` renders the single-bucket view; web sidebar Usage & limits renders all returned buckets and typed banked reset count/details. Shared controls preserve both. Does not send `supportsLunaReserve` or `excludeResetCreditDetails`; omits top-level `ordinaryUsageAllowed`, `accountId`, and `rateLimitUpsell`; usage titles resolve `normalModelSlug` through the model catalog with label/ID fallbacks |
-| `account/rateLimitResetCredit/consume` | Implemented | Core | Shared wrapper/control and web `POST /limits/reset` / Use this reset per credit. Count-only/capped inventories retain Use next available reset. Requires `idempotencyKey`; optional `creditId`. Validated outcomes: `reset`, `alreadyRedeemed`, `nothingToReset`, `noCredit`. UI refreshes limits after every known outcome and retains the same request key and selected credit ID after an unknown outcome, including across reload in the same tab. No Discord command |
+| `account/rateLimits/read` | Partial | Core | Discord `!limits` and web sidebar Usage & limits render normalized allowance windows from all returned buckets; web also renders typed banked reset count/details. Does not send `supportsLunaReserve` or `excludeResetCreditDetails`; does not preserve native top-level `ordinaryUsageAllowed`, `accountId`, and `rateLimitUpsell`; window labels use native `limitName`, falling back to a humanized `limitId`; `ordinaryUsageAllowed` is derived from normalized window utilization |
+| `account/rateLimitResetCredit/consume` | Implemented | Core | Shared wrapper/control and web `POST /api/limits/reset` / Use reset per credit. Count-only/capped inventories retain Use available reset. Requires `idempotencyKey`; optional `creditId`. Native outcomes `reset`, `alreadyRedeemed`, `nothingToReset`, `noCredit` map to shared `reset`, `already_redeemed`, `nothing_to_reset`, `no_credit`. UI refreshes limits after every known outcome and retains the same request key and selected credit ID after an unknown outcome, including across reload in the same tab. No Discord command |
 | `account/usage/read` | Missing | Maybe Later | Useful for account diagnostics if Shepherd adds admin reporting; generated params now optionally scope usage to a `threadId` |
 | `account/workspaceMessages/read` | Missing | Maybe Later | Useful for account/workspace diagnostics |
 | `account/login/start` | Missing | Out of Scope (for now) | |
@@ -168,82 +172,82 @@ Legacy note:
 
 | Notification | Current Handling | Scope Recommendation |
 |---|---|---|
-| `error` | Typed nested error decoding (`session.error`; context limits use `session.limit.context`) | Core |
+| `error` | Typed nested error decoding (`session.error`; context limits use `session.limit.context`); `willRetry: true` diagnostics stay in the server log | Core |
 | `thread/status/changed` | Typed event (`thread.status.changed`) | Core |
-| `thread/attachment/updated` | Generic | Maybe Later |
-| `account/gatewayOAuth/changed` | Generic | Out of Scope (for now) |
-| `thread/started` | Generic | Maybe Later |
-| `thread/deleted` | Generic | Maybe Later |
+| `thread/attachment/updated` | Private | Maybe Later |
+| `account/gatewayOAuth/changed` | Private | Out of Scope (for now) |
+| `thread/started` | Private | Maybe Later |
+| `thread/deleted` | Private | Maybe Later |
 | `thread/name/updated` | Typed event (`thread.name.updated`) | Core |
-| `thread/goal/updated` / `thread/goal/cleared` | Generic | Maybe Later |
-| `thread/environment/connected` / `thread/environment/disconnected` | Generic | Maybe Later |
-| `thread/settings/updated` | Generic | Maybe Later |
+| `thread/goal/updated` / `thread/goal/cleared` | Private | Maybe Later |
+| `thread/environment/connected` / `thread/environment/disconnected` | Private | Maybe Later |
+| `thread/settings/updated` | Private | Maybe Later |
 | `thread/tokenUsage/updated` | Partial; mapped to typed bridge event (`thread.tokenUsage.updated`) and cached for Discord `!context` | Core |
 | `thread/archived` / `thread/unarchived` | Typed events (`thread.archived`, `thread.unarchived`) | Core |
-| `thread/closed` | Generic | Maybe Later |
+| `thread/closed` | Private | Maybe Later |
 | `thread/reverted` | Typed event (`thread.reverted`); web invalidates history and event replay | Core |
-| `thread/compacted` | Generic | Maybe Later |
-| `thread/queue/changed` | Generic | Maybe Later |
-| `project/changed` / `thread/project/updated` | Generic | Maybe Later |
-| `skills/changed` | Generic | Maybe Later |
-| `turn/started` | Generic | Maybe Later |
+| `thread/compacted` | Private | Maybe Later |
+| `thread/queue/changed` | Private | Maybe Later |
+| `project/changed` / `thread/project/updated` | Private | Maybe Later |
+| `skills/changed` | Private | Maybe Later |
+| `turn/started` | Private | Maybe Later |
 | `turn/completed` | Typed event; failed completion payloads emit `turn.failed` with the generated error message | Core |
-| `turn/diff/updated` | Generic | Maybe Later |
-| `turn/plan/updated` | Generic | Maybe Later |
-| `hook/started` / `hook/completed` | Generic | Out of Scope (for now) |
+| `turn/diff/updated` | Private | Maybe Later |
+| `turn/plan/updated` | Private | Maybe Later |
+| `hook/started` / `hook/completed` | Private | Out of Scope (for now) |
 | `item/started` / `item/completed` | Decoded with the history decoder into `item.started` / `item.completed`; tracks message phase for deltas | Core |
-| `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Generic | Maybe Later |
-| `autoApprovalReview/strictReviewRequired` | Generic | Maybe Later |
-| `rawResponseItem/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
-| `rawResponse/completed` | Generic; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
+| `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Private | Maybe Later |
+| `autoApprovalReview/strictReviewRequired` | Private | Maybe Later |
+| `rawResponseItem/completed` | Private; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
+| `rawResponse/completed` | Private; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
 | `item/agentMessage/delta` | `item.delta` on the `message` channel | Core |
-| `item/plan/delta` | `item.delta` on the `plan` channel; surfaces show the completed item | Partial |
+| `item/plan/delta` | `item.delta` on the `plan` channel; surfaces build the running plan and replace it with the completed item | Partial |
 | `command/exec/outputDelta` | Private | Out of Scope (for now) |
-| `process/outputDelta` / `process/exited` | Generic | Out of Scope (for now) |
+| `process/outputDelta` / `process/exited` | Private | Out of Scope (for now) |
 | `item/commandExecution/outputDelta` | `item.delta` on the `output` channel; surfaces show the completed item | Partial |
-| `item/commandExecution/terminalInteraction` | Generic | Maybe Later |
+| `item/commandExecution/terminalInteraction` | Private | Maybe Later |
 | `item/fileChange/outputDelta` | `item.delta` on the `output` channel; surfaces show the completed item | Partial |
-| `item/fileChange/patchUpdated` | Generic | Maybe Later |
-| `serverRequest/resolved` | Matches pending user-input request IDs and emits `approval.expired`; no general resolution tracking for other request methods | Core (User input) |
-| `item/mcpToolCall/progress` | Generic | Out of Scope (for now) |
-| `mcpServer/oauthLogin/completed` | Generic | Out of Scope (for now) |
-| `mcpServer/startupStatus/updated` | Generic | Out of Scope (for now) |
-| `mcpServer/event/stream/notification` | Generic | Out of Scope (for now) |
-| `account/updated` / `account/rateLimits/updated` | Generic; `account/rateLimits/read` is wrapped separately | Maybe Later |
-| `app/list/updated` | Generic | Out of Scope (for now) |
-| `remoteControl/status/changed` | Generic | Out of Scope (for now) |
-| `externalAgentConfig/import/progress` | Generic | Out of Scope (for now) |
-| `externalAgentConfig/import/completed` | Generic | Out of Scope (for now) |
-| `fs/changed` | Generic | Out of Scope (for now) |
+| `item/fileChange/patchUpdated` | Private | Maybe Later |
+| `serverRequest/resolved` | Matches pending permission and user-input request IDs, removes the native request, and emits `approval.expired` | Core |
+| `item/mcpToolCall/progress` | Private | Out of Scope (for now) |
+| `mcpServer/oauthLogin/completed` | Private | Out of Scope (for now) |
+| `mcpServer/startupStatus/updated` | Private | Out of Scope (for now) |
+| `mcpServer/event/stream/notification` | Private | Out of Scope (for now) |
+| `account/updated` / `account/rateLimits/updated` | Private; `account/rateLimits/read` is wrapped separately | Maybe Later |
+| `app/list/updated` | Private | Out of Scope (for now) |
+| `remoteControl/status/changed` | Private | Out of Scope (for now) |
+| `externalAgentConfig/import/progress` | Private | Out of Scope (for now) |
+| `externalAgentConfig/import/completed` | Private | Out of Scope (for now) |
+| `fs/changed` | Private | Out of Scope (for now) |
 | `item/reasoning/summaryTextDelta` | `item.delta` on the `reasoning` channel with `form: "summary"` and `part` from `summaryIndex`; surfaces show it as a running step until the item completes. Codex writes no summaries unless asked, so every `turn/start` sends `summary: "auto"`; the model may still write none | Implemented |
-| `item/reasoning/summaryPartAdded` | Generic | Maybe Later |
+| `item/reasoning/summaryPartAdded` | Private | Maybe Later |
 | `item/reasoning/textDelta` | Private; history keeps summaries, not raw reasoning | Out of Scope (for now) |
-| `model/rerouted` | Generic | Maybe Later |
-| `model/verification` | Generic | Maybe Later |
-| `modelProvider/authRecoveryStarted` / `modelProvider/authRecoveryCompleted` | Generic | Maybe Later |
-| `turn/moderationMetadata` | Generic | Maybe Later |
-| `model/safetyBuffering/updated` | Generic | Maybe Later |
-| `warning` / `guardianWarning` | Generic | Maybe Later |
-| `deprecationNotice` / `configWarning` | Generic | Maybe Later |
-| `fuzzyFileSearch/sessionUpdated` / `fuzzyFileSearch/sessionCompleted` | Generic | Out of Scope (for now) |
-| `thread/realtime/started` / `thread/realtime/itemAdded` | Generic | Out of Scope (for now) |
-| `thread/realtime/item/started` / `thread/realtime/item/transcript/delta` / `thread/realtime/item/completed` | Generic | Out of Scope (for now) |
-| `thread/realtime/transcript/delta` / `thread/realtime/transcript/done` | Delta partially interpreted via generic text-delta handling; done notification is generic | Out of Scope (for now) |
-| `thread/realtime/outputAudio/delta` / `thread/realtime/sdp` | Generic | Out of Scope (for now) |
-| `thread/realtime/error` / `thread/realtime/closed` | Generic | Out of Scope (for now) |
-| `windows/worldWritableWarning` / `windowsSandbox/setupCompleted` | Generic | Out of Scope (for now) |
-| `account/login/completed` | Generic | Out of Scope (for now) |
+| `model/rerouted` | Private | Maybe Later |
+| `model/verification` | Private | Maybe Later |
+| `modelProvider/authRecoveryStarted` / `modelProvider/authRecoveryCompleted` | Private | Maybe Later |
+| `turn/moderationMetadata` | Private | Maybe Later |
+| `model/safetyBuffering/updated` | Private | Maybe Later |
+| `warning` / `guardianWarning` | Private | Maybe Later |
+| `deprecationNotice` / `configWarning` | Private | Maybe Later |
+| `fuzzyFileSearch/sessionUpdated` / `fuzzyFileSearch/sessionCompleted` | Private | Out of Scope (for now) |
+| `thread/realtime/started` / `thread/realtime/itemAdded` | Private | Out of Scope (for now) |
+| `thread/realtime/item/started` / `thread/realtime/item/transcript/delta` / `thread/realtime/item/completed` | Private | Out of Scope (for now) |
+| `thread/realtime/transcript/delta` / `thread/realtime/transcript/done` | Private; neither notification maps to an application text delta | Out of Scope (for now) |
+| `thread/realtime/outputAudio/delta` / `thread/realtime/sdp` | Private | Out of Scope (for now) |
+| `thread/realtime/error` / `thread/realtime/closed` | Private | Out of Scope (for now) |
+| `windows/worldWritableWarning` / `windowsSandbox/setupCompleted` | Private | Out of Scope (for now) |
+| `account/login/completed` | Private | Out of Scope (for now) |
 
 ## Shared Protocol Type Parity
 
 | Area | Status | Notes |
 |---|---|---|
-| Thread lifecycle DTOs | Good | Includes current list filters, pagination cursors, and generated approval-policy values |
-| Rich thread object typing | Partial | `ReadThreadResponse`/`RevertThreadResponse` use `ThreadRecord`; generated `originator`, project assignment, agent-message delivery, and environment fields remain only structurally preserved through the open record shape |
+| Thread lifecycle DTOs | Good | Includes shared list filters, opaque pagination cursors, and provider-neutral execution policies; native approval values stay in the adapter |
+| Rich thread object typing | Partial | `ReadThreadResponse`/`RevertThreadResponse` use `ThreadRecord`; only declared shared fields survive adapter decoding; generated `originator`, project assignment, agent-message delivery, and environment fields are omitted |
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
-| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain generic |
-| Account usage/reset DTOs | Partial | Typed reset summary/details, consume params, and validated outcomes are exposed through shared controls and web. Per-bucket usage remains `unknown`; broader top-level account metadata is not exposed |
-| User-input request/response DTOs | Partial | `UserQuestionRequest` preserves identity, questions, `isBlocking`, `isOther`, `isSecret`, and options; answers use question-ID maps of string arrays. One nonempty answer per question; deprecated `autoResolutionMs` is not used for a client timer |
+| Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain private |
+| Account usage/reset DTOs | Partial | Typed reset summary/details, consume params, and validated outcomes are exposed through shared controls and web. Native buckets are decoded into typed allowance windows; raw bucket payloads and broader native account metadata stay private |
+| User-input request/response DTOs | Partial | `UserQuestionRequest` preserves identity, questions, `isBlocking`, `isOther`, `isSecret`, `multiSelect`, and options; answers use question-ID maps of string arrays. One nonempty answer per single-answer question; distinct arrays for multiselect; deprecated `autoResolutionMs` is not used for a client timer |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
 | Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.160.1`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is retired in favor of implemented revert |
 
@@ -282,15 +286,18 @@ Shepherd does not start a timer from deprecated `autoResolutionMs`. If Codex res
 a request itself, `serverRequest/resolved` removes it and expires its form.
 
 Submission uses `{ answers: { [questionId]: { answers: [text] } } }`. Shepherd
-requires one nonempty answer for every question, rejects extra IDs, and restricts
+requires one nonempty answer for each single-answer question and one or more
+distinct answers for multiselect (at most 100, each at most 16,000 characters),
+rejects extra IDs, and restricts
 answers to offered option labels when custom text is not allowed. Explicit skip
 returns `{ answers: {} }`. Invalid submissions leave the request pending for retry;
 resolved, interrupted/completed-turn, and stopped-session questions cannot accept
 stale responses. Answers are not copied into pending decision records or events.
 
 Web supports selectable options, custom/free text, multiple questions, and masked
-secret fields. Discord offers text modals for up to five nonsecret questions;
-secret or larger requests direct users to the web UI. MCP elicitation remains
+secret fields and multiselect checkboxes. Discord offers text modals for up to five
+nonsecret single-answer questions;
+secret, multiselect, or larger requests direct users to the web UI. MCP elicitation remains
 unsupported. Ordinary assistant prose does not create a question request.
 
 Coverage: `tests/user_questions.test.ts` verifies wire responses, validation,
@@ -311,10 +318,10 @@ available credits. Rows may be capped, so the available count is authoritative;
 Shepherd decodes the reset summary in the Codex adapter and preserves it through
 `limits.read` shared controls and the web API. The sidebar Usage & limits panel
 shows the count and available details; conversation settings retain only context
-telemetry. Discord still renders ordinary usage only.
+telemetry. Discord renders allowance windows and extra usage, but no banked reset inventory.
 
-The shared consume wrapper is exposed through `POST /limits/reset` and per-credit
-Use this reset buttons. Count-only/capped details retain a provider-selected
+The shared consume wrapper is exposed through `POST /api/limits/reset` and per-credit
+Use reset buttons. Count-only/capped details retain a provider-selected
 fallback. The UI disables duplicate submission, reports each validated provider
 outcome, and rereads limits after a known result. If the result is unknown, it
 saves the request key and selected credit ID in session storage and retries that
@@ -328,7 +335,7 @@ Sources: [generated provider documentation](https://learn.chatgpt.com/docs/app-s
 [shared controls](../server/core/surface/control_actions_service.ts),
 [web limits route](../server/adapters/web/api.ts),
 [Discord commands](../server/adapters/discord/commands.ts), and
-[web limits rendering](../ui/src/components/Usage.tsx).
+[web limits rendering](../ui/src/components/UsageLimits.tsx).
 
 ## Previous changes in 0.159.2
 

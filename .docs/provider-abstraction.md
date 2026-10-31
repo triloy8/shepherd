@@ -11,8 +11,8 @@ there is no parallel provider API, compatibility facade, or alternative transcri
   history, provider-wide model discovery, and `openSession`) and the `ThreadSession` it opens to
   run one thread (execution, events, approvals, and that conversation's compact, revert, catalog
   and skills). Core never opens a session to read history or list models. A provider reaches a
-  thread one of its sessions is running through that session. Codex runs one app-server process
-  for every thread, history read and account request, and routes each thread's notifications and
+  thread one of its sessions is running through that session. Codex shares one app-server process
+  across every thread, history read and account request, and routes each thread's notifications and
   requests to the session running it; Claude reads Claude's sessions directly.
 - `server/ports/provider_services.ts` defines registration, account reporting, optional resets,
   session creation, and persisted thread ownership.
@@ -28,8 +28,8 @@ there is no parallel provider API, compatibility facade, or alternative transcri
 To add another provider, implement the provider and thread session ports, supply its capabilities, optionally supply an account
 reader, and register its factory and ownership resolver at composition. Core and
 surface code do not need another provider branch. Provider IDs and model IDs are opaque strings. Discord uses `!providers` for discovery,
-with optional provider IDs on `!newthread` and `!limits`; omitted IDs use the configured
-default agent. Composition names the default explicitly (`SHEPHERD_DEFAULT_PROVIDER`, Codex
+with optional provider IDs on `!newthread` and `!limits`. New threads use the configured
+default agent when omitted; limits use the attached conversation's agent, falling back to the default. Composition names the default explicitly (`SHEPHERD_DEFAULT_PROVIDER`, Codex
 when unset) and registration rejects an unregistered default; descriptors mark it with
 `isDefault`, so neither core nor clients infer it from registration order.
 
@@ -45,7 +45,8 @@ both adapters. Deltas name their `channel` (`message`, `plan`, `reasoning`, `out
 method. `shared/protocol/item_stream.ts` holds the rules every surface shares: how plan and
 reasoning deltas build their item until the canonical item replaces it, and which messages answer
 a turn (those marked final, or else the last unphased one). Output deltas are a running step's
-latest output. A finished command keeps the end of what it printed, bounded to 4 KB by
+latest output. A finished command keeps the end of what it printed, bounded to the last
+4,096 JavaScript string code units (plus a truncation marker) by
 `commandResult`, and its exit code when the provider reports one, as `result`: Codex records
 both, and Claude records its Bash output and a failed command's exit code. Reasoning items state their `form`: Codex keeps raw reasoning private and sends `summary`
 reasoning; Claude returns summaries of its thinking, also `summary`. `full` is for a provider
@@ -89,7 +90,8 @@ status; web/Discord do not decode native tool records. Codex decodes its thread 
 its adapter. Provider transcripts are authoritative: Shepherd keeps no copy of a conversation.
 Claude history is read from its session transcript through the SDK and decoded by
 `server/providers/claude/transcript.ts`, the same decoder the live stream uses. Activities
-are described from a bounded subset of tool arguments; tool results are not part of history. User message history has a
+are described from a bounded subset of tool arguments; command output and reported exit codes
+are retained as structured results, while other tool results stay private. User message history has a
 content part for every application input kind (`text`, `image`, `image_file`, `audio`, `audio_file`,
 `skill`); `attachment` is only for provider content with no application counterpart, such as
 Codex connector mentions, and keeps an indicator and available name/path in the web UI. The web
@@ -103,11 +105,11 @@ and extracts these fields (Claude's `Bash` is a `command`, `Agent`/`Task` are `d
 provider-specific kind; a new kind belongs in the shared contract only when surfaces present it
 differently. Surfaces write every activity title and detail from these fields with
 `describeActivity`, so an activity reads the same whichever agent ran it. Native tool arguments,
-tool results, transport envelopes, and arbitrary thread properties do
+raw tool results, transport envelopes, and arbitrary thread properties do
 not cross the boundary. Application input kinds (`text`, `image`, `image_file`, `audio`,
 `audio_file`, `skill`) are encoded into Codex's wire format inside the Codex adapter; Codex
 text elements and connector mentions are not part of the shared contract. Claude converts
-the same application inputs into SDK content blocks.
+supported text and image inputs into SDK content blocks; its adapter rejects the other kinds.
 
 The chat layout, composer, folded work, Markdown, image presentation, scrolling, and
 recent-first turn pagination retain the restored main UI behavior. New-conversation
@@ -283,9 +285,9 @@ Core checks these before bootstrap, submit, or steer, and adapters enforce them 
 calls. Claude currently accepts plain text and URL/base64 image inputs; it does not claim
 local-file, audio, skill-reference, or image-detail support. Model/effort
 options are discovered where available; otherwise the adapter validates opaque selections. Thread state includes its provider
-and capabilities, so surfaces do not guess support from identity. When a registered
+and capabilities, so surfaces do not guess support from identity. When a
 provider is registered, composition rejects it if its capabilities differ from the
-descriptor or an advertised history or provider-wide discovery operation has no
+descriptor or an advertised optional history operation (rename/archive/unarchive) or provider-wide discovery operation has no
 implementation, and checks `accountReset` against the account reader. When the provider
 opens a session, composition rejects the session the same way for its thread operations
 and stops it before initialization. Shared events form a

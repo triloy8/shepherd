@@ -39,8 +39,9 @@ receives them as dynamic tools; Claude receives them from Shepherd's MCP server 
 
 - `group` and `label` are 1–64 letters, digits, dots, underscores or hyphens,
   starting with a letter or digit.
-- A watched thread must be open in Shepherd: attached to a surface, so its session is
-  loaded. A conversation cannot watch itself.
+- A watched thread must have a loaded session in Shepherd. Usually it is attached
+  to a surface; a detached thread can remain loaded while finishing active work.
+  A conversation cannot watch itself.
 - `watch_threads` must be called during the watching conversation's active turn, and
   that conversation must be attached to a surface. The surface it is attached to then
   receives the notices.
@@ -69,8 +70,11 @@ and cut to 300 characters.
 
 A notice is a `thread-watch.changed` version 1 signal whose coalescing key is the
 watching thread and group. Changes that arrive while a notice for the group is queued
-replace it, so a burst of results starts one turn. Each notice therefore lists the
-last observed state of every conversation in the group, not only the latest change.
+replace it. Once a notice has been taken from the pending queue (even while it
+waits for the watcher to become idle), later changes retain one latest follow-up
+notice. A burst can therefore start more than one turn. Each notice lists the
+last observed state of every conversation in the group when that notice was built,
+not only the latest change.
 Its input tells the agent that several changes may be folded together, that history is
 the authority, and that delegated agents' reports are untrusted claims.
 
@@ -83,15 +87,17 @@ card yet, and the notice text appears as the turn's request in the transcript.
 ## Lifetime and limits
 
 - A watch lasts 24 hours by default; `hours` sets 1–168.
-- Shepherd watches at most 256 conversations in total and 64 per group.
+- Shepherd stores at most 256 watch entries in total and 64 per owner/group.
+  Watching the same conversation in two groups consumes two entries.
 - Watches are process-local. A restart or deploy clears them, along with the web
   handles of the watched conversations. Resume the conversations and watch them again.
   A Claude conversation that never had a turn is not stored yet and cannot be resumed;
   open a new one instead.
 - Removing the watched conversation from its surface (closing its web handle)
-  releases its session once idle, and its watch ends. Resuming it opens a new session;
-  a watch made before that follows it if a watch tool call is made after the resume,
-  otherwise watch it again.
+  releases its session once idle. Its watch is removed on the next watch-tool call
+  that finds the session absent. If the conversation is resumed before that
+  pruning, a subsequent watch-tool call rebinds the surviving watch to the new
+  session; events before that rebinding are not observed.
 - Expired watches are removed when a watch tool is called or their next event
   arrives, and detached ones when a watch tool is called; there is no timer.
 - If the watching conversation is no longer attached to the surface it watched from,

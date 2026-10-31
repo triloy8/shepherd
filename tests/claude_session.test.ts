@@ -131,7 +131,8 @@ test("Claude streams common events and resumes the native session from its trans
   const events: BridgeEvent[] = []; session.eventBus.subscribe((event) => events.push(event), { replay: false });
   const turnId = await session.startTurn([toTextUserInput("hello")]); await done(session);
   expect(fake.calls[0]!.options.env).toBeDefined();
-  expect(fake.calls[0]!.options.disallowedTools).toBeUndefined();
+  // The host's own CLAUDE_SUBAGENTS reaches this test when deployment validation runs it.
+  expect(fake.calls[0]!.options.disallowedTools).toEqual(process.env.CLAUDE_SUBAGENTS?.trim() === "disabled" ? ["Agent"] : undefined);
   if (process.env.CLAUDE_AUTH_MODE !== "api") {
     expect(fake.calls[0]!.options.env!.ANTHROPIC_API_KEY).toBe("");
     expect(fake.calls[0]!.options.settings).toMatchObject({ forceLoginMethod: "claudeai", apiKeyHelper: "" });

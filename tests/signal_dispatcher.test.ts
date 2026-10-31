@@ -32,11 +32,6 @@ function signal(subject: string, text = subject): RegisteredSignal {
   };
 }
 
-async function settle(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
 async function waitFor(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (predicate()) return;
@@ -46,6 +41,36 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 describe("SignalDispatcher", () => {
+  test("drops a queued signal whose conversation moved while it waited", async () => {
+    const idle = deferred();
+    let bound = true;
+    const turns: string[] = [];
+    const errors: string[] = [];
+    const presented: string[] = [];
+    const dispatcher = new SignalDispatcher({
+      async resolveTarget() { return bound ? { threadId: "thread-1", cwd: "/workspace" } : null; },
+      async waitUntilIdle() { await idle.promise; },
+      async executeTurn(_target, input) { turns.push(input[0]?.type === "text" ? input[0].text : ""); },
+    }, {
+      beforeExecute: async (queued) => { presented.push(queued.envelope.subject!.id); },
+      onError: (error) => errors.push(error instanceof Error ? error.message : String(error)),
+    });
+
+    expect((await dispatcher.accept(signal("run-1"))).type).toBe("accepted");
+    bound = false;
+    idle.resolve();
+    await waitFor(() => errors.length > 0);
+    expect(turns).toEqual([]);
+    expect(presented).toEqual([]);
+    expect(errors[0]).toContain("no longer bound");
+
+    bound = true;
+    expect((await dispatcher.accept(signal("run-2"))).type).toBe("accepted");
+    await waitFor(() => turns.length > 0);
+    expect(turns).toEqual(["run-2"]);
+    dispatcher.dispose();
+  });
+
   test("presents a signal after the thread is idle and before its turn", async () => {
     const events: string[] = [];
     const executor: SignalExecutor = {
@@ -106,7 +131,7 @@ describe("SignalDispatcher", () => {
     });
 
     idle.resolve();
-    await settle();
+    await waitFor(() => executed.length === 1);
     expect(executed).toEqual(["first"]);
     releases[0]?.resolve();
     await waitFor(() => executed.length === 2);
@@ -170,7 +195,7 @@ describe("SignalDispatcher", () => {
 
     await dispatcher.accept(signal("run-1", "first"));
     await dispatcher.accept(signal("run-2", "second"));
-    await settle();
+    await waitFor(() => executed.length === 2);
 
     expect(executed).toEqual(["first", "second"]);
     expect(errors).toEqual(["failed"]);

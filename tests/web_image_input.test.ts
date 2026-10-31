@@ -32,7 +32,13 @@ test("web image input rejects unsupported content, remote URLs, invalid base64, 
     const c = await h.create(); const path = `/conversations/${c.id}/messages`;
     for (const input of [{ text: "", images: [] }, { images: [png] }, { text: "x", images: "bad" }, { text: "x", images: [png], path: "/private" }]) expect((await h.request(path, "POST", input)).status).toBe(400);
     expect((await h.request(path, "POST", { text: "", images: [png] }, { origin: "https://evil.test" })).status).toBe(403);
-    expect((await h.request(path, "POST", { text: "x" }, { "content-length": String(WEB_MESSAGE_MAX_BODY_BYTES + 1) })).status).toBe(413);
+    const oversized = await h.request(path, "POST", { text: "x" }, { "content-length": String(WEB_MESSAGE_MAX_BODY_BYTES + 1) });
+    expect(oversized.status).toBe(413);
+    // The message route reports its own larger limit, not the 64 KiB default.
+    expect((await oversized.json()).error.message).toBe(`Request body exceeds ${(WEB_MESSAGE_MAX_BODY_BYTES / (1024 * 1024)).toFixed(1)} MiB.`);
+    const rename = await h.request(`/conversations/${c.id}/rename`, "POST", { name: "x" }, { "content-length": String(64 * 1024 + 1) });
+    expect(rename.status).toBe(413);
+    expect((await rename.json()).error.message).toBe("Request body exceeds 64 KiB.");
   } finally { h.api.dispose(); }
 });
 

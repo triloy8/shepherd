@@ -1,4 +1,5 @@
 import type { SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
+import { answerMessages } from "../../../shared/protocol/item_stream.js";
 import type * as P from "../../../shared/protocol/requests.js";
 import { archivedTag, type ClaudeNative } from "./native_sessions.js";
 import { decodeTranscript, type TranscriptEntry } from "./transcript.js";
@@ -13,10 +14,11 @@ export function paginate<T>(values: T[], request: { cursor?: string; limit?: num
   return { data: values.slice(offset, offset + limit), nextCursor: offset + limit < values.length ? String(offset + limit) : null, backwardsCursor: null };
 }
 
-/** A turn's display summary: what the user sent and the answer, falling back to the last reply. */
+/** A turn's display summary: what the user sent and its answer. Only the conversation's own
+ * messages can answer; a subagent's text and interim progress never do. */
 function summaryItems(items: P.HistoryItem[]): P.HistoryItem[] {
-  const replies = items.filter((item): item is Extract<P.HistoryItem, { type: "assistant_message" }> => item.type === "assistant_message");
-  const answers = replies.some((item) => item.phase === "final") ? replies.filter((item) => item.phase === "final") : replies.slice(-1);
+  const replies = items.filter((item): item is Extract<P.HistoryItem, { type: "assistant_message" }> => item.type === "assistant_message" && !item.parentItemId);
+  const answers = answerMessages(replies);
   return items.filter((item) => item.type === "user_message" || (item.type === "assistant_message" && answers.includes(item)));
 }
 

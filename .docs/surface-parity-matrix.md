@@ -34,7 +34,7 @@ They must not be read as a promise that every row is available with Claude.
 | Text/images, follow-ups, interruption | Yes | Yes, with adapter input/queue limits | Shared controls; see each provider inventory for limits |
 | Tool approvals | Yes | Yes, native permission mapping differs | Shared decision cards; not identical sandbox/policy semantics |
 | Tool call detail | Command text, file summaries, tool names; no output | Tool name and input detail while running; shared activity detail in history | The web UI retains its main timeline; providers supply shared activity records |
-| Structured questions | Yes | Yes | Web supports multiple selections; Discord redirects Claude multiple-selection questions to web |
+| Structured questions | Yes | Yes | Web supports multiple selections; Discord redirects any question set with a multiple-selection or secret question, or more than five questions, to web |
 | Stored history and metadata actions | Yes | Yes, from each provider's own sessions | Shared navigation, rename, archive, restore, and detach |
 | Model and effort controls | Yes | Yes, model-dependent | Discovery follows the conversation provider, or the default agent when there is no conversation |
 | Manual compaction | Yes | No | Disabled in the web context dialog for Claude and hidden in Discord `!help`; unsupported calls rejected |
@@ -70,7 +70,7 @@ channel conversation's agent, otherwise the default agent.
 | Archive | Yes — `!archive [id]` | Yes — conversation actions | Web acts on selected conversation |
 | Restore archive | Yes — `!unarchive <id>` | Yes — Restore in archived list | Shared core action |
 | Detach without interrupting work | Yes — `!detach` | Yes — conversation menu | Detach is not deletion or stop |
-| Compact context | Yes — `!compact [id]` | Yes — conversation actions | Web selected conversation; active work/approvals constrain actions |
+| Compact context | Yes — `!compact [id]` | Yes — conversation menu and context dialog | Web selected conversation; active work/approvals constrain actions |
 | Revert conversation from a selected turn | No — `!rollback` returns a retirement notice | Yes — Revert from here beside Copy under user messages | Uses `thread/revert` with `beforeTurnId`; removes selected turn and later history; local files unchanged; confirmation and active-work/approval guards |
 | Conversation search | No Shepherd command | No | Discord channel search is a client feature, not stored-thread search |
 
@@ -167,7 +167,7 @@ Sources: [Discord event presentation](../server/adapters/discord/thread_event_ha
 | Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Host accounts, independent of conversation allowance. Discord `!limits [provider]` lists the chosen account's reported windows, reset times and extra usage; web has a provider selector with the same data. Workspace credit balances and banked resets remain Codex-only |
 | Banked reset count/details/expiration | No | Yes — sidebar Usage & limits | Available count is authoritative; detail rows may be unavailable or capped; non-expiring resets are labeled |
 | Use a banked reset | No | Yes — Use this reset per credit; Use next available reset for count-only/capped details | Shared consume RPC; explicit outcome feedback and limits refresh. Unknown outcomes retain the request key and selected credit ID for retries, including across page reload in the same tab |
-| List discovered skills | Yes — `!skills` | Yes — Skills section | Workspace-scoped discovery |
+| List discovered skills | Yes — `!skills` | Yes — Skills dialog from the conversation menu | Workspace-scoped discovery |
 | Reload skill discovery | Yes — `!skills reload` | Yes — Reload skills | Not an installer |
 | Enable/disable skill | Yes — `!skill enable/disable <name-or-path>` | Yes — per-skill control | Shared configuration; may affect other conversations |
 | Filter discovered skills | No dedicated filter command | Yes — name/description/path/scope filter | Web presentation convenience |

@@ -78,10 +78,10 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | Method | Path | Body or result |
 | --- | --- | --- |
 | GET | `/health` | `{ ok: true }`; availability, not downstream readiness |
-| GET | `/models?cursor=...&limit=100` | Provider catalog; optional `provider=<registered-id>` defaults to the configured default provider. Includes hidden model aliases and supports pagination. Conversation-scoped catalogs use the attached provider. |
+| GET | `/models?cursor=...&limit=100` | Provider catalog; optional `provider=<registered-id>` defaults to the configured default provider. Hidden models require `includeHidden=true`; supports pagination (default limit 20). Conversation-scoped catalogs use the attached provider. |
 | GET | `/providers` | Registered provider IDs, display names, `isDefault`, and capabilities |
 | GET | `/limits?provider=<id>&refresh=true` | `ProviderAccountLimits` for any registered provider. Provider defaults to the configured default provider; refresh is optional. No conversation needed. |
-| POST | `/limits/reset` | `{ provider, idempotencyKey, creditId? }` → `{ outcome }`; requires the provider’s reset capability. Query parameters are rejected. |
+| POST | `/limits/reset` | `{ provider, idempotencyKey, creditId? }` → `{ outcome }`; requires the provider’s reset capability (`422 unsupported_capability` otherwise). Query parameters are ignored. |
 | GET | `/threads?cursor=...&limit=20&archived=false` | Stored thread summaries and pagination cursors; archived defaults to false |
 | GET | `/conversations` | `{ conversations: [{ id, threadId, project }] }` |
 | POST | `/conversations` | `{ project, provider? }` creates a thread (provider defaults to the configured default provider); `{ threadId }` resumes its saved workspace/provider; 201 with `{ id, threadId, project }` |
@@ -116,8 +116,8 @@ absolute local workspace targets.
 
 Messages follow the same submit/steer policy as Discord: a message during an
 active turn steers it. HTTP completion acknowledges routing, not completion of
-the agent's response. Use events/history to follow the result. There is no
-idempotency key in the API: do not blindly retry a message after losing its HTTP
+the agent's response. Use events/history to follow the result. The messages endpoint has no
+idempotency key: do not blindly retry a message after losing its HTTP
 response; inspect state/history first. Competing mutations on one handle return
 `409 conversation_busy`.
 
@@ -182,11 +182,13 @@ missing threads, invalid cursors and other backend failures remain errors.
 Use streaming `fetch` to supply a saved `Last-Event-ID` explicitly, or native
 EventSource for its automatic reconnection. Neither needs credentials. SSE has `id`, `event` and JSON `data` fields. Events are:
 
-- `bridge`: the shared `BridgeEvent` union, including agent deltas, completion,
+- `bridge`: `WebBridgeEvent` (the shared `BridgeEvent` union with image items
+  presented as web assets), including agent deltas, completion,
   errors and pending decision notifications, including `approval.expired` for
   withdrawn user questions.
 - `signal`: a shared `SignalEnvelope` delivered to this surface.
-- `reset`: `{ reason: "event_too_large" }`; reload state, history and approvals.
+- `reset`: `{ reason: "event_too_large" }` or `{ reason: "history_changed" }`; reload
+  state, history and approvals, replacing cached history when it changed.
 
 The server sends comment heartbeats every 15 seconds. Save the last processed
 SSE ID and send it in `Last-Event-ID` on reconnect. IDs are opaque and scoped to
@@ -215,12 +217,12 @@ Image inputs may set `detail` to `low`, `high`, or `full` (no downscaling) when
 `imageDetail` is true; omit it to let the provider choose.
 Thread state exposes the same session capabilities. `skills` controls discovery;
 `skillConfig` controls configuration writes. A catalog can be read-only; model and effort
-selection require a catalog. Flags describe adapter support, while
+selection are independent of catalog support. Flags describe adapter support, while
 model capabilities constrain the selected model. Missing catalog metadata remains unknown.
 Unsupported operations/settings produce `422 unsupported_provider_operation` before execution.
-Create, resume and fork accept an optional `policy` of `{ writes, network, review }`
-(see [provider adapters](provider-abstraction.md#configuration-and-persistence)); without one
-the host's `SHEPHERD_POLICY` applies. Thread state reports `policy` as the provider profile
+The web create, resume and fork routes use the host's `SHEPHERD_POLICY`; they do
+not accept a per-request `policy` (the shared internal thread API does; see
+[provider adapters](provider-abstraction.md#configuration-and-persistence)). Thread state reports `policy` as the provider profile
 and its restrictions, or null when the agent uses its own defaults. Native policy spellings,
 granular SDK policy objects, and the removed `approvalPolicy` and `sandbox` fields are rejected. Shared internal thread
 requests use typed `effort` rather than a raw SDK configuration object. Native configuration,
@@ -228,7 +230,8 @@ model backend selectors, and native listing/database filters remain adapter-owne
 
 ## Limits and failure handling
 
-Request bodies are capped at 64 KiB and prompts at 32,768 characters. There are
+Request bodies are capped at 64 KiB except for the larger
+[image-message envelope](#image-input); prompts are capped at 32,768 characters. There are
 at most 32 concurrent requests and 32 attached/provisional handles. Each handle
 supports four SSE clients and retains up to 256 events or 128 KiB, whichever is
 reached first. An event larger than that buffer becomes a reset notification.
@@ -239,8 +242,10 @@ shutdown, so handle limits are not a total session budget.
 Pagination limits are 1–100. Limit exhaustion returns 429, shutdown returns 503,
 and unclassified backend failures return a sanitized 502 with details in host
 logs. Oversized requests may be rejected by Bun before application routing and
-therefore are not guaranteed a JSON error body. All application responses use
-`Cache-Control: no-store`.
+therefore are not guaranteed a JSON error body. Listener quiescence can also return
+an empty 503 response. Normal API responses use
+`Cache-Control: no-store` except image assets, which allow private caching with
+mandatory revalidation.
 
 Shutdown quiesces ingress, closes streams/listener and lets the shared host stop
 all sessions, including sessions still initializing. A web adapter never stops
@@ -254,7 +259,7 @@ remote tailnet connection are not required by these automated tests.
 How the browser presents these items is described in [Web UI](web-ui.md#transcript-work-and-images).
 
 History items have an application `type`: `user_message` (with `content` parts `text`,
-`image`, `image_file`, or `attachment`), `assistant_message` (with `text` and an optional
+`image`, `image_file`, `audio`, `audio_file`, `skill`, or `attachment`), `assistant_message` (with `text` and an optional
 `phase` of `interim` or `final`), `plan`, `reasoning` (with `parts` and a `form`: `summary` when
 the provider wrote a summary of its reasoning, `full` when it is the reasoning itself),
 `activity`, `image`, or `other`.
@@ -264,7 +269,7 @@ woke it), in history and on `turn.started`. A provider's capabilities list the t
 reports in `turnTriggers`; for a provider that lists none, an unmarked turn means unknown. Live, an interrupted
 turn ends with `turn.completed` carrying `interrupted: true`.
 Activity items carry `status` (`started`, `completed` or `failed`) and a typed `activity`.
-Image items carry `webImage: { url, prompt, name, path, kind }` instead of a server path.
+Image items carry `webImage: { url, prompt, name, path, kind }` with a scoped asset URL and the source path as metadata.
 Live turns stream the same items over SSE: `item.started` for items that take time,
 `item.delta` for streamed text (`channel` is `message`, `plan`, `reasoning` or `output`; a
 reasoning delta states its `form` and may name its `part`), and
@@ -273,14 +278,14 @@ them, including the scoped image URL, so a reload shows what the live view showe
 uses these fields for the work timeline and image previews; it does not request files by
 filesystem path. Plan and reasoning deltas show as running steps until their item completes;
 `output` shows the latest output of a running step. A finished command activity carries
-`result: { output, exitCode }`: the last 4 KB of what it printed, and its exit code when the
+`result: { output, exitCode }`: the last 4,096 characters of what it printed (prefixed with `…` when truncated), and its exit code when the
 provider reports one.
 
 `GET /conversations/:id/images/:assetId` serves only an artifact registered from a
 provider image event or that conversation's stored history. IDs are opaque and
 scoped to the attached conversation. Origin/host checks and the private network
-boundary apply to images too. Responses are non-cacheable, with verified raster
-MIME types and nosniff. PNG, JPEG, GIF and WebP files up to 10 MiB are supported by
+boundary apply to images too. Responses use `Cache-Control: private, max-age=0, must-revalidate` and an ETag
+(with 304 support), verified raster MIME types and nosniff. PNG, JPEG, GIF and WebP files up to 10 MiB are supported by
 the shared loader used for Discord. No SVG/HTML or arbitrary file endpoint exists.
 Each handle retains at most 256 image references; detach/restart discards them.
 Reloading the relevant history registers images again. Unknown references return
@@ -373,8 +378,9 @@ Discovery is scoped to the conversation’s effective workspace; clients cannot 
 `refresh: true` and returns the same shape. `POST /api/conversations/:id/skills`
 with `{ "path": "/absolute/skill/SKILL.md", "enabled": false }` uses the same shared
 `skill.set-enabled` action as Discord and returns the resulting state, such as `{ "enabled": false }`.
-The action also supports the shared name resolution semantics; the UI always sends
-the listed path to distinguish duplicate names. Unknown/ambiguous names return 400.
+This HTTP route takes an explicit path, as the UI sends it, to distinguish duplicate
+names. Shared controls also support name resolution for callers such as Discord;
+the HTTP route does not expose that selector.
 Both writes share the conversation mutation lock and existing origin/host checks.
 
 Skill configuration is shared provider configuration, not a per-conversation override.
@@ -464,8 +470,9 @@ decode/re-encode the image.
 Only the message route accepts the larger bounded JSON envelope needed for base64;
 other route bodies remain capped at 64 KiB. The listener accommodates that larger
 envelope, while the API limits concurrent message processing to two and uses the
-existing per-conversation mutation lock. Oversized input returns 413; invalid image
-content/count returns 400. No temporary upload files or separate public URLs are
+existing per-conversation mutation lock. An oversized JSON envelope or aggregate
+image size returns 413; invalid image content/count or an individual image over
+5 MiB returns 400. No temporary upload files or separate public URLs are
 created. Images are stored as part of provider conversation history.
 
 User-message history preserves bounded valid inline images for previews. Unsupported
@@ -486,8 +493,9 @@ Stored conversation pages explicitly use `updated_at` descending, matching Disco
 currently running.
 
 Stored-thread summaries include `provider` and `canUnarchive`; Restore is disabled
-when the owning provider cannot unarchive. Stored and loaded listings can return
-`unavailableProviders` with partial results. Stored-list cursors retain that notice
+when the owning provider cannot unarchive. Stored-thread listings can return
+`unavailableProviders` with partial results; `/conversations` lists only attached
+web handles and does not include provider-availability notices. Stored-list cursors retain that notice
 until the first page is reloaded, which retries the unavailable providers.
 
 ## Independent provider metadata

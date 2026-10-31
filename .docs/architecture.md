@@ -3,7 +3,8 @@
 Shepherd connects surfaces (the web UI, Discord and a local webhook) to coding agents
 (Codex and Claude) through one core. The code is stratified: protocol at the bottom, then
 ports, then providers and core side by side, then the surfaces, and composition on top
-wiring them together. Every import points down, and tests enforce it.
+wiring them together. Imports stay within a layer or follow the dependencies below;
+tests enforce these boundaries.
 
 ## Layers
 
@@ -59,7 +60,8 @@ composition registers the providers. Surfaces reach core only through its front 
 
 ## Providers
 
-Everything native lives here; nothing above names a provider.
+Native provider integration lives here. Core, surfaces and protocol stay provider-neutral;
+composition names and registers the installed providers.
 
 - **Codex** (`providers/codex/`): one shared `codex app-server` process
   (`app_server.ts`) serves every thread, history read and account request, routing each
@@ -69,10 +71,11 @@ Everything native lives here; nothing above names a provider.
   settings.
 - **Claude** (`providers/claude/`): `session.ts` drives one Claude Agent SDK query per
   conversation; `transcript.ts` is the one decoder for the live stream and for stored
-  sessions, so live items equal history items. History, rename, archive and fork use
-  Claude's own sessions (`history.ts`, `native_sessions.ts`); subagent transcripts join
-  their delegation. `permissions.ts` maps profiles to permission modes, and
-  `mcp_bridge.ts` exposes application tools.
+  sessions, so live items equal history items. History reads Claude's own sessions
+  (`history.ts`, `native_sessions.ts`). `provider.ts` and `session.ts` use SDK operations
+  for rename, archive and fork. Subagent transcripts join their delegation.
+  `permissions.ts` maps profiles to permission modes, and `mcp_bridge.ts` exposes
+  application tools.
 - **Provider support** (`providers/shared/`): approval choice tokens.
 
 See [provider adapters](provider-abstraction.md) for the complete boundary, and the
@@ -200,18 +203,20 @@ a decision, with no callback involved. See [thread watches](thread-watch.md).
 ### Restart and deploy
 
 1. A surface requests a restart or deploy through the lifecycle orchestrator.
-2. A deploy validates the target first (install, build, configuration check, tests) and
-   rolls back on failure.
-3. The orchestrator pauses new turns and waits for running turns, background tasks and
-   pending approvals, reporting what it waits for; after 30 minutes it gives up and
-   resumes new turns.
+2. A deploy validates the target first (install, build, configuration check, tests).
+   If it changed commits and validation fails, it attempts to restore the previous
+   commit, dependencies and build.
+3. The orchestrator pauses new turns and waits for running turns, background tasks,
+   pending approvals and user questions, reporting what it waits for; after 30 minutes
+   it gives up and resumes new turns.
 4. Once idle, the runtime quiesces every surface, runs shutdown hooks, stops the provider
    sessions and exits for the supervisor to start the new code.
 
 ## Checks that keep this true
 
-- `tests/architecture_layers.test.ts` fails on any import that points up the layers.
-- `tests/provider_neutral_layers.test.ts` fails if a provider name or adapter import
+- `tests/architecture_layers.test.ts` checks relative imports against the allowed layer
+  dependencies; imports within a layer are allowed.
+- `tests/provider_neutral_layers.test.ts` fails if a provider name or provider-adapter import
   appears in core, ports, surfaces, the protocol or the UI.
 - `tests/architecture_boundaries.test.ts` checks deeper import forms and keeps provider
   wire vocabulary out of shared code.

@@ -5,6 +5,8 @@ coverage reviewed 2026-10-04 against `c49d4a3` plus the implementation in this
 change, using Codex CLI `0.160.0`.
 User-question coverage reviewed 2026-10-09 against `7e30d66`
 ([PR #88](https://github.com/triloy8/shepherd/pull/88)), using Codex CLI `0.160.1`.
+Documentation audit: 2026-10-31 against `0475c5e`; generated schemas were not
+available in this checkout.
 Current registered surfaces:
 **Discord** and **web**. This is an inventory of implemented user-facing behavior,
 not a roadmap requiring identical interfaces. Provider capabilities that neither
@@ -19,7 +21,8 @@ method or generated schema alone does not count as UI support.
 ## Provider scope
 
 Provider coverage reviewed 2026-10-10 against `f3ae071` on
-`feat/multiple-agent-providers`. The detailed native
+`feat/multiple-agent-providers`; the rows were rechecked against the code on
+2026-10-31 at `0475c5e` on `main`. The detailed native
 inventories are the [Codex parity matrix](codex-parity-matrix.md) and
 [Claude parity matrix](claude-parity-matrix.md). The surface rows below describe
 available workflows; provider capabilities can restrict an individual conversation.
@@ -32,15 +35,15 @@ They must not be read as a promise that every row is available with Claude.
 | Text/images, follow-ups, interruption | Yes | Yes, with adapter input/queue limits | Shared controls; see each provider inventory for limits |
 | Tool approvals | Yes | Yes, native permission mapping differs | Shared decision cards; not identical sandbox/policy semantics |
 | Tool call detail | Command text, file summaries, tool names; no output | Tool name and input detail while running; shared activity detail in history | The web UI retains its main timeline; providers supply shared activity records |
-| Structured questions | Yes | Yes | Web supports multiple selections; Discord redirects Claude multiple-selection questions to web |
+| Structured questions | Yes | Yes | Web supports multiple selections; Discord redirects any question set with a multiple-selection or secret question, or more than five questions, to web |
 | Stored history and metadata actions | Yes | Yes, from each provider's own sessions | Shared navigation, rename, archive, restore, and detach |
 | Model and effort controls | Yes | Yes, model-dependent | Discovery follows the conversation provider, or the default agent when there is no conversation |
-| Manual compaction | Yes | No | Hidden for Claude in web and Discord `!help`; unsupported calls rejected |
+| Manual compaction | Yes | No | Disabled in the web context dialog for Claude and hidden in Discord `!help`; unsupported calls rejected |
 | Turn-based conversation revert | Yes | No | Hidden for Claude in web; unsupported calls rejected |
 | Skill discovery and toggles | Yes | No | Hidden for Claude in web and Discord `!help`; native Claude skill loading is separate |
-| Execution policy selection | Host configuration (`SHEPHERD_POLICY`) | No | Each conversation runs in its agent's least restrictive profile within the host policy; an agent with no such profile is refused, with a startup notice. Policy never loosens |
+| Execution policy selection | Host configuration (`SHEPHERD_POLICY`) | Host configuration (`SHEPHERD_POLICY`) | With an explicit host policy, each conversation uses its agent's least restrictive profile within it; an agent with no such profile is refused. The default `provider_default` leaves each agent's own configured defaults. Policy never loosens |
 | Sidebar account usage and resets | Codex account and resets | Claude account allowances | Main dialog styling with a neutral provider selector and account allowances; resets appear only when supported |
-| Context-window percentage | When reported | Yes, from the SDK model context window | Shown in web conversation settings for both providers |
+| Context-window percentage | When reported | Yes, from the SDK model context window | Shown beside the web composer for both providers when usage is reported; the context dialog shows the underlying token counts |
 
 These are implemented distinctions, not approval for every missing feature.
 Account-limit reporting uses host accounts. It does not assign a separate
@@ -68,7 +71,7 @@ channel conversation's agent, otherwise the default agent.
 | Archive | Yes — `!archive [id]` | Yes — conversation actions | Web acts on selected conversation |
 | Restore archive | Yes — `!unarchive <id>` | Yes — Restore in archived list | Shared core action |
 | Detach without interrupting work | Yes — `!detach` | Yes — conversation menu | Detach is not deletion or stop |
-| Compact context | Yes — `!compact [id]` | Yes — conversation actions | Web selected conversation; active work/approvals constrain actions |
+| Compact context | Yes — `!compact [id]` | Yes — conversation menu and context dialog | Web selected conversation; active work/approvals constrain actions |
 | Revert conversation from a selected turn | No — `!rollback` returns a retirement notice | Yes — Revert from here beside Copy under user messages | Uses `thread/revert` with `beforeTurnId`; removes selected turn and later history; local files unchanged; confirmation and active-work/approval guards |
 | Conversation search | No Shepherd command | No | Discord channel search is a client feature, not stored-thread search |
 
@@ -161,11 +164,11 @@ Sources: [Discord event presentation](../server/adapters/discord/thread_event_ha
 | Read current/pending model | Yes — `!model` | Yes — settings | Pending choice applies to a new turn |
 | Set model | Yes — `!model set <id>` | Yes — settings | Shared model validation |
 | Read/set reasoning effort | Yes — `!effort [set <level>\|default\|clear]` | Yes — settings | Includes default/reset and supported choices |
-| Context/token usage | Yes — `!context` | Yes — settings | Available telemetry; not always present before a turn |
+| Context/token usage | Yes — `!context` | Yes — composer context control/dialog | Available telemetry; not always present before a turn |
 | Account rate limits/workspace credits | Partial — `!limits` | Yes — sidebar Usage & limits | Host accounts, independent of conversation allowance. Discord `!limits [provider]` lists the chosen account's reported windows, reset times and extra usage; web has a provider selector with the same data. Workspace credit balances and banked resets remain Codex-only |
 | Banked reset count/details/expiration | No | Yes — sidebar Usage & limits | Available count is authoritative; detail rows may be unavailable or capped; non-expiring resets are labeled |
 | Use a banked reset | No | Yes — Use this reset per credit; Use next available reset for count-only/capped details | Shared consume RPC; explicit outcome feedback and limits refresh. Unknown outcomes retain the request key and selected credit ID for retries, including across page reload in the same tab |
-| List discovered skills | Yes — `!skills` | Yes — Skills section | Workspace-scoped discovery |
+| List discovered skills | Yes — `!skills` | Yes — Skills dialog from the conversation menu | Workspace-scoped discovery |
 | Reload skill discovery | Yes — `!skills reload` | Yes — Reload skills | Not an installer |
 | Enable/disable skill | Yes — `!skill enable/disable <name-or-path>` | Yes — per-skill control | Shared configuration; may affect other conversations |
 | Filter discovered skills | No dedicated filter command | Yes — name/description/path/scope filter | Web presentation convenience |

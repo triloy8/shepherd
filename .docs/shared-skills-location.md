@@ -39,7 +39,10 @@ The GitHub skill defaults to `$HOME/.agents/skills/github/local.env`.
 `SHEPHERD_SKILLS_DIR` can override the installation root. The standard host
 launcher inherits the user's `HOME`, so no override or launcher edit is needed.
 For a custom root, set the override in the launcher environment; an unrelated
-interactive shell setting does not update an already-running service.
+interactive shell setting does not update an already-running service. This override
+selects the skills’ private configuration root; it does not configure Codex skill
+discovery. Keep the skills discoverable through `~/.agents/skills` as well, for
+example by linking that path to the custom root.
 
 ## Claude Code discovery
 

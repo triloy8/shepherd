@@ -46,8 +46,8 @@ adapter and surface ID; navigation/listening state remains separate.
 Existing exclusive thread binding is preserved: attempting to attach a thread
 already active on another surface still fails. This change does not implement
 shared-thread browsing or simultaneous cross-surface approvals/user-question forms. The web API
-exposes these application operations through a versioned, private-network
-HTTP/event contract. Detach a thread before attaching it through another surface.
+exposes these application operations through a private-network HTTP/event
+contract under `/api`. Detach a thread before attaching it through another surface.
 
 The host owns process signals, global restart/deploy, quiescing and final session
 shutdown. Active turns and pending decisions, including structured user questions,

@@ -43,8 +43,8 @@ Install these on the host:
 
 The [Ubuntu setup script](deploy/ubuntu/setup.sh) installs host dependencies and
 pins a Codex CLI version. See the [deployment guide](deploy/README.md) for the
-supplied service and boot setup. Docker files are available under `deploy/` for
-compatible hosts.
+supplied launcher and boot setup. Docker files are available as
+[`Dockerfile`](Dockerfile) and [`compose.yaml`](compose.yaml) for compatible hosts.
 
 ## Setup
 
@@ -142,9 +142,11 @@ To use API credentials instead, explicitly set `CLAUDE_AUTH_MODE=api` and config
 authentication using the [SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart).
 
 New Claude conversations default to **Opus 5.5 with medium effort**.
-`CLAUDE_MODEL` and `CLAUDE_EFFORT` override those defaults. Existing conversations
-and forks keep their saved settings; conversation model/effort controls apply
-individual overrides. There is no global default editor in the web UI.
+`CLAUDE_MODEL` and `CLAUDE_EFFORT` override those defaults. Resumed conversations
+and forks recover the model from Claude's transcript, but effort uses the requested
+override or the current host default because Claude does not record it. Conversation
+model/effort controls apply individual overrides. There is no global default editor
+in the web UI.
 
 Optional shared environment settings are:
 
@@ -189,17 +191,17 @@ The sidebar **Usage & limits** panel has a discovered agent selector. It opens o
 selected conversation provider and shows account allowances shared across
 conversations. Claude reports native subscription usage and reset times; unknown
 or stale values are identified. Banked resets remain Codex-only.
-The web UI uses provider capabilities to hide unsupported operations.
+The web UI uses provider capabilities to disable or hide unsupported operations.
 
 Provider bindings are saved in `~/.shepherd/providers`, or
-`SHEPHERD_PROVIDER_STATE_DIR` when set. Keep this directory with the Claude
-metadata and native transcripts when moving a host. Existing thread IDs remain
+`SHEPHERD_PROVIDER_STATE_DIR` when set. Keep this directory with the providers’
+native session storage when moving a host. Existing thread IDs remain
 stable. Claude background tasks keep their SDK process alive after a turn ends
 and count as runtime activity. A later response from background work is saved
 as a new turn. Model, effort, working-directory, or permission changes wait until
 background tasks finish. See [Architecture](.docs/architecture.md) for dependency
 boundaries and the [provider abstraction](.docs/provider-abstraction.md) design
-for the shared conversation model being implemented.
+for the shared conversation model.
 
 Install the shared GitHub and browser skills using the
 [skills installation guide](.docs/shared-skills-location.md). That guide also
@@ -277,10 +279,11 @@ A loaded conversation retains its current workspace.
 
 1. Select **New conversation**, choose a project, and create it.
 2. Send a message or attach images. Follow-ups steer the active turn.
-3. Open **Conversation menu** for settings (models, effort, usage, and skills)
-   and conversation actions
-   for rename, fork, archive, and compact. Use **Revert from here** beside Copy
-   under a user message to remove that turn and all later turns. Files are not changed.
+3. Use **Model and effort** and **Conversation context** below the composer for
+   settings and usage. Open **Conversation menu** for skills, fork, archive, and
+   compact; select the conversation title to rename it. Use **Revert from here**
+   beside Copy under a user message to remove that turn and all later turns.
+   Files are not changed.
 4. Select an existing conversation in the sidebar to resume it directly.
 
 Conversations are listed by most recent update. The list refreshes after selected
@@ -318,9 +321,9 @@ completed commentary provide progress feedback. Set
 `SHEPHERD_DISCORD_STREAMING=true` to enable an editable final-answer preview.
 
 Question cards offer **Submit answers** to open a Discord modal and **Skip questions**
-to decline answering. Modals support up to five nonsecret questions; enter exact
-option labels or custom text when offered. Secret questions and larger forms direct
-you to the web UI.
+to decline answering. Modals support up to five nonsecret, single-selection questions;
+enter exact option labels or custom text when offered. Secret questions, multiple-selection
+questions, and larger forms direct you to the web UI.
 
 Use `!help` for the command list:
 
@@ -360,10 +363,11 @@ bun run check:config
 bun test --timeout 30000
 ```
 
-Validation failure triggers restoration of the previous checkout and dependencies
-and a rebuild of its UI. Successful deployment requests a restart through the
-supervisor. The default timeout is 30 minutes per deployment command; override it
-with `SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS`.
+If validation fails after changing commits, Shepherd attempts to restore the previous
+checkout and dependencies and rebuild its UI. Validation failure on the current
+commit leaves it selected without reinstalling or rebuilding it. Successful deployment
+requests a restart through the supervisor. The default timeout is 30 minutes per
+deployment command; override it with `SHEPHERD_DEPLOY_COMMAND_TIMEOUT_MS`.
 
 Web displays running and checkout commits separately and attempts to resume the
 selected conversation after a web-initiated restart. Discord posts recovery
@@ -386,7 +390,7 @@ are not loaded. See the committed [environment templates](envs/) for available k
 | `bun run test` | Run tests with a 30-second per-test timeout |
 | `bun run dev` | Build and start the host |
 | `bun run dev:ui` | Start the Vite UI development server |
-| `bun run build:bin` | Build the launcher at `release/shepherd` |
+| `bun run build:bin` | Compile the server with UI assets and the bundled Claude executable at `release/shepherd` |
 
 After updating protocol schemas, generate both formats:
 
@@ -397,9 +401,8 @@ codex app-server generate-json-schema --out ./schemas
 
 ## Code layout
 
-| Path | Responsibility |
-| --- | --- |
-Listed from the top layer down; each layer imports only the ones below it.
+Listed from composition down to the shared contracts. Core and providers are
+independent layers; their allowed dependencies are defined in the architecture guide.
 
 | Path | Responsibility |
 | --- | --- |

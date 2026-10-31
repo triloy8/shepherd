@@ -22,7 +22,7 @@ Steps show their progress while they run. A plan and the agent's reasoning appea
 running steps that fill in as they stream: **Reasoning summary** when the agent
 reports a summary of its reasoning, as both Codex and Claude do, or **Reasoning** for
 reasoning itself. A running command shows its output so far. A finished command keeps
-the end of what it printed (its last 4 KB), and a failed one names its exit code, such
+the end of what it printed (its last 4,096 characters, with `…` when truncated), and a failed one names its exit code, such
 as **Running command · Failed · exit 1**; both survive a reload.
 
 Work a delegated agent does appears inside its **Delegating to an agent** step: its
@@ -73,13 +73,13 @@ visible with **Last known data** and an error. Switching agents clears those val
 an initial failed load never substitutes another account's data. Closing the panel aborts
 pending reads.
 
-Conversation settings show context telemetry, which can be empty before the first
-turn.
+**Conversation context**, below the composer, shows context telemetry, which can be
+empty before the first turn.
 
 ## Conversation management
 
-**Conversation menu → Conversation actions** provides Rename, Fork conversation and
-Archive conversation. Renaming updates the title and list. Forking selects the
+Click the conversation title to rename it; **Conversation menu** provides
+**Fork conversation** and **Archive conversation**. Renaming updates the title and list. Forking selects the
 new conversation while preserving the source, its handle and its draft. Archive
 asks for confirmation, clears the local selection and detaches the web handle;
 it does not delete history. Archive and fork are disabled during active work or
@@ -98,7 +98,7 @@ shared core thread operations; they add no separate conversation storage.
 
 ## Skills controls
 
-Conversation settings includes a collapsible **Skills** section. It lists workspace
+**Conversation menu → Skills** opens a dialog. It lists workspace
 skills with descriptions, scope, effective enabled state, and expandable paths.
 Filter by name, description, scope, or path; discovery errors remain visible even
 when filtering. Enable/disable uses the exact listed path, so duplicate names in
@@ -154,9 +154,10 @@ reviewed on 2026-10-09 against `7e30d66` in
 ## Compact layout and navigation
 
 The header has a sidebar toggle, a single-line conversation title, a connection
-status dot, and **Conversation menu**. Tap the dot or choose **Conversation details**
-to see connection state, project path, and thread ID. Settings, conversation actions,
-and detach are in the same menu. Arrow keys, Home/End, Enter, and Escape work in the
+status dot, and **Conversation menu**. Tap the dot to open **Conversation details**
+and see connection state, project path, and thread ID. Fork, compact, archive, Skills,
+and detach are in that menu. Model and effort settings and context usage open from
+the controls below the composer; clicking the title opens Rename. Arrow keys, Home/End, Enter, and Escape work in the
 menu; dialogs return focus to the opener. The desktop sidebar can collapse. On
 mobile, the navigation drawer traps focus and hides the transcript from interaction.
 Host controls are in the sidebar footer, including when no conversation is selected.
@@ -170,7 +171,7 @@ The composer floats over the transcript with inset edges and a subtle bottom fad
 It starts as a single row in a box with rounded corners, with an attachment plus
 button on the left and a rounded-square send/interrupt action on the right. Wrapped drafts and image attachments
 expand the text area above the controls; long drafts scroll internally at the height
-limit. All controls retain 44px touch targets. Routine helper copy is screen-reader-only;
+limit. The attachment and send/interrupt buttons retain 44px touch targets. Routine helper copy is screen-reader-only;
 connection state remains visible, and the placeholder identifies follow-up drafts. Images, image errors, and send failures remain visible.
 
 The transcript reserves the measured composer height so the last message is not
@@ -185,7 +186,8 @@ keyboard is closed; a keyboard-reduced visual viewport uses a tighter 4px gap.
 
 ## Compact and revert
 
-**Conversation actions** provides **Compact conversation**. Compaction reports that
+**Conversation menu** provides **Compact conversation** (also offered in
+**Conversation context**). Compaction reports that
 it started; timeline activity and turn lifecycle show progress/completion.
 
 Each persisted user message has **Revert from here** under its text beside **Copy**.
@@ -216,8 +218,9 @@ Both actions require confirmation because they affect every surface. Leave the
 branch blank for stable main or enter a preview branch; deploy main to return to
 stable. Either may be started while agents work. A restart, and a deploy once it
 validates, waits for running turns, background tasks and pending approvals, showing
-what it waits for; new messages are refused meanwhile with a "restarting" message,
-while reading, interrupting and answering approvals keep working. If the work has not
+what it waits for; messages that would start new turns are refused meanwhile with
+a "restarting" message, while reading, steering active turns, interrupting and
+answering approvals keep working. If the work has not
 finished after 30 minutes, Shepherd keeps running and accepts new turns again.
 
 Deployment runs in the background and status polls show validation progress,
@@ -251,8 +254,8 @@ Image drafts are kept per thread when switching conversations or reconnecting in
 current page. Failed sends retain both text and images; inspect the conversation
 before retrying an uncertain request. Successful sends clear only submitted
 attachments. Draft images are in memory and do not survive a full page reload;
-sent attachments are read back from provider history. Image URLs in agent Markdown
-remain non-fetching placeholders.
+sent attachments are read back from provider history. Remote or unregistered image URLs in agent Markdown
+remain non-fetching placeholders; registered artifacts resolve as described above.
 
 ## Conversation history
 

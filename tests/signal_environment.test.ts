@@ -10,6 +10,7 @@ describe("signal runtime configuration", () => {
       port: 8787,
       maxBodyBytes: 65_536,
       queueCapacity: 100,
+      threadWatchEnabled: false,
     });
   });
 
@@ -21,6 +22,7 @@ describe("signal runtime configuration", () => {
         SHEPHERD_SIGNAL_WEBHOOK_PORT: "9000",
         SHEPHERD_SIGNAL_WEBHOOK_MAX_BODY_BYTES: "2048",
         SHEPHERD_SIGNAL_QUEUE_CAPACITY: "5",
+        SHEPHERD_THREAD_WATCH_ENABLED: "true",
       }),
     ).toEqual({
       enabled: true,
@@ -28,6 +30,7 @@ describe("signal runtime configuration", () => {
       port: 9000,
       maxBodyBytes: 2048,
       queueCapacity: 5,
+      threadWatchEnabled: true,
     });
   });
 

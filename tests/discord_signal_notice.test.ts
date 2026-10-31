@@ -84,6 +84,37 @@ describe("Discord signal notices", () => {
     expect(rendered.body).toContain("**Producer marked verified:** No");
   });
 
+  test("renders a delegated agent update with the group's state counts", () => {
+    const watch = signal("COMPLETE");
+    watch.envelope = {
+      kind: "thread-watch.changed",
+      version: 1,
+      subject: { type: "thread-watch", id: "swarm-1" },
+      payload: {
+        group: "swarm-1",
+        changed: { label: "agent-2", threadId: "t2", state: "failed" },
+        agents: [
+          { label: "agent-1", threadId: "t1", state: "completed", turnId: "a", message: null, updatedAt: "now" },
+          { label: "agent-2", threadId: "t2", state: "failed", turnId: "b", message: "boom", updatedAt: "now" },
+          { label: "agent-3", threadId: "t3", state: "completed", turnId: "c", message: null, updatedAt: "now" },
+        ],
+      },
+    };
+    const rendered = notice(watch);
+
+    expect(rendered.title).toBe("## Delegated agent `agent-2` failed");
+    expect(rendered.accentColor).toBe(SURFACE_COLORS.danger);
+    expect(rendered.body).toContain("**Group:** `swarm-1`");
+    expect(rendered.body).toContain("**Agents:** 2 completed · 1 failed");
+  });
+
+  test("does not render malformed thread watch payloads", () => {
+    const watch = signal("COMPLETE");
+    watch.envelope = { kind: "thread-watch.changed", version: 1, payload: { group: "g" } };
+
+    expect(buildDiscordSignalNoticePages(watch)).toEqual([]);
+  });
+
   test("does not render unsupported signal kinds", () => {
     const unsupported = signal("COMPLETE");
     unsupported.envelope.kind = "build.state-changed";

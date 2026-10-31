@@ -23,7 +23,7 @@ function makeSignals(h: ReturnType<typeof harness>, options: ConstructorParamete
   h.runtime.registerShutdownHook(() => signals.stop());
   return signals;
 }
-const config = { enabled: true, hostname: "127.0.0.1", port: 0, maxBodyBytes: 65536, queueCapacity: 10 };
+const config = { enabled: true, hostname: "127.0.0.1", port: 0, maxBodyBytes: 65536, queueCapacity: 10, threadWatchEnabled: false };
 
 test("disabled signal composition registers no tool or listener", async () => {
   const h = harness();
@@ -90,4 +90,17 @@ test("shared composition serves loopback health without starting Discord", async
   } finally {
     await h.runtime.shutdown();
   }
+});
+
+test("thread watch tools register only when enabled, without the webhook, and unregister on stop", async () => {
+  const h = harness();
+  const signals = makeSignals(h, {
+    config: { ...config, enabled: false, threadWatchEnabled: true },
+    startServer() { throw new Error("must not listen"); },
+  });
+  signals.start();
+  expect(signals.url).toBeNull();
+  expect(h.tools.map((tool) => tool.name)).toEqual(["watch_threads", "unwatch_threads", "list_watched_threads"]);
+  await h.runtime.shutdown();
+  expect(h.unregisters()).toBe(3);
 });

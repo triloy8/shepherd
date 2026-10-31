@@ -33,6 +33,8 @@ Surfaces:
   Discord answer them.
 - [Signal callbacks](volatile-webhook-signals.md) — callback allocation, routed
   loopback ingress, and delivery.
+- [Thread watches](thread-watch.md) — experimental: waking a conversation when the
+  agent conversations it delegated work to finish, fail, or need a decision.
 
 Operations:
 

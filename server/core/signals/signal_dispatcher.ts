@@ -132,6 +132,13 @@ export class SignalDispatcher {
       try {
         await this.executor.waitUntilIdle(queued.target);
         if (this.disposed) return;
+        // The conversation may have moved to another surface or workspace while this waited.
+        const current = await this.executor.resolveTarget(queued.signal.target);
+        if (this.disposed) return;
+        if (!current || current.threadId !== queued.target.threadId || current.cwd !== queued.target.cwd) {
+          this.onError(new Error("Signal target is no longer bound to its conversation; dropped the signal."), queued.signal);
+          continue;
+        }
         await this.beforeExecute(queued.signal);
         await this.executor.executeTurn(queued.target, queued.signal.input);
       } catch (error) {

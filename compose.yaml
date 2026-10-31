@@ -12,12 +12,17 @@ services:
     environment:
       HOME: /home/bun
       CODEX_HOME: /home/bun/.agents
+      CLAUDE_CONFIG_DIR: /home/bun/.claude
       SHEPHERD_SKILLS_DIR: /home/bun/.agents/skills
     volumes:
       - ./envs:/app/envs:ro
       - codex-home:/home/bun/.agents
       - github-config:/home/bun/.config/gh
       - agent-workspaces:/home/bun/.agent-workspaces
+      # Claude login and session transcripts, and Shepherd's thread-provider bindings and
+      # swarm records, so recreating the container keeps Claude conversations resumable.
+      - claude-home:/home/bun/.claude
+      - shepherd-state:/home/bun/.shepherd
       - type: bind
         source: ${SHEPHERD_SKILLS_DIR:-${HOME}/.agents/skills}
         target: /home/bun/.agents/skills
@@ -27,3 +32,5 @@ volumes:
   codex-home:
   github-config:
   agent-workspaces:
+  claude-home:
+  shepherd-state:

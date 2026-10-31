@@ -46,6 +46,9 @@ function effortSelection(object: Record<string, unknown>): EffortSelection {
   }
   throw new WebRequestError(400, "invalid_request", "Choose an effort value, model default, or null to clear effort.");
 }
+function formatBytes(bytes: number): string {
+  return bytes < 1024 * 1024 ? `${Math.floor(bytes / 1024)} KiB` : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
 function optionalString(object: Record<string, unknown>, key: string, max = 4096): string | undefined {
   return object[key] === undefined ? undefined : requiredString(object, key, max);
 }
@@ -333,7 +336,7 @@ export class WebSurfaceApi {
       if (error instanceof UnsupportedModelInputError) return fail(422, "unsupported_model_input", error.message);
       if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
       if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
-      if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", "Request body exceeds 64 KiB.");
+      if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", `Request body exceeds ${formatBytes(error.maxBytes)}.`);
       if (error instanceof ThreadBindingConflictError) return fail(409, "thread_in_use", error.message);
       if (error instanceof ApprovalDecisionError) return fail(error.code === "approval_not_found" ? 404 : error.code === "invalid_decision" ? 400 : 409, error.code, error.message);
       if (error instanceof ApplicationActionError && error.failure.code === "restart_pending") return fail(503, "restart_pending", "Shepherd is restarting once running work finishes. Send this again after it is back.");

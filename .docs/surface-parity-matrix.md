@@ -21,7 +21,8 @@ method or generated schema alone does not count as UI support.
 ## Provider scope
 
 Provider coverage reviewed 2026-10-10 against `f3ae071` on
-`feat/multiple-agent-providers`. The detailed native
+`feat/multiple-agent-providers`; the rows were rechecked against the code on
+2026-10-31 at `0475c5e` on `main`. The detailed native
 inventories are the [Codex parity matrix](codex-parity-matrix.md) and
 [Claude parity matrix](claude-parity-matrix.md). The surface rows below describe
 available workflows; provider capabilities can restrict an individual conversation.

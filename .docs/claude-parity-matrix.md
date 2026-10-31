@@ -1,8 +1,9 @@
 # Claude parity matrix
 
 Implementation reviewed: 2026-10-31 against `0475c5e` on `main`.
-Recorded SDK/native verification baseline (2026-10-10):
-`@anthropic-ai/claude-agent-sdk` **0.3.296**, bundled/native Claude Code **2.1.296**. This is an inventory of Shepherd's Claude adapter and
+SDK/native baseline: `@anthropic-ai/claude-agent-sdk` **0.3.296**, bundled/native
+Claude Code **2.1.296** (recorded 2026-10-10; installed versions and the saved
+`claude.ai` login reconfirmed 2026-10-31). This is an inventory of Shepherd's Claude adapter and
 subscription support, not a complete inventory of every SDK export or a promise
 of support for all Claude Code terminal commands.
 
@@ -25,9 +26,11 @@ cover adapter behavior; they do not prove live model responses. Host checks
 confirmed a saved Claude Pro login and SDK account recognition. Native model
 discovery and credential isolation passed. Browser screenshots confirmed the
 provider picker, Claude details, and capability-filtered menu on phone and
-desktop viewports. Those checks were recorded for the earlier provider branch; this
-documentation audit did not repeat live response/tool execution or quota-exhaustion
-tests. Installed types are the source of truth
+desktop viewports. Those checks were recorded for the earlier provider branch. Live use between
+2026-10-29 and 2026-10-31 (thread-watch and swarm testing, Haiku, Sonnet and Opus)
+exercised responses, tool execution, Shepherd's MCP application tools, permission
+requests under the `default` profile answered through the web API, interrupts, and
+resume with history after host restarts. Quota exhaustion was not retested. Installed types are the source of truth
 for event fields; upstream documentation and subscription rules can change.
 
 ## Authentication and account scope
@@ -62,7 +65,7 @@ login, not a blanket approval for distributing a subscription login product.
 | Preserve provider identity | Implemented | Explicit persistent thread/provider binding; resume and fork retain the provider. No in-place provider migration. |
 | Start a Claude session | Implemented | SDK `query()` with a session ID Shepherd chooses, which is the conversation ID. A rename or archive requested before Claude creates the session is applied once it exists. |
 | Continue across turns | Implemented | Keeps the query/input stream open; resumes the native session when a query must restart. |
-| Resume after process restart | Implemented | Reads the session and its workspace through the SDK (`getSessionInfo`, `getSessionMessages`) and resumes it with the model Claude last used. Preserve Claude's storage and Shepherd's provider bindings. Claude does not record the policy profile or effort, so a resumed conversation runs within the requested policy or the host's, with the requested or host effort. |
+| Resume after process restart | Implemented | A conversation that never had a turn is not stored yet and cannot be resumed; open a new one. Reads the session and its workspace through the SDK (`getSessionInfo`, `getSessionMessages`) and resumes it with the model Claude last used. Preserve Claude's storage and Shepherd's provider bindings. Claude does not record the policy profile or effort, so a resumed conversation runs within the requested policy or the host's, with the requested or host effort. |
 | Fork | Implemented | SDK `forkSession()` for materialized sessions, searching every project directory because a thread's workspace can move after its transcript was written; a fresh ID for a thread not yet materialized. Overrides apply to the fork only. |
 | Rename, archive, restore | Implemented | SDK `renameSession()` sets the session title; archiving sets the session tag to `archived` (`tagSession()`), which replaces any other tag on that session. |
 | Stored thread listing/filtering/pagination | Implemented | SDK `listSessions()`: every Claude Code session, including ones started outside Shepherd, with title/prompt search, cwd/archive filters and sorting. |

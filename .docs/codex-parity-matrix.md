@@ -3,10 +3,11 @@
 This document inventories the Codex app-server protocol only. For Claude Agent
 SDK and subscription coverage, see the [Claude parity matrix](claude-parity-matrix.md).
 For Discord and web controls, see the [surface parity matrix](surface-parity-matrix.md).
-Implementation notes reviewed: 2026-10-31 against `0475c5e` on `main`.
-The generated Codex baseline and its earlier review dates below are historical;
-generated schemas are absent from this checkout, so their inventory was not
-reverified. No schemas were regenerated for this documentation change.
+Implementation notes reviewed: 2026-10-31 against `0475c5e` on `main`. The
+generated inventory was reverified the same day: both schema formats were
+regenerated with `codex-cli 0.160.1` and every method, server request and
+notification name was compared with the tables below. Generated schemas are not
+committed (`schemas/` is ignored); regenerate them to repeat the check.
 
 Unmapped notifications marked `Private` stay inside the adapter and are not
 published as generic application events.
@@ -22,7 +23,7 @@ Status legend:
 Generated baseline:
 
 - Codex version: `codex-cli 0.160.1`
-- Last refreshed: `2026-10-09`
+- Last refreshed: `2026-10-09`; inventory reverified `2026-10-31` (no differences)
 - Implementation notes reviewed: `2026-10-04`; user-input handling reviewed
   `2026-10-09` against `7e30d66` ([PR #88](https://github.com/triloy8/shepherd/pull/88))
 - Refresh commands:
@@ -152,6 +153,12 @@ Legacy note:
 | `getAuthStatus` | Missing | Maybe Later | Legacy compatibility method absent from the generated JSON-schema request union; useful for support and account diagnostics |
 | `windowsSandbox/setupStart` | Missing | Out of Scope (for now) | Platform-specific |
 | `windowsSandbox/readiness` | Missing | Out of Scope (for now) | Platform-specific |
+
+## Client Notifications
+
+| Notification | Status | Notes |
+|---|---|---|
+| `initialized` | Implemented | Sent once after the `initialize` response, before any other request (`app_server.ts`) |
 
 ## Server Request Handling
 

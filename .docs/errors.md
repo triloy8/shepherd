@@ -25,8 +25,10 @@ connection failure. The submitted patch contained malformed patch structure.
 In the recorded occurrence, a second `*** Update File` marker appeared where
 the parser still expected lines belonging to the preceding hunk.
 
-The patch command rejected that entire invocation during verification. It did
-not partially apply that malformed patch or corrupt the target files.
+In that occurrence the patch command rejected the entire invocation during
+verification, and no target file was partially changed. The patch tool belongs to
+Codex, not Shepherd, so this behaviour is recorded as observed rather than
+guaranteed; step 1 of the recovery checks it each time.
 
 ### Likely causes
 
@@ -44,10 +46,10 @@ not partially apply that malformed patch or corrupt the target files.
 3. Regenerate each hunk against the current file contents.
 4. Retry the patch and run the relevant typecheck and tests.
 
-For the occurrence recorded on 2026-07-25, the failed multi-file patch was
-immediately retried as separate valid patches. The retry succeeded, and the
-resulting implementation passed `bun run check` and all 109 tests before PR
-creation.
+For the occurrence recorded on 2026-07-25 (an incident record, not reproducible
+from this repository), the failed multi-file patch was immediately retried as
+separate valid patches. The retry succeeded, and the resulting implementation
+passed `bun run check` and all 109 tests that existed then, before PR creation.
 
 ### Prevention
 

@@ -1,6 +1,6 @@
 import { WEB_MESSAGE_MAX_BODY_BYTES } from "./browser_image_input.js";
-import type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition } from "../../core/surface_api.js";
-import { readWebConfig, type WebConfig } from "./browser_config.js";
+import type { SurfaceAdapter, SurfaceAdapterContext } from "../../core/surface_api.js";
+import type { WebConfig } from "./browser_config.js";
 import { WebSurfaceApi } from "./browser_api.js";
 import { loadUiAssets, serveUiAsset, type UiAssets } from "./browser_ui_assets.js";
 
@@ -17,13 +17,6 @@ export type WebServe = (options: {
   idleTimeout: number;
   fetch: (request: Request, server: HttpServer) => Promise<Response>;
 }) => HttpServer;
-
-export const webSurface: SurfaceDefinition = {
-  configure(environment) {
-    const config = readWebConfig(environment);
-    return (context) => createWebAdapter(context, config);
-  },
-};
 
 export function createWebAdapter(context: SurfaceAdapterContext, config: WebConfig, serve?: WebServe, assetsLoader: () => Promise<UiAssets> = loadUiAssets,
   options: { index?: string; createApi?: (config: WebConfig) => Pick<WebSurfaceApi, "fetch" | "dispose" | "presentSignal"> } = {},

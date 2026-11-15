@@ -2,7 +2,7 @@ import type { SurfaceAdapterContext } from "../../core/surface_api.js";
 import { SwarmService, SwarmError, SwarmManagerService, SWARM_MANAGER_INSTRUCTIONS, SWARM_WORKER_INSTRUCTIONS } from "../../core/surface_api.js";
 import type { SwarmStore } from "../../ports/swarm_store.js";
 import type { SwarmGroup, SwarmObservation, SwarmSnapshot, SwarmEventData } from "../../../shared/protocol/swarm.js";
-import type { WebConversation } from "../../../shared/protocol/web.js";
+import type { SurfaceConversation } from "../../../shared/protocol/conversation.js";
 import type { WebConfig } from "../shared/browser_config.js";
 import { WebSurfaceApi } from "../shared/browser_api.js";
 import { WebEventFeed } from "../shared/browser_event_feed.js";
@@ -37,7 +37,7 @@ export class SwarmSurfaceApi {
   private readonly feed = new WebEventFeed<SwarmEventData>();
   private readonly recent = new Map<string, { at: number; status: SwarmObservation["state"] }>();
   private readonly unregisterManager: () => void;
-  private readonly opening = new Map<string, Promise<WebConversation>>();
+  private readonly opening = new Map<string, Promise<SurfaceConversation>>();
   constructor(private readonly context: SurfaceAdapterContext, config: WebConfig, store: SwarmStore) {
     this.browser = new WebSurfaceApi(context, config, {
       adapter: "swarm", maxConversations: 96, route: request => this.route(request),
@@ -65,7 +65,7 @@ export class SwarmSurfaceApi {
   fetch(request: Request) { return this.browser.fetch(request); }
   presentSignal(signal: Parameters<WebSurfaceApi["presentSignal"]>[0]) { this.browser.presentSignal(signal); }
   dispose() { this.unregisterManager(); this.feed.close(); this.browser.dispose(); }
-  private async open(threadId: string, instructions?: string): Promise<WebConversation> {
+  private async open(threadId: string, instructions?: string): Promise<SurfaceConversation> {
     const existing = this.browser.listConversations().find(c => c.threadId === threadId);
     if (existing) return existing;
     const pending = this.opening.get(threadId);

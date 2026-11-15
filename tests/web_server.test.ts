@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createWebAdapter } from "../server/adapters/web/server.js";
+import { createWebAdapter } from "../server/adapters/shared/browser_server.js";
 import { webHarness } from "./helpers/web_harness.js";
 import { createSurfaceHost } from "../server/runtime/surface_host.js";
 import { createHostRuntime } from "../server/runtime/host_runtime.js";

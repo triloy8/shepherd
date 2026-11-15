@@ -79,7 +79,7 @@ channel conversation's agent, otherwise the default agent.
 
 Sources: [Discord commands](../server/adapters/discord/commands.ts),
 [web app](../ui/src/App.tsx), [conversation actions](../ui/src/components/ConversationActions.tsx),
-[web routes](../server/adapters/web/api.ts), [shared controls](../server/core/surface/control_actions_service.ts).
+[web routes](../server/adapters/shared/browser_api.ts), [shared controls](../server/core/surface/control_actions_service.ts).
 
 ## Input, routing and approvals
 
@@ -205,7 +205,7 @@ Sources: [Discord commands](../server/adapters/discord/commands.ts),
 Sources: [surface launch](surface-launch.md), [web API contract](web-api.md),
 [Discord lifecycle commands](../server/adapters/discord/commands.ts),
 [web host controls](../ui/src/components/HostControls.tsx),
-[web host operation service](../server/adapters/web/host_controls.ts),
+[web host operation service](../server/adapters/shared/browser_host_controls.ts),
 [web conversation recovery](../ui/src/use-conversation.ts).
 
 Revert support reviewed 2026-09-30 against Codex 0.159.2 in [PR #75](https://github.com/triloy8/shepherd/pull/75), based on

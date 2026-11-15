@@ -418,10 +418,11 @@ independent layers; their allowed dependencies are defined in the architecture g
 | --- | --- |
 | `server/main.ts`, `server/runtime/` | Composition: wires surfaces, core and providers; process lifecycle |
 | `server/adapters/discord/` | Discord input, commands, rendering, and delivery |
-| `server/adapters/web/` | Built-in UI serving, private HTTP API, and SSE events |
+| `server/adapters/web/` | Web surface configuration using the shared browser transport |
+| `server/adapters/swarm/` | Orbit surface configuration, group routes, and roster events |
 | `ui/` | React, TypeScript, and Tailwind UI built with Vite |
 | `server/adapters/webhook/`, `server/signals/` | Local signal ingress and registered signal kinds |
-| `server/adapters/shared/` | Presentation helpers surfaces share: body parsing, answer streaming, paging, image loading |
+| `server/adapters/shared/` | Shared browser HTTP/SSE, assets, controls and history; surface presentation helpers |
 | `server/core/` | Conversations, workspaces, signals, lifecycle and surface services, in sub-layers; surfaces use it only through `surface_api.ts` |
 | `server/providers/` | Native Codex and Claude adapters, and support they share |
 | `server/ports/` | The provider port: what core needs from an agent |

@@ -1,5 +1,5 @@
-import { WebSurfaceApi } from "../../server/adapters/web/api.js";
-import { readWebConfig } from "../../server/adapters/web/config.js";
+import { WebSurfaceApi } from "../../server/adapters/shared/browser_api.js";
+import { readWebConfig } from "../../server/adapters/shared/browser_config.js";
 import { ApprovalsStore } from "../../server/core/conversation/approvals.js";
 import { ThreadBindingConflictError } from "../../server/core/conversation/conversation_routing_service.js";
 import type { SurfaceAdapterContext } from "../../server/core/surface/surface_adapter.js";

@@ -1,3 +1,4 @@
+import type { SurfaceConversation } from "./conversation.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { BridgeEvent, BridgeEventOf } from "./events.js";
 import type { ThreadModelState, ThreadEffortState, ListModelsResponse, ReadThreadTokenUsageResponse, GetThreadStateResponse, HistoryItem, HistoryTurn, ListStoredThreadsResponse, ListThreadTurnsResponse } from "./requests.js";
@@ -5,7 +6,6 @@ import type { SignalEnvelope } from "./signals.js";
 
 /** Browser contract, independent of provider implementation. */
 export const WEB_API_PREFIX = "/api";
-export type WebConversation = import("./conversation.js").SurfaceConversation;
 export type WebCreateConversation = { project: string; threadId?: never; provider?: import("./requests.js").AgentProvider } | { threadId: string; project?: string; provider?: never };
 export type WebMessageRequest = { text: string; images?: string[] };
 export type WebInterruptRequest = { turnId?: string };
@@ -13,8 +13,8 @@ export type WebApprovalRequest = ApprovalDecisionRequest;
 export type WebOkResponse = { ok: true };
 export type WebHealthResponse = WebOkResponse;
 export type WebMessageResponse = { type: "submit" | "steer"; threadId: string; turnId: string | null };
-export type WebConversationState = WebConversation & { state: GetThreadStateResponse };
-export type WebConversationsResponse = { conversations: WebConversation[] };
+export type WebConversationState = SurfaceConversation & { state: GetThreadStateResponse };
+export type WebConversationsResponse = { conversations: SurfaceConversation[] };
 export type WebApprovalsResponse = { approvals: ApprovalRecord[] };
 export type WebThreadsResponse = ListStoredThreadsResponse;
 export type WebImage = { url: string; prompt: string | null; name?: string; path?: string; kind?: "generated" | "viewed" };

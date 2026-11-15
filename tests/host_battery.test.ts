@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readHostBattery } from "../server/adapters/web/host_battery";
+import { readHostBattery } from "../server/adapters/shared/browser_host_battery";
 import { BatteryIndicator } from "../ui/src/components/HostBattery";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";

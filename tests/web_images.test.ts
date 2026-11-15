@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { webHarness } from "./helpers/web_harness";
-import { WebImages } from "../server/adapters/web/images";
+import { WebImages } from "../server/adapters/shared/browser_images";
 import { mergeHistory, emptyChat, reduceBridge } from "../ui/src/chat-state";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";

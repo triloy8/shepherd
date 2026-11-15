@@ -1,13 +1,13 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import type { ProviderCapabilities } from "../../../shared/protocol/provider_capabilities";
-import type { WebConversation } from "../../../shared/protocol/web";
+import type { SurfaceConversation } from "../../../shared/protocol/conversation";
 import { Icon } from "../components/Icon";
 
 const ConversationSkills = lazy(() => import("../components/ConversationSkills").then(module => ({ default: module.ConversationSkills })));
 const ConversationActions = lazy(() => import("../components/ConversationActions").then(module => ({ default: module.ConversationActions })));
 
 export function ManagerMenu({ conversation, capabilities, disabled, active, onHistoryChange }: {
-  conversation: WebConversation; capabilities: ProviderCapabilities | null; disabled: boolean; active: boolean;
+  conversation: SurfaceConversation; capabilities: ProviderCapabilities | null; disabled: boolean; active: boolean;
   onHistoryChange: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);

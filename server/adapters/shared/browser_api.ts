@@ -1,3 +1,4 @@
+import type { SurfaceConversation } from "../../../shared/protocol/conversation.js";
 import type { BridgeEvent } from "../../../shared/protocol/events.js";
 import { Buffer } from "node:buffer";
 import { UnsupportedModelInputError } from "../../../shared/protocol/model_capabilities.js";
@@ -10,7 +11,7 @@ import { readHostBattery } from "./browser_host_battery.js";
 import { webControl } from "./browser_controls.js";
 import { WebImages } from "./browser_images.js";
 import { randomUUID } from "node:crypto";
-import { WEB_API_PREFIX, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
+import { WEB_API_PREFIX, type WebError } from "../../../shared/protocol/web.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 import { ApplicationActionError } from "../../core/surface_api.js";
 import type { UserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
@@ -371,14 +372,14 @@ export class WebSurfaceApi {
     if (failures.length) throw new AggregateError(failures, "Web conversation cleanup failed.");
   }
 
-  listConversations(): WebConversation[] { return [...this.entries.values()].filter(entry => entry.threadId).map(entry => this.summary(entry)); }
+  listConversations(): SurfaceConversation[] { return [...this.entries.values()].filter(entry => entry.threadId).map(entry => this.summary(entry)); }
 
   detachConversation(id: string): void {
     const entry = this.entries.get(id);
     if (entry) this.remove(entry);
   }
 
-  private summary(entry: Entry): WebConversation {
+  private summary(entry: Entry): SurfaceConversation {
     return { id: entry.id, threadId: entry.threadId!, project: entry.project, ...(this.application.conversation.getThreadProvider ? { provider: this.application.conversation.getThreadProvider(entry.threadId!) } : {}) };
   }
   private available(): void {
@@ -389,7 +390,7 @@ export class WebSurfaceApi {
     this.entries.delete(entry.id);
     this.application.disposeSurface(entry.id);
   }
-  async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider, instructions?: string): Promise<WebConversation> {
+  async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider, instructions?: string): Promise<SurfaceConversation> {
     this.available();
     if (!threadId && !project) throw new WebRequestError(400, "invalid_request", "A project is required for a new conversation.");
     if (threadId && (threadId.trim() !== threadId || /[\u0000-\u001f\u007f]/.test(threadId))) {

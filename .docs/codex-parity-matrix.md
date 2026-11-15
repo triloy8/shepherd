@@ -340,7 +340,7 @@ Sources: [generated provider documentation](https://learn.chatgpt.com/docs/app-s
 [session bridge](../server/providers/codex/session.ts),
 [session manager](../server/core/conversation/session_manager.ts),
 [shared controls](../server/core/surface/control_actions_service.ts),
-[web limits route](../server/adapters/web/api.ts),
+[web limits route](../server/adapters/shared/browser_api.ts),
 [Discord commands](../server/adapters/discord/commands.ts), and
 [web limits rendering](../ui/src/components/UsageLimits.tsx).
 

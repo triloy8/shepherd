@@ -127,6 +127,10 @@ The implementation is divided into these independently reviewable modules:
 | Orbit UI | Shell/navigation, `ManagerChat`, read-only `WorkerInspector`, `SwarmDialog`, `useSwarms`, `useChatScroll` | HTTP contracts and existing shared UI; shared UI cannot import Orbit modules |
 | Runtime composition | Construct concrete services, register tools, connect watches and own lifecycle | The only layer permitted to wire all implementations together |
 
+Browser infrastructure is imported directly from `adapters/shared/browser_*`.
+Web owns its surface configuration; there are no compatibility forwarding files
+at the previous web module paths. Both surfaces use `SurfaceConversation` directly.
+
 The architecture test enforces the swarm core and Orbit UI as feature layers,
 and the browser protocol as a separate contract layer. Generic core cannot
 import swarm orchestration; core, ports, storage and providers cannot import

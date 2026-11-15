@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { brotliCompressSync, brotliDecompressSync, gunzipSync } from "node:zlib";
-import { serveUiAsset, type UiAssets } from "../server/adapters/web/ui_assets";
+import { serveUiAsset, type UiAssets } from "../server/adapters/shared/browser_ui_assets";
 
 const text = "console.log('compressed');".repeat(500);
 const body = new TextEncoder().encode(text);

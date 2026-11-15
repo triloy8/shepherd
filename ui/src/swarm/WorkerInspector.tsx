@@ -1,11 +1,11 @@
 import type { SwarmMember } from "../../../shared/protocol/swarm";
-import type { WebConversation } from "../../../shared/protocol/web";
+import type { SurfaceConversation } from "../../../shared/protocol/conversation";
 import { useConversation } from "../use-conversation";
 import { Timeline } from "../components/Timeline";
 import { Identity } from "./Identity";
 import { SwarmDialog as Modal } from "./SwarmDialog";
 
-export function WorkerInspector({ member, conversation, close }: { member: SwarmMember; conversation: WebConversation; close: () => void }) {
+export function WorkerInspector({ member, conversation, close }: { member: SwarmMember; conversation: SurfaceConversation; close: () => void }) {
   const controller = useConversation(conversation);
   return <Modal title={member.name} close={close} wide>
     <div className="worker-inspector">

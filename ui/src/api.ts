@@ -1,9 +1,10 @@
+import type { SurfaceConversation } from "../../shared/protocol/conversation";
 import type { ProviderDescriptor } from "../../shared/protocol/providers";
 import type { ProviderAccountLimits } from "../../shared/protocol/account_limits";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
 import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebResetRequest } from "../../shared/protocol/web";
-import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
+import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
 
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
@@ -46,7 +47,7 @@ export const api = {
   setEffort: (id: string, effort: import("../../shared/protocol/requests").EffortSelection) => request(`${conversationPath(id)}/effort`, "POST", { effort }),
   conversations: (signal?: AbortSignal) => request<WebConversationsResponse>("/conversations", "GET", undefined, signal),
   threads: (cursor?: string, signal?: AbortSignal, archived = false) => request<WebThreadsResponse>(`/threads${page(cursor)}&archived=${archived}`, "GET", undefined, signal),
-  create: (input: WebCreateConversation) => request<WebConversation>("/conversations", "POST", input),
+  create: (input: WebCreateConversation) => request<SurfaceConversation>("/conversations", "POST", input),
   state: (id: string, signal?: AbortSignal) => request<WebConversationState>(conversationPath(id), "GET", undefined, signal),
   history: (id: string, cursor?: string, signal?: AbortSignal) => request<WebHistoryResponse>(`${conversationPath(id)}/turns${page(cursor, HISTORY_PAGE_TURNS)}`, "GET", undefined, signal),
   approvals: (id: string, signal?: AbortSignal) => request<WebApprovalsResponse>(`${conversationPath(id)}/approvals`, "GET", undefined, signal),
@@ -55,7 +56,7 @@ export const api = {
   decide: (id: string, approvalId: string, decision: string, answers?: UserQuestionAnswers) => request(`${conversationPath(id)}/approvals/${encodeURIComponent(approvalId)}`, "POST", { decision, answers }),
   rename: (id: string, name: string) => request(`${conversationPath(id)}/rename`, "POST", { name }),
   archive: (id: string) => request(`${conversationPath(id)}/archive`, "POST", {}),
-  fork: (id: string) => request<WebConversation>(`${conversationPath(id)}/fork`, "POST", {}),
+  fork: (id: string) => request<SurfaceConversation>(`${conversationPath(id)}/fork`, "POST", {}),
   restore: (threadId: string) => request(`/threads/${encodeURIComponent(threadId)}/unarchive`, "POST", {}),
   detach: (id: string) => request(conversationPath(id), "DELETE"),
 };

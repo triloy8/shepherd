@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import type { WebConversation } from "../../../shared/protocol/web";
+import type { SurfaceConversation } from "../../../shared/protocol/conversation";
 import { useConversation, type Connection } from "../use-conversation";
 import type { useImageDrafts } from "../use-image-drafts";
 import { Timeline } from "../components/Timeline";
@@ -13,7 +13,7 @@ import { useChatScroll } from "./use-chat-scroll";
 
 export type ManagerConnection = { id: string; connection: Connection };
 export type Drafts = Map<string, { text: string; revision: number }>;
-export function ManagerChat({ conversation, drafts, imageDrafts, menuTarget, onConnectionChange }: { conversation: WebConversation; drafts: RefObject<Drafts>; imageDrafts: ReturnType<typeof useImageDrafts>; menuTarget: HTMLDivElement | null; onConnectionChange: (value: ManagerConnection) => void }) {
+export function ManagerChat({ conversation, drafts, imageDrafts, menuTarget, onConnectionChange }: { conversation: SurfaceConversation; drafts: RefObject<Drafts>; imageDrafts: ReturnType<typeof useImageDrafts>; menuTarget: HTMLDivElement | null; onConnectionChange: (value: ManagerConnection) => void }) {
   const controller = useConversation(conversation);
   useEffect(() => { onConnectionChange({ id: conversation.id, connection: controller.connection }); }, [conversation.id, controller.connection, onConnectionChange]);
   const [, redraw] = useState(0);

@@ -8,7 +8,7 @@ import { join } from "node:path";
 // Local browser-test fixture. Never imported by production entrypoints.
 import { createSwarmAdapter } from "../../server/adapters/swarm/server.js";
 import { FileSwarmStore } from "../../server/storage/swarm_store.js";
-import { createWebAdapter } from "../../server/adapters/web/server.js";
+import { createWebAdapter } from "../../server/adapters/shared/browser_server.js";
 import { webHarness } from "../helpers/web_harness.js";
 import type { HistoryItem, HistoryTurn, StoredThreadSummary } from "../../shared/protocol/requests.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";

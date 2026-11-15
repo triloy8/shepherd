@@ -135,10 +135,12 @@ through its front door:
   session bootstrap port. Swarm orchestration is a separate enforced feature
   layer: generic core cannot import it, and it cannot import browser contracts.
   See [layer boundaries and the audit](swarm-surface.md#layer-boundaries).
-- **Web** (`adapters/web/`, re-exporting shared browser transport): the private loopback `/api` (`api.ts`), its server and asset
-  serving (`server.ts`, `ui_assets.ts`), the bounded SSE feed (`event_feed.ts`), history
-  presentation with scoped image URLs (`history.ts`, `images.ts`) and host controls
-  (`host_controls.ts`). Live items are presented exactly as history presents them.
+- **Web** (`adapters/web/server.ts`): configures the web surface directly with the
+  shared browser server. `adapters/shared/browser_*` owns the private loopback
+  `/api`, asset serving, bounded SSE feed, history presentation with scoped image
+  URLs, battery reading, and host controls. Callers import these modules directly;
+  there are no forwarding modules at the old web paths. Live items use the same
+  presentation as history.
 - **UI** (`ui/src/`): React, built by Vite, importing only the protocol. `chat-state.ts`
   reconciles history, live deltas and canonical completion; `timeline.ts` groups work and
   answers; `use-conversation.ts` owns reconnects and history refresh.

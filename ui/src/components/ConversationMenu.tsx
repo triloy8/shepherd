@@ -1,6 +1,6 @@
 import type { ProviderCapabilities } from "../../../shared/protocol/provider_capabilities";
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
-import type { WebConversation } from "../../../shared/protocol/web";
+import type { SurfaceConversation } from "../../../shared/protocol/conversation";
 import { Icon } from "./Icon";
 import { HostBattery } from "./HostBattery";
 import { api, explainError } from "../api";
@@ -10,9 +10,9 @@ const ConversationSkills = lazy(() => import("./ConversationSkills").then((modul
 
 export function ConversationMenu({ conversation, title, status, disabled, active, detaching, capabilities, onHistoryChange, onRename, onArchive, onFork, onDetach }: {
   capabilities: ProviderCapabilities | null;
-  conversation: WebConversation; title: string; status: string; disabled: boolean; active: boolean; detaching: boolean;
+  conversation: SurfaceConversation; title: string; status: string; disabled: boolean; active: boolean; detaching: boolean;
   onHistoryChange: () => Promise<void>; onRename: (name: string) => void; onArchive: () => void;
-  onFork: (conversation: WebConversation) => void; onDetach: () => void;
+  onFork: (conversation: SurfaceConversation) => void; onDetach: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<"details" | "skills" | "rename" | "archive" | "compact" | null>(null);

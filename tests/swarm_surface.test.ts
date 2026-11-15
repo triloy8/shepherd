@@ -6,7 +6,7 @@ import { FileSwarmStore } from "../server/storage/swarm_store.js";
 import { SwarmService } from "../server/core/surface/swarm_service.js";
 import { SwarmSurfaceApi } from "../server/adapters/swarm/api.js";
 import { createSwarmAdapter, createSwarmSurface } from "../server/adapters/swarm/server.js";
-import { createWebAdapter } from "../server/adapters/web/server.js";
+import { createWebAdapter } from "../server/adapters/shared/browser_server.js";
 import { webHarness } from "./helpers/web_harness.js";
 import type { SwarmGroup } from "../shared/protocol/swarm.js";
 import type { SwarmStore } from "../server/ports/swarm_store.js";

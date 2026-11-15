@@ -5,7 +5,7 @@ import { UsageLimits } from "../components/UsageLimits";
 import { Icon } from "../components/Icon";
 import type { SwarmMember, SwarmObservation } from "../../../shared/protocol/swarm";
 import { swarmStateLabels } from "../../../shared/protocol/swarm";
-import type { WebConversation } from "../../../shared/protocol/web";
+import type { SurfaceConversation } from "../../../shared/protocol/conversation";
 import { explainError } from "../api";
 import { useImageDrafts } from "../use-image-drafts";
 import { MessageIdentity, MessageCopyOnClick } from "../components/Message";
@@ -25,7 +25,7 @@ export function SwarmApp() {
   const [selected, setSelected] = useState<string | null>(() => { try { return localStorage.getItem("shepherd.swarm-selection"); } catch { return null; } });
   const model = useSwarms(selected);
   const [dialog, setDialog] = useState<"create" | "roster" | null>(null);
-  const [inspector, setInspector] = useState<{ member: SwarmMember; conversation: WebConversation } | null>(null);
+  const [inspector, setInspector] = useState<{ member: SwarmMember; conversation: SurfaceConversation } | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 721px)").matches);
   const [drawer, setDrawer] = useState(false), [collapsed, setCollapsed] = useState(false);

@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { loadUiAssets } from "../server/adapters/web/ui_assets.js";
+import { loadUiAssets } from "../server/adapters/shared/browser_ui_assets.js";
 
 const assets = await loadUiAssets();
 const bundle = Object.fromEntries([...assets].map(([name, asset]) => [name, {

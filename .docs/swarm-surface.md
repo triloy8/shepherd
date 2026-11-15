@@ -7,9 +7,6 @@ external symbol references rendering incompletely in some browsers.
 It shares the host's conversation runtime with web and Discord, with its own
 listener, conversation handles, navigation, and durable team records.
 
-Browser-fixture previews: [desktop](../docs/images/swarm-desktop.png) ·
-[mobile](../docs/images/swarm-mobile.png). These show simulated providers.
-
 ## Workflow
 
 1. **New conversation** asks only for a project. Describe the task in the ordinary

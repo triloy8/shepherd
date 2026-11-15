@@ -128,10 +128,8 @@ async page => {
   if (await page.locator('.swarm-navigation').isVisible()) throw Error('Desktop sidebar did not collapse');
   await page.getByRole('button', { name: 'Open conversations', exact: true }).click();
   if (await overflow()) throw Error('Desktop horizontal overflow');
-  await page.screenshot({ path: 'docs/images/swarm-desktop.png' });
   await page.setViewportSize({ width: 390, height: 844 });
   if (await overflow()) throw Error('Phone horizontal overflow');
-  await page.screenshot({ path: 'docs/images/swarm-mobile.png' });
   await page.getByRole('button', { name: 'Model and effort', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Attach images', exact: true }).waitFor();
   const floatingComposer = () => page.waitForFunction(() => {
@@ -167,7 +165,6 @@ async page => {
   await floatingComposer();
   const focusOutlines = await composer.evaluate(el => ({ input: getComputedStyle(el).outlineStyle, composer: getComputedStyle(el.closest('.composer')).outlineStyle }));
   if (focusOutlines.input !== 'none' || focusOutlines.composer !== 'none') throw Error('Composer focus halo remains');
-  await page.screenshot({ path: 'docs/images/swarm-short-viewport.png' });
   await composer.fill('');
   await page.setViewportSize({ width: 390, height: 844 });
   await floatingComposer();
@@ -191,7 +188,6 @@ async page => {
   const drawer = page.getByRole('dialog', { name: 'Conversations', exact: true });
   await drawer.getByRole('navigation', { name: 'Conversations' }).waitFor();
   if (await drawer.getByRole('button', { name: 'Archived', exact: true }).count()) throw Error('Archive filter is undefined for swarms');
-  await page.screenshot({ path: 'docs/images/swarm-sidebar-mobile.png' });
   await drawer.getByRole('button', { name: 'Usage & limits', exact: true }).click();
   await page.getByRole('dialog', { name: 'Usage & limits', exact: true }).waitFor();
   await drawer.waitFor({ state: 'hidden' });
@@ -239,5 +235,5 @@ async page => {
   await page.getByRole('menu', { name: 'Manager options', exact: true }).waitFor({ state: 'hidden' });
   await selectGroup(first.id);
   if (errors.length) throw Error(errors.join('\n'));
-  return { passed: true, widths: [320, 390, 1440, 1920], workers: 3, workflow: 'project → manager → agreed team → automatic workers → read-only inspection', screenshots: ['docs/images/swarm-desktop.png', 'docs/images/swarm-mobile.png'] };
+  return { passed: true, widths: [320, 390, 1440, 1920], workers: 3, workflow: 'project → manager → agreed team → automatic workers → read-only inspection' };
 }

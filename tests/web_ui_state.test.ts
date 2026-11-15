@@ -38,6 +38,16 @@ test("SSE parser caps unterminated input and cancels its reader", async () => {
   expect(cancelled).toBe(true);
 });
 
+test("surface event selection does not add swarm events to ordinary conversation streams", async () => {
+  const source = 'event: swarm\ndata: {"groupId":"team"}\n\nevent: reset\ndata: {"reason":"history_changed"}\n\n';
+  const stream = () => new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(source)); controller.close(); } });
+  const conversationEvents: string[] = [], swarmEvents: string[] = [];
+  await readEvents(stream(), event => conversationEvents.push(event.type));
+  await readEvents<import("../shared/protocol/swarm").SwarmEventData>(stream(), event => swarmEvents.push(event.type), undefined, undefined, ["swarm", "reset"]);
+  expect(conversationEvents).toEqual(["reset"]);
+  expect(swarmEvents).toEqual(["swarm", "reset"]);
+});
+
 test("switching chats discards old deltas and completions buffered in the same SSE chunk", async () => {
   const abort = new AbortController();
   const events = [

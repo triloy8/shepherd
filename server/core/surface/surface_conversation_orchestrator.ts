@@ -112,6 +112,7 @@ export class SurfaceConversationOrchestrator {
     surfaceId: string,
     listener: (event: BridgeEvent) => void,
     provider?: AgentProvider,
+    instructions?: string,
   ): Promise<string> {
     this.getSurfaceProjectTarget(surfaceId);
     const workspace = await this.workspaceBeforeThread(surfaceId, provider);
@@ -119,6 +120,7 @@ export class SurfaceConversationOrchestrator {
     try {
       const created = await this.conversation.createSurfaceThread(this.adapter, surfaceId, {
         ...(provider ? { provider } : {}),
+        ...(instructions ? { instructions } : {}),
         ...(workspace ? { cwd: workspace.cwd } : {}),
       });
       bootstrapped = true;
@@ -136,10 +138,11 @@ export class SurfaceConversationOrchestrator {
     surfaceId: string,
     threadId: string,
     listener: (event: BridgeEvent) => void,
+    instructions?: string,
   ): Promise<string> {
     const cwd = await this.conversation.resolveThreadCwd(threadId);
     await this.workspaceProvisioner.requireExistingWorkspace(cwd);
-    const resumed = await this.conversation.resumeThread(threadId, { cwd });
+    const resumed = await this.conversation.resumeThread(threadId, { cwd, ...(instructions ? { instructions } : {}) });
     // A no-op when the provider already resumed in the saved workspace.
     this.conversation.setThreadCwd(resumed.threadId, cwd);
     await this.bindSurfaceToThread(surfaceId, resumed.threadId, listener);
@@ -172,11 +175,12 @@ export class SurfaceConversationOrchestrator {
     surfaceId: string,
     requestedThreadId: string,
     listener: (event: BridgeEvent) => void,
+    instructions?: string,
   ): Promise<string> {
     try {
       this.conversation.getThreadState(requestedThreadId);
     } catch {
-      return this.resumeSurfaceThread(surfaceId, requestedThreadId, listener);
+      return this.resumeSurfaceThread(surfaceId, requestedThreadId, listener, instructions);
     }
     // A binding conflict is not a missing thread: never resume or change its cwd.
     await this.bindSurfaceToThread(surfaceId, requestedThreadId, listener);

@@ -196,7 +196,7 @@ export class ThreadWatchService {
           required: ["group", "threads"],
           additionalProperties: false,
         },
-        execute: (params) => this.run(params, () => this.watch(params)),
+        execute: (params) => this.watchThreads(params),
       },
       {
         namespace,
@@ -232,6 +232,11 @@ export class ThreadWatchService {
   size(): number {
     this.prune();
     return this.watches.size;
+  }
+
+  /** Managed callers use the capability directly, without depending on tool ordering. */
+  watchThreads(params: DynamicToolCallParams): Promise<DynamicToolCallResponse> {
+    return this.run(params, () => this.watch(params));
   }
 
   dispose(): void {

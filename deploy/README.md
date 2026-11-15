@@ -71,9 +71,11 @@ identifies `@openai/codex` as the official package.
 Select surfaces with `SHEPHERD_SURFACES=discord` in `envs/common.env`.
 The opt-in `web` surface serves the built-in UI and can run alongside Discord; configure its browser origins
 and private access using [the web API guide](../.docs/web-api.md).
-Deployment preserves the selection and does not enable web or Tailscale Serve.
+Deployment preserves the selection and does not enable browser surfaces or Tailscale Serve.
 An unset selection also defaults to Discord; an empty value is an error.
-Discord and web are implemented. When selecting Discord, set `DISCORD_BOT_TOKEN` in
+Discord, web, and Orbit (`swarm`) are implemented. Orbit uses a separate listener
+(default `127.0.0.1:8789`) and the same host lifecycle; see
+[Enable Orbit](#enable-orbit-on-an-existing-host). When selecting Discord, set `DISCORD_BOT_TOKEN` in
 `envs/discord.env` or the process environment. For the initial deployment,
 keep these settings in `envs/common.env`:
 
@@ -116,6 +118,86 @@ bun run start
 ```
 
 Wait for `discord bridge ready`, verify the bot in Discord, then press `Ctrl-C`.
+
+## Enable Orbit on an existing host
+
+Orbit ships in the same source, UI build, and compiled binary as Shepherd. It is
+opt-in: upgrading does not edit local environment files, enable a surface, or
+configure a proxy. No separate frontend server is needed.
+
+1. Copy `envs/swarm.env.example` to `envs/swarm.env` if the local file does not
+   already exist, then restrict its permissions with `chmod 600 envs/swarm.env`.
+2. Set its loopback port and exact private browser origin, for example:
+
+   ```env
+   SHEPHERD_SWARM_PORT=8789
+   SHEPHERD_SWARM_ORIGINS=https://YOUR-HOST.YOUR-TAILNET.ts.net:8451
+   # Optional; preserve this directory across upgrades and rollback:
+   # SHEPHERD_SWARM_STATE_DIR=/home/nio/.shepherd/swarm-groups
+   ```
+
+3. Once the checkout supports `swarm`, append it to the existing selection in
+   `envs/common.env`, for example `SHEPHERD_SURFACES=discord,web,swarm`.
+   Keep existing Discord/web configuration. Process environment values override
+   these files; check custom launchers and tmux environment overrides as well.
+4. Run `bun run check:config`, `bun run check`, and `bun run test` in the target
+   checkout. Configuration validation opens no listeners; it does not prove that
+   a port is free, assets are present, or provider credentials work.
+5. Restart through Host controls or `!restart` under the normal supervisor.
+   A foreground `bun run start` has no restart supervisor. All selected adapters
+   must start successfully; a port collision fails the entire host startup.
+6. Check `http://127.0.0.1:8789/api/health` and `/`, then expose only this
+   loopback port through a private proxy. With the supplied Tailscale launcher:
+
+   ```bash
+   ./deploy/ubuntu/tailscale.sh cli serve --bg --https=8451 http://127.0.0.1:8789
+   ./deploy/ubuntu/tailscale.sh cli serve status
+   ```
+
+   Substitute an available HTTPS port and use that exact origin in the env file.
+   Do not reset existing Serve handlers or enable Funnel. The ordinary web URL
+   still serves web; open the separate Orbit URL directly. There is currently no
+   web navigation link to Orbit. Origins restrict browser requests, not operator
+   access: reachable clients control the host, with no application login.
+
+For a branch preview, publish the branch, prepare the adapter file, and use
+`!deploy branch <branch-name>` or Host controls to validate/deploy the branch.
+When the currently running revision does not recognize `swarm`, leave its
+surface selection unchanged until the new revision is on disk. Then enable
+`swarm`, validate configuration, and restart. Normal deploy preserves env files;
+it does not copy new example files into an existing installation.
+
+### Move a separate Orbit preview into the main host
+
+Use a quiet maintenance window: finish active turns and resolve pending decisions
+before handing off. Save the existing selection and proxy target for recovery.
+Prepare the new host and adapter configuration first. Stop the separate real
+Orbit supervisor before enabling Orbit in the main host. Do not run two writers
+against the same state directory or load the same provider threads in two hosts.
+A fake browser fixture is not the real service and has no production records.
+
+Keep the same `SHEPHERD_SWARM_STATE_DIR` (default `~/.shepherd/swarm-groups`),
+provider login/session directories, and worker workspaces. Group membership and
+dispatch receipts survive restart. Watches and pending questions are process
+local; resume the manager and use its next turn to renew watches. A stop status
+does not guarantee that provider-launched commands have exited; see the
+[command cancellation gap](../.docs/errors.md#codex-turn-interruption-can-leave-a-running-command-alive).
+
+After the main listener is healthy, repoint only Orbit's private proxy handler.
+Verify the existing web health endpoint, open Orbit, resume a saved manager, and
+inspect its roster/history. A real assignment and automatic manager continuation
+are separate provider integration checks; configuration validation alone does
+not exercise them.
+
+### Roll back Orbit
+
+Before returning to a revision without `swarm`, remove `swarm` from the local
+selection while retaining the other surfaces and validate the target config.
+Otherwise the old revision rejects the unknown selection and cannot start.
+Disable or repoint only the Orbit proxy handler. Preserve the adapter env file,
+saved groups, provider state, and worker checkouts. To restore a separate Orbit
+host, first stop the main host's swarm writer; never start both against the same
+records. Rolling back code does not undo dispatched work or provider processes.
 
 ## Optional private networking with Tailscale
 
@@ -393,12 +475,13 @@ retired. Standard host installs already use `bun run start` and need no launcher
 change. Custom launch commands must migrate to the common entrypoint.
 
 
-## Web UI artifacts
+## Browser UI artifacts
 
 `bun run check` builds the UI with Vite before validating the server, so normal
 deployment prepares both together. A failed deployment rebuilds the restored
-revision after restoring its dependencies. The running web listener keeps its
-previous assets in memory until restart. `bun run build:bin` embeds UI assets;
+revision after restoring its dependencies. The running browser listeners keep
+their previous assets in memory until restart. Both `index.html` (web) and
+`swarm.html` (Orbit), their fonts, and assets are built together. `bun run build:bin` embeds UI assets;
 Docker copies the same build output into the runtime image. For a manual source
 startup after installation, run `bun run build` first. See the
 [web UI guide](../.docs/web-ui.md) for private access and frontend development.

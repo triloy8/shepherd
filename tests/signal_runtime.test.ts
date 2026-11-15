@@ -104,3 +104,50 @@ test("thread watch tools register only when enabled, without the webhook, and un
   await h.runtime.shutdown();
   expect(h.unregisters()).toBe(3);
 });
+
+test("managed swarm watches work with public watches and webhook disabled and stop with the host", async () => {
+  const h = harness();
+  const signals = makeSignals(h, { config: { ...config, enabled: false, threadWatchEnabled: false } });
+  const subscriptions: Array<(event: import("../shared/protocol/events.js").BridgeEvent) => void> = [];
+  let removed = 0;
+  h.runtime.conversation.getThreadState = id => ({ threadId: id, sessionId: id, activeTurnId: id === "manager" ? "manager-turn" : null } as never);
+  h.runtime.conversation.getThreadSurface = id => ({ adapter: "swarm", surfaceId: id });
+  h.runtime.conversation.getThreadCwd = async () => "/workspace";
+  h.runtime.conversation.subscribeToThreadEvents = (_id, listener) => { subscriptions.push(listener); return () => { removed++; }; };
+  signals.start();
+  expect(h.tools).toEqual([]);
+  const params = { threadId: "manager", turnId: "manager-turn", callId: "call", namespace: "shepherd", tool: "swarm_status", arguments: {} };
+  expect((await signals.watchSwarm(params, "group-1", [{ threadId: "worker", label: "Solu" }])).success).toBe(true);
+  expect(subscriptions.length).toBeGreaterThan(0);
+  await h.runtime.shutdown();
+  expect(removed).toBe(subscriptions.length);
+  expect(() => signals.watchSwarm(params, "group-1", [{ threadId: "worker", label: "Solu" }])).toThrow("stopping");
+});
+
+test("managed worker completion queues a manager turn until its current turn ends", async () => {
+  const h = harness();
+  const signals = makeSignals(h, { config: { ...config, enabled: false, threadWatchEnabled: false } });
+  const listeners = new Map<string, Set<(event: import("../shared/protocol/events.js").BridgeEvent) => void>>();
+  let managerTurn: string | null = "manager-turn";
+  const submissions: unknown[] = [];
+  const emit = (threadId: string, turnId: string) => { for (const listener of [...listeners.get(threadId) ?? []]) listener({ id: crypto.randomUUID(), threadId, sessionId: threadId, ts: new Date().toISOString(), type: "turn.completed", payload: { turnId } }); };
+  h.runtime.conversation.getThreadState = id => ({ threadId: id, sessionId: id, activeTurnId: id === "manager" ? managerTurn : null } as never);
+  h.runtime.conversation.getThreadSurface = id => ({ adapter: "swarm", surfaceId: id });
+  h.runtime.conversation.getSurfaceThread = (_adapter, surfaceId) => surfaceId;
+  h.runtime.conversation.getThreadCwd = async () => "/workspace";
+  h.runtime.conversation.subscribeToThreadEvents = (id, listener) => { const set = listeners.get(id) ?? new Set(); set.add(listener); listeners.set(id, set); return () => { set.delete(listener); }; };
+  h.runtime.conversation.submitTurn = async (id, request) => { submissions.push({ id, input: request.input }); queueMicrotask(() => emit(id, "wake-turn")); return { ok: true, turnId: "wake-turn" }; };
+  try {
+    signals.start();
+    const params = { threadId: "manager", turnId: "manager-turn", callId: "call", namespace: "shepherd", tool: "swarm_status", arguments: {} };
+    expect((await signals.watchSwarm(params, "team", [{ threadId: "worker", label: "Solu" }])).success).toBe(true);
+    emit("worker", "worker-turn");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(submissions).toEqual([]);
+    managerTurn = null; emit("manager", "manager-turn");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(submissions).toHaveLength(1);
+    expect(JSON.stringify(submissions)).toContain("Solu");
+    expect(JSON.stringify(submissions)).toContain("completed");
+  } finally { await h.runtime.shutdown(); }
+});

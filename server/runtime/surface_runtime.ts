@@ -45,14 +45,14 @@ export function createSurfaceRuntime(
     },
   );
 
-  const createSurfaceThread = (surfaceId: string, provider?: AgentProvider): Promise<string> =>
-    orchestrator.createAndBindSurfaceThread(surfaceId, (event) => options.onThreadEvent(surfaceId, event), provider);
+  const createSurfaceThread = (surfaceId: string, provider?: AgentProvider, instructions?: string): Promise<string> =>
+    orchestrator.createAndBindSurfaceThread(surfaceId, (event) => options.onThreadEvent(surfaceId, event), provider, instructions);
 
   const forkSurfaceThread = (surfaceId: string, sourceThreadId: string): Promise<string> =>
     orchestrator.forkSurfaceThread(surfaceId, sourceThreadId, (event) => options.onThreadEvent(surfaceId, event));
 
-  const switchSurfaceThread = (surfaceId: string, threadId: string): Promise<string> =>
-    orchestrator.switchSurfaceThread(surfaceId, threadId, (event) => options.onThreadEvent(surfaceId, event));
+  const switchSurfaceThread = (surfaceId: string, threadId: string, instructions?: string): Promise<string> =>
+    orchestrator.switchSurfaceThread(surfaceId, threadId, (event) => options.onThreadEvent(surfaceId, event), instructions);
 
   const ensureSurfaceThread = (surfaceId: string): Promise<string> =>
     orchestrator.ensureSurfaceThread(surfaceId, (event) => options.onThreadEvent(surfaceId, event));

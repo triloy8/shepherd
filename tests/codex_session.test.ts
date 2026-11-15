@@ -531,3 +531,15 @@ describe("thread/list response mapping", () => {
     expect(extractThreadSummary(thread, true).archived).toBe(true);
   });
 });
+
+test("host role instructions use native developer guidance on creation and resume", async () => {
+  const fake = fakeAppServer(request => request.method.startsWith("thread/") ? { thread: { id: "role-thread", cwd: "/project", model: "fixture", turns: [] } } : {});
+  const session = new CodexSession(undefined, undefined, fake.server);
+  try {
+    await session.startThread({ cwd: "/project", instructions: "You are the swarm manager." });
+    await session.resumeThread("role-thread", { cwd: "/project", instructions: "Restore the saved team." });
+    expect(fake.received().filter(r => r.method === "thread/start" || r.method === "thread/resume").map(r => r.params)).toMatchObject([
+      { developerInstructions: "You are the swarm manager." }, { developerInstructions: "Restore the saved team." },
+    ]);
+  } finally { session.stop(); fake.server.stop(); }
+});

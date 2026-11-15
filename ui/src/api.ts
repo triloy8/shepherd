@@ -13,7 +13,7 @@ export async function checked(response: Response): Promise<Response> {
   const data = await response.json().catch(() => null);
   throw new ApiError(response.status, data?.error?.code ?? "request_failed", data?.error?.message ?? `Request failed (${response.status}).`);
 }
-async function request<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
+export async function request<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   const timeout = AbortSignal.timeout(60_000);
   const response = await fetch(`${WEB_API_PREFIX}${path}`, {
     method, credentials: "omit", cache: "no-store",
@@ -60,10 +60,10 @@ export const api = {
   detach: (id: string) => request(conversationPath(id), "DELETE"),
 };
 
-export type StreamEvent = { [K in keyof WebEventData]: { id: string; type: K; data: WebEventData[K] } }[keyof WebEventData];
+export type StreamEvent<Events = WebEventData> = { [K in keyof Events]: { id: string; type: K; data: Events[K] } }[keyof Events];
 
 /** SSE framing across arbitrary UTF-8/chunk/CRLF boundaries, without unbounded buffering. */
-export async function readEvents(body: ReadableStream<Uint8Array>, receive: (event: StreamEvent) => void, progress: () => void = () => {}, signal?: AbortSignal): Promise<void> {
+export async function readEvents<Events = WebEventData>(body: ReadableStream<Uint8Array>, receive: (event: StreamEvent<Events>) => void, progress: () => void = () => {}, signal?: AbortSignal, eventTypes: readonly string[] = ["bridge", "signal", "reset"]): Promise<void> {
   const reader = body.getReader();
   const cancel = () => { void reader.cancel().catch(() => {}); };
   signal?.addEventListener("abort", cancel, { once: true });
@@ -79,7 +79,7 @@ export async function readEvents(body: ReadableStream<Uint8Array>, receive: (eve
       const id = valueOf("id:").at(-1) ?? "";
       const data = valueOf("data:").join("\n");
       fields = []; size = 0;
-      if (data && ["bridge", "signal", "reset"].includes(type ?? "")) receive({ id, type, data: JSON.parse(data) } as StreamEvent);
+      if (data && eventTypes.includes(type ?? "")) receive({ id, type, data: JSON.parse(data) } as StreamEvent<Events>);
     } else if (!value.startsWith(":")) {
       fields.push(value); size += value.length;
       if (size > 262_144) throw new Error("Event exceeds the client buffer limit.");

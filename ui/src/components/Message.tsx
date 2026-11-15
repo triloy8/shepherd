@@ -1,5 +1,5 @@
 import { imageDataParts } from "../../../shared/protocol/image_input";
-import { createContext, isValidElement, memo, useDeferredValue, useContext, useState, type MouseEvent, type ReactNode } from "react";
+import { createContext, isValidElement, memo, useDeferredValue, useContext, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkChatMath from "../remark-chat-math";
@@ -13,6 +13,9 @@ import { resolveImageArtifact } from "../image-artifacts";
 import { ImageArtifact } from "./ImageArtifact";
 
 // Keep renderer identities stable so updates preserve loaded image elements.
+export const MessageCopyOnClick = createContext(false);
+export const MessageIdentity = createContext<((role: string) => ReactNode) | null>(null);
+
 const MessageImages = createContext<readonly WebImage[]>([]);
 const FootnotePrefix = createContext("");
 
@@ -107,11 +110,41 @@ const AttachedImage = memo(function AttachedImage({ url, index }: { url: string;
 });
 
 export function Message({ message, images = emptyImages, progress = false, showAuthor = true, showCopy = true, writingPaused = false, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showAuthor?: boolean; showCopy?: boolean; writingPaused?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
+  const identity = useContext(MessageIdentity);
+  const copyOnClick = useContext(MessageCopyOnClick);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+  const [copyNotice, setCopyNotice] = useState(0);
+  const canCopy = !progress && showCopy && message.complete && Boolean(message.text);
+  useEffect(() => {
+    if (!copyOnClick || !copied) return;
+    const timer = setTimeout(() => setCopied(false), 2500);
+    return () => clearTimeout(timer);
+  }, [copyOnClick, copied, copyNotice]);
+  async function copyMessage() {
+    try { await navigator.clipboard.writeText(message.text); setCopied(true); setCopyError(false); setCopyNotice(value => value + 1); }
+    catch { setCopied(false); setCopyError(true); }
+  }
   const prefix = footnotePrefix(message);
   const renderedText = useDeferredValue(message.text);
-  return <article className={`message timeline-entry ${message.role === "user" ? "message-user" : "message-assistant"}`}>
+  const actions = <div className="message-actions mt-3 flex flex-wrap items-center gap-4">
+      {!copyOnClick && showCopy && message.complete && message.text && <button className="message-copy flex items-center gap-1.5 text-xs text-dim hover:text-ink" data-copy-state={copyError ? "error" : copied ? "copied" : "idle"} title={copyError ? "Could not copy. Try again." : copied ? "Copied" : "Copy"} aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => void copyMessage()}><Icon name={copyError ? "close" : copied ? "check" : "copy"} className="size-3.5" /><span className="message-copy-label">{copyError ? "Could not copy" : copied ? "Copied" : "Copy"}</span></button>}
+      {onRevert && message.role === "user" && message.complete && message.turnId && !message.optimistic && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink disabled:opacity-50" disabled={revertDisabled} onClick={onRevert}><Icon name="revert" className="size-3.5" />Revert from here</button>}
+    </div>;
+  return <article className={`message timeline-entry ${message.role === "user" ? "message-user" : "message-assistant"}${progress ? " message-progress" : ""}`} data-copy-on-click={copyOnClick && canCopy || undefined}
+    tabIndex={copyOnClick && canCopy ? 0 : undefined}
+    aria-description={copyOnClick && canCopy ? "Press Enter or Space to copy this message." : undefined}
+    onKeyDown={copyOnClick && canCopy ? event => {
+      if (event.target !== event.currentTarget || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void copyMessage(); }
+    } : undefined}
+    onClick={copyOnClick && canCopy ? event => {
+      if (event.defaultPrevented || event.button !== 0 || event.detail > 1 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if ((event.target as Element).closest("a,button,input,textarea,select,summary,details,pre,code,img,svg,video,audio,[contenteditable],[role=button],[role=link]")) return;
+      if (window.getSelection()?.isCollapsed === false) return;
+      void copyMessage();
+    } : undefined}>
+    {identity && !progress && <span className="message-identity" aria-hidden="true">{identity(message.role)}</span>}
     {!progress && showAuthor && <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
       {message.role === "user" && <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
       <span>{message.role === "user" ? "You" : "Shepherd"}</span>
@@ -120,12 +153,10 @@ export function Message({ message, images = emptyImages, progress = false, showA
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
     {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
       : <MessageMarkdown text={renderedText} images={images} prefix={prefix} complete={message.complete && renderedText === message.text} />}
-    {!progress && <div className="mt-3 flex flex-wrap items-center gap-4">
-      {showCopy && message.complete && message.text && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => {
-        void navigator.clipboard.writeText(message.text).then(() => { setCopied(true); setCopyError(false); }, () => setCopyError(true));
-      }}><Icon name={copied ? "check" : "copy"} className="size-3.5" />{copyError ? "Could not copy" : copied ? "Copied" : "Copy"}</button>}
-      {onRevert && message.role === "user" && message.complete && message.turnId && !message.optimistic && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink disabled:opacity-50" disabled={revertDisabled} onClick={onRevert}><Icon name="revert" className="size-3.5" />Revert from here</button>}
-    </div>}
+    {!progress && (!copyOnClick || onRevert) && actions}
+    {copyOnClick && canCopy && (copied || copyError) && <span className={`message-copy-feedback ${copyError ? "copy-failed" : ""}`} role="status" data-copy-state={copyError ? "error" : "copied"}>
+      <Icon name={copyError ? "close" : "check"} /><span className={copyError ? undefined : "sr-only"}>{copyError ? "Could not copy" : "Copied"}</span>
+    </span>}
 
   </article>;
 }

@@ -23,7 +23,7 @@ export type ThreadBootstrapInfo = {
 
 /** Create, resume and fork as the adapter receives them: core has resolved the host or requested
  * policy to one of the provider's profiles, or null to leave the agent's own defaults. */
-export type ProviderThreadRequest = Pick<Protocol.CreateThreadRequest, "cwd" | "model" | "effort"> & { profile?: string | null };
+export type ProviderThreadRequest = Pick<Protocol.CreateThreadRequest, "cwd" | "model" | "effort" | "instructions"> & { profile?: string | null };
 
 /** Settings for one turn. Omitted fields keep the thread's current value; `effort: null` clears
  * the effort override. The workspace is not a turn setting: it changes through `setCwd`. */

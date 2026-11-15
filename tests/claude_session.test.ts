@@ -1074,3 +1074,20 @@ test("Claude clears effort by restarting with no SDK effort and keeps it cleared
     expect(fake.calls).toHaveLength(2);
   } finally { session.stop(); }
 });
+
+test("host role guidance appends to the normal system preset and is restored on resume", async () => {
+  const fake = sdk(async function* (input) { for await (const _message of input) { yield result; } });
+  const session = new ClaudeSession(undefined, fake);
+  const created = await session.startThread({ cwd: "/project", instructions: "You are the swarm manager." });
+  await session.startTurn([toTextUserInput("hello")]); await done(session);
+  expect(fake.calls[0]!.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "You are the swarm manager." });
+  session.stop();
+  const resumed = new ClaudeSession(undefined, fake);
+  try {
+    await resumed.resumeThread(created.threadId, { instructions: "Restore the saved team." });
+    await resumed.startTurn([toTextUserInput("continue")]); await done(resumed);
+    expect(fake.calls[1]!.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Restore the saved team." });
+    const history = await resumed.listThreadTurns(created.threadId, {});
+    expect(JSON.stringify(history)).not.toContain("Restore the saved team.");
+  } finally { resumed.stop(); }
+});

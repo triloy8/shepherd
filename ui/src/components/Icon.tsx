@@ -10,7 +10,7 @@ const paths = {
   host: "M4 3h16v7H4ZM4 14h16v7H4ZM7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   settings: "M4 7h16M4 17h16M8 4v6M16 14v6",
-  plus: "M12 5v14M5 12h14", arrow: "m5 12 7-7 7 7M12 5v14", menu: "M4 6h16M4 12h16M4 18h16",
+  arrowRight: "M5 12h14m-6-6 6 6-6 6", plus: "M12 5v14M5 12h14", arrow: "m5 12 7-7 7 7M12 5v14", menu: "M4 6h16M4 12h16M4 18h16",
   close: "m6 6 12 12M6 18 18 6", chat: "M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z",
   refresh: "M21 12a9 9 0 1 1-2.7-6.4L21 9M21 3v6h-6",
   folder: "M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z",

@@ -261,3 +261,12 @@ test("an unavailable saved directory prevents resume without making a replacemen
   expect(h.calls.provisionWorkspace).toEqual([]);
   expect(h.calls.bindSurfaceToThread).toEqual([]);
 });
+
+test("host role instructions reach creation and missing-thread resumption without changing workspace resolution", async () => {
+  const h = makeHarness();
+  await h.orchestrator.setSurfaceProject("manager", "~");
+  await h.orchestrator.createAndBindSurfaceThread("manager", () => {}, undefined, "Manage this team.");
+  expect(h.calls.createSurfaceThread[0]!.request.instructions).toBe("Manage this team.");
+  await h.orchestrator.switchSurfaceThread("resumed-manager", "thread-missing", () => {}, "Restore this team.");
+  expect(h.calls.resumeThread[0]).toEqual({ threadId: "thread-missing", request: { cwd: "/saved/thread-missing", instructions: "Restore this team." } });
+});

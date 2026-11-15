@@ -1,3 +1,2 @@
-export class WebRequestError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) { super(message); }
-}
+// Shared browser transport; the web surface keeps its public imports.
+export * from "../shared/browser_errors.js";

@@ -286,6 +286,36 @@ Orbit origin, with mode 600. Its current surface selection and live routing were
 preserved pending deployment; these preparation checks do not migrate the running
 separate Orbit service or run another provider assignment.
 
+### Main-host handoff staged, 2026-11-16
+
+The separate `shepherd-orbit-live` supervisor was stopped with no attached
+conversations. The saved private HTTPS handler on port 8451 now forwards to
+`http://127.0.0.1:8789`; all other Serve handlers, including ordinary web on 443
+forwarding to 8788, were verified unchanged. The handler runs with `--bg` and is
+ready for the main host's Orbit listener. The old port 18981 is no longer serving.
+
+The main launch directory `/home/nio/shepherd` now has local selection
+`discord,web,swarm` and a mode-600 `envs/swarm.env` with port 8789 and the exact
+existing Orbit HTTPS origin. The prospective configuration passed validation
+using this branch without starting clients. Saved groups still use the default
+`~/.shepherd/swarm-groups`; no records or provider history were moved or deleted.
+Private rollback copies of the previous common env and Serve routing live outside
+the checkout under `~/.local/state/shepherd/orbit-handoff-20261116`.
+
+Deploy `feat/orbit-swarm-surface` through the existing main host, for example
+`!deploy branch feat/orbit-swarm-surface`. Its supervised restart starts Orbit
+alongside web and Discord. Until that deployment finishes, the Orbit URL has no
+backend and is expected to be unavailable. Keep the current main process running:
+a plain restart of the older revision cannot recognize the staged `swarm`
+selection. If deployment fails or returns to an older revision, restore selection
+`discord,web` before restarting. Do not restart the separate preview against the
+same group store while the main host is running Orbit.
+
+After deployment, verify `/api/health` on loopback 8789 and the existing private
+Orbit URL, then resume a saved manager and inspect its roster/history. The main
+web endpoint remained healthy during preparation; main-process Orbit startup and
+provider testing remain pending the operator's branch deployment.
+
 ### Live integration check, 2026-11-15
 
 The private Orbit endpoint now runs the real `swarm` surface rather than the

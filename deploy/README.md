@@ -189,6 +189,36 @@ inspect its roster/history. A real assignment and automatic manager continuation
 are separate provider integration checks; configuration validation alone does
 not exercise them.
 
+### Startup and reconnect behavior
+
+The surface ID is `swarm`, even though the UI is named Orbit. After the deployed
+revision supports it, `SHEPHERD_SURFACES=discord,web,swarm` starts all three through
+the same launcher on the next process start. Env changes are not watched live.
+The shared build supplies both browser interfaces. Tailscale Serve is a separate
+saved routing configuration; selecting a surface does not create or modify it.
+
+The Tailscale proxy terminates private HTTPS and forwards HTTP/SSE to the selected
+loopback listener. Give each browser surface its own origin/port and configure
+the exact HTTPS origin in its adapter env file. The existing web proxy can stay
+unchanged while an additional HTTPS port forwards to Orbit.
+
+With `tailscale serve --bg`, routing survives terminal exit, network reconnect,
+and daemon/device restart while Tailscale's saved state is retained; see the
+[official persistence behavior](https://tailscale.com/docs/reference/tailscale-cli/serve#effects-of-rebooting-and-restarting).
+Shepherd's restart supervisor and Tailscale's daemon supervisor are independent.
+The normal host launcher starts the enabled Tailscale supervisor as well as
+Shepherd; Serve resumes its saved routes when the daemon returns. Android boot
+still depends on Termux:Boot and the chroot launcher described below. A separate
+preview tmux session is not automatically recreated by that boot chain.
+
+A browser/network disconnect leaves server-side work running. Conversation SSE
+retries with backoff (up to 10 seconds), refreshes history/state, and supports
+replay cursors. Orbit's roster retries every two seconds and loads a fresh
+snapshot on each connection. A process restart is different: handles, live event
+buffers, watches, and pending questions are volatile. Saved groups and provider
+history remain; reconnect/resume the manager to renew worker watches. Do not
+assume an interrupted inference turn resumes executing automatically.
+
 ### Roll back Orbit
 
 Before returning to a revision without `swarm`, remove `swarm` from the local

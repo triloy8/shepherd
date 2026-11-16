@@ -1,5 +1,5 @@
 import { loadUiAssets } from "../../server/adapters/shared/browser_ui_assets.js";
-import type { SwarmManagerHandler } from "../../server/core/surface/swarm_manager_tools.js";
+import type { SwarmManagerHandler } from "../../server/ports/swarm_runtime.js";
 import { installWebSkills } from "../helpers/web_skills_harness";
 import { installWebSettings } from "../helpers/web_settings_harness";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";

@@ -111,7 +111,7 @@ test("managed swarm watches work with public watches and webhook disabled and st
   const subscriptions: Array<(event: import("../shared/protocol/events.js").BridgeEvent) => void> = [];
   let removed = 0;
   h.runtime.conversation.getThreadState = id => ({ threadId: id, sessionId: id, activeTurnId: id === "manager" ? "manager-turn" : null } as never);
-  h.runtime.conversation.getThreadSurface = id => ({ adapter: "swarm", surfaceId: id });
+  h.runtime.conversation.getThreadSurface = id => ({ adapter: "web", surfaceId: id });
   h.runtime.conversation.getThreadCwd = async () => "/workspace";
   h.runtime.conversation.subscribeToThreadEvents = (_id, listener) => { subscriptions.push(listener); return () => { removed++; }; };
   signals.start();
@@ -132,7 +132,7 @@ test("managed worker completion queues a manager turn until its current turn end
   const submissions: unknown[] = [];
   const emit = (threadId: string, turnId: string) => { for (const listener of [...listeners.get(threadId) ?? []]) listener({ id: crypto.randomUUID(), threadId, sessionId: threadId, ts: new Date().toISOString(), type: "turn.completed", payload: { turnId } }); };
   h.runtime.conversation.getThreadState = id => ({ threadId: id, sessionId: id, activeTurnId: id === "manager" ? managerTurn : null } as never);
-  h.runtime.conversation.getThreadSurface = id => ({ adapter: "swarm", surfaceId: id });
+  h.runtime.conversation.getThreadSurface = id => ({ adapter: "web", surfaceId: id });
   h.runtime.conversation.getSurfaceThread = (_adapter, surfaceId) => surfaceId;
   h.runtime.conversation.getThreadCwd = async () => "/workspace";
   h.runtime.conversation.subscribeToThreadEvents = (id, listener) => { const set = listeners.get(id) ?? new Set(); set.add(listener); listeners.set(id, set); return () => { set.delete(listener); }; };

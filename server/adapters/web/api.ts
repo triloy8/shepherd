@@ -31,7 +31,7 @@ const json = (status: number, value: unknown) => Response.json(value, { status }
 const errorStatuses: Record<string, number> = { swarm_not_found: 404, member_not_found: 404, swarm_limit: 429, worker_limit: 429 };
 
 /** One aggregate roster feed, plus the shared browser API for conversation controls. */
-export class SwarmSurfaceApi {
+export class WebChatApi {
   readonly browser: WebSurfaceApi;
   readonly groups: SwarmService;
   private readonly feed = new WebEventFeed<SwarmEventData>();
@@ -40,7 +40,9 @@ export class SwarmSurfaceApi {
   private readonly opening = new Map<string, Promise<SurfaceConversation>>();
   constructor(private readonly context: SurfaceAdapterContext, config: WebConfig, store: SwarmStore) {
     this.browser = new WebSurfaceApi(context, config, {
-      adapter: "swarm", maxConversations: 96, route: request => this.route(request),
+      maxConversations: 96,
+      instructions: threadId => this.isWorker(threadId) ? SWARM_WORKER_INSTRUCTIONS : SWARM_MANAGER_INSTRUCTIONS,
+      visible: threadId => !this.isWorker(threadId), route: request => this.route(request),
       onEvent: (threadId, event) => {
         if (event.type === "turn.started" || event.type === "turn.completed" || event.type === "turn.failed" || event.type.startsWith("approval.")) {
           this.recent.delete(threadId);
@@ -50,7 +52,7 @@ export class SwarmSurfaceApi {
     });
     this.groups = new SwarmService(store, this.browser.application.conversation);
     const manager = new SwarmManagerService({
-      groups: this.groups, conversation: this.browser.application.conversation,
+      groups: this.groups, managerConversation: threadId => this.isWorker(threadId) ? undefined : this.browser.listConversations().find(c => c.threadId === threadId), conversation: this.browser.application.conversation,
       ingress: context.ingress, approvals: context.approvals, bridge: context.swarmManager,
       interrupt: (threadId, turnId) => this.browser.application.conversation.interruptTurn(threadId, turnId),
       isAvailable: () => !context.isQuiescing() && !context.signal.aborted,
@@ -62,6 +64,7 @@ export class SwarmSurfaceApi {
     });
     this.unregisterManager = context.swarmManager?.connect(params => manager.manage(params)) ?? (() => {});
   }
+  private isWorker(threadId?: string) { return Boolean(threadId && this.groups.list().some(g => g.members.some(m => m.threadId === threadId))); }
   fetch(request: Request) { return this.browser.fetch(request); }
   presentSignal(signal: Parameters<WebSurfaceApi["presentSignal"]>[0]) { this.browser.presentSignal(signal); }
   dispose() { this.unregisterManager(); this.feed.close(); this.browser.dispose(); }
@@ -70,7 +73,7 @@ export class SwarmSurfaceApi {
     if (existing) return existing;
     const pending = this.opening.get(threadId);
     if (pending) return pending;
-    const operation = this.browser.create(undefined, threadId, undefined, undefined, undefined, instructions ?? (this.groups.list().some(g => g.managerThreadId === threadId) ? SWARM_MANAGER_INSTRUCTIONS : SWARM_WORKER_INSTRUCTIONS)).finally(() => this.opening.delete(threadId));
+    const operation = this.browser.create(undefined, threadId, undefined, undefined, undefined, instructions ?? (this.isWorker(threadId) ? SWARM_WORKER_INSTRUCTIONS : SWARM_MANAGER_INSTRUCTIONS)).finally(() => this.opening.delete(threadId));
     this.opening.set(threadId, operation);
     return operation;
   }
@@ -102,6 +105,17 @@ export class SwarmSurfaceApi {
   }
   private async route(request: Request): Promise<Response | null> {
     const path = new URL(request.url).pathname;
+    const mutation = /^\/api\/conversations\/([^/]+)/.exec(path);
+    if (mutation && request.method !== "GET") {
+      const conversation = this.browser.listConversations().find(c => c.id === mutation[1]);
+      if (conversation && this.isWorker(conversation.threadId)) throw new WebRequestError(403, "worker_read_only", "Worker conversations are read-only. Ask their manager to act.");
+    }
+    if (path === "/api/conversations" && request.method === "POST") {
+      // Inspect a clone so the shared API still owns request validation.
+      let data: unknown;
+      try { data = await readBoundedJson(request.clone(), 16 * 1024); } catch { return null; }
+      if (data && typeof data === "object" && "threadId" in data && typeof data.threadId === "string" && this.isWorker(data.threadId)) throw new WebRequestError(403, "worker_read_only", "Open workers through their parent conversation's Swarm panel.");
+    }
     if (!/^\/api\/swarms(?:\/|$)/.test(path)) return null;
     try {
       if (path === "/api/swarms/events" && request.method === "GET") return new Response(this.feed.open(request.headers.get("last-event-id"), request.signal), { headers: { "content-type": "text/event-stream", "x-accel-buffering": "no" } });
@@ -115,6 +129,7 @@ export class SwarmSurfaceApi {
           const provider = text(data, "provider", 64, true);
           if (provider && !this.browser.application.conversation.listProviders().some(p => p.id === provider)) throw new WebRequestError(400, "invalid_request", "Choose an available provider.");
           if (provider && threadId) throw new WebRequestError(400, "invalid_request", "An existing manager determines its provider.");
+          if (this.isWorker(threadId)) throw new WebRequestError(403, "worker_read_only", "Workers cannot manage teams.");
           const manager = threadId ? await this.open(threadId, SWARM_MANAGER_INSTRUCTIONS) : await this.browser.create(project, undefined, undefined, undefined, provider || undefined, SWARM_MANAGER_INSTRUCTIONS);
           try {
             const group = await this.groups.create({ name, project: manager.project, managerThreadId: manager.threadId, strategy });

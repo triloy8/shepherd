@@ -7,9 +7,8 @@ User-question coverage reviewed 2026-10-09 against `7e30d66`
 ([PR #88](https://github.com/triloy8/shepherd/pull/88)), using Codex CLI `0.160.1`.
 Documentation audit: 2026-10-31 against `0475c5e`; generated schemas were not
 available in this checkout.
-Registered surfaces now include **Discord**, **web**, and **swarm**. The tables
-below compare Discord and web; the first swarm implementation has a separate
-[scope and workflow reference](swarm-surface.md).
+Registered surfaces are **Discord** and **web**. Web includes
+[teams and worker inspection](web-teams.md).
 This is an inventory of implemented user-facing behavior,
 not a roadmap requiring identical interfaces. Provider capabilities that neither
 surface exposes are not automatically parity work.

@@ -11,7 +11,7 @@ tests enforce these boundaries.
 | Layer | Paths | May import |
 | --- | --- | --- |
 | Composition | `server/main.ts`, `server/runtime/`, `server/surface_definitions.ts` | everything: it wires the concretes |
-| Surfaces | `server/adapters/{discord,web,swarm,webhook}/`, `ui/src/` (protocol only) | surface support, core API, ports, config, protocol |
+| Surfaces | `server/adapters/{discord,web,webhook}/`, `ui/src/` (protocol only) | surface support, core API, ports, config, protocol |
 | Surface support | `server/adapters/shared/` | core API, ports, protocol |
 | Core API | `server/core/surface_api.ts` | core, ports, protocol |
 | Core: surface | `server/core/surface/` | the core sub-layers below, ports, protocol |
@@ -125,16 +125,11 @@ through its front door:
 
 ## Surfaces
 
-- **Swarm** (`adapters/swarm/`): a separate Alloy browser surface with durable
-  membership through `core/surface/swarm_service.ts` and the `SwarmStore` port.
-  It shares browser transport code in `adapters/shared/browser_*`, with its own
-  listener, handles, group endpoints and aggregate roster feed.
-  `SwarmManagerService` authorizes active manager callers, watches workers before
-  dispatch, and persists retry receipts. Runtime supplies a scoped manager-tool
-  bridge and the existing signal dispatcher; role instructions cross the neutral
-  session bootstrap port. Swarm orchestration is a separate enforced feature
-  layer: generic core cannot import it, and it cannot import browser contracts.
-  See [layer boundaries and the audit](swarm-surface.md#layer-boundaries).
+- **Teams**: `core/surface/swarm_service.ts` owns durable membership through the
+  `SwarmStore` port. `SwarmManagerService` authorizes active parent conversations,
+  watches workers before dispatch, and persists retry receipts. Runtime supplies
+  the manager-tool bridge on web. Orchestration remains independent of browser
+  contracts. See [web teams](web-teams.md).
 - **Web** (`adapters/web/server.ts`): configures the web surface directly with the
   shared browser server. `adapters/shared/browser_*` owns the private loopback
   `/api`, asset serving, bounded SSE feed, history presentation with scoped image
@@ -144,8 +139,8 @@ through its front door:
 - **UI** (`ui/src/`): React, built by Vite, importing only the protocol. `chat-state.ts`
   reconciles history, live deltas and canonical completion; `timeline.ts` groups work and
   answers; `use-conversation.ts` owns reconnects and history refresh.
-  Orbit's shell, manager chat, worker inspector, dialogs and scrolling hook live
-  under `ui/src/swarm/`; shared UI cannot import those feature modules.
+  The main App includes `ui/src/swarm/SwarmPanel.tsx`; its roster and worker
+  inspector reuse the same conversation history and transport.
 - **Discord** (`adapters/discord/`): `bot.ts` (client and listeners), `message_ingress.ts`
   (attention policy, attachments), `commands.ts` (`!` commands), `thread_event_handler.ts`
   (progress lines and answer delivery through the stream reducer), `stream_delivery.ts`,

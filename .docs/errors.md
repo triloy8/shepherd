@@ -180,7 +180,7 @@ the manager to finish its turn once independent work is done, without sleeping
 or polling. The host starts the result-processing turn automatically. After
 resumption with the revised instructions, a second real assignment to the same
 worker completed the entire automatic notification and report cycle without
-manual steering. See [live validation](swarm-surface.md#live-integration-check-2026-11-15).
+manual steering. See [live validation](web-teams.md#verification-boundaries).
 
 ## Browser-connected host restart stalls during listener shutdown
 
@@ -193,13 +193,13 @@ attached conversation streams succeeded.
 The shared browser adapter now initiates HTTP connection cancellation before
 disposing API streams, then awaits listener shutdown. Repeating the connected
 manager/worker-history restart exited with status 0 and the normal supervisor
-relaunched Orbit. A loopback regression test leaves an SSE reader connected with
+relaunched the browser host. A loopback regression test leaves an SSE reader connected with
 unread turn events and verifies shutdown and binding cleanup. The exact internal
 Bun failure was not traced; the corrected shutdown order was validated live.
 
 ## Codex turn interruption can leave a running command alive
 
-Confirmed during extended Orbit integration testing on 2026-11-15. An isolated
+Confirmed during extended team integration testing on 2026-11-15. An isolated
 worker ran a foreground `sleep 15`. After the exact-turn interrupt endpoint
 returned success, the worker observation and provider history became
 `interrupted`, but the same process remained in Linux state `S` (sleeping, not
@@ -212,4 +212,4 @@ session; swarm interruption does not own or independently terminate tool-created
 processes. A stopped turn therefore does not prove that its commands stopped or
 that the workspace is quiescent. The manager correctly reported an interrupted
 turn without claiming the command had exited. This remains an open provider/tool
-cancellation gap; no process-killing workaround was added to the swarm adapter.
+cancellation gap; no process-killing workaround was added to team orchestration.

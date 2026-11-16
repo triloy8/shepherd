@@ -5,6 +5,6 @@ export function SwarmDialog({ title, children, close, wide = false }: { title: s
   const titleId = useId();
   useEffect(() => { const element = dialog.current!; element.showModal(); return () => element.close(); }, []);
   return <dialog ref={dialog} className={`swarm-dialog ${wide ? "swarm-dialog-wide" : ""}`} aria-labelledby={titleId} onCancel={event => { event.preventDefault(); close(); }} onClose={close}>
-    <header><h2 id={titleId}>{title}</h2><button type="button" className="alloy-button" aria-label={`Close ${title}`} onClick={close}>✕</button></header>{children}
+    <header><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label={`Close ${title}`} onClick={close}>✕</button></header>{children}
   </dialog>;
 }

@@ -23,7 +23,7 @@ Agents:
 
 Surfaces:
 
-- [Swarm surface](swarm-surface.md) — separate Alloy workspace, durable group membership,
+- [Web teams](web-teams.md) — integrated roster, durable group membership,
   roster observations, manager chat and worker inspection.
 
 - [Web API](web-api.md) — setup, private access, HTTP request shapes, event recovery,

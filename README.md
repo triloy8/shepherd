@@ -242,15 +242,14 @@ access. Use private Serve and tailnet access rules; do not expose it through
 Funnel or a public proxy. Deployment does not enable Serve or change the selected
 surfaces. Configuration changes take effect when Shepherd restarts.
 
-### Swarm workspace
+### Teams in web conversations
 
-Select `swarm` in `SHEPHERD_SURFACES` (for example `web,swarm`) and copy
-`envs/swarm.env.example` to `envs/swarm.env`. Its separate Alloy workspace opens at
-`http://127.0.0.1:8789` by default. Start with a project and a manager conversation;
-agree a team in chat and let the manager delegate, receive worker updates, and
-verify results. Worker inspection stays read-only. See the
-[swarm setup and current scope](.docs/swarm-surface.md) before enabling it.
-For an existing host, follow the [Orbit deployment and rollback steps](deploy/README.md#enable-orbit-on-an-existing-host).
+Every web conversation starts with zero workers. Agree a team in chat and let the
+manager delegate, receive updates, and verify the results. The top-right **Swarm**
+button shows its roster and read-only worker history. Workers stay out of the main
+conversation list. Teams use the existing web listener and origin.
+See [team behavior and persistence](.docs/web-teams.md) and the
+[deployment migration](deploy/README.md#teams-in-the-web-interface).
 
 ### Build and start
 
@@ -388,7 +387,7 @@ need to resume your stored conversation manually.
 ## Configuration and development
 
 Shared settings belong in `envs/common.env`; adapter settings belong in
-`envs/discord.env`, `envs/web.env`, or `envs/swarm.env`. Process environment variables take precedence,
+`envs/discord.env` or `envs/web.env`. Process environment variables take precedence,
 then common settings, then the selected adapter's settings. Disabled adapter files
 are not loaded. See the committed [environment templates](envs/) for available keys.
 
@@ -419,7 +418,7 @@ independent layers; their allowed dependencies are defined in the architecture g
 | `server/main.ts`, `server/runtime/` | Composition: wires surfaces, core and providers; process lifecycle |
 | `server/adapters/discord/` | Discord input, commands, rendering, and delivery |
 | `server/adapters/web/` | Web surface configuration using the shared browser transport |
-| `server/adapters/swarm/` | Orbit surface configuration, group routes, and roster events |
+| `server/adapters/web/api.ts` | Integrated conversation API, team routes, and roster events |
 | `ui/` | React, TypeScript, and Tailwind UI built with Vite |
 | `server/adapters/webhook/`, `server/signals/` | Local signal ingress and registered signal kinds |
 | `server/adapters/shared/` | Shared browser HTTP/SSE, assets, controls and history; surface presentation helpers |
@@ -453,7 +452,7 @@ route lifetime, and delivery behavior.
 - [Surface parity matrix](.docs/surface-parity-matrix.md)
 - [Surface selection and lifecycle](.docs/surface-launch.md)
 - [Web API and private access](.docs/web-api.md)
-- [Swarm workspace](.docs/swarm-surface.md)
+- [Swarm workspace](.docs/web-teams.md)
 - [Web UI reference](.docs/web-ui.md)
 - [Answering questions and examples](.docs/user-questions.md)
 - [Host deployment](deploy/README.md)

@@ -28,10 +28,8 @@ const layers: Array<{ name: string; paths: string[]; may: string[] }> = [
   { name: "surface-support", paths: ["server/adapters/shared"], may: ["core-api", "ports", "protocol", "protocol:browser"] },
   { name: "surface:discord", paths: ["server/adapters/discord"], may: ["surface-support", "core-api", "ports", "config", "protocol"] },
   { name: "surface:web", paths: ["server/adapters/web/"], may: ["surface-support", "core-api", "ports", "config", "protocol", "protocol:browser"] },
-  { name: "surface:swarm", paths: ["server/adapters/swarm"], may: ["surface-support", "core-api", "ports", "config", "protocol", "protocol:browser"] },
   { name: "surface:webhook", paths: ["server/adapters/webhook"], may: ["surface-support", "core-api", "ports", "config", "protocol"] },
   { name: "ui:shared", paths: ["ui/src"], may: ["protocol", "protocol:browser"] },
-  { name: "ui:swarm", paths: ["ui/src/swarm"], may: ["ui:shared", "protocol", "protocol:browser"] },
   { name: "composition", paths: ["server/runtime", "server/main.ts", "server/surface_definitions.ts"], may: ["*"] },
 ];
 

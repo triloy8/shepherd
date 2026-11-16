@@ -10,7 +10,8 @@ import type { SwarmService } from "./swarm_service.js";
 
 type Options = {
   groups: SwarmService;
-  conversation: Pick<ApplicationConversation, "listProviders" | "listThreadTurns">;
+  managerConversation: (threadId: string) => SurfaceConversation | undefined;
+  conversation: Pick<ApplicationConversation, "listProviders" | "listThreadTurns" | "setThreadName">;
   ingress: Pick<TurnRoutingConversation, "getThreadState" | "submitTurn">;
   approvals: Pick<ApprovalConversation, "listApprovals" | "applyApprovalDecision">;
   interrupt: (threadId: string, turnId: string) => Promise<void>;
@@ -46,15 +47,27 @@ export class SwarmManagerService {
   }
   async manage(params: DynamicToolCallParams): Promise<unknown> {
     if (!this.options.isAvailable()) throw new Error("Host is stopping.");
-    const group = this.groups.list().find(g => g.managerThreadId === params.threadId && g.lifecycle === "active");
-    if (!group || !params.turnId || this.options.ingress.getThreadState(params.threadId).activeTurnId !== params.turnId) throw new Error("Only this swarm's active manager turn may manage its workers.");
-    if (this.managing.has(group.id)) throw new Error("Another manager operation is running. Retry when it finishes.");
-    this.managing.add(group.id);
+    let group = this.groups.list().find(g => g.managerThreadId === params.threadId && g.lifecycle === "active");
+    const conversation = this.options.managerConversation(params.threadId);
+    if (!conversation || !params.turnId || this.options.ingress.getThreadState(params.threadId).activeTurnId !== params.turnId) throw new Error("Only this swarm's active manager turn may manage its workers.");
+    if (this.managing.has(params.threadId)) throw new Error("Another manager operation is running. Retry when it finishes.");
+    this.managing.add(params.threadId);
     try {
       const data = params.arguments;
       if (!data || typeof data !== "object" || Array.isArray(data) || JSON.stringify(data).length > 16_384) throw new Error("Invalid swarm tool arguments.");
       const fields: Record<string, string[]> = { swarm_status: [], swarm_delegate: ["name", "assignment", "requestId", "provider"], swarm_send: ["threadId", "message", "requestId"], swarm_report: ["threadId", "cursor"], swarm_interrupt: ["threadId"], swarm_rename: ["name"], swarm_decide: ["threadId", "approvalId", "decision", "answers"] };
       if (!fields[params.tool] || Object.keys(data).some(k => !fields[params.tool]!.includes(k))) throw new Error("Unexpected swarm tool arguments.");
+      if (!group) {
+        if (params.tool === "swarm_status") return { group: null, workers: [], manager: await this.options.observe(params.threadId), guidance: "Work independently by default. Delegate only when the user agrees to a team." };
+        if (params.tool === "swarm_rename") return await this.options.conversation.setThreadName(params.threadId, { name: text(data, "name", 120) });
+        if (params.tool !== "swarm_delegate") throw new Error("This conversation has no workers.");
+        text(data, "name", 80); text(data, "assignment", 4096); text(data, "requestId", 128);
+        const provider = text(data, "provider", 64, true);
+        if (provider && !this.options.conversation.listProviders().some(p => p.id === provider)) throw new Error("Choose an available provider.");
+        if (!/^[\w.-]+\/[\w.-]+$/.test(conversation.project)) throw new Error("Isolated workers require an owner/repo project.");
+        group = await this.groups.create({ managerThreadId: params.threadId, project: conversation.project, name: "Team", strategy: "" });
+      }
+      this.assertActive(params, group);
       if (params.tool === "swarm_status") {
         await this.watch(params, group);
         return { ...await this.options.snapshot(group), guidance: "Discuss the team before delegation. Inspect saved workers and history on resuming; never automatically resend pending dispatches. Completion requires your verification." };
@@ -107,7 +120,7 @@ export class SwarmManagerService {
       const turnId = this.options.ingress.getThreadState(threadId).activeTurnId;
       if (turnId) await this.options.interrupt(threadId, turnId);
       return { threadId, interrupted: Boolean(turnId) };
-    } finally { this.managing.delete(group.id); this.options.onChange(group.id); }
+    } finally { this.managing.delete(params.threadId); if (group) this.options.onChange(group.id); }
   }
   private async sendAssignment(params: DynamicToolCallParams, group: SwarmGroup, member: SwarmGroup["members"][number], key: string, message: string) {
     const previous = member.dispatches?.find(d => d.key === key);

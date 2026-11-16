@@ -62,7 +62,7 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
         if (shepherd.isQuiescing()) throw new Error("Shepherd is stopping.");
         report(prepared.id, { state: "starting" });
         const adapter = prepared.create({
-          ...(prepared.id === "swarm" ? { swarmManager: {
+          ...(prepared.id === "web" ? { swarmManager: {
             connect: (handler: import("../ports/swarm_runtime.js").SwarmManagerHandler) => {
               const unregister = swarmManagerRegistrations(handler).map(tool => shepherd.conversation.registerDynamicTool(tool));
               return () => { for (const remove of unregister) remove(); };

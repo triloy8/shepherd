@@ -18,7 +18,8 @@ export function useSwarms(selected: string | null) {
       const list = await swarms.list(signal);
       if (signal?.aborted || version !== generation.current || selection.current !== id) return;
       setGroups(list.groups); setListedFor(id);
-      const current = id && list.groups.some(g => g.id === id) ? await swarms.read(id, signal) : null;
+      const group = list.groups.find(g => g.managerThreadId === id && g.lifecycle === "active") ?? list.groups.filter(g => g.managerThreadId === id).at(-1);
+      const current = group ? await swarms.read(group.id, signal) : null;
       if (signal?.aborted || version !== generation.current || selection.current !== id) return;
       setSnapshot(current); setError(null); setLoading(false);
     } catch (error) { if (!signal?.aborted && version === generation.current) { setError(explainError(error)); setLoading(false); } }
@@ -54,5 +55,5 @@ export function useSwarms(selected: string | null) {
     const poll = setInterval(visible, 60_000);
     return () => { abort.abort(); clearTimeout(timer); clearTimeout(debounce); clearInterval(poll); document.removeEventListener("visibilitychange", visible); };
   }, [refresh]);
-  return { groups, listedFor, snapshot: snapshot?.group.id === selected ? snapshot : null, error, loading, online, refresh };
+  return { groups, listedFor, snapshot: snapshot?.group.managerThreadId === selected ? snapshot : null, error, loading, online, refresh };
 }

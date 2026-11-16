@@ -33,6 +33,7 @@ export class SwarmService {
   async create(input: { name: string; project: string; managerThreadId: string; strategy: string }): Promise<SwarmGroup> {
     return this.write(async () => {
       if (this.list().length >= 128) throw new SwarmError("swarm_limit", "Swarm storage is at capacity.");
+      if (this.list().some(g => g.members.some(m => m.threadId === input.managerThreadId))) throw new SwarmError("worker_is_not_manager", "Workers cannot manage teams.");
       this.exclusive(input.managerThreadId);
       await this.conversation.readThread(input.managerThreadId, { includeTurns: false });
       const now = new Date().toISOString();
@@ -48,6 +49,7 @@ export class SwarmService {
       if (group.members.length >= 64) throw new SwarmError("worker_limit", "A swarm supports at most 64 workers.");
       if ([group.managerThreadId, ...group.members.map(m => m.threadId)].includes(input.threadId)) throw new SwarmError("duplicate_member", "This conversation already belongs to the swarm.");
       if (group.members.some(m => m.name.toLocaleLowerCase() === input.name.toLocaleLowerCase())) throw new SwarmError("duplicate_name", "Choose a distinct worker name.");
+      if (this.list().some(g => g.managerThreadId === input.threadId || g.members.some(m => m.threadId === input.threadId))) throw new SwarmError("thread_in_swarm", "This conversation already belongs to a team.");
       this.exclusive(input.threadId, group.id);
       await this.conversation.readThread(input.threadId, { includeTurns: false });
       const next = { ...group, revision: group.revision + 1, updatedAt: new Date().toISOString(), members: [...group.members, { ...input, iconSeed: input.threadId, joinedAt: new Date().toISOString() }] };

@@ -11,9 +11,8 @@ SHEPHERD_SURFACES=discord
 
 An unset value defaults to Discord for existing installations. An explicitly
 empty value, malformed name, duplicate, or unregistered surface is an error.
-Registered surfaces are `discord`, `web`, and `swarm`. Select any combination,
-for example `web,swarm`. The [swarm surface](swarm-surface.md) has its own Alloy
-workspace and loopback listener (default port 8789). The web surface is a built-in UI and private loopback HTTP/SSE API;
+Registered surfaces are `discord` and `web`. Select either or both. Teams are
+included in the web UI and use the same loopback HTTP/SSE listener;
 see [web API](web-api.md) for configuration. The UI is built and deployed with
 Shepherd. Arbitrary website hosting is not included.
 
@@ -93,7 +92,7 @@ degraded/recovered health, and shutdown during pending login. Additional tests e
 in one host. Compiled and source entrypoints are the same launcher.
 
 Merge and deploy through the normal Shepherd flow. Existing installations with
-no selection configured continue using Discord. Web and Orbit require explicit selection
-and configuration. Follow the [Orbit deployment guide](../deploy/README.md#enable-orbit-on-an-existing-host)
-for environment preparation, private routing, single-writer migration and rollback. The UI lives in this repository and shares the host lifecycle;
+no selection configured continue using Discord. Web requires explicit selection
+and configuration. Follow the [team migration guide](../deploy/README.md#teams-in-the-web-interface)
+when retiring the separate preview. The UI shares the host lifecycle;
 no separate shepherd-ui deployment is required.

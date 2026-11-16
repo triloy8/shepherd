@@ -94,6 +94,8 @@ export class WebSurfaceApi {
   constructor(private readonly context: SurfaceAdapterContext, private readonly config: WebConfig,
     private readonly options: {
       adapter?: string;
+      instructions?: (threadId?: string) => string;
+      visible?: (threadId: string) => boolean;
       maxConversations?: number;
       route?: (request: Request, api: WebSurfaceApi) => Promise<Response | null>;
       onEvent?: (threadId: string, event: BridgeEvent) => void;
@@ -180,10 +182,11 @@ export class WebSurfaceApi {
       if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/threads`) {
         const archived = url.searchParams.get("archived");
         if (archived !== null && archived !== "true" && archived !== "false") throw new WebRequestError(400, "invalid_query", "archived must be true or false.");
-        return json(200, await this.application.conversation.listStoredThreads({ ...pagination(url, ["archived"]), archived: archived === "true", sortKey: "updated_at", sortDirection: "desc" }));
+        const page = await this.application.conversation.listStoredThreads({ ...pagination(url, ["archived"]), archived: archived === "true", sortKey: "updated_at", sortDirection: "desc" });
+        return json(200, { ...page, threads: page.threads.filter(t => this.options.visible?.(t.threadId) !== false) });
       }
       if (url.pathname === `${WEB_API_PREFIX}/conversations`) {
-        if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });
+        if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId && this.options.visible?.(e.threadId) !== false).map((e) => this.summary(e)) });
         if (request.method === "POST") {
           const data = await body(request, ["project", "threadId", "provider"]);
           if (data.provider !== undefined && (typeof data.provider !== "string" || !this.application.conversation.listProviders().some(entry => entry.id === data.provider))) throw new WebRequestError(400, "invalid_request", "Choose an available provider.");
@@ -392,6 +395,11 @@ export class WebSurfaceApi {
   }
   async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider, instructions?: string): Promise<SurfaceConversation> {
     this.available();
+    instructions ??= this.options.instructions?.(threadId);
+    if (threadId) {
+      const existing = this.listConversations().find(c => c.threadId === threadId);
+      if (existing) return existing;
+    }
     if (!threadId && !project) throw new WebRequestError(400, "invalid_request", "A project is required for a new conversation.");
     if (threadId && (threadId.trim() !== threadId || /[\u0000-\u001f\u007f]/.test(threadId))) {
       throw new WebRequestError(400, "invalid_request", "threadId must be an opaque identifier without control characters or surrounding whitespace.");

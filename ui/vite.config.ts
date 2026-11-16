@@ -7,7 +7,6 @@ export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   plugins: [react(), tailwindcss()],
   build: {
-    rollupOptions: { input: { web: fileURLToPath(new URL("index.html", import.meta.url)), swarm: fileURLToPath(new URL("swarm.html", import.meta.url)) } },
     outDir: "dist", emptyOutDir: true, sourcemap: false,
     // The host's font-src 'self' policy excludes Vite's data-URI font inlining.
     assetsInlineLimit: (path) => /\.(?:woff2?|ttf|otf)$/i.test(path) ? false : undefined,

@@ -4,9 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { FileSwarmStore } from "../server/storage/swarm_store.js";
 import { SwarmService } from "../server/core/surface/swarm_service.js";
-import { SwarmSurfaceApi } from "../server/adapters/swarm/api.js";
-import { createSwarmAdapter, createSwarmSurface } from "../server/adapters/swarm/server.js";
-import { createWebAdapter } from "../server/adapters/shared/browser_server.js";
+import { WebChatApi } from "../server/adapters/web/api.js";
+import { createWebChatAdapter, createWebSurface } from "../server/adapters/web/server.js";
 import { webHarness } from "./helpers/web_harness.js";
 import type { SwarmGroup } from "../shared/protocol/swarm.js";
 import type { SwarmStore } from "../server/ports/swarm_store.js";
@@ -33,7 +32,7 @@ function harness(store = memoryStore(), manager = false) {
     connect: fn => { handler = fn; connected = true; return () => { connected = false; }; },
     watch: async (_params, _group, threads) => { h.calls.push(`watch:${threads.map(t => t.threadId).join(",")}`); return { success: !watchFails, contentItems: [{ type: "text", text: watchFails ? "watch unavailable" : "watching" }] }; },
   };
-  const api = new SwarmSurfaceApi(h.context, h.config, store);
+  const api = new WebChatApi(h.context, h.config, store);
   const request = (path: string, method = "GET", data?: unknown, headers: Record<string, string> = {}) => api.fetch(new Request(`http://127.0.0.1/api${path}`, {
     method, headers: { ...(data === undefined ? {} : { "content-type": "application/json" }), ...headers }, ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   }));
@@ -208,35 +207,29 @@ test("renaming a saved manager after restart attaches it without starting a turn
   } finally { resumed.dispose(); }
 });
 
-test("swarm and web have separate listeners, root screens and conversation namespaces", async () => {
+test("web serves chat, teams and events through one listener", async () => {
   const h = harness();
-  const assets = async () => new Map([
-    ["/index.html", { body: new TextEncoder().encode("web screen"), contentType: "text/html" }],
-    ["/swarm.html", { body: new TextEncoder().encode("swarm screen"), contentType: "text/html" }],
-  ]);
-  const web = createWebAdapter(h.context, { ...h.config, port: 0 }, undefined, assets);
-  const swarm = createSwarmAdapter(h.context, { ...h.config, port: 0 }, h.store, undefined, assets);
+  const assets = async () => new Map([["/index.html", { body: new TextEncoder().encode("web screen"), contentType: "text/html" }]]);
+  const web = createWebChatAdapter(h.context, { ...h.config, port: 0 }, h.store, undefined, assets);
   try {
-    await web.start(); await swarm.start();
+    await web.start();
     expect(await (await fetch(web.url()!)).text()).toBe("web screen");
-    expect(await (await fetch(swarm.url()!)).text()).toBe("swarm screen");
-    expect((await fetch(`${swarm.url()}/api/health`, { headers: { origin: "https://evil.test" } })).status).toBe(403);
-    const created = await (await fetch(`${swarm.url()}/api/swarms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Swarm", project: "owner/repo" }) })).json();
-    expect(created.group.managerThreadId).toBeTruthy();
-    expect((await (await fetch(`${web.url()}/api/conversations`)).json()).conversations).toEqual([]);
-    expect((await fetch(`${web.url()}/api/swarms`)).status).toBe(404);
+    expect((await fetch(`${web.url()}/api/health`, { headers: { origin: "https://evil.test" } })).status).toBe(403);
+    const created = await (await fetch(`${web.url()}/api/swarms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Team", project: "owner/repo" }) })).json();
+    const handles = (await (await fetch(`${web.url()}/api/conversations`)).json()).conversations;
+    expect(handles.map((c: { threadId: string }) => c.threadId)).toContain(created.group.managerThreadId);
     const abort = new AbortController();
-    const feed = await fetch(`${swarm.url()}/api/swarms/events`, { signal: abort.signal });
+    const feed = await fetch(`${web.url()}/api/swarms/events`, { signal: abort.signal });
     expect(feed.headers.get("content-type")).toBe("text/event-stream");
     const reader = feed.body!.getReader(); expect(new TextDecoder().decode((await reader.read()).value)).toContain(": connected");
     await reader.cancel(); abort.abort();
-  } finally { await swarm.stop(); await web.stop(); h.dispose(); }
+  } finally { await web.stop(); h.dispose(); }
 });
 
-test("swarm configuration validates its own port, origins and storage path", () => {
-  const definition = createSwarmSurface(() => memoryStore());
-  expect(() => definition.configure({ SHEPHERD_SWARM_PORT: "bad" })).toThrow("SHEPHERD_SWARM_PORT");
-  expect(() => definition.configure({ SHEPHERD_SWARM_ORIGINS: "http://public.test" })).toThrow("SHEPHERD_SWARM_ORIGINS");
+test("web configuration validates the shared listener and team storage path", () => {
+  const definition = createWebSurface(() => memoryStore());
+  expect(() => definition.configure({ SHEPHERD_WEB_PORT: "bad" })).toThrow("SHEPHERD_WEB_PORT");
+  expect(() => definition.configure({ SHEPHERD_WEB_ORIGINS: "http://public.test" })).toThrow("SHEPHERD_WEB_ORIGINS");
   expect(() => definition.configure({ SHEPHERD_SWARM_STATE_DIR: "relative" })).toThrow("absolute");
   expect(() => definition.configure({})).not.toThrow();
 });
@@ -278,10 +271,10 @@ test("aggregate feed invalidates membership and lifecycle without one subscripti
   } finally { abort.abort(); h.dispose(); }
 });
 
-test("a stale UI build without the swarm entry fails before binding a listener", async () => {
+test("a missing web UI build fails before binding a listener", async () => {
   const h = harness();
   let bound = false;
-  const adapter = createSwarmAdapter(h.context, h.config, h.store, () => { bound = true; throw new Error("Unexpected listener"); }, async () => new Map([["/index.html", { body: new Uint8Array(), contentType: "text/html" }]]));
+  const adapter = createWebChatAdapter(h.context, h.config, h.store, () => { bound = true; throw new Error("Unexpected listener"); }, async () => new Map());
   try {
     await expect(adapter.start()).rejects.toThrow("Browser UI entry is missing");
     expect(bound).toBe(false);
@@ -366,7 +359,7 @@ test("reports, decisions, and interrupts are restricted to the manager's actual 
     await expect(h.manage(group.managerThreadId, "swarm_decide", { threadId: result.threadId, approvalId: approval.approvalId, decision: "invented" })).rejects.toThrow("offered");
     expect(await h.manage(group.managerThreadId, "swarm_decide", { threadId: result.threadId, approvalId: approval.approvalId, decision: "allow-once" })).toEqual({ applied: true });
     const current = h.api.groups.read(group.id); await h.api.groups.close(group.id, current.revision);
-    await expect(h.manage(group.managerThreadId, "swarm_status")).rejects.toThrow("active manager");
+    expect(await h.manage(group.managerThreadId, "swarm_status")).toMatchObject({ group: null, workers: [] });
   } finally { h.dispose(); }
 });
 
@@ -402,4 +395,70 @@ test("manager cancellation after recording a pending receipt prevents submission
     expect(await h.manage(group.managerThreadId, "swarm_delegate", { name: "Solu", assignment: "Review", requestId: "cancelled-1" })).toMatchObject({ duplicate: true, status: "pending" });
     expect(h.calls.some(c => c.startsWith("submit:"))).toBe(false);
   } finally { h.dispose(); }
+});
+
+test("ordinary chats have zero workers without allocating groups; first delegation creates one team", async () => {
+  const h = harness(memoryStore(), true);
+  try {
+    const parent = await (await h.request("/conversations", "POST", { project: "owner/repo" })).json();
+    h.active.set(parent.threadId, "manager-turn");
+    for (let i = 0; i < 3; i++) expect(await h.manage(parent.threadId, "swarm_status")).toMatchObject({ group: null, workers: [] });
+    expect(h.store.list()).toHaveLength(0);
+    await expect(h.manage(parent.threadId, "swarm_delegate", { name: "Bad", assignment: "", requestId: "bad" })).rejects.toThrow("Invalid assignment");
+    expect(h.store.list()).toHaveLength(0);
+    const assignment = { name: "Research", assignment: "Inspect the implementation", requestId: "first" };
+    const worker = await h.manage(parent.threadId, "swarm_delegate", assignment) as { threadId: string };
+    expect(h.store.list()).toHaveLength(1);
+    expect(h.store.list()[0]!.managerThreadId).toBe(parent.threadId);
+    expect(await h.manage(parent.threadId, "swarm_delegate", assignment)).toMatchObject({ duplicate: true, threadId: worker.threadId });
+    const handles = (await (await h.request("/conversations")).json()).conversations;
+    expect(handles.map((c: { threadId: string }) => c.threadId)).toEqual([parent.threadId]);
+    const resumed = await (await h.request("/conversations", "POST", { threadId: parent.threadId })).json();
+    expect(resumed.id).toBe(parent.id);
+    const group = h.store.list()[0]!;
+    const inspected = await (await h.request(`/swarms/${group.id}/open`, "POST", { threadId: worker.threadId })).json();
+    expect(inspected.threadId).toBe(worker.threadId);
+    expect((await h.request(`/conversations/${inspected.id}/messages`, "POST", { text: "bypass" })).status).toBe(403);
+    expect((await h.request("/conversations", "POST", { threadId: worker.threadId })).status).toBe(403);
+    h.active.set(worker.threadId, "manager-turn");
+    await expect(h.manage(worker.threadId, "swarm_status")).rejects.toThrow("active manager");
+    await h.api.groups.close(group.id, group.revision);
+    await expect(h.manage(worker.threadId, "swarm_delegate", assignment)).rejects.toThrow("active manager");
+    expect((await h.request("/swarms", "POST", { managerThreadId: worker.threadId })).status).toBe(403);
+  } finally { h.dispose(); }
+});
+
+test("ordinary local chats remain usable without allocating an unusable team", async () => {
+  const h = harness(memoryStore(), true);
+  try {
+    const parent = await (await h.request("/conversations", "POST", { project: "/local/project" })).json();
+    h.active.set(parent.threadId, "manager-turn");
+    expect(await h.manage(parent.threadId, "swarm_status")).toMatchObject({ group: null });
+    await expect(h.manage(parent.threadId, "swarm_delegate", { name: "Worker", assignment: "Inspect", requestId: "local" })).rejects.toThrow("owner/repo");
+    expect(h.store.list()).toHaveLength(0);
+  } finally { h.dispose(); }
+});
+
+test("saved workers stay hidden in paginated active and archived listings after restart", async () => {
+  const store = memoryStore();
+  const first = harness(store, true);
+  const group = await first.create();
+  first.active.set(group.managerThreadId, "manager-turn");
+  const worker = await first.manage(group.managerThreadId, "swarm_delegate", { name: "Review", assignment: "Inspect", requestId: "saved" }) as { threadId: string };
+  first.dispose();
+  const resumed = harness(store, true);
+  try {
+    resumed.application.conversation.listStoredThreads = async () => ({ threads: [{ threadId: group.managerThreadId }, { threadId: worker.threadId }], nextCursor: "next-page" }) as never;
+    for (const suffix of ["", "?archived=true"]) {
+      const page = await (await resumed.request(`/threads${suffix}`)).json();
+      expect(page.threads.map((t: { threadId: string }) => t.threadId)).toEqual([group.managerThreadId]);
+      expect(page.nextCursor).toBe("next-page");
+    }
+    resumed.active.set(group.managerThreadId, "manager-turn"); resumed.active.set(worker.threadId, null);
+    await resumed.request("/conversations", "POST", { threadId: group.managerThreadId });
+    resumed.active.set(group.managerThreadId, "manager-turn");
+    expect(await resumed.manage(group.managerThreadId, "swarm_status")).toMatchObject({ group: { id: group.id } });
+    expect(resumed.calls.some(c => c === `watch:${worker.threadId}`)).toBe(true);
+    expect(resumed.calls.some(c => c.startsWith("submit:"))).toBe(false);
+  } finally { resumed.dispose(); }
 });

@@ -1,4 +1,3 @@
-import { loadUiAssets } from "../../server/adapters/shared/browser_ui_assets.js";
 import type { SwarmManagerHandler } from "../../server/ports/swarm_runtime.js";
 import { installWebSkills } from "../helpers/web_skills_harness";
 import { installWebSettings } from "../helpers/web_settings_harness";
@@ -6,29 +5,22 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // Local browser-test fixture. Never imported by production entrypoints.
-import { createSwarmAdapter } from "../../server/adapters/swarm/server.js";
+import { createWebChatAdapter } from "../../server/adapters/web/server.js";
 import { FileSwarmStore } from "../../server/storage/swarm_store.js";
-import { createWebAdapter } from "../../server/adapters/shared/browser_server.js";
 import { webHarness } from "../helpers/web_harness.js";
 import type { HistoryItem, HistoryTurn, StoredThreadSummary } from "../../shared/protocol/requests.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
 const h = webHarness();
-const swarmDirectory = process.env.UI_TEST_SURFACE === "swarm" ? await mkdtemp(join(tmpdir(), "shepherd-swarm-ui-")) : null;
+const swarmDirectory = await mkdtemp(join(tmpdir(), "shepherd-team-ui-"));
 let managerHandler: SwarmManagerHandler | undefined;
 if (swarmDirectory) h.context.swarmManager = {
   connect: handler => { managerHandler = handler; return () => { managerHandler = undefined; }; },
   watch: async () => ({ success: true, contentItems: [{ type: "text", text: "Fixture watches installed." }] }),
 };
-const fixtureAssets = async () => {
-  const assets = await loadUiAssets();
-  const html = assets.get("/swarm.html")!;
-  assets.set("/swarm.html", { contentType: html.contentType, body: Buffer.from(Buffer.from(html.body).toString().replace("</head>", '<style>.swarm-header::after{content:"Simulated preview";font-size:9px;color:#b1b1a8}@media(max-width:720px){.swarm-header::after{display:none}}.mobile-brand::after{content:" · demo";font:9px Arial}</style></head>')) });
-  return assets;
-};
 const makeAdapter = () => {
   const config = { ...h.config, port: Number(process.env.UI_TEST_PORT ?? 8799), origins: [...h.config.origins, ...(process.env.UI_TEST_ORIGIN ? [process.env.UI_TEST_ORIGIN] : [])] };
-  return swarmDirectory ? createSwarmAdapter(h.context, config, new FileSwarmStore(swarmDirectory), undefined, fixtureAssets) : createWebAdapter(h.context, config);
+  return createWebChatAdapter(h.context, config, new FileSwarmStore(swarmDirectory));
 };
 Object.assign(h.application.conversation, { async readThread(threadId: string) { return { thread: { id: threadId } }; } });
 installWebSettings(h);

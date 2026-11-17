@@ -13,6 +13,7 @@ export type SurfaceHostOptions = {
   config: RuntimeConfig;
   surfaces: PreparedSurface[];
   projectDir?: string;
+  environment?: Record<string, string | undefined>;
   createHost?: typeof createHostRuntime;
   createSignals?: (
     host: ReturnType<typeof createHostRuntime>,
@@ -26,7 +27,11 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
   if (!options.surfaces.length || new Set(options.surfaces.map(({ id }) => id)).size !== options.surfaces.length) {
     throw new Error("Select at least one surface, with no duplicates.");
   }
-  const host = (options.createHost ?? createHostRuntime)({ config: options.config, projectDir: options.projectDir });
+  const host = (options.createHost ?? createHostRuntime)({
+    config: options.config,
+    projectDir: options.projectDir,
+    environment: options.environment,
+  });
   const { shepherd, config, workspace } = host;
   const abort = new AbortController();
   shepherd.registerShutdownHook(() => abort.abort());

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { sessionProvider } from "./helpers/session_providers.js";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ConversationService } from "../server/core/conversation/conversation_service.js";
@@ -32,21 +32,31 @@ function harness(options: { fork?: boolean; github?: boolean; sharedDirectory?: 
     eventBus = new EventBus();
     activeTurnId = null;
     approvalPolicy = "provider_default" as const;
+    private threadId: string | null = null;
     initialize = async () => {};
     startTurn = async () => null;
     applyApprovalDecision = async (approvalId: string) => ({ approvalId });
     stop() {}
-    setCwd = capabilities.workspaceChange ? (_cwd: string) => {} : undefined;
+    setCwd = capabilities.workspaceChange ? (cwd: string) => {
+      if (this.threadId) {
+        const current = saved.get(this.threadId);
+        if (current) saved.set(this.threadId, { ...current, cwd });
+      }
+    } : undefined;
     async startThread(request: CreateThreadRequest) { return this.bootstrap("create", request); }
     async resumeThread(threadId: string, request: ResumeThreadRequest) {
       requests.push({ operation: "resume", request });
-      return { ...saved.get(threadId)!, cwd: request.cwd ?? saved.get(threadId)!.cwd };
+      this.threadId = threadId;
+      const resumed = { ...saved.get(threadId)!, cwd: request.cwd ?? saved.get(threadId)!.cwd };
+      saved.set(threadId, resumed);
+      return resumed;
     }
     forkThread = capabilities.fork ? async (_id: string, request: ForkThreadRequest) => this.bootstrap("fork", request) : undefined;
     private bootstrap(operation: string, request: CreateThreadRequest) {
       requests.push({ operation, request });
       if (failBootstrap) { writeFileSync(join(request.cwd!, "partial-provider-file"), "partial"); throw new Error("bootstrap failed"); }
       const result = { threadId: crypto.randomUUID(), cwd: request.cwd ?? root, model: null, effort: null };
+      this.threadId = result.threadId;
       saved.set(result.threadId, result);
       return result;
     }
@@ -67,12 +77,17 @@ function harness(options: { fork?: boolean; github?: boolean; sharedDirectory?: 
     // The least restrictive defaults fall back to the provider's own; restrictive ones would be refused.
     threadDefaults: { sandbox: "unrestricted", approvalPolicy: "bypass" },
   });
-  const surface = (conversation: ConversationService, adapter: string) => {
+  const surface = (conversation: ConversationService, adapter: string, restored = false) => {
     const state = new SurfaceStateService();
-    state.setProjectTarget(adapter, "surface", options.github
+    if (!restored) state.setProjectTarget(adapter, "surface", options.github
       ? { kind: "github", slug: "owner/repo", display: "owner/repo" }
       : { kind: "local", rootPath: projectRoot, display: "test", appendWorkspaceId: !options.sharedDirectory });
-    return new SurfaceConversationOrchestrator(conversation, state, provisioner, { adapter });
+    return new SurfaceConversationOrchestrator(conversation, state, provisioner, {
+      adapter,
+      projectTargetResolver: {
+        resolveGithubRepoFromWorkspace: async cwd => options.github && existsSync(join(cwd, ".git")) ? "owner/repo" : null,
+      },
+    });
   };
   return { projectRoot, requests, service, surface, get clones() { return clones; }, setFailBootstrap() { failBootstrap = true; } };
 }
@@ -94,6 +109,29 @@ for (const adapter of ["web", "discord"]) test(`${adapter} creates, forks and re
     expect(await conversation.resolveThreadCwd(threadId)).toBe(cwd);
     expect(surface.getSurfaceThread("surface")).toBe(threadId);
     expect(h.requests.at(-1)).toEqual({ operation: "resume", request: { cwd, profile: null } });
+  } finally { conversation.stopAll(); }
+});
+
+test("resuming a verified repository keeps its checkout for subsequent fork without cloning", async () => {
+  const h = harness({ github: true, workspaceChange: true });
+  let conversation = h.service();
+  try {
+    const initial = h.surface(conversation, "web");
+    const threadId = await initial.createAndBindSurfaceThread("surface", () => {});
+    const cwd = await conversation.resolveThreadCwd(threadId);
+    expect(h.clones).toBe(1);
+    conversation.stopAll();
+
+    conversation = h.service();
+    const resumed = h.surface(conversation, "web", true);
+    expect(await resumed.resumeSurfaceThread("surface", threadId, () => {})).toBe(threadId);
+    expect(resumed.getSurfaceProjectDisplay("surface")).toBe("owner/repo");
+    expect(await conversation.resolveThreadCwd(threadId)).toBe(cwd);
+    expect(h.clones).toBe(1);
+
+    const forkId = await resumed.forkSurfaceThread("surface", threadId, () => {});
+    expect(await conversation.resolveThreadCwd(forkId)).toBe(cwd);
+    expect(h.clones).toBe(1);
   } finally { conversation.stopAll(); }
 });
 

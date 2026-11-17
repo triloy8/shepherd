@@ -96,6 +96,7 @@ export class WebSurfaceApi {
       adapter?: string;
       instructions?: (threadId?: string) => string;
       visible?: (threadId: string) => boolean;
+      mutationAllowed?: (threadId: string) => boolean;
       maxConversations?: number;
       route?: (request: Request, api: WebSurfaceApi) => Promise<Response | null>;
       onEvent?: (threadId: string, event: BridgeEvent) => void;
@@ -382,6 +383,17 @@ export class WebSurfaceApi {
     if (entry) this.remove(entry);
   }
 
+  /** Apply a role's instructions to an already-open surface handle. */
+  async updateInstructions(id: string, instructions: string): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry?.threadId) throw new WebRequestError(404, "conversation_not_found", "Conversation not found.");
+    try { await this.mutate(entry, () => this.application.updateSurfaceInstructions(id, instructions), true); }
+    catch (error) {
+      if (error instanceof Error && error.message === "thread_active") throw new WebRequestError(409, "conversation_active", "Stop the conversation and resolve pending approvals before attaching it as a worker.");
+      throw error;
+    }
+  }
+
   private summary(entry: Entry): SurfaceConversation {
     return { id: entry.id, threadId: entry.threadId!, project: entry.project, ...(this.application.conversation.getThreadProvider ? { provider: this.application.conversation.getThreadProvider(entry.threadId!) } : {}) };
   }
@@ -393,9 +405,12 @@ export class WebSurfaceApi {
     this.entries.delete(entry.id);
     this.application.disposeSurface(entry.id);
   }
-  async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider, instructions?: string): Promise<SurfaceConversation> {
+  async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider, instructions?: string, internal = false): Promise<SurfaceConversation> {
     this.available();
     instructions ??= this.options.instructions?.(threadId);
+    if (!internal && threadId && this.options.mutationAllowed?.(threadId) === false) {
+      throw new WebRequestError(403, "worker_read_only", "Worker conversations are read-only. Ask their manager to act.");
+    }
     if (threadId) {
       const existing = this.listConversations().find(c => c.threadId === threadId);
       if (existing) return existing;
@@ -434,12 +449,17 @@ export class WebSurfaceApi {
     } catch (error) { this.remove(entry); throw error; }
     finally { if (threadId) this.resuming.delete(threadId); }
   }
-  private async mutate<T>(entry: Entry, operation: () => Promise<T>): Promise<T> {
+  private async mutate<T>(entry: Entry, operation: () => Promise<T>, internal = false): Promise<T> {
     this.available();
     if (this.entries.get(entry.id) !== entry) throw new WebRequestError(404, "conversation_not_found", "Conversation was detached.");
     if (entry.busy) throw new WebRequestError(409, "conversation_busy", "Another operation is in progress; retry after it completes.");
     entry.busy = true;
-    try { return await operation(); }
+    try {
+      if (!internal && entry.threadId && this.options.mutationAllowed?.(entry.threadId) === false) {
+        throw new WebRequestError(403, "worker_read_only", "Worker conversations are read-only. Ask their manager to act.");
+      }
+      return await operation();
+    }
     finally { entry.busy = false; }
   }
 }

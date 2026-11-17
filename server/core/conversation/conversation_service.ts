@@ -230,6 +230,10 @@ export class ConversationService {
     return this.manager.resumeThread(threadId, request);
   }
 
+  updateThreadInstructions(threadId: string, instructions: string): Promise<void> {
+    return this.manager.updateThreadInstructions(threadId, instructions);
+  }
+
   forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
     return this.manager.forkThread(threadId, request);
   }

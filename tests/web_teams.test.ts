@@ -428,6 +428,22 @@ test("ordinary chats have zero workers without allocating groups; first delegati
   } finally { h.dispose(); }
 });
 
+test("resuming a repo conversation with recovered identity permits lazy delegation", async () => {
+  const h = harness(memoryStore(), true);
+  try {
+    const parent = await (await h.request("/conversations", "POST", { project: "owner/repo" })).json();
+    await h.request(`/conversations/${parent.id}`, "DELETE");
+    // The core restores the verified origin as repository identity while retaining the checkout cwd.
+    h.application.getSurfaceProject = () => "owner/repo";
+    const resumed = await (await h.request("/conversations", "POST", { threadId: parent.threadId })).json();
+    expect(resumed.project).toBe("owner/repo");
+    h.active.set(parent.threadId, "manager-turn");
+    const worker = await h.manage(parent.threadId, "swarm_delegate", { name: "Review", assignment: "Inspect", requestId: "resume-1" }) as { threadId: string };
+    expect(h.store.list()[0]).toMatchObject({ project: "owner/repo", managerThreadId: parent.threadId });
+    expect(h.calls).toContain(`submit:${worker.threadId}`);
+  } finally { h.dispose(); }
+});
+
 test("ordinary local chats remain usable without allocating an unusable team", async () => {
   const h = harness(memoryStore(), true);
   try {
@@ -461,4 +477,305 @@ test("saved workers stay hidden in paginated active and archived listings after 
     expect(resumed.calls.some(c => c === `watch:${worker.threadId}`)).toBe(true);
     expect(resumed.calls.some(c => c.startsWith("submit:"))).toBe(false);
   } finally { resumed.dispose(); }
+});
+
+test("accepted worker send records its sent receipt if the team closes before submission resolves", async () => {
+  const h = harness(undefined, true);
+  try {
+    const group = await h.create();
+    h.active.set(group.managerThreadId, "manager-turn");
+    const worker = await h.manage(group.managerThreadId, "swarm_delegate", {
+      name: "Solu", assignment: "Review", requestId: "initial-assignment",
+    }) as { threadId: string };
+    h.active.set(worker.threadId, null);
+
+    let submitted!: () => void;
+    let finish!: (result: { turnId: string }) => void;
+    const submissionStarted = new Promise<void>(resolve => { submitted = resolve; });
+    h.context.ingress.submitTurn = async () => {
+      submitted();
+      return await new Promise(resolve => { finish = resolve; });
+    };
+
+    const sending = h.manage(group.managerThreadId, "swarm_send", {
+      threadId: worker.threadId, message: "Follow up", requestId: "close-race",
+    });
+    await submissionStarted;
+    const current = h.api.groups.read(group.id);
+    await h.api.groups.close(group.id, current.revision);
+    finish({ turnId: "accepted-worker-turn" });
+
+    await expect(sending).resolves.toMatchObject({ status: "sent", turnId: "accepted-worker-turn" });
+    expect(h.api.groups.read(group.id).members[0]!.dispatches?.find(d => d.key === "close-race"))
+      .toEqual({ key: "close-race", status: "sent", turnId: "accepted-worker-turn" });
+  } finally { h.dispose(); }
+});
+
+test("closed teams only allow pending dispatch finalization and exact sent retries", async () => {
+  const h = harness();
+  try {
+    let group = await h.create();
+    group = (await (await h.request(`/swarms/${group.id}/members`, "POST", { revision: group.revision, name: "Solu" })).json()).group;
+    const workerId = group.members[0]!.threadId;
+    group = await h.api.groups.dispatch(group.id, workerId, { key: "in-flight", status: "pending", turnId: null });
+    group = await h.api.groups.close(group.id, group.revision);
+
+    group = await h.api.groups.dispatch(group.id, workerId, { key: "in-flight", status: "sent", turnId: "accepted-turn" });
+    expect(group.lifecycle).toBe("closed");
+    expect(group.members[0]!.dispatches).toContainEqual({ key: "in-flight", status: "sent", turnId: "accepted-turn" });
+    const revisionAfterFinalize = group.revision;
+
+    const duplicate = await h.api.groups.dispatch(group.id, workerId, { key: "in-flight", status: "sent", turnId: "accepted-turn" });
+    expect(duplicate.revision).toBe(revisionAfterFinalize);
+    await expect(h.api.groups.dispatch(group.id, workerId, { key: "fresh", status: "pending", turnId: null })).rejects.toThrow("closed");
+    await expect(h.api.groups.dispatch(group.id, workerId, { key: "fresh-sent", status: "sent", turnId: "invented-turn" })).rejects.toThrow("pending assignment");
+    await expect(h.api.groups.dispatch(group.id, workerId, { key: "in-flight", status: "sent", turnId: "rewritten-turn" })).rejects.toThrow("pending assignment");
+    await expect(h.api.groups.dispatch(group.id, workerId, { key: "in-flight", status: "pending", turnId: null })).rejects.toThrow("closed");
+  } finally { h.dispose(); }
+});
+
+test("worker stays hidden and read-only while membership persistence is delayed", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    const add = h.api.groups.addMember.bind(h.api.groups);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    let created!: { id: string; threadId: string };
+    const create = h.api.browser.create.bind(h.api.browser);
+    h.api.browser.create = async (...args: Parameters<typeof h.api.browser.create>) => {
+      created = await create(...args);
+      return created;
+    };
+    h.api.groups.addMember = async (...args: Parameters<typeof h.api.groups.addMember>) => {
+      entered();
+      await gate;
+      return add(...args);
+    };
+    const membership = h.request(`/swarms/${group.id}/members`, "POST", { revision: group.revision, name: "Solu", assignment: "Review" });
+    await started;
+    expect(created).toBeDefined();
+    expect(h.instructions.get(created.threadId)).toContain("worker delegated");
+    const conversations = (await (await h.request("/conversations")).json()).conversations as Array<{ id: string; threadId: string }>;
+    expect(conversations.some(c => c.threadId === created.threadId)).toBe(false);
+    expect((await h.request("/conversations", "POST", { threadId: created.threadId })).status).toBe(403);
+    expect((await h.request(`/conversations/${created.id}/messages`, "POST", { text: "bypass" })).status).toBe(403);
+    release();
+    await membership;
+  } finally { h.dispose(); }
+});
+
+test("native delegation keeps a newly-created worker reserved until membership is saved", async () => {
+  const h = harness(memoryStore(), true);
+  try {
+    const group = await h.create();
+    h.active.set(group.managerThreadId, "manager-turn");
+    let created!: { id: string; threadId: string };
+    const create = h.api.browser.create.bind(h.api.browser);
+    h.api.browser.create = async (...args: Parameters<typeof h.api.browser.create>) => {
+      created = await create(...args);
+      return created;
+    };
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const add = h.api.groups.addMember.bind(h.api.groups);
+    h.api.groups.addMember = async (...args: Parameters<typeof h.api.groups.addMember>) => {
+      entered(); await gate; return add(...args);
+    };
+    const delegation = h.manage(group.managerThreadId, "swarm_delegate", { name: "Native", assignment: "Inspect", requestId: "native-race" });
+    await started;
+    expect(created).toBeDefined();
+    expect(h.instructions.get(created.threadId)).toContain("worker delegated");
+    expect((await (await h.request("/conversations")).json()).conversations.some((c: { threadId: string }) => c.threadId === created.threadId)).toBe(false);
+    expect((await h.request("/conversations", "POST", { threadId: created.threadId })).status).toBe(403);
+    release();
+    await delegation;
+  } finally { h.dispose(); }
+});
+
+test("attaching an existing idle conversation applies worker instructions to its open handle", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    const existing = await (await h.request("/conversations", "POST", { project: "~" })).json();
+    const attached = await h.request(`/swarms/${group.id}/members`, "POST", {
+      revision: group.revision, name: "Existing", assignment: "Inspect", threadId: existing.threadId,
+    });
+    expect(attached.status).toBe(201);
+    expect(h.instructions.get(existing.threadId)).toContain("worker delegated");
+    expect((await h.request(`/conversations/${existing.id}/messages`, "POST", { text: "direct" })).status).toBe(403);
+  } finally { h.dispose(); }
+});
+
+test("attaching a stored conversation checks activity after it resumes", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    const attached = await h.request(`/swarms/${group.id}/members`, "POST", {
+      revision: group.revision, name: "Stored", assignment: "Inspect", threadId: "stored",
+    });
+    expect(attached.status).toBe(201);
+    expect(h.instructions.get("stored")).toContain("worker delegated");
+  } finally { h.dispose(); }
+});
+
+test("worker attachment rejects active conversations and restores manager instructions after persistence failure", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    const active = await (await h.request("/conversations", "POST", { project: "~" })).json();
+    h.active.set(active.threadId, "turn-1");
+    const blocked = await h.request(`/swarms/${group.id}/members`, "POST", {
+      revision: group.revision, name: "Busy", assignment: "Wait", threadId: active.threadId,
+    });
+    expect(blocked.status).toBe(409);
+    expect((await (await h.request(`/swarms/${group.id}`)).json()).group.members).toHaveLength(0);
+
+    const failed = await (await h.request("/conversations", "POST", { project: "~" })).json();
+    const originalAdd = h.api.groups.addMember.bind(h.api.groups);
+    h.api.groups.addMember = async () => { throw new Error("store unavailable"); };
+    const response = await h.request(`/swarms/${group.id}/members`, "POST", {
+      revision: group.revision, name: "Failed", assignment: "Restore", threadId: failed.threadId,
+    });
+    expect(response.status).toBe(502);
+    expect(h.instructions.get(failed.threadId)).toContain("manage a team");
+    h.api.groups.addMember = originalAdd;
+    expect((await h.request(`/conversations/${failed.id}/messages`, "POST", { text: "manager" })).status).toBe(200);
+  } finally { h.dispose(); }
+});
+
+test("existing worker attachment stays hidden and read-only while instructions and membership are in flight", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    const existing = await (await h.request("/conversations", "POST", { project: "~" })).json();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const update = h.application.updateSurfaceInstructions;
+    h.application.updateSurfaceInstructions = async (...args: Parameters<typeof update>) => {
+      entered(); await gate; return update(...args);
+    };
+    const attaching = h.request(`/swarms/${group.id}/members`, "POST", {
+      revision: group.revision, name: "Pending", assignment: "Inspect", threadId: existing.threadId,
+    });
+    await started;
+    expect((await (await h.request("/conversations")).json()).conversations.some((c: { threadId: string }) => c.threadId === existing.threadId)).toBe(false);
+    expect((await h.request(`/conversations/${existing.id}/messages`, "POST", { text: "bypass" })).status).toBe(403);
+    release();
+    expect((await attaching).status).toBe(201);
+  } finally { h.dispose(); }
+});
+
+test("concurrent HTTP attachment rejects the second reservation without restoring the first role", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    const existing = await (await h.request("/conversations", "POST", { project: "~" })).json();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const update = h.application.updateSurfaceInstructions;
+    h.application.updateSurfaceInstructions = async (...args: Parameters<typeof update>) => { entered(); await gate; return update(...args); };
+    const first = h.request(`/swarms/${group.id}/members`, "POST", { revision: group.revision, name: "First", assignment: "Inspect", threadId: existing.threadId });
+    await started;
+    const second = await h.request(`/swarms/${group.id}/members`, "POST", { revision: group.revision, name: "Second", assignment: "Inspect", threadId: existing.threadId });
+    expect(second.status).toBe(409);
+    expect((await second.json()).error.code).toBe("worker_attach_in_progress");
+    expect(h.instructions.get(existing.threadId)).toContain("manage a team");
+    release();
+    expect((await first).status).toBe(201);
+    expect(h.instructions.get(existing.threadId)).toContain("worker delegated");
+  } finally { h.dispose(); }
+});
+
+test("already-owned attachment rejects before changing the worker role", async () => {
+  const h = harness(memoryStore());
+  try {
+    const first = await h.create();
+    const second = await h.create();
+    const existing = await (await h.request("/conversations", "POST", { project: "~" })).json();
+    const attached = await h.request(`/swarms/${first.id}/members`, "POST", { revision: first.revision, name: "Owned", assignment: "Inspect", threadId: existing.threadId });
+    expect(attached.status).toBe(201);
+    const duplicate = await h.request(`/swarms/${second.id}/members`, "POST", { revision: second.revision, name: "Duplicate", assignment: "Inspect", threadId: existing.threadId });
+    expect(duplicate.status).toBe(409);
+    expect((await duplicate.json()).error.code).toBe("thread_in_swarm");
+    expect(h.instructions.get(existing.threadId)).toContain("worker delegated");
+  } finally { h.dispose(); }
+});
+
+test("failed role restoration keeps an attached handle quarantined", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    const existing = await (await h.request("/conversations", "POST", { project: "~" })).json();
+    const update = h.application.updateSurfaceInstructions;
+    let updates = 0;
+    h.application.updateSurfaceInstructions = async (...args: Parameters<typeof update>) => {
+      if (++updates === 2) throw new Error("provider unavailable");
+      return update(...args);
+    };
+    h.api.groups.addMember = async () => { throw new Error("store unavailable"); };
+    const response = await h.request(`/swarms/${group.id}/members`, "POST", { revision: group.revision, name: "Quarantined", assignment: "Inspect", threadId: existing.threadId });
+    expect(response.status).toBe(502);
+    expect(h.instructions.get(existing.threadId)).toContain("worker delegated");
+    expect((await (await h.request("/conversations")).json()).conversations.some((conversation: { threadId: string }) => conversation.threadId === existing.threadId)).toBe(false);
+    expect((await h.request(`/conversations/${existing.id}/messages`, "POST", { text: "must remain blocked" })).status).toBe(403);
+  } finally { h.dispose(); }
+});
+
+test("delayed direct mutation rechecks worker authorization after attachment reserves the thread", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    const existing = await (await h.request("/conversations", "POST", { project: "~" })).json();
+    let releaseBody!: () => void;
+    let bodyStarted!: () => void;
+    const bodyGate = new Promise<void>(resolve => { releaseBody = resolve; });
+    const bodyRead = new Promise<void>(resolve => { bodyStarted = resolve; });
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        bodyStarted();
+        await bodyGate;
+        controller.enqueue(new TextEncoder().encode(JSON.stringify({ name: "late rename" })));
+        controller.close();
+      },
+    });
+    const direct = h.api.fetch(new Request(`http://127.0.0.1/api/conversations/${existing.id}/rename`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: stream, duplex: "half",
+    } as RequestInit & { duplex: "half" }));
+    await bodyRead;
+    const attached = await h.request(`/swarms/${group.id}/members`, "POST", { revision: group.revision, name: "Late", assignment: "Inspect", threadId: existing.threadId });
+    expect(attached.status).toBe(201);
+    releaseBody();
+    const rejected = await direct;
+    expect(rejected.status).toBe(403);
+    expect((await rejected.json()).error.code).toBe("worker_read_only");
+  } finally { h.dispose(); }
+});
+
+test("a pending ordinary open is upgraded to worker instructions before attachment persists", async () => {
+  const h = harness(memoryStore());
+  try {
+    const group = await h.create();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const switchThread = h.application.switchSurfaceThread;
+    h.application.switchSurfaceThread = async (...args: Parameters<typeof switchThread>) => { entered(); await gate; return switchThread(...args); };
+    const ordinary = h.request("/conversations", "POST", { threadId: "stored" });
+    await started;
+    const attaching = h.request(`/swarms/${group.id}/members`, "POST", { revision: group.revision, name: "Stored", assignment: "Inspect", threadId: "stored" });
+    release();
+    expect((await ordinary).status).toBe(201);
+    expect((await attaching).status).toBe(201);
+    expect(h.instructions.get("stored")).toContain("worker delegated");
+  } finally { h.dispose(); }
 });

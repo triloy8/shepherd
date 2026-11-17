@@ -5,7 +5,7 @@ import { SurfaceConversationOrchestrator } from "../server/core/surface/surface_
 import { SurfaceStateService } from "../server/core/surface/surface_state_service.js";
 import { WorkspaceProvisioner } from "../server/core/workspace/workspace_provisioner.js";
 
-function makeHarness(options: { provisioningFailures?: number; workspaceChange?: boolean } = {}) {
+function makeHarness(options: { provisioningFailures?: number; workspaceChange?: boolean; workspaceRepository?: string | null } = {}) {
   const calls = {
     createSurfaceThread: [] as Array<{ adapter: string; surfaceId: string; request: Record<string, unknown> }>,
     resumeThread: [] as Array<{ threadId: string; request: Record<string, unknown> }>,
@@ -76,13 +76,15 @@ function makeHarness(options: { provisioningFailures?: number; workspaceChange?:
       const result = await this.provisionWorkspace(target, threadId);
       return { ...result, rollback: async () => {} };
     },
-    async provisionWorkspace(_target: unknown, threadId: string) {
+    async provisionWorkspace(target: unknown, threadId: string) {
       calls.provisionWorkspace.push({ threadId });
       if (provisioningFailures > 0) {
         provisioningFailures -= 1;
         throw new Error("clone failed");
       }
-      return { workspaceId: threadId, cwd: `/tmp/${threadId}` };
+      const local = target as { kind?: string; rootPath?: string; appendWorkspaceId?: boolean };
+      const cwd = local.kind === "local" && local.appendWorkspaceId === false ? local.rootPath! : `/tmp/${threadId}`;
+      return { workspaceId: threadId, cwd };
     },
   } as unknown as WorkspaceProvisioner;
 
@@ -90,7 +92,10 @@ function makeHarness(options: { provisioningFailures?: number; workspaceChange?:
     conversation as never,
     surfaceState,
     workspaceProvisioner,
-    { adapter: "discord" },
+    {
+      adapter: "discord",
+      projectTargetResolver: { resolveGithubRepoFromWorkspace: async () => options.workspaceRepository ?? null },
+    },
   );
 
   return { orchestrator, surfaceState, calls, conversation, workspaceProvisioner };
@@ -249,6 +254,32 @@ test("resume uses saved cwd without any project selection or provisioning", asyn
   await h.orchestrator.resumeSurfaceThread("fresh", "thread-a", () => {});
   expect(h.calls.resumeThread[0]?.request.cwd).toBe("/saved/thread-a");
   expect(h.calls.provisionWorkspace).toEqual([]);
+  expect(h.orchestrator.getSurfaceProjectDisplay("fresh")).toBe("/saved/thread-a");
+});
+
+test("resume restores a verified GitHub identity while keeping the saved checkout as its local workspace", async () => {
+  const h = makeHarness({ workspaceRepository: "Owner/repo" });
+  await h.orchestrator.resumeSurfaceThread("fresh", "thread-a", () => {});
+  expect(h.surfaceState.getProjectTarget("discord", "fresh")).toEqual({
+    kind: "local", rootPath: "/saved/thread-a", display: "/saved/thread-a", appendWorkspaceId: false,
+    repositorySlug: "Owner/repo",
+  });
+  expect(h.orchestrator.getSurfaceProjectDisplay("fresh")).toBe("Owner/repo");
+  expect(h.calls.provisionWorkspace).toEqual([]);
+  expect(h.calls.setThreadCwd).toEqual([{ threadId: "thread-a", cwd: "/saved/thread-a" }]);
+
+  const forked = await h.orchestrator.forkSurfaceThread("fresh", "thread-a", () => {});
+  expect(forked).toBe("thread-forked");
+  expect(h.calls.setThreadCwd.at(-1)).toEqual({ threadId: "thread-forked", cwd: "/saved/thread-a" });
+  expect(h.calls.provisionWorkspace).toEqual([{ threadId: "thread-forked" }]);
+});
+
+test("resume ignores malformed repository metadata and preserves the local path", async () => {
+  const h = makeHarness({ workspaceRepository: "~/looks-like/a-repo" });
+  await h.orchestrator.resumeSurfaceThread("fresh", "thread-a", () => {});
+  expect(h.surfaceState.getProjectTarget("discord", "fresh")).toEqual({
+    kind: "local", rootPath: "/saved/thread-a", display: "/saved/thread-a", appendWorkspaceId: false,
+  });
   expect(h.orchestrator.getSurfaceProjectDisplay("fresh")).toBe("/saved/thread-a");
 });
 

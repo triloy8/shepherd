@@ -70,12 +70,20 @@ export class SwarmService {
   async dispatch(id: string, threadId: string, receipt: { key: string; status: "pending" | "sent"; turnId: string | null }) {
     return this.write(async () => {
       const group = this.read(id);
-      if (group.lifecycle !== "active") throw new SwarmError("swarm_closed", "This conversation is closed.");
       const member = group.members.find(m => m.threadId === threadId);
       if (!member) throw new SwarmError("member_not_found", "Worker is not part of this swarm.");
       const previous = member.dispatches ?? [];
       const existing = previous.find(d => d.key === receipt.key);
-      if (receipt.status === "pending" && existing) throw new SwarmError("duplicate_dispatch", "Assignment already recorded; inspect its result before retrying.");
+      if (receipt.status === "pending") {
+        if (group.lifecycle !== "active") throw new SwarmError("swarm_closed", "This conversation is closed.");
+        if (receipt.turnId !== null) throw new SwarmError("invalid_dispatch_receipt", "Pending assignments cannot have a turn ID.");
+        if (existing) throw new SwarmError("duplicate_dispatch", "Assignment already recorded; inspect its result before retrying.");
+      } else {
+        if (receipt.turnId && existing?.status === "sent" && existing.turnId === receipt.turnId) return group;
+        if (!receipt.turnId || existing?.status !== "pending" || existing.turnId !== null) {
+          throw new SwarmError("invalid_dispatch_receipt", "Only a pending assignment can be finalized as sent.");
+        }
+      }
       if (!existing && previous.length >= 64) throw new SwarmError("dispatch_limit", "This worker has reached its assignment history limit.");
       const dispatches = [...previous.filter(d => d.key !== receipt.key), receipt];
       const next = { ...group, revision: group.revision + 1, updatedAt: new Date().toISOString(), members: group.members.map(m => m.threadId === threadId ? { ...m, dispatches } : m) };

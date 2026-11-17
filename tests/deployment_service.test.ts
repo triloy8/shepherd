@@ -15,6 +15,7 @@ function makeRunner(options?: {
 }) {
   const calls: string[] = [];
   const timeoutValues: number[] = [];
+  const environments: Array<Record<string, string | undefined> | undefined> = [];
   const previousCommit = options?.previousCommit ?? "1111111111111111111111111111111111111111";
   const deployedCommit = options?.deployedCommit ?? "2222222222222222222222222222222222222222";
   let checkout = previousCommit;
@@ -23,6 +24,7 @@ function makeRunner(options?: {
     const command = [executable, ...args].join(" ");
     calls.push(command);
     timeoutValues.push(commandOptions.timeoutMs);
+    environments.push(commandOptions.environment);
 
     if (command === "git status --porcelain --untracked-files=all") {
       return { stdout: options?.status ?? "", stderr: "" };
@@ -51,6 +53,7 @@ function makeRunner(options?: {
   return {
     calls,
     timeoutValues,
+    environments,
     runCommand,
     getCheckout: () => checkout,
   };
@@ -145,6 +148,17 @@ describe("DeploymentService", () => {
     await service.deploy();
 
     expect(new Set(runner.timeoutValues)).toEqual(new Set([45 * 60 * 1000]));
+  });
+
+  test("passes the composed child environment to every deployment command", async () => {
+    const environment = { PATH: "/bin", SHEPHERD_SURFACES: undefined, DISCORD_BOT_TOKEN: "explicit" };
+    const runner = makeRunner();
+    const service = new DeploymentService({ runCommand: runner.runCommand, environment });
+
+    await service.deploy();
+
+    expect(runner.environments).toHaveLength(runner.calls.length);
+    expect(runner.environments.every(value => value === environment)).toBe(true);
   });
 
   test("rejects invalid deployment command timeouts", () => {

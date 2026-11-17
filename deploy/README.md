@@ -148,6 +148,11 @@ running. Team events reconnect with a fresh snapshot. After a process restart,
 conversation handles, watches and pending questions are volatile; saved membership,
 assignment receipts and provider history survive. Resume the parent conversation
 and its next turn renews watches. Do not automatically resend uncertain assignments.
+Deployment validation runs its child commands with the current checkout's
+`envs/common.env`; values loaded by the already-running host are excluded so
+editing or removing a setting is checked before restart. Values supplied by the
+launcher or process remain explicit overrides. Surface env files remain scoped
+to their selected adapters.
 
 ### Rollback
 

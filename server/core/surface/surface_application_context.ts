@@ -20,6 +20,7 @@ export type SurfaceApplicationContext = {
   ensureSurfaceThread: (surfaceId: string) => Promise<string>;
   createSurfaceThread: (surfaceId: string, provider?: AgentProvider, instructions?: string) => Promise<string>;
   switchSurfaceThread: (surfaceId: string, threadId: string, instructions?: string) => Promise<string>;
+  updateSurfaceInstructions: (surfaceId: string, instructions: string) => Promise<void>;
   forkSurfaceThread: (surfaceId: string, sourceThreadId: string) => Promise<string>;
   disposeSurface: (surfaceId: string) => void;
   clearSurfaceThread: (surfaceId: string) => void;

@@ -133,6 +133,7 @@
 .swarm-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .swarm-dialog h2 { font-size: 18px; font-weight: 600; }
 .swarm-dialog-wide { width: min(960px, calc(100vw - 24px)); }
+.worker-identity p { overflow-wrap: anywhere; word-break: break-word; }
 .swarm-caption, .swarm-eyebrow { font-size: 12px; color: var(--color-muted); margin: 8px 0; }
 .swarm-empty { margin: 20px 0; line-height: 1.6; }
 .swarm-roster { list-style: none; padding: 0; display: grid; gap: 8px; }

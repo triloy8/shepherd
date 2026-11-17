@@ -29,6 +29,10 @@ Common values are loaded into the process for Codex subprocesses. Each selected
 adapter receives an isolated overlay from `envs/<name>.env`, with process/common
 values taking precedence. Disabled adapter files are not read, validated, or
 imported; adapter files cannot leak values into another adapter's configuration.
+When the running host validates a deployment, its child commands reread the
+current `envs/common.env`; values loaded by the old host are omitted from those
+children so edits and removals are validated. Variables supplied explicitly by
+the launcher or process remain overrides.
 
 Runtime settings (including model, sandbox, signal listener and deployment
 configuration) belong in common.env or the process environment. Adapter files

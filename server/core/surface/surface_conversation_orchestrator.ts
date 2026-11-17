@@ -6,6 +6,7 @@ import { ConversationService } from "../conversation/conversation_service.js";
 import {
   describeProjectTarget,
   resolveProjectTarget,
+  resolveWorkspaceRepositorySlug,
   type ProjectTargetResolver,
 } from "../workspace/project_target_service.js";
 import {
@@ -89,8 +90,15 @@ export class SurfaceConversationOrchestrator {
     // Restore a default project binding for surfaces opened without a project.
     // An explicitly configured Discord binding remains the target for future work.
     if (cwd) {
+      let repositorySlug: string | undefined;
+      try {
+        repositorySlug = await resolveWorkspaceRepositorySlug(cwd, this.projectTargetResolver) ?? undefined;
+      } catch {
+        // Missing or unreadable Git metadata leaves this as a local workspace.
+      }
       this.surfaceState.setProjectTarget(this.adapter, surfaceId, {
         kind: "local", rootPath: cwd, display: cwd, appendWorkspaceId: false,
+        ...(repositorySlug ? { repositorySlug } : {}),
       });
     }
     this.conversation.subscribeSurfaceEvents(this.adapter, surfaceId, listener, { replay: false });

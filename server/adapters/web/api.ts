@@ -1,4 +1,5 @@
 import type { SurfaceAdapterContext } from "../../core/surface_api.js";
+import { randomUUID } from "node:crypto";
 import { SwarmService, SwarmError, SwarmManagerService, SWARM_MANAGER_INSTRUCTIONS, SWARM_WORKER_INSTRUCTIONS } from "../../core/surface_api.js";
 import type { SwarmStore } from "../../ports/swarm_store.js";
 import type { SwarmGroup, SwarmObservation, SwarmSnapshot, SwarmEventData } from "../../../shared/protocol/swarm.js";
@@ -38,10 +39,13 @@ export class WebChatApi {
   private readonly recent = new Map<string, { at: number; status: SwarmObservation["state"] }>();
   private readonly unregisterManager: () => void;
   private readonly opening = new Map<string, Promise<SurfaceConversation>>();
+  /** Reservations remain read-only and hidden until the roster write succeeds. */
+  private readonly pendingWorkers = new Map<string, string>();
   constructor(private readonly context: SurfaceAdapterContext, config: WebConfig, store: SwarmStore) {
     this.browser = new WebSurfaceApi(context, config, {
       maxConversations: 96,
       instructions: threadId => this.isWorker(threadId) ? SWARM_WORKER_INSTRUCTIONS : SWARM_MANAGER_INSTRUCTIONS,
+      mutationAllowed: threadId => !this.isWorker(threadId),
       visible: threadId => !this.isWorker(threadId), route: request => this.route(request),
       onEvent: (threadId, event) => {
         if (event.type === "turn.started" || event.type === "turn.completed" || event.type === "turn.failed" || event.type.startsWith("approval.")) {
@@ -57,23 +61,67 @@ export class WebChatApi {
       interrupt: (threadId, turnId) => this.browser.application.conversation.interruptTurn(threadId, turnId),
       isAvailable: () => !context.isQuiescing() && !context.signal.aborted,
       open: threadId => this.open(threadId),
-      createWorker: (project, provider) => this.browser.create(project, undefined, undefined, undefined, provider, SWARM_WORKER_INSTRUCTIONS),
-      detach: id => this.browser.detachConversation(id),
+      createWorker: async (project, provider) => {
+        const worker = await this.browser.create(project, undefined, undefined, undefined, provider, SWARM_WORKER_INSTRUCTIONS);
+        try {
+          this.reserveWorker(worker.threadId);
+          return worker;
+        } catch (error) {
+          this.detachWorker(worker.id);
+          throw error;
+        }
+      },
+      detach: id => {
+        this.detachWorker(id);
+      },
       observe: threadId => this.observe(threadId), snapshot: group => this.snapshot(group),
       onChange: groupId => this.feed.publish("swarm", { groupId }),
     });
     this.unregisterManager = context.swarmManager?.connect(params => manager.manage(params)) ?? (() => {});
   }
-  private isWorker(threadId?: string) { return Boolean(threadId && this.groups.list().some(g => g.members.some(m => m.threadId === threadId))); }
+  private isWorker(threadId?: string) {
+    this.reconcileReservations();
+    return Boolean(threadId && (this.pendingWorkers.has(threadId) || this.groups.list().some(g => g.members.some(m => m.threadId === threadId))));
+  }
+  private reconcileReservations(): void {
+    const owned = new Set(this.groups.list().flatMap(group => [group.managerThreadId, ...group.members.map(member => member.threadId)]));
+    for (const threadId of this.pendingWorkers.keys()) if (owned.has(threadId)) this.pendingWorkers.delete(threadId);
+  }
+  private reserveWorker(threadId: string): string {
+    this.reconcileReservations();
+    if (this.pendingWorkers.has(threadId)) throw new WebRequestError(409, "worker_attach_in_progress", "This conversation is already being attached as a worker.");
+    if (this.groups.list().some(group => group.managerThreadId === threadId || group.members.some(member => member.threadId === threadId))) {
+      throw new SwarmError("thread_in_swarm", "This conversation already belongs to a team.");
+    }
+    const token = randomUUID();
+    this.pendingWorkers.set(threadId, token);
+    return token;
+  }
+  private releaseWorker(threadId: string, token: string): void {
+    if (this.pendingWorkers.get(threadId) === token) this.pendingWorkers.delete(threadId);
+  }
+  private detachWorker(id: string): void {
+    const worker = this.browser.listConversations().find(conversation => conversation.id === id);
+    if (worker) this.pendingWorkers.delete(worker.threadId);
+    this.browser.detachConversation(id);
+  }
   fetch(request: Request) { return this.browser.fetch(request); }
   presentSignal(signal: Parameters<WebSurfaceApi["presentSignal"]>[0]) { this.browser.presentSignal(signal); }
   dispose() { this.unregisterManager(); this.feed.close(); this.browser.dispose(); }
   private async open(threadId: string, instructions?: string): Promise<SurfaceConversation> {
+    this.reconcileReservations();
     const existing = this.browser.listConversations().find(c => c.threadId === threadId);
-    if (existing) return existing;
+    if (existing) {
+      if (instructions === SWARM_WORKER_INSTRUCTIONS) await this.browser.updateInstructions(existing.id, instructions);
+      return existing;
+    }
     const pending = this.opening.get(threadId);
-    if (pending) return pending;
-    const operation = this.browser.create(undefined, threadId, undefined, undefined, undefined, instructions ?? (this.isWorker(threadId) ? SWARM_WORKER_INSTRUCTIONS : SWARM_MANAGER_INSTRUCTIONS)).finally(() => this.opening.delete(threadId));
+    if (pending) {
+      const conversation = await pending;
+      if (instructions === SWARM_WORKER_INSTRUCTIONS) await this.browser.updateInstructions(conversation.id, instructions);
+      return conversation;
+    }
+    const operation = this.browser.create(undefined, threadId, undefined, undefined, undefined, instructions ?? (this.isWorker(threadId) ? SWARM_WORKER_INSTRUCTIONS : SWARM_MANAGER_INSTRUCTIONS), true).finally(() => this.opening.delete(threadId));
     this.opening.set(threadId, operation);
     return operation;
   }
@@ -168,12 +216,55 @@ export class WebChatApi {
         if (group.members.some(m => m.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw new SwarmError("duplicate_name", "Choose a distinct worker name.");
         if (provider && (!this.browser.application.conversation.listProviders().some(p => p.id === provider) || threadId)) throw new WebRequestError(400, "invalid_request", "Choose an available provider for a new worker.");
         if (!threadId && !/^[\w.-]+\/[\w.-]+$/.test(group.project)) throw new SwarmError("isolated_workspace_required", "New workers require an owner/repo project for isolated workspaces. Attach an existing conversation instead.");
-        const worker = threadId ? await this.open(threadId) : await this.browser.create(group.project, undefined, undefined, undefined, provider || undefined, SWARM_WORKER_INSTRUCTIONS);
+        if (threadId) {
+          let state: ReturnType<SurfaceAdapterContext["ingress"]["getThreadState"]> | undefined;
+          try { state = this.context.ingress.getThreadState(threadId); } catch { /* A stored thread is checked when it is resumed. */ }
+          if (state?.activeTurnId || this.context.approvals.listApprovals(threadId).some(approval => approval.status === "pending")) {
+            throw new WebRequestError(409, "conversation_active", "Stop the conversation and resolve pending approvals before attaching it as a worker.");
+          }
+          const reservation = this.reserveWorker(threadId);
+          let worker: SurfaceConversation;
+          try {
+            worker = await this.open(threadId, SWARM_WORKER_INSTRUCTIONS);
+            let resumedState: ReturnType<SurfaceAdapterContext["ingress"]["getThreadState"]> | undefined;
+            try { resumedState = this.context.ingress.getThreadState(worker.threadId); } catch { /* A provider may not expose state until its next event. */ }
+            if (resumedState?.activeTurnId || this.context.approvals.listApprovals(worker.threadId).some(approval => approval.status === "pending")) {
+              throw new WebRequestError(409, "conversation_active", "Stop the conversation and resolve pending approvals before attaching it as a worker.");
+            }
+            const updated = await this.groups.addMember(group.id, revision(data), { threadId: worker.threadId, name, assignment });
+            this.releaseWorker(worker.threadId, reservation);
+            this.feed.publish("swarm", { groupId: group.id });
+            return json(201, { group: updated });
+          } catch (error) {
+            const owned = this.groups.list().some(candidate => candidate.members.some(member => member.threadId === threadId));
+            if (!owned) {
+              const existing = this.browser.listConversations().find(conversation => conversation.threadId === threadId);
+              if (!existing) this.releaseWorker(threadId, reservation);
+              else {
+                try { await this.browser.updateInstructions(existing.id, SWARM_MANAGER_INSTRUCTIONS); this.releaseWorker(threadId, reservation); }
+                catch { /* Keep the reservation hidden and read-only if role restoration fails. */ }
+              }
+            } else this.releaseWorker(threadId, reservation);
+            throw error;
+          }
+        }
+        let worker: SurfaceConversation | undefined;
         try {
+          worker = await this.browser.create(group.project, undefined, undefined, undefined, provider || undefined, SWARM_WORKER_INSTRUCTIONS);
+          let resumedState: ReturnType<SurfaceAdapterContext["ingress"]["getThreadState"]> | undefined;
+          try { resumedState = this.context.ingress.getThreadState(worker.threadId); } catch { /* A provider may not expose state until its next event. */ }
+          if (resumedState?.activeTurnId || this.context.approvals.listApprovals(worker.threadId).some(approval => approval.status === "pending")) {
+            throw new WebRequestError(409, "conversation_active", "Stop the conversation and resolve pending approvals before attaching it as a worker.");
+          }
+          const reservation = this.reserveWorker(worker.threadId);
           const updated = await this.groups.addMember(group.id, revision(data), { threadId: worker.threadId, name, assignment });
+          this.releaseWorker(worker.threadId, reservation);
           this.feed.publish("swarm", { groupId: group.id });
           return json(201, { group: updated });
-        } catch (error) { if (!threadId) this.browser.detachConversation(worker.id); throw error; }
+        } catch (error) {
+          if (worker) this.detachWorker(worker.id);
+          throw error;
+        }
       }
       if (match[2] === "close" || match[2] === "interrupt") {
         const data = await body(request, ["revision"]); this.groups.checkRevision(group, revision(data));

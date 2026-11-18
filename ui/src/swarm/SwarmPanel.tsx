@@ -29,8 +29,8 @@ export function SwarmPanel({ conversation }: { conversation: SurfaceConversation
     <button className="button-secondary swarm-trigger" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>Swarm · {team.loading ? "…" : team.error ? "?" : count}</button>
     {open && <SwarmDialog title="Swarm" close={() => { setOpen(false); setWorker(null); }}>
       {(error || team.error) && <p role="alert" className="notice">{error || team.error}<button className="button-secondary" onClick={() => void team.refresh()}>Retry</button></p>}
-      <p className="swarm-caption">{team.online ? "Live team status" : "Reconnecting to team updates…"}</p>
-      {team.loading ? <p>Loading team…</p> : !team.error && !count ? <p className="swarm-empty">No workers yet. Ask in the chat to split work across a team. You can keep working here on your own.</p> : null}
+      {!team.online && <p role="status" className="mb-4 text-xs text-muted">Reconnecting to team updates…</p>}
+      {team.loading ? <p role="status" className="text-sm text-muted">Loading team…</p> : !team.error && !count ? <p className="text-sm text-muted">No workers yet. Ask in the chat to split work across a team.</p> : null}
       {team.snapshot?.group.lifecycle === "closed" && <p className="swarm-caption">This team is closed. Its workers remain available for inspection.</p>}
       <ul className="swarm-roster">{team.snapshot?.group.members.map(member => {
         const state = team.snapshot?.workers.find(w => w.threadId === member.threadId);

@@ -128,14 +128,8 @@
 
 /* Team inspection shares the ordinary conversation shell and controls. */
 .swarm-trigger { flex-shrink: 0; white-space: nowrap; }
-.swarm-dialog { width: min(520px, calc(100vw - 24px)); max-height: 85dvh; overflow: auto; padding: 20px; color: var(--color-ink); background: var(--color-canvas); border: 1px solid var(--color-line); border-radius: 16px; }
-.swarm-dialog::backdrop { background: rgb(0 0 0 / .55); }
-.swarm-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.swarm-dialog h2 { font-size: 18px; font-weight: 600; }
-.swarm-dialog-wide { width: min(960px, calc(100vw - 24px)); }
 .worker-identity p { overflow-wrap: anywhere; word-break: break-word; }
 .swarm-caption, .swarm-eyebrow { font-size: 12px; color: var(--color-muted); margin: 8px 0; }
-.swarm-empty { margin: 20px 0; line-height: 1.6; }
 .swarm-roster { list-style: none; padding: 0; display: grid; gap: 8px; }
 .swarm-worker { width: 100%; text-align: left; border: 1px solid var(--color-line); border-radius: 12px; padding: 12px; }
 .swarm-worker span { float: right; font-size: 12px; }

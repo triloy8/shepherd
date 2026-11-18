@@ -72,7 +72,7 @@ describe("CodexSession app-server contract", () => {
     expect(events[0]).toMatchObject({ type: "thread.reverted", threadId: "thread-1", payload: {} });
   });
 
-  test("defaults new threads to Sol medium while preserving explicit overrides", async () => {
+  test("defaults new threads to GPT-6.2 Sol medium while preserving explicit overrides", async () => {
     const previousModel = process.env.CODEX_MODEL;
     delete process.env.CODEX_MODEL;
     try {
@@ -85,7 +85,7 @@ describe("CodexSession app-server contract", () => {
       };
       await session.startThread({});
       await session.startThread({ model: "custom-model", effort: "high" });
-      expect(requests[0]).toMatchObject({ model: "gpt-6.1-sol", config: { model_reasoning_effort: "medium" } });
+      expect(requests[0]).toMatchObject({ model: "gpt-6.2-sol", config: { model_reasoning_effort: "medium" } });
       expect(requests[1]).toMatchObject({ model: "custom-model", config: { model_reasoning_effort: "high" } });
       process.env.CODEX_MODEL = "environment-model";
       await session.startThread({});

@@ -331,8 +331,13 @@ methods are `account/bedrock/checkGovCloudRequirements`, `account/gcp/setup`,
 `currentTime/read`. Unknown server requests receive an explicit JSON-RPC
 unsupported response. Experimental counts are separate from default counts.
 
-This refresh updates the inventory and deployment pins. It does not implement
-the newly documented gaps. Validation uses the generated schemas, existing
+New Codex conversations default to `gpt-6.2-sol` with `medium` effort. The
+0.170.0 account catalog was queried through Shepherd's provider and lists that
+model with medium supported; explicit model/effort overrides remain supported.
+Existing conversations retain their saved settings.
+
+This refresh updates the inventory, deployment pins, and new-thread default.
+It does not implement the newly documented gaps. Validation uses the generated schemas, existing
 provider/contract tests, and a live read-only app-server smoke; it does not
 claim live model completion or coverage of every newly added payload.
 
@@ -439,7 +444,8 @@ Additional protocol changes not yet fully exposed by Shepherd:
 - Models add `availableAccessPrograms`; personality selection is deprecated and
   `supportsPersonality` is always false. Model IDs remain runtime catalog data,
   not schema constants. A live query after updating includes `gpt-6.1-sol` with
-  medium effort; Shepherd now defaults new conversations to that model/effort.
+  medium effort; Shepherd defaulted new conversations to that model/effort at
+  that refresh.
 - MCP discovery adds `serverName`, `httpOrigin`, and `serverCapabilities`;
   resource reads add an explicit hosted app/account target. MCP items add
   `mcpAppUi` presentation metadata. These are not embedded-app UI support.

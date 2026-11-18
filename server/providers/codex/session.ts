@@ -55,7 +55,7 @@ import {
 } from "./rpc_mapper.js";
 
 function getDefaultModel(): string {
-  return process.env.CODEX_MODEL ?? "gpt-6.1-sol";
+  return process.env.CODEX_MODEL ?? "gpt-6.2-sol";
 }
 
 

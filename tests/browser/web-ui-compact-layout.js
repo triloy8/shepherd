@@ -167,21 +167,46 @@ async page => {
   if (await page.evaluate(() => document.documentElement.style.getPropertyValue('--app-top') || document.documentElement.style.getPropertyValue('--app-height') || document.documentElement.style.getPropertyValue('--composer-bottom-gap'))) throw Error('Keyboard viewport override interferes with pinch zoom');
   await page.evaluate(() => { delete window.visualViewport.scale; window.visualViewport.dispatchEvent(new Event('resize')); });
 
+  const drawer = page.getByRole('dialog', { name: 'Conversations', exact: true });
+  const sidebarButton = page.getByRole('button', { name: 'Open conversations', exact: true });
+  const swipe = (points, cancelled = false) => page.locator('.chat-scroll').evaluate((element, { points, cancelled }) => {
+    const emit = (type, [clientX, clientY], active) => {
+      const touch = { identifier: 1, clientX, clientY };
+      element.dispatchEvent(Object.assign(new Event(type, { bubbles: true }), {
+        touches: active ? [touch] : [], changedTouches: [touch],
+      }));
+    };
+    emit('touchstart', points[0], true);
+    for (const point of points.slice(1)) emit('touchmove', point, true);
+    emit(cancelled ? 'touchcancel' : 'touchend', points.at(-1), false);
+  }, { points, cancelled });
+  await swipe([[80, 180], [175, 181]]);
+  await swipe([[14, 180], [22, 235], [115, 235]]);
+  await swipe([[14, 180], [115, 181]], true);
+  if (await drawer.count()) throw Error('Unrelated or cancelled touch gesture opened the sidebar');
+  await swipe([[14, 180], [48, 184], [115, 185]]);
+  await drawer.waitFor();
+  await page.keyboard.press('Escape');
+  await drawer.waitFor({ state: 'hidden' });
+  if (!await sidebarButton.evaluate(el => el === document.activeElement)) throw Error('Swipe-opened sidebar lost return focus');
+
   // Sidebar's host dialog must remain interactive after the mobile drawer closes.
-  await page.getByRole('button', { name: 'Open conversations', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Conversations', exact: true }).waitFor();
+  await sidebarButton.click();
+  await drawer.waitFor();
   await page.keyboard.press('Shift+Tab'); // stay in the drawer rather than reaching the transcript
   if (!await page.locator('.sidebar').evaluate(el => el.contains(document.activeElement))) throw Error('Drawer focus escaped');
   await page.getByRole('button', { name: 'Host controls', exact: true }).click();
   const host = page.getByRole('dialog', { name: 'Host controls', exact: true });
   await host.getByRole('button', { name: 'Refresh host status', exact: true }).click();
   await host.getByRole('button', { name: 'Close host controls', exact: true }).click();
-  if (await page.getByRole('dialog', { name: 'Conversations', exact: true }).count()) throw Error('Host dialog left drawer open');
+  if (await drawer.count()) throw Error('Host dialog left drawer open');
   await composer.fill('Draft still here');
   await page.setViewportSize({width:1280,height:900});
-  await page.getByRole('button', { name: 'Open conversations', exact: true }).click();
+  await sidebarButton.click();
   if (await page.locator('.sidebar').evaluate(el => el.getBoundingClientRect().width > 1)) throw Error('Desktop sidebar did not collapse');
-  await page.getByRole('button', { name: 'Open conversations', exact: true }).click();
+  await swipe([[14, 180], [115, 185]]);
+  if (await page.locator('.sidebar-open').count()) throw Error('Edge swipe opened the mobile drawer on desktop');
+  await sidebarButton.click();
   if (await composer.inputValue() !== 'Draft still here') throw Error('Sidebar toggle lost draft');
   await composer.fill('Compact layout still sends');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
@@ -190,5 +215,5 @@ async page => {
   const final = page.locator('.message-assistant').last();
   if (await final.evaluate(el => el.getBoundingClientRect().bottom) > await page.locator('.composer').evaluate(el=>el.getBoundingClientRect().top)) throw Error('Last response is obscured by composer');
   if (errors.length) throw Error(errors.join('\n'));
-  return 'Compact header, menu keyboard/focus, connection details, bounded auto-grow, draft retention, 320/390/768/1280 widths, touch sizes, transcript clearance, keyboard viewport height/panning/dismissal, pinch zoom, sidebar host dialog, and send passed.';
+  return 'Compact header, menu keyboard/focus, connection details, bounded auto-grow, draft retention, 320/390/768/1280 widths, touch sizes, transcript clearance, keyboard viewport height/panning/dismissal, pinch zoom, mobile edge swipe, sidebar host dialog, and send passed.';
 }

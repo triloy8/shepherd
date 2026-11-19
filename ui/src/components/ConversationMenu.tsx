@@ -61,7 +61,7 @@ export function ConversationMenu({ conversation, title, status, disabled, active
         <span className="sr-only">{status}</span>
       </button>
     </div>
-    <div ref={root} className="relative shrink-0">
+    <div ref={root} className="shrink-0 sm:relative">
       <button ref={trigger} className="icon-button" aria-label="Conversation menu" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => { firstFocus.current = "first"; setOpen(!open); }}
         onKeyDown={(event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); firstFocus.current = event.key === "ArrowUp" ? "last" : "first"; setOpen(true); } }}><Icon name="more" /></button>
       {open && <div ref={menu} id={menuId} role="menu" aria-label="Conversation options" className="conversation-menu" onKeyDown={(event) => {

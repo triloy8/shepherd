@@ -2,12 +2,15 @@
 async page => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/host/battery', route => route.fulfill({ json: { battery: { percentage: 100, status: 'full' } } }));
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
   await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
   const composer = page.getByRole('textbox', { name: 'Message Shepherd', exact: true });
   const menuButton = page.getByRole('button', { name: 'Conversation menu', exact: true });
   const details = page.getByRole('dialog', { name: 'Conversation details', exact: true });
-  if (await page.locator('.main-header').getByRole('button').count() !== 4) throw Error('Header contains extra controls');
+  await page.locator('.main-header').getByRole('button', { name: 'Swarm · 0', exact: true }).waitFor();
+  await page.getByRole('img', { name: /^Host battery: 100%/ }).waitFor();
+  if (await page.locator('.main-header').getByRole('button').count() !== 5) throw Error('Unexpected header controls');
   if (await page.locator('.main-header').getByText('Connected', { exact: true }).evaluate(el => !el.classList.contains('sr-only'))) throw Error('Status label still consumes header space');
   if (await page.getByText('A little context goes a long way', { exact: true }).count()) throw Error('Composer helper remains');
   await page.screenshot({ path: '/tmp/shepherd-layout-desktop.png' });
@@ -50,15 +53,21 @@ async page => {
     await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
     if (await composer.inputValue() !== 'Compact draft') throw Error('Resize lost draft');
     const geometry = await page.evaluate(() => {
-      const header = document.querySelector('.main-header').getBoundingClientRect();
+      const headerElement = document.querySelector('.main-header');
+      const header = headerElement.getBoundingClientRect();
+      const items = [...headerElement.children].filter(el => el.getBoundingClientRect().width > 0).map(el => el.getBoundingClientRect());
       const form = document.querySelector('.composer').getBoundingClientRect();
       const dock = document.querySelector('.composer-area').getBoundingClientRect();
       const stage = document.querySelector('.conversation-stage').getBoundingClientRect();
       return { headerHeight:header.height, inset:form.left - stage.left, bottom:form.bottom, stageBottom:stage.bottom,
+        headerGaps: items.slice(1).map((item, index) => item.left - items[index].right),
+        headerGap: parseFloat(getComputedStyle(headerElement).columnGap),
+        headerOverflow: items.at(-1).right > header.right,
         reserve:parseFloat(getComputedStyle(document.querySelector('.chat-content')).paddingBottom), dockHeight:dock.height,
         controls:[...document.querySelectorAll('.main-header .icon-button, .composer .icon-button, .composer .send-button')].map(el=>({w:el.getBoundingClientRect().width,h:el.getBoundingClientRect().height})).filter(size => size.w || size.h) };
     });
     if (geometry.headerHeight > 64 || geometry.inset < 10 || geometry.bottom >= geometry.stageBottom) throw Error(`Floating layout invalid at ${width}`);
+    if (geometry.headerOverflow || geometry.headerGaps.some(gap => Math.abs(gap - geometry.headerGap) > 1)) throw Error(`Uneven header spacing at ${width}`);
     if (geometry.reserve < geometry.dockHeight) throw Error('Composer covers the last transcript message');
     if (geometry.controls.some(size => size.w < 44 || size.h < 44)) throw Error('Touch control too small');
     await menuButton.click();

@@ -7,8 +7,8 @@ export function BatteryIndicator({ battery }: { battery: WebHostBattery | null }
   const charging = battery.status === "charging";
   const description = { charging: "charging", discharging: "on battery", full: "fully charged", "not-charging": "not charging", unknown: "charging state unavailable" }[battery.status];
   const label = `Host battery: ${battery.percentage}%, ${description}`;
-  return <span role="img" aria-label={label} title={label} className={`inline-flex shrink-0 items-center gap-1.5 text-xs tabular-nums ${battery.percentage <= 20 && battery.status === "discharging" ? "text-amber-400" : "text-muted"}`}>
-    <svg aria-hidden="true" className="h-4 w-6" viewBox="0 0 26 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+  return <span role="img" aria-label={label} title={label} className={`inline-flex shrink-0 items-center gap-1 text-xs tabular-nums sm:gap-1.5 ${battery.percentage <= 20 && battery.status === "discharging" ? "text-amber-400" : "text-muted"}`}>
+    <svg aria-hidden="true" className="h-4 w-5 sm:w-6" viewBox="0 0 26 16" fill="none" stroke="currentColor" strokeWidth="1.3">
       <rect x="1" y="3" width="21" height="10" rx="2" />
       <path d="M24 6v4" strokeLinecap="round" />
       <rect x="3" y="5" width={17 * battery.percentage / 100} height="6" rx="0.7" fill="currentColor" stroke="none" opacity={charging ? "0.3" : "0.8"} />

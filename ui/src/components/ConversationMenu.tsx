@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import type { SurfaceConversation } from "../../../shared/protocol/conversation";
 import { Icon } from "./Icon";
 import { HostBattery } from "./HostBattery";
+import { SwarmPanel } from "../swarm/SwarmPanel";
 import { api, explainError } from "../api";
 
 const ConversationActions = lazy(() => import("./ConversationActions").then((module) => ({ default: module.ConversationActions })));
@@ -54,32 +55,39 @@ export function ConversationMenu({ conversation, title, status, disabled, active
   }
   return <>
     <div className="min-w-0 flex-1"><h1 aria-label={title} className="min-w-0 text-sm font-medium"><button ref={titleTrigger} className="block min-h-11 w-full truncate rounded-lg text-left hover:text-accent" title={`${title} — Rename conversation`} aria-label="Rename conversation" disabled={disabled || forking || !capabilities?.rename} onClick={() => show("rename")}>{title}</button></h1></div>
-    <HostBattery />
-    <div role="status" aria-label={status} aria-live="polite" className="shrink-0">
-      <button ref={statusTrigger} className="icon-button" aria-label={`Connection details: ${status}`} title={status} onClick={() => show("details")}>
-        <span className={`status-dot ${status === "Working" ? "working-dot" : status === "Connected" ? "" : "status-dot-muted"}`} />
-        <span className="sr-only">{status}</span>
-      </button>
-    </div>
-    <div ref={root} className="shrink-0 sm:relative">
-      <button ref={trigger} className="icon-button" aria-label="Conversation menu" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => { firstFocus.current = "first"; setOpen(!open); }}
-        onKeyDown={(event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); firstFocus.current = event.key === "ArrowUp" ? "last" : "first"; setOpen(true); } }}><Icon name="more" /></button>
-      {open && <div ref={menu} id={menuId} role="menu" aria-label="Conversation options" className="conversation-menu" onKeyDown={(event) => {
-        if (event.key === "Escape") { event.preventDefault(); close(true); return; }
-        if (event.key === "Tab") { close(true); return; }
-        const items = [...menu.current!.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
-        const index = items.indexOf(document.activeElement as HTMLButtonElement);
-        const next = event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
-        if (next !== null) { event.preventDefault(); items[next]?.focus(); }
-      }}>
-        <button role="menuitem" tabIndex={-1} disabled={disabled || forking || !capabilities?.skills} title={!capabilities?.skills ? "Skill controls are unavailable for this agent" : undefined} onClick={() => show("skills")}><Icon name="skills" /><span>Skills</span></button>
-        <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking || !capabilities?.fork} title={!capabilities?.fork ? "Fork is unavailable for this agent" : undefined} onClick={() => void fork()}><Icon name="fork" /><span>{forking ? "Forking conversation…" : "Fork conversation"}</span></button>
-        <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking || !capabilities?.compact} title={!capabilities?.compact ? "Compaction is unavailable for this agent" : undefined} onClick={() => show("compact")}><Icon name="compact" /><span>Compact conversation</span></button>
-        <div role="separator" className="my-1 border-t border-line" />
-        <button role="menuitem" tabIndex={-1} disabled={detaching || forking} onClick={() => { close(); onDetach(); }}><Icon name="detach" /><span>Detach conversation<span className="mt-0.5 block text-[11px] text-dim">Keep agent work running</span></span></button>
-        <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking || !capabilities?.archive} onClick={() => show("archive")}><Icon name="archive" /><span>Archive conversation</span></button>
-        {forkError && <p role="alert" className="notice mt-2">{forkError}</p>}
-      </div>}
+    <div className="conversation-header-actions flex shrink-0 items-center sm:gap-2">
+      <div role="status" aria-label={status} aria-live="polite" className="shrink-0">
+        <button ref={statusTrigger} className="icon-button max-sm:w-7" aria-label={`Connection details: ${status}`} title={status} onClick={() => show("details")}>
+          <span className="conversation-header-indicator" aria-hidden="true">
+            <span className={`status-dot max-sm:size-2 ${status === "Working" ? "working-dot" : status === "Connected" ? "" : "status-dot-muted"}`} />
+          </span>
+          <span className="sr-only">{status}</span>
+        </button>
+      </div>
+      <div ref={root} className="shrink-0 sm:relative">
+        <button ref={trigger} className="icon-button max-sm:w-9" aria-label="Conversation menu" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => { firstFocus.current = "first"; setOpen(!open); }}
+          onKeyDown={(event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); firstFocus.current = event.key === "ArrowUp" ? "last" : "first"; setOpen(true); } }}>
+          <span className="conversation-header-indicator" aria-hidden="true"><Icon name="more" className="max-sm:size-5!" /></span>
+        </button>
+        {open && <div ref={menu} id={menuId} role="menu" aria-label="Conversation options" className="conversation-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.preventDefault(); close(true); return; }
+          if (event.key === "Tab") { close(true); return; }
+          const items = [...menu.current!.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+          const index = items.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
+          if (next !== null) { event.preventDefault(); items[next]?.focus(); }
+        }}>
+          <button role="menuitem" tabIndex={-1} disabled={disabled || forking || !capabilities?.skills} title={!capabilities?.skills ? "Skill controls are unavailable for this agent" : undefined} onClick={() => show("skills")}><Icon name="skills" /><span>Skills</span></button>
+          <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking || !capabilities?.fork} title={!capabilities?.fork ? "Fork is unavailable for this agent" : undefined} onClick={() => void fork()}><Icon name="fork" /><span>{forking ? "Forking conversation…" : "Fork conversation"}</span></button>
+          <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking || !capabilities?.compact} title={!capabilities?.compact ? "Compaction is unavailable for this agent" : undefined} onClick={() => show("compact")}><Icon name="compact" /><span>Compact conversation</span></button>
+          <div role="separator" className="my-1 border-t border-line" />
+          <button role="menuitem" tabIndex={-1} disabled={detaching || forking} onClick={() => { close(); onDetach(); }}><Icon name="detach" /><span>Detach conversation<span className="mt-0.5 block text-[11px] text-dim">Keep agent work running</span></span></button>
+          <button role="menuitem" tabIndex={-1} disabled={disabled || active || forking || !capabilities?.archive} onClick={() => show("archive")}><Icon name="archive" /><span>Archive conversation</span></button>
+          {forkError && <p role="alert" className="notice mt-2">{forkError}</p>}
+        </div>}
+      </div>
+      <SwarmPanel key={conversation.threadId} conversation={conversation} />
+      <HostBattery />
     </div>
     <dialog ref={details} className="project-dialog settings-dialog" aria-labelledby="conversation-details-title" onCancel={closePanel} onClose={() => { if (panel === "details") closePanel(); }}>
       <div className="mb-5 flex items-center justify-between gap-3"><h2 id="conversation-details-title" className="text-lg font-medium">Conversation details</h2><button className="icon-button" aria-label="Close conversation details" onClick={closePanel}><Icon name="close" /></button></div>

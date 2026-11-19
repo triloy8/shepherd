@@ -1,4 +1,3 @@
-import { SwarmPanel } from "./swarm/SwarmPanel";
 import type { ProviderDescriptor } from "../../shared/protocol/providers";
 import { useImageDrafts } from "./use-image-drafts";
 import { HostControls } from "./components/HostControls";
@@ -321,7 +320,6 @@ export default function App() {
           onArchive={() => { setSelected(null); setSaved(null); setConversations((items) => items.filter((item) => item.id !== selected.id)); try { localStorage.removeItem("shepherd.selection"); } catch {} void refreshList(); }}
           onFork={(conversation) => { setConversations((items) => [...items, conversation]); select(conversation); changeView(false); }}
         />}
-        {selected && <SwarmPanel key={selected.threadId} conversation={selected} />}
       </header>
       {resuming && <p role="status" className="notice mx-5 mt-4">Resuming conversation…</p>}
       {error && !dialog && <div className="notice mx-5 mt-4" role="alert">{error}<button className="ml-3 underline" onClick={() => void refreshList()}>Refresh</button></div>}

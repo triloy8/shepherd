@@ -25,8 +25,9 @@ export function SwarmPanel({ conversation }: { conversation: SurfaceConversation
     finally { if (alive.current) setBusy(false); }
   }
   const count = team.snapshot?.group.members.length ?? 0;
+  const countLabel = team.loading ? "…" : team.error ? "?" : count;
   return <>
-    <button className="icon-button w-auto whitespace-nowrap px-2 text-xs font-medium tabular-nums" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>Swarm · {team.loading ? "…" : team.error ? "?" : count}</button>
+    <button className="icon-button w-auto min-w-11 border border-line bg-raised px-1 text-xs font-medium whitespace-nowrap tabular-nums text-ink hover:border-accent/50 sm:px-2" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>Swarm · {countLabel}</button>
     {open && <SwarmDialog title="Swarm" close={() => { setOpen(false); setWorker(null); }}>
       {(error || team.error) && <p role="alert" className="notice">{error || team.error}<button className="button-secondary" onClick={() => void team.refresh()}>Retry</button></p>}
       {!team.online && <p role="status" className="mb-4 text-xs text-muted">Reconnecting to team updates…</p>}

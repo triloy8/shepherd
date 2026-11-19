@@ -56,20 +56,44 @@ async page => {
       const headerElement = document.querySelector('.main-header');
       const header = headerElement.getBoundingClientRect();
       const items = [...headerElement.children].filter(el => el.getBoundingClientRect().width > 0).map(el => el.getBoundingClientRect());
+      const actionGroup = headerElement.querySelector('.conversation-header-actions');
+      const statusButton = headerElement.querySelector('[aria-label^="Connection details:"]');
+      const statusBounds = statusButton.getBoundingClientRect();
+      const dot = statusButton.querySelector('.status-dot').getBoundingClientRect();
+      const battery = actionGroup.querySelector('[role="img"]').getBoundingClientRect();
+      const menuBounds = actionGroup.querySelector('[aria-label="Conversation menu"]').getBoundingClientRect();
+      const swarm = actionGroup.querySelector('button[aria-haspopup="dialog"]').getBoundingClientRect();
       const form = document.querySelector('.composer').getBoundingClientRect();
       const dock = document.querySelector('.composer-area').getBoundingClientRect();
       const stage = document.querySelector('.conversation-stage').getBoundingClientRect();
       return { headerHeight:header.height, inset:form.left - stage.left, bottom:form.bottom, stageBottom:stage.bottom,
         headerGaps: items.slice(1).map((item, index) => item.left - items[index].right),
         headerGap: parseFloat(getComputedStyle(headerElement).columnGap),
-        headerOverflow: items.at(-1).right > header.right,
+        actionGaps: [menuBounds.left - statusBounds.right, swarm.left - menuBounds.right],
+        batteryGaps: [battery.left - swarm.right, header.right - battery.right],
+        statusDotCentered: Math.abs(dot.left + dot.width / 2 - (statusBounds.left + statusBounds.width / 2)) <= 1 &&
+          Math.abs(dot.top + dot.height / 2 - (statusBounds.top + statusBounds.height / 2)) <= 1,
+        headerAligned: items.every(item => Math.abs(item.top + item.height / 2 - (header.top + header.height / 2)) <= 1),
+        headerOverflow: items.some(item => item.left < header.left || item.right > header.right),
+        titleWidth: headerElement.querySelector('h1').getBoundingClientRect().width,
         reserve:parseFloat(getComputedStyle(document.querySelector('.chat-content')).paddingBottom), dockHeight:dock.height,
-        controls:[...document.querySelectorAll('.main-header .icon-button, .composer .icon-button, .composer .send-button')].map(el=>({w:el.getBoundingClientRect().width,h:el.getBoundingClientRect().height})).filter(size => size.w || size.h) };
+        controls:[...document.querySelectorAll('.main-header .icon-button, .composer .icon-button, .composer .send-button')].map(el => {
+          const { width, height } = el.getBoundingClientRect();
+          return { width, height, compact: !!el.querySelector('.conversation-header-indicator'), status: el === statusButton };
+        }).filter(control => control.width || control.height) };
     });
     if (geometry.headerHeight > 64 || geometry.inset < 10 || geometry.bottom >= geometry.stageBottom) throw Error(`Floating layout invalid at ${width}`);
-    if (geometry.headerOverflow || geometry.headerGaps.some(gap => Math.abs(gap - geometry.headerGap) > 1)) throw Error(`Uneven header spacing at ${width}`);
+    if (!geometry.headerAligned || geometry.headerOverflow || geometry.headerGaps.some(gap => Math.abs(gap - geometry.headerGap) > 1)) throw Error(`Uneven header spacing at ${width}`);
+    if (!geometry.statusDotCentered) throw Error(`Status dot is off-center at ${width}`);
+    if (width < 640 && geometry.actionGaps.some(gap => Math.abs(gap) > 1)) throw Error(`Header buttons are not flush at ${width}`);
+    if (width < 640 && geometry.batteryGaps.some(gap => Math.abs(gap - 4) > 1)) throw Error(`Battery lacks 4px spacing at ${width}`);
+    if (width < 640 && geometry.titleWidth < (width === 320 ? 20 : 90)) throw Error(`Header controls crowd the title at ${width}`);
+    if (await page.getByRole('button', { name: 'Swarm · 0', exact: true }).innerText() !== 'Swarm · 0') throw Error(`Swarm label is hidden at ${width}`);
     if (geometry.reserve < geometry.dockHeight) throw Error('Composer covers the last transcript message');
-    if (geometry.controls.some(size => size.w < 44 || size.h < 44)) throw Error('Touch control too small');
+    if (geometry.controls.some(control => {
+      if (width < 640 && control.compact) return control.height < 44 || Math.abs(control.width - (control.status ? 28 : 36)) > 1;
+      return control.height < 44 || control.width < 44;
+    })) throw Error(`Unexpected touch target size at ${width}`);
     await menuButton.click();
     const menu = await page.getByRole('menu', { name: 'Conversation options', exact: true }).boundingBox();
     if (menu.x < 0 || menu.x + menu.width > width) throw Error('Menu overflows narrow viewport');

@@ -15,6 +15,8 @@ export type SortDirection = "asc" | "desc";
 export type AgentProvider = string;
 
 export interface CreateThreadRequest {
+  /** Host-supplied role guidance, separate from user messages and execution policy. */
+  instructions?: string;
   provider?: AgentProvider;
   /** Restrictions the thread must stay within; omitted uses the host policy. */
   policy?: ExecutionPolicy;
@@ -125,6 +127,7 @@ export interface ReadThreadResponse {
 }
 
 export interface ResumeThreadRequest {
+  instructions?: string;
   provider?: AgentProvider;
   /** Restrictions the thread must stay within; omitted uses the host policy. */
   policy?: ExecutionPolicy;

@@ -5,6 +5,7 @@
 // The surface contract: what composition creates a surface with, and what a surface provides.
 export type { SurfaceAdapter, SurfaceAdapterContext, SurfaceDefinition, SurfaceHealth, PreparedSurface } from "./surface/surface_adapter.js";
 export type { SurfaceApplicationContext } from "./surface/surface_application_context.js";
+export { SwarmService, SwarmError } from "./surface/swarm_service.js";
 export type { ApprovalConversation, InteractionConversation } from "./surface/conversation_ports.js";
 export type { TurnRoutingConversation } from "./surface/turn_routing_service.js";
 export type { SurfaceListeningMode } from "./surface/surface_state_service.js";
@@ -32,3 +33,9 @@ export { parseSignalEnvelope, InvalidSignalError, UnknownSignalKindError, Unsupp
 export type { SignalDispatchResult } from "./signals/signal_dispatcher.js";
 export { SignalRouteRateLimitError, type SignalRoute } from "./signals/signal_route_registry.js";
 export { THREAD_WATCH_SIGNAL_KIND, type ThreadWatchAgent, type ThreadWatchPayload, type ThreadWatchState } from "./signals/thread_watch_service.js";
+
+export type { SwarmManagerBridge, SwarmManagerHandler } from "../ports/swarm_runtime.js";
+
+export { SwarmManagerService } from "./surface/swarm_manager_service.js";
+
+export { SWARM_MANAGER_INSTRUCTIONS, SWARM_WORKER_INSTRUCTIONS } from "./surface/swarm_manager_tools.js";

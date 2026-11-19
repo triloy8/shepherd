@@ -1,0 +1,27 @@
+import type { JsonValue } from "../../../shared/protocol/dynamic_tools.js";
+import type { DynamicToolRegistration } from "../conversation/dynamic_tool_registry.js";
+import type { SwarmManagerHandler } from "../../ports/swarm_runtime.js";
+
+const str = (description: string): JsonValue => ({ type: "string", description });
+export function swarmManagerRegistrations(handler: SwarmManagerHandler): DynamicToolRegistration[] {
+  const definitions: Array<[string, string, Record<string, JsonValue>, string[]]> = [
+    ["swarm_status", "Call this to discover the current conversation’s team and restore worker notifications. Ordinary web conversations start with zero workers. As manager, discuss a small team and assignments with the user before delegating; adjust it conversationally. You remain the user's only contact. Read worker results, resolve questions with the user, integrate and verify the outcome yourself. A finished turn is not a verified task. Workers cannot manage teams; each parent conversation can manage only its own workers. Restores worker notifications after a host restart.", {}, []],
+    ["swarm_delegate", "After agreeing the team with the user, create an isolated worker, watch it BEFORE starting, and send its assignment. Call once per worker; use a distinct short name. Reuse the same requestId when retrying an uncertain call. An uncertain dispatch must be inspected before sending again. Workers appear automatically in the roster. Requires an owner/repo project for isolated workspaces.", { name: str("Stable worker name, at most 80 characters."), assignment: str("Concrete deliverable and verification instructions, at most 4096 characters."), requestId: str("Stable unique assignment ID; reuse on retries."), provider: str("Optional host provider ID.") }, ["name", "assignment", "requestId"]],
+    ["swarm_send", "Send a follow-up to an idle worker in your team. Use a new requestId for each assignment and reuse it for retries. Read and integrate results yourself; never claim completion from a turn-end notification alone.", { threadId: str("Worker thread ID in your team."), message: str("Follow-up, at most 4096 characters."), requestId: str("Unique assignment ID; reuse on retries.") }, ["threadId", "message", "requestId"]],
+    ["swarm_report", "Read a bounded page of a worker's history and pending questions/approvals. Notifications are observations; history is authoritative. Use the next cursor for older history. Ask the user about decisions beyond existing authorization.", { threadId: str("Worker thread ID in your team."), cursor: str("Optional history cursor.") }, ["threadId"]],
+    ["swarm_decide", "Apply a pending worker decision only within the user's authorization. Read swarm_report first, ask the user when needed, and use an offered decision value. Answers are keyed by the actual question IDs.", { threadId: str("Worker in your team."), approvalId: str("Pending approval occurrence ID."), decision: str("One of the offered choice values."), answers: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } } }, ["threadId", "approvalId", "decision"]],
+    ["swarm_interrupt", "Interrupt the current turn of a worker in your team. This does not mark its task complete.", { threadId: str("Worker thread ID in your team.") }, ["threadId"]],
+    ["swarm_rename", "Give the manager conversation a concise task title based on the user's request.", { name: str("Conversation title, at most 120 characters.") }, ["name"]],
+  ];
+  return definitions.map(([name, description, properties, required]) => ({
+    namespace: "shepherd", namespaceDescription: "Services supplied by the Shepherd conversation bridge.", name, description,
+    inputSchema: { type: "object", properties, required, additionalProperties: false },
+    execute: async params => {
+      try { return { success: true, contentItems: [{ type: "text", text: JSON.stringify(await handler(params)) }] }; }
+      catch (error) { return { success: false, contentItems: [{ type: "text", text: error instanceof Error ? error.message : "Swarm operation failed." }] }; }
+    },
+  }));
+}
+
+export const SWARM_MANAGER_INSTRUCTIONS = `You are in a Shepherd conversation that can manage a team. Work independently by default; zero workers is normal. Call shepherd.swarm_status at the start of each turn to restore any existing team and worker notifications. When the user wants parallel work, agree on a team and concrete assignments, then use swarm_delegate. No separate swarm creation step is needed. Workers appear under this conversation's Swarm button. Use stable requestId values on retries; inspect history before retrying an uncertain dispatch. Workers cannot create their own teams. After dispatching, continue independent work or finish your turn with a progress update; do not sleep or poll. The host starts a new turn when workers finish or need attention. Read their reports, bring decisions beyond existing authorization to the user, integrate changes and verify the outcome. A worker turn ending is not proof of task completion.`;
+export const SWARM_WORKER_INSTRUCTIONS = `You are a worker delegated by a Shepherd swarm manager. Follow your assignment in this isolated workspace. Report concrete findings, changed files, validation, and blockers in your final response so the manager can integrate and verify your work. Ask for decisions when necessary. You do not manage the swarm or create more workers. A finished turn is not proof that the overall task is complete.`;

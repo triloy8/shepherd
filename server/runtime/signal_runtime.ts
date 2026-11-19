@@ -23,7 +23,7 @@ export class SignalRuntime {
   private readonly routes: SignalRouteRegistry;
   private readonly dispatcher: SignalDispatcher;
   private readonly unregisterTool: () => void;
-  private readonly watches: ThreadWatchService | null;
+  private readonly watches: ThreadWatchService;
   private readonly unregisterWatchTools: Array<() => void>;
   private stopPromise: Promise<void> | null = null;
 
@@ -47,10 +47,13 @@ export class SignalRuntime {
       ? shepherd.conversation.registerDynamicTool(routeService.registration())
       : () => {};
     // Watches need no listener: Shepherd observes the watched turns itself.
-    this.watches = options.config.threadWatchEnabled
-      ? new ThreadWatchService({ conversation: shepherd.conversation, dispatcher: this.dispatcher })
-      : null;
-    this.unregisterWatchTools = this.watches?.registrations().map((tool) => shepherd.conversation.registerDynamicTool(tool)) ?? [];
+    this.watches = new ThreadWatchService({ conversation: shepherd.conversation, dispatcher: this.dispatcher });
+    this.unregisterWatchTools = options.config.threadWatchEnabled ? this.watches.registrations().map((tool) => shepherd.conversation.registerDynamicTool(tool)) : [];
+  }
+
+  watchSwarm(params: import("../../shared/protocol/dynamic_tools.js").DynamicToolCallParams, group: string, threads: Array<{ threadId: string; label: string }>) {
+    if (this.stopPromise) throw new Error("Signal runtime is stopping.");
+    return this.watches.watchThreads({ ...params, arguments: { group, threads } });
   }
 
   get url(): string | null {
@@ -76,7 +79,7 @@ export class SignalRuntime {
     this.stopPromise = Promise.resolve().then(async () => {
       this.unregisterTool();
       for (const unregister of this.unregisterWatchTools) unregister();
-      this.watches?.dispose();
+      this.watches.dispose();
       this.routes.dispose();
       this.dispatcher.dispose();
       const server = this.server;

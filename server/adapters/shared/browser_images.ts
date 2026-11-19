@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { loadGeneratedImage } from "../shared/generated_image.js";
-import { WebRequestError } from "./errors.js";
+import { WebRequestError } from "./browser_errors.js";
 import type { WebImage } from "../../../shared/protocol/web.js";
 
 /** Only provider-reported artifacts get URLs; clients never supply a file path. */

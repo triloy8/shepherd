@@ -58,6 +58,63 @@ test("concurrent resumes share one session and one bootstrap", async () => {
   expect(h.stops()).toBe(1);
 });
 
+test("updates instructions on an already-loaded idle session without allocating a second session", async () => {
+  const h = harness();
+  const loaded = h.manager.resumeThread("thread", {});
+  h.gate.resolve(started);
+  await loaded;
+  const requests: unknown[] = [];
+  h.sessions[0]!.resumeThread = async (threadId, request) => { requests.push({ threadId, request }); return started; };
+  await h.manager.updateThreadInstructions("thread", "Worker role");
+  expect(h.sessions).toHaveLength(1);
+  expect(requests).toEqual([{ threadId: "thread", request: { cwd: "/repo", model: "model", instructions: "Worker role" } }]);
+  h.manager.stopAll();
+});
+
+test("turns wait for an in-flight instruction update and do not start after it fails", async () => {
+  const h = harness();
+  const loaded = h.manager.resumeThread("thread", {});
+  h.gate.resolve(started);
+  await loaded;
+  const entered = deferred<void>();
+  const release = deferred<typeof started>();
+  let starts = 0;
+  h.sessions[0]!.resumeThread = async () => { entered.resolve(); return release.promise; };
+  h.sessions[0]!.listModels = async () => ({ data: [], nextCursor: null });
+  h.sessions[0]!.startTurn = async () => { starts++; return "turn"; };
+  const update = h.manager.updateThreadInstructions("thread", "Worker role");
+  await entered.promise;
+  const turn = h.manager.submitTurn("thread", { input: [] });
+  await Promise.resolve();
+  expect(starts).toBe(0);
+  release.resolve(started);
+  await update;
+  await turn;
+  expect(starts).toBe(1);
+  h.manager.stopAll();
+
+  const failed = harness();
+  const loadedFailed = failed.manager.resumeThread("thread", {});
+  failed.gate.resolve(started);
+  await loadedFailed;
+  const failedEntered = deferred<void>();
+  const failure = deferred<typeof started>();
+  let failedStarts = 0;
+  failed.sessions[0]!.resumeThread = async () => { failedEntered.resolve(); return failure.promise; };
+  failed.sessions[0]!.listModels = async () => ({ data: [], nextCursor: null });
+  failed.sessions[0]!.startTurn = async () => { failedStarts++; return "turn"; };
+  const updateFailure = failed.manager.updateThreadInstructions("thread", "Worker role");
+  await failedEntered.promise;
+  const turnAfterFailure = failed.manager.submitTurn("thread", { input: [] });
+  const updateFailureResult = updateFailure.catch(error => error);
+  const turnFailureResult = turnAfterFailure.catch(error => error);
+  failure.reject(new Error("instruction update failed"));
+  expect((await updateFailureResult).message).toBe("instruction update failed");
+  expect((await turnFailureResult).message).toBe("instruction update failed");
+  expect(failedStarts).toBe(0);
+  failed.manager.stopAll();
+});
+
 test("Codex history shares one app-server client, and stopping the provider stops a client still starting", async () => {
   let release!: () => void; const clients: CodexSession[] = []; let stops = 0, reads = 0;
   const provider = new CodexProvider(() => {

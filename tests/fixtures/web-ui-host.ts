@@ -1,15 +1,28 @@
+import type { SwarmManagerHandler } from "../../server/ports/swarm_runtime.js";
 import { installWebSkills } from "../helpers/web_skills_harness";
 import { installWebSettings } from "../helpers/web_settings_harness";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // Local browser-test fixture. Never imported by production entrypoints.
-import { createWebAdapter } from "../../server/adapters/web/server.js";
+import { createWebChatAdapter } from "../../server/adapters/web/server.js";
+import { FileSwarmStore } from "../../server/storage/swarm_store.js";
 import { webHarness } from "../helpers/web_harness.js";
 import type { HistoryItem, HistoryTurn, StoredThreadSummary } from "../../shared/protocol/requests.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 
 const h = webHarness();
+const swarmDirectory = await mkdtemp(join(tmpdir(), "shepherd-team-ui-"));
+let managerHandler: SwarmManagerHandler | undefined;
+if (swarmDirectory) h.context.swarmManager = {
+  connect: handler => { managerHandler = handler; return () => { managerHandler = undefined; }; },
+  watch: async () => ({ success: true, contentItems: [{ type: "text", text: "Fixture watches installed." }] }),
+};
+const makeAdapter = () => {
+  const config = { ...h.config, port: Number(process.env.UI_TEST_PORT ?? 8799), origins: [...h.config.origins, ...(process.env.UI_TEST_ORIGIN ? [process.env.UI_TEST_ORIGIN] : [])] };
+  return createWebChatAdapter(h.context, config, new FileSwarmStore(swarmDirectory));
+};
+Object.assign(h.application.conversation, { async readThread(threadId: string) { return { thread: { id: threadId } }; } });
 installWebSettings(h);
 installWebSkills(h);
 const threadProviders = new Map<string, string>();
@@ -108,6 +121,20 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: repeated ? "local:native" : portable ? "user" : `user-${sequence}`, type: "user_message", content }] };
   histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
   h.active.set(threadId, turnId); publish(threadId, "turn.started", { turnId });
+  if (managerHandler && text === "Yes, use that team.") {
+    const invoke = (tool: string, args: import("../../shared/protocol/dynamic_tools.js").JsonValue) => managerHandler!({ threadId, turnId, callId: crypto.randomUUID(), namespace: "shepherd", tool, arguments: args });
+    await invoke("swarm_status", {});
+    await invoke("swarm_rename", { name: "Improve the inbox" });
+    for (const [name, assignment] of [["Solu", "Review responsive spacing."], ["Nala", "Review labels and keyboard navigation."], ["Nari", "Review the conversation workflow."]]) await invoke("swarm_delegate", { name, assignment, requestId: `demo-${name}` });
+    complete(threadId, turn, { id: itemId, type: "assistant_message", phase: "final", text: "The team is working. I’ll review their findings and verify the final changes." });
+    finish(threadId);
+    return { ok: true, turnId };
+  }
+  if (managerHandler && text === "Review the inbox with a small team.") {
+    complete(threadId, turn, { id: itemId, type: "assistant_message", phase: "final", text: "I suggest Solu for responsive spacing, Nala for labels and keyboard navigation, and Nari for the conversation workflow. Shall we use that team?" });
+    finish(threadId);
+    return { ok: true, turnId };
+  }
   if (repeated) {
     const first = { id: "first", type: "assistant_message" as const, phase: "final" as const, text: "Repeated prefix" };
     turn.items.push(first);
@@ -271,7 +298,7 @@ let fixtureRunning = fixtureCheckout;
 let fixtureDeploying = false;
 const restartFixture = () => later(250, () => { void (async () => {
   await adapter.stop(); fixtureRunning = fixtureCheckout;
-  adapter = createWebAdapter(h.context, { ...h.config, port: Number(process.env.UI_TEST_PORT ?? 8799) });
+  adapter = makeAdapter();
   await adapter.start();
 })(); });
 h.application.runtimeLifecycle = {
@@ -291,10 +318,10 @@ h.application.runtimeLifecycle = {
     return { type: "restart-requested", action: "deploy", deployment };
   },
 };
-let adapter = createWebAdapter(h.context, { ...h.config, port: Number(process.env.UI_TEST_PORT ?? 8799) });
+let adapter = makeAdapter();
 await adapter.start();
 console.log(adapter.url());
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, async () => {
   for (const timer of timers) clearTimeout(timer);
-  await adapter.stop(); h.api.dispose(); await rm(imageDir, { recursive: true, force: true }); await rm(uploadDir, { recursive: true, force: true }); process.exit(0);
+  await adapter.stop(); h.api.dispose(); if (swarmDirectory) await rm(swarmDirectory, { recursive: true, force: true }); await rm(imageDir, { recursive: true, force: true }); await rm(uploadDir, { recursive: true, force: true }); process.exit(0);
 });

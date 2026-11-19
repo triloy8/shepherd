@@ -263,6 +263,9 @@ Each conversation has its own transcript. Use **Load earlier messages** to read
 older turns in that transcript. There is no separate turn/item inspector in web;
 Discord retains its history commands for navigating conversations within a channel.
 
+For a backend-error banner after a new Codex conversation's first message, see the
+[known first-message history race](errors.md#codex-first-message-history-race-leaves-a-backend-error-banner).
+
 ## Conversation list freshness
 
 The conversation list shows the most recently updated conversations first, in

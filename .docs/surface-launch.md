@@ -11,8 +11,8 @@ SHEPHERD_SURFACES=discord
 
 An unset value defaults to Discord for existing installations. An explicitly
 empty value, malformed name, duplicate, or unregistered surface is an error.
-Registered surfaces are `discord` and `web`. Select either alone or both with
-`discord,web`. The web surface is a built-in UI and private loopback HTTP/SSE API;
+Registered surfaces are `discord` and `web`. Select either or both. Teams are
+included in the web UI and use the same loopback HTTP/SSE listener;
 see [web API](web-api.md) for configuration. The UI is built and deployed with
 Shepherd. Arbitrary website hosting is not included.
 
@@ -29,6 +29,10 @@ Common values are loaded into the process for Codex subprocesses. Each selected
 adapter receives an isolated overlay from `envs/<name>.env`, with process/common
 values taking precedence. Disabled adapter files are not read, validated, or
 imported; adapter files cannot leak values into another adapter's configuration.
+When the running host validates a deployment, its child commands reread the
+current `envs/common.env`; values loaded by the old host are omitted from those
+children so edits and removals are validated. Variables supplied explicitly by
+the launcher or process remain overrides.
 
 Runtime settings (including model, sandbox, signal listener and deployment
 configuration) belong in common.env or the process environment. Adapter files
@@ -93,5 +97,6 @@ in one host. Compiled and source entrypoints are the same launcher.
 
 Merge and deploy through the normal Shepherd flow. Existing installations with
 no selection configured continue using Discord. Web requires explicit selection
-and configuration. The UI lives in this repository and shares the host lifecycle;
+and configuration. Follow the [team migration guide](../deploy/README.md#teams-in-the-web-interface)
+when retiring the separate preview. The UI shares the host lifecycle;
 no separate shepherd-ui deployment is required.

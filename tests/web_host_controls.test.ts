@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { WebHostControls } from "../server/adapters/web/host_controls";
+import { WebHostControls } from "../server/adapters/shared/browser_host_controls";
 import { RuntimeLifecycleOrchestrator } from "../server/core/lifecycle/runtime_lifecycle_orchestrator";
 import { webHarness } from "./helpers/web_harness";
 

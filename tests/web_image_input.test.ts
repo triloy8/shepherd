@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { webHarness } from "./helpers/web_harness";
-import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "../server/adapters/web/image_input";
+import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "../server/adapters/shared/browser_image_input";
 import { WEB_IMAGE_MAX_BYTES } from "../shared/protocol/image_input";
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=";
 

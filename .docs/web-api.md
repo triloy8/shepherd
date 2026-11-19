@@ -89,7 +89,7 @@ protocol files. Error responses are `{ "error": { "code": "...", "message": "...
 | DELETE | `/conversations/:id` | Detaches the handle and closes streams; `{ ok: true }` |
 | POST | `/conversations/:id/rename` | `{ name }`; rename through shared controls, `{ ok: true }` |
 | POST | `/conversations/:id/archive` | `{}`; archive and detach the web handle, `{ ok: true }` |
-| POST | `/conversations/:id/fork` | `{}`; 201 with a new `WebConversation`; source remains attached |
+| POST | `/conversations/:id/fork` | `{}`; 201 with a new `SurfaceConversation`; source remains attached |
 | POST | `/threads/:threadId/unarchive` | `{}`; restore a stored conversation without attaching it |
 | POST | `/conversations/:id/messages` | `{ text }`; returns `{ type: "submit" or "steer", threadId, turnId }` |
 | POST | `/conversations/:id/interrupt` | `{ turnId? }`; `{ ok: true }` |

@@ -23,6 +23,9 @@ Agents:
 
 Surfaces:
 
+- [Web teams](web-teams.md) — integrated roster, durable group membership,
+  roster observations, manager chat and worker inspection.
+
 - [Web API](web-api.md) — setup, private access, HTTP request shapes, event recovery,
   and limits.
 - [Web UI](web-ui.md) — what the built-in browser client shows and how its controls

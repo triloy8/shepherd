@@ -6,8 +6,8 @@ import { timelineGroups } from "../ui/src/timeline";
 import { Timeline } from "../ui/src/components/Timeline";
 import type { HistoryTurn } from "../shared/protocol/requests";
 import type { BridgeEvent } from "../shared/protocol/events";
-import { presentHistoryItem } from "../server/adapters/web/history";
-import { WebImages } from "../server/adapters/web/images";
+import { presentHistoryItem } from "../server/adapters/shared/browser_history";
+import { WebImages } from "../server/adapters/shared/browser_images";
 
 const turn = (status: HistoryTurn["status"] = "completed"): HistoryTurn => ({
   id: "turn", status, itemsView: "full", error: null, startedAt: null, completedAt: null, durationMs: 3200,

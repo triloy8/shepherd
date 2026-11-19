@@ -1,3 +1,4 @@
+import { swarmManagerRegistrations } from "../core/surface/swarm_manager_tools.js";
 import type { RuntimeConfig } from "../config/runtime_environment.js";
 import { createApprovalConversation, createIngressConversation, createInteractionConversation } from "../core/surface/conversation_ports.js";
 import { createHostRuntime } from "./host_runtime.js";
@@ -6,12 +7,13 @@ import { createSurfaceRuntime } from "./surface_runtime.js";
 import type { PreparedSurface, SurfaceAdapter, SurfaceHealth } from "../core/surface_api.js";
 
 type SignalPresenter = NonNullable<SurfaceAdapter["presentSignal"]>;
-type HostSignals = Pick<SignalRuntime, "start" | "stop" | "url">;
+type HostSignals = Pick<SignalRuntime, "start" | "stop" | "url"> & Partial<Pick<SignalRuntime, "watchSwarm">>;
 
 export type SurfaceHostOptions = {
   config: RuntimeConfig;
   surfaces: PreparedSurface[];
   projectDir?: string;
+  environment?: Record<string, string | undefined>;
   createHost?: typeof createHostRuntime;
   createSignals?: (
     host: ReturnType<typeof createHostRuntime>,
@@ -25,7 +27,11 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
   if (!options.surfaces.length || new Set(options.surfaces.map(({ id }) => id)).size !== options.surfaces.length) {
     throw new Error("Select at least one surface, with no duplicates.");
   }
-  const host = (options.createHost ?? createHostRuntime)({ config: options.config, projectDir: options.projectDir });
+  const host = (options.createHost ?? createHostRuntime)({
+    config: options.config,
+    projectDir: options.projectDir,
+    environment: options.environment,
+  });
   const { shepherd, config, workspace } = host;
   const abort = new AbortController();
   shepherd.registerShutdownHook(() => abort.abort());
@@ -61,6 +67,16 @@ export function createSurfaceHost(options: SurfaceHostOptions) {
         if (shepherd.isQuiescing()) throw new Error("Shepherd is stopping.");
         report(prepared.id, { state: "starting" });
         const adapter = prepared.create({
+          ...(prepared.id === "web" ? { swarmManager: {
+            connect: (handler: import("../ports/swarm_runtime.js").SwarmManagerHandler) => {
+              const unregister = swarmManagerRegistrations(handler).map(tool => shepherd.conversation.registerDynamicTool(tool));
+              return () => { for (const remove of unregister) remove(); };
+            },
+            watch: (params: import("../../shared/protocol/dynamic_tools.js").DynamicToolCallParams, group: string, threads: Array<{ threadId: string; label: string }>) => {
+              if (!signals?.watchSwarm) throw new Error("Worker notification service is unavailable.");
+              return signals.watchSwarm(params, group, threads);
+            },
+          } } : {}),
           signal: abort.signal,
           ingress: createIngressConversation(shepherd.conversation),
           interactions: createInteractionConversation(shepherd.conversation),

@@ -2,8 +2,39 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { loadCommonEnvironment } from "../server/config/environment.js";
 
 const modulePath = path.resolve(import.meta.dir, "../server/config/environment.ts");
+
+test("child environments reread edited common files while retaining explicit overrides", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "shepherd-env-child-"));
+  try {
+    await mkdir(path.join(directory, "envs"));
+    await writeFile(path.join(directory, "envs/common.env"), "SHEPHERD_TEST_FILE=initial\nSHEPHERD_TEST_REMOVED=old\nSHEPHERD_TEST_EXPLICIT=file\n");
+
+    const hostEnvironment = { SHEPHERD_TEST_EXPLICIT: "launcher" };
+    const childEnvironment = loadCommonEnvironment(hostEnvironment, directory);
+
+    expect(hostEnvironment).toMatchObject({
+      SHEPHERD_TEST_FILE: "initial",
+      SHEPHERD_TEST_REMOVED: "old",
+      SHEPHERD_TEST_EXPLICIT: "launcher",
+    });
+    expect(childEnvironment).toEqual({ SHEPHERD_TEST_EXPLICIT: "launcher" });
+
+    await writeFile(path.join(directory, "envs/common.env"), "SHEPHERD_TEST_FILE=updated\nSHEPHERD_TEST_EXPLICIT=file-updated\n");
+    const freshChildEnvironment = { ...childEnvironment };
+    loadCommonEnvironment(freshChildEnvironment, directory);
+
+    expect(freshChildEnvironment).toEqual({
+      SHEPHERD_TEST_EXPLICIT: "launcher",
+      SHEPHERD_TEST_FILE: "updated",
+    });
+    expect(freshChildEnvironment.SHEPHERD_TEST_REMOVED).toBeUndefined();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("configuration uses only envs and preserves process/common/scope precedence", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "shepherd-env-"));

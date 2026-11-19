@@ -242,6 +242,15 @@ access. Use private Serve and tailnet access rules; do not expose it through
 Funnel or a public proxy. Deployment does not enable Serve or change the selected
 surfaces. Configuration changes take effect when Shepherd restarts.
 
+### Teams in web conversations
+
+Every web conversation starts with zero workers. Agree a team in chat and let the
+manager delegate, receive updates, and verify the results. The top-right **Swarm**
+button shows its roster and read-only worker history. Workers stay out of the main
+conversation list. Teams use the existing web listener and origin.
+See [team behavior and persistence](.docs/web-teams.md) and the
+[deployment migration](deploy/README.md#teams-in-the-web-interface).
+
 ### Build and start
 
 ```bash
@@ -408,10 +417,11 @@ independent layers; their allowed dependencies are defined in the architecture g
 | --- | --- |
 | `server/main.ts`, `server/runtime/` | Composition: wires surfaces, core and providers; process lifecycle |
 | `server/adapters/discord/` | Discord input, commands, rendering, and delivery |
-| `server/adapters/web/` | Built-in UI serving, private HTTP API, and SSE events |
+| `server/adapters/web/` | Web surface configuration using the shared browser transport |
+| `server/adapters/web/api.ts` | Integrated conversation API, team routes, and roster events |
 | `ui/` | React, TypeScript, and Tailwind UI built with Vite |
 | `server/adapters/webhook/`, `server/signals/` | Local signal ingress and registered signal kinds |
-| `server/adapters/shared/` | Presentation helpers surfaces share: body parsing, answer streaming, paging, image loading |
+| `server/adapters/shared/` | Shared browser HTTP/SSE, assets, controls and history; surface presentation helpers |
 | `server/core/` | Conversations, workspaces, signals, lifecycle and surface services, in sub-layers; surfaces use it only through `surface_api.ts` |
 | `server/providers/` | Native Codex and Claude adapters, and support they share |
 | `server/ports/` | The provider port: what core needs from an agent |
@@ -442,6 +452,7 @@ route lifetime, and delivery behavior.
 - [Surface parity matrix](.docs/surface-parity-matrix.md)
 - [Surface selection and lifecycle](.docs/surface-launch.md)
 - [Web API and private access](.docs/web-api.md)
+- [Swarm workspace](.docs/web-teams.md)
 - [Web UI reference](.docs/web-ui.md)
 - [Answering questions and examples](.docs/user-questions.md)
 - [Host deployment](deploy/README.md)

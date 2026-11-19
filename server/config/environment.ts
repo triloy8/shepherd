@@ -26,18 +26,33 @@ function parseEnvFile(contents: string): Record<string, string> {
   return result;
 }
 
-function loadEnvFile(filePath: string): void {
-  if (!fs.existsSync(filePath)) return;
+function loadEnvFile(filePath: string, environment: Record<string, string | undefined>): string[] {
+  if (!fs.existsSync(filePath)) return [];
   const parsed = parseEnvFile(fs.readFileSync(filePath, "utf8"));
+  const loaded: string[] = [];
   for (const [key, value] of Object.entries(parsed)) {
-    if (process.env[key] === undefined) {
-      process.env[key] = value;
-    }
+    if (environment[key] !== undefined) continue;
+    environment[key] = value;
+    loaded.push(key);
   }
+  return loaded;
 }
 
-export function loadCommonEnvironment(): void {
-  loadEnvFile(path.resolve(process.cwd(), "envs/common.env"));
+/**
+ * Load common settings into the host environment and return the environment
+ * for child validation commands. Values inserted from the file are omitted
+ * from that child environment so a later edit/removal is observed by the
+ * fresh child process. Values that were already present remain explicit
+ * launcher/process overrides and are retained.
+ */
+export function loadCommonEnvironment(
+  environment: Record<string, string | undefined> = process.env,
+  projectDir = process.cwd(),
+): Record<string, string | undefined> {
+  const childEnvironment = { ...environment };
+  const loaded = loadEnvFile(path.resolve(projectDir, "envs/common.env"), environment);
+  for (const key of loaded) delete childEnvironment[key];
+  return childEnvironment;
 }
 
 /** Isolated scope: one adapter's file must not supply another's credentials. */

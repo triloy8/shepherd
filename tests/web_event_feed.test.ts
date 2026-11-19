@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { WebEventFeed } from "../server/adapters/web/event_feed.js";
+import { WebEventFeed } from "../server/adapters/shared/browser_event_feed.js";
 import type { BridgeEvent } from "../shared/protocol/events.js";
 
 const decode = (value: Uint8Array | undefined) => new TextDecoder().decode(value);

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { WebConversation } from "../../../shared/protocol/web";
+import type { SurfaceConversation } from "../../../shared/protocol/conversation";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
 
 export function ConversationActions({ conversation, title, disabled, active, action, onHistoryChange, onRename, onArchive, onOpenChange }: {
-  conversation: WebConversation; title: string; disabled: boolean; active: boolean;
+  conversation: SurfaceConversation; title: string; disabled: boolean; active: boolean;
   action: "rename" | "archive" | "compact"; onOpenChange: (open: boolean) => void;
   onHistoryChange: () => Promise<void>;
   onRename: (name: string) => void; onArchive: () => void;

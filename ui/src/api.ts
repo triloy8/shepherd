@@ -1,9 +1,10 @@
+import type { SurfaceConversation } from "../../shared/protocol/conversation";
 import type { ProviderDescriptor } from "../../shared/protocol/providers";
 import type { ProviderAccountLimits } from "../../shared/protocol/account_limits";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import type { WebHostAction, WebHostOperation, WebHostStatus, WebHostBatteryResponse } from "../../shared/protocol/host";
 import type { WebSkillsResponse, WebSkillResponse, WebSettingsResponse, WebModelsResponse, WebContextResponse, WebResetRequest } from "../../shared/protocol/web";
-import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversation, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
+import { WEB_API_PREFIX, type WebApprovalsResponse, type WebConversationsResponse, type WebConversationState, type WebCreateConversation, type WebEventData, type WebHistoryResponse, type WebMessageResponse, type WebThreadsResponse } from "../../shared/protocol/web";
 
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
@@ -13,7 +14,7 @@ export async function checked(response: Response): Promise<Response> {
   const data = await response.json().catch(() => null);
   throw new ApiError(response.status, data?.error?.code ?? "request_failed", data?.error?.message ?? `Request failed (${response.status}).`);
 }
-async function request<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
+export async function request<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   const timeout = AbortSignal.timeout(60_000);
   const response = await fetch(`${WEB_API_PREFIX}${path}`, {
     method, credentials: "omit", cache: "no-store",
@@ -46,7 +47,7 @@ export const api = {
   setEffort: (id: string, effort: import("../../shared/protocol/requests").EffortSelection) => request(`${conversationPath(id)}/effort`, "POST", { effort }),
   conversations: (signal?: AbortSignal) => request<WebConversationsResponse>("/conversations", "GET", undefined, signal),
   threads: (cursor?: string, signal?: AbortSignal, archived = false) => request<WebThreadsResponse>(`/threads${page(cursor)}&archived=${archived}`, "GET", undefined, signal),
-  create: (input: WebCreateConversation) => request<WebConversation>("/conversations", "POST", input),
+  create: (input: WebCreateConversation) => request<SurfaceConversation>("/conversations", "POST", input),
   state: (id: string, signal?: AbortSignal) => request<WebConversationState>(conversationPath(id), "GET", undefined, signal),
   history: (id: string, cursor?: string, signal?: AbortSignal) => request<WebHistoryResponse>(`${conversationPath(id)}/turns${page(cursor, HISTORY_PAGE_TURNS)}`, "GET", undefined, signal),
   approvals: (id: string, signal?: AbortSignal) => request<WebApprovalsResponse>(`${conversationPath(id)}/approvals`, "GET", undefined, signal),
@@ -55,15 +56,15 @@ export const api = {
   decide: (id: string, approvalId: string, decision: string, answers?: UserQuestionAnswers) => request(`${conversationPath(id)}/approvals/${encodeURIComponent(approvalId)}`, "POST", { decision, answers }),
   rename: (id: string, name: string) => request(`${conversationPath(id)}/rename`, "POST", { name }),
   archive: (id: string) => request(`${conversationPath(id)}/archive`, "POST", {}),
-  fork: (id: string) => request<WebConversation>(`${conversationPath(id)}/fork`, "POST", {}),
+  fork: (id: string) => request<SurfaceConversation>(`${conversationPath(id)}/fork`, "POST", {}),
   restore: (threadId: string) => request(`/threads/${encodeURIComponent(threadId)}/unarchive`, "POST", {}),
   detach: (id: string) => request(conversationPath(id), "DELETE"),
 };
 
-export type StreamEvent = { [K in keyof WebEventData]: { id: string; type: K; data: WebEventData[K] } }[keyof WebEventData];
+export type StreamEvent<Events = WebEventData> = { [K in keyof Events]: { id: string; type: K; data: Events[K] } }[keyof Events];
 
 /** SSE framing across arbitrary UTF-8/chunk/CRLF boundaries, without unbounded buffering. */
-export async function readEvents(body: ReadableStream<Uint8Array>, receive: (event: StreamEvent) => void, progress: () => void = () => {}, signal?: AbortSignal): Promise<void> {
+export async function readEvents<Events = WebEventData>(body: ReadableStream<Uint8Array>, receive: (event: StreamEvent<Events>) => void, progress: () => void = () => {}, signal?: AbortSignal, eventTypes: readonly string[] = ["bridge", "signal", "reset"]): Promise<void> {
   const reader = body.getReader();
   const cancel = () => { void reader.cancel().catch(() => {}); };
   signal?.addEventListener("abort", cancel, { once: true });
@@ -79,7 +80,7 @@ export async function readEvents(body: ReadableStream<Uint8Array>, receive: (eve
       const id = valueOf("id:").at(-1) ?? "";
       const data = valueOf("data:").join("\n");
       fields = []; size = 0;
-      if (data && ["bridge", "signal", "reset"].includes(type ?? "")) receive({ id, type, data: JSON.parse(data) } as StreamEvent);
+      if (data && eventTypes.includes(type ?? "")) receive({ id, type, data: JSON.parse(data) } as StreamEvent<Events>);
     } else if (!value.startsWith(":")) {
       fields.push(value); size += value.length;
       if (size > 262_144) throw new Error("Event exceeds the client buffer limit.");

@@ -49,7 +49,7 @@ cd /home/nio/shepherd
 ./deploy/ubuntu/setup.sh
 ```
 
-The setup script installs Ubuntu packages, Bun, Codex CLI `0.160.1`,
+The setup script installs Ubuntu packages, Bun, Codex CLI `0.170.0`,
 project dependencies, and missing runtime environment files. Existing `.env`
 files are preserved. It is safe to rerun after updates.
 
@@ -71,9 +71,10 @@ identifies `@openai/codex` as the official package.
 Select surfaces with `SHEPHERD_SURFACES=discord` in `envs/common.env`.
 The opt-in `web` surface serves the built-in UI and can run alongside Discord; configure its browser origins
 and private access using [the web API guide](../.docs/web-api.md).
-Deployment preserves the selection and does not enable web or Tailscale Serve.
+Deployment preserves the selection and does not enable browser surfaces or Tailscale Serve.
 An unset selection also defaults to Discord; an empty value is an error.
-Discord and web are implemented. When selecting Discord, set `DISCORD_BOT_TOKEN` in
+Discord and web are implemented. Teams use the web interface and its listener.
+See [teams in web](#teams-in-the-web-interface). When selecting Discord, set `DISCORD_BOT_TOKEN` in
 `envs/discord.env` or the process environment. For the initial deployment,
 keep these settings in `envs/common.env`:
 
@@ -116,6 +117,50 @@ bun run start
 ```
 
 Wait for `discord bridge ready`, verify the bot in Discord, then press `Ctrl-C`.
+
+## Teams in the web interface
+
+Teams use the existing web listener, origin, UI build, and supervisor. Select
+`web` (or `discord,web`) in `SHEPHERD_SURFACES`. No separate surface or port is
+needed. Every ordinary conversation starts with zero workers; delegation creates
+a saved team. The Swarm button opens the roster and read-only worker history.
+
+### Retire an existing Orbit installation
+
+1. Finish active work before the handoff and save the current configuration.
+2. Stop any separate preview supervisor. Only one host may write team records.
+3. Remove `swarm` from `SHEPHERD_SURFACES`; the retired surface is not accepted.
+   Keep `web` and any other supported surfaces you already use.
+4. Preserve `~/.shepherd/swarm-groups`, provider session directories, and worker
+   checkouts. If the old adapter env file set `SHEPHERD_SWARM_STATE_DIR`, move that
+   value into `envs/web.env`. The same records and dispatch receipts are read
+   directly; no conversion or compatibility adapter is needed.
+5. Retire `envs/swarm.env` and the old dedicated proxy handler. Open the existing
+   web URL. Do not reset unrelated proxy handlers.
+6. Run `bun run check:config`, build and test, then deploy/restart through the
+   normal supervisor. Verify `/api/health`, open a saved manager in web, and
+   inspect its team. Its next turn restores worker watches.
+
+Code deployment does not edit local configuration or private proxy routes.
+Configuration validation does not prove provider execution or automatic manager
+continuation; those require a real assignment. Browser disconnects leave work
+running. Team events reconnect with a fresh snapshot. After a process restart,
+conversation handles, watches and pending questions are volatile; saved membership,
+assignment receipts and provider history survive. Resume the parent conversation
+and its next turn renews watches. Do not automatically resend uncertain assignments.
+Deployment validation runs its child commands with the current checkout's
+`envs/common.env`; values loaded by the already-running host are excluded so
+editing or removing a setting is checked before restart. Values supplied by the
+launcher or process remain explicit overrides. Surface env files remain scoped
+to their selected adapters.
+
+### Rollback
+
+Preserve team storage, provider state and worker checkouts when rolling back.
+A revision predating teams can still run `web`, but cannot manage saved teams.
+Do not run two hosts against the same records. Rolling back does not undo worker
+changes or stop provider-launched commands; see the
+[command cancellation gap](../.docs/errors.md#codex-turn-interruption-can-leave-a-running-command-alive).
 
 ## Optional private networking with Tailscale
 
@@ -309,7 +354,7 @@ Enter Ubuntu normally and verify:
 
 When the pinned Codex version changes, rerun `./deploy/ubuntu/setup.sh` from the
 updated checkout as `nio`, then check `codex --version`. The current default is
-`0.160.1`; `CODEX_VERSION` can override it explicitly. The Discord `!deploy`
+`0.170.0`; `CODEX_VERSION` can override it explicitly. The Discord `!deploy`
 command updates Shepherd's checkout and dependencies, not the globally installed
 Codex executable.
 
@@ -393,12 +438,12 @@ retired. Standard host installs already use `bun run start` and need no launcher
 change. Custom launch commands must migrate to the common entrypoint.
 
 
-## Web UI artifacts
+## Browser UI artifacts
 
 `bun run check` builds the UI with Vite before validating the server, so normal
 deployment prepares both together. A failed deployment rebuilds the restored
-revision after restoring its dependencies. The running web listener keeps its
-previous assets in memory until restart. `bun run build:bin` embeds UI assets;
+revision after restoring its dependencies. The running browser listeners keep
+their previous assets in memory until restart. `index.html`, its fonts, and assets are built together. `bun run build:bin` embeds UI assets;
 Docker copies the same build output into the runtime image. For a manual source
 startup after installation, run `bun run build` first. See the
 [web UI guide](../.docs/web-ui.md) for private access and frontend development.

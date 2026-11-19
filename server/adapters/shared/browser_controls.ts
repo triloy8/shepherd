@@ -1,5 +1,5 @@
 import { executeControlAction, type ControlActionsContext, type ControlActionRequest } from "../../core/surface_api.js";
-import { WebRequestError } from "./errors.js";
+import { WebRequestError } from "./browser_errors.js";
 
 /** Shared semantics; this adapter only translates expected failures to HTTP. */
 export async function webControl(context: ControlActionsContext, request: ControlActionRequest) {

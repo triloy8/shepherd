@@ -36,7 +36,8 @@
   .sidebar-open { @apply translate-x-0; }
   .drawer-backdrop { @apply fixed inset-0 z-20 bg-black/60 lg:hidden; }
   .main-pane { @apply flex min-w-0 flex-1 flex-col; }
-  .main-header { @apply relative z-10 flex h-14 shrink-0 items-center gap-2 border-b border-line/60 bg-panel px-3 sm:h-16 sm:px-6; }
+  .main-header { @apply relative z-10 flex h-14 shrink-0 items-center gap-1 border-b border-line/60 bg-panel px-1 sm:h-16 sm:gap-2 sm:px-6; }
+  .conversation-header-actions > [role="img"] { @apply sm:order-first; }
   .icon-button { @apply inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-raised hover:text-ink; }
   .new-conversation { @apply flex w-full items-center gap-3 rounded-xl border border-line bg-raised/50 px-3.5 py-3 text-sm text-ink hover:border-accent/50 hover:bg-raised; }
   .thread-button { @apply mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[13px] text-muted hover:bg-raised/60 hover:text-ink; }
@@ -44,7 +45,7 @@
   .thread-selected > svg { @apply text-accent; }
   .sidebar-footer { @apply flex shrink-0 flex-col border-t border-line/60 px-3 py-2; padding-bottom: max(.5rem, env(safe-area-inset-bottom)); }
   .sidebar-control { @apply flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] text-muted hover:bg-raised hover:text-ink; }
-  .conversation-menu { @apply absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-24px)] rounded-xl border border-line bg-panel p-1.5 shadow-xl shadow-black/30; }
+  .conversation-menu { @apply absolute right-3 top-full z-20 mt-1 w-64 max-w-[calc(100vw-24px)] rounded-xl border border-line bg-panel p-1.5 shadow-xl shadow-black/30 sm:right-0; }
   .conversation-menu > button { @apply flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] text-muted hover:bg-raised hover:text-ink focus-visible:bg-raised; }
 
   .status-dot { @apply inline-block size-1.5 shrink-0 rounded-full bg-accent; }
@@ -125,3 +126,12 @@
   .settings-facts { @apply grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted; }
   .settings-facts dd { @apply min-w-0 break-words text-right text-ink; }
 }
+
+/* Team inspection shares the ordinary conversation shell and controls. */
+.worker-identity p { overflow-wrap: anywhere; word-break: break-word; }
+.swarm-caption, .swarm-eyebrow { font-size: 12px; color: var(--color-muted); margin: 8px 0; }
+.swarm-roster { list-style: none; padding: 0; display: grid; gap: 8px; }
+.swarm-worker { width: 100%; text-align: left; border: 1px solid var(--color-line); border-radius: 12px; padding: 12px; }
+.swarm-worker span { float: right; font-size: 12px; }
+.swarm-worker p { margin-top: 8px; font-size: 13px; overflow-wrap: anywhere; }
+.worker-history { max-height: 60dvh; overflow-y: auto; margin-top: 16px; }

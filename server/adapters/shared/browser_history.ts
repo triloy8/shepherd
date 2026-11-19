@@ -1,7 +1,7 @@
-import { validImageData, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
+import { validImageData, WEB_MESSAGE_MAX_BODY_BYTES } from "./browser_image_input.js";
 import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import type { WebHistoryItem } from "../../../shared/protocol/web.js";
-import type { WebImages } from "./images.js";
+import type { WebImages } from "./browser_images.js";
 export function presentHistoryItem(item: HistoryItem, turnId: string, images: WebImages): WebHistoryItem {
   const presented = presentItem(item, turnId, images);
   return item.parentItemId ? { ...presented, parentItemId: item.parentItemId } : presented;

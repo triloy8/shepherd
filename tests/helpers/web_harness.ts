@@ -1,5 +1,5 @@
-import { WebSurfaceApi } from "../../server/adapters/web/api.js";
-import { readWebConfig } from "../../server/adapters/web/config.js";
+import { WebSurfaceApi } from "../../server/adapters/shared/browser_api.js";
+import { readWebConfig } from "../../server/adapters/shared/browser_config.js";
 import { ApprovalsStore } from "../../server/core/conversation/approvals.js";
 import { ThreadBindingConflictError } from "../../server/core/conversation/conversation_routing_service.js";
 import type { SurfaceAdapterContext } from "../../server/core/surface/surface_adapter.js";
@@ -11,6 +11,7 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
   const projects = new Map<string, string>();
   const bindings = new Map<string, string>();
   const active = new Map<string, string | null>();
+  const instructions = new Map<string, string>();
   const approvals = new ApprovalsStore();
   const abort = new AbortController();
   let publish!: (id: string, event: BridgeEvent) => void;
@@ -20,10 +21,16 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
     getSurfaceProject: (id: string) => projects.get(id) ?? "/saved/workspace",
     inheritSurfaceProject: (id: string, source: string) => { const project = projects.get(source) ?? "/saved/workspace"; projects.set(id, project); return project; },
     async setSurfaceProject(id: string, project: string) { calls.push(`project:${id}`); projects.set(id, project); return { repoSlug: project }; },
-    async createSurfaceThread(id: string, _provider?: string) { const threadId = `thread-${++sequence}`; bindings.set(id, threadId); active.set(threadId, null); calls.push("create"); return threadId; },
-    async switchSurfaceThread(id: string, threadId: string) {
+    async createSurfaceThread(id: string, _provider?: string, value?: string) { const threadId = `thread-${++sequence}`; bindings.set(id, threadId); active.set(threadId, null); if (value) instructions.set(threadId, value); calls.push("create"); return threadId; },
+    async switchSurfaceThread(id: string, threadId: string, value?: string) {
       if (threadId === "discord-thread" || [...bindings.values()].includes(threadId)) throw new ThreadBindingConflictError(threadId);
-      bindings.set(id, threadId); active.set(threadId, null); calls.push("resume"); return threadId;
+      bindings.set(id, threadId); active.set(threadId, null); if (value) instructions.set(threadId, value); calls.push("resume"); return threadId;
+    },
+    async updateSurfaceInstructions(id: string, value: string) {
+      const threadId = bindings.get(id);
+      if (!threadId) throw new Error("Surface has no conversation.");
+      if (active.get(threadId)) throw new Error("thread_active");
+      instructions.set(threadId, value); calls.push(`instructions:${threadId}`);
     },
     disposeSurface(id: string) { calls.push(`dispose:${id}`); bindings.delete(id); },
     conversation: {
@@ -71,5 +78,5 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
     if (response.status !== 201) throw new Error(await response.text());
     return response.json() as Promise<{ id: string; threadId: string; project: string }>;
   };
-  return { api, context, config, calls, bindings, active, approvals, abort, application, request, create, publish: (id: string, event: BridgeEvent) => publish(id, event) };
+  return { api, context, config, calls, bindings, active, instructions, approvals, abort, application, request, create, publish: (id: string, event: BridgeEvent) => publish(id, event) };
 }

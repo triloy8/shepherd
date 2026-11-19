@@ -72,7 +72,7 @@ describe("CodexSession app-server contract", () => {
     expect(events[0]).toMatchObject({ type: "thread.reverted", threadId: "thread-1", payload: {} });
   });
 
-  test("defaults new threads to Sol medium while preserving explicit overrides", async () => {
+  test("defaults new threads to GPT-6.2 Sol medium while preserving explicit overrides", async () => {
     const previousModel = process.env.CODEX_MODEL;
     delete process.env.CODEX_MODEL;
     try {
@@ -85,7 +85,7 @@ describe("CodexSession app-server contract", () => {
       };
       await session.startThread({});
       await session.startThread({ model: "custom-model", effort: "high" });
-      expect(requests[0]).toMatchObject({ model: "gpt-6.1-sol", config: { model_reasoning_effort: "medium" } });
+      expect(requests[0]).toMatchObject({ model: "gpt-6.2-sol", config: { model_reasoning_effort: "medium" } });
       expect(requests[1]).toMatchObject({ model: "custom-model", config: { model_reasoning_effort: "high" } });
       process.env.CODEX_MODEL = "environment-model";
       await session.startThread({});
@@ -530,4 +530,16 @@ describe("thread/list response mapping", () => {
     expect(extractThreadSummary(thread, false).archived).toBe(false);
     expect(extractThreadSummary(thread, true).archived).toBe(true);
   });
+});
+
+test("host role instructions use native developer guidance on creation and resume", async () => {
+  const fake = fakeAppServer(request => request.method.startsWith("thread/") ? { thread: { id: "role-thread", cwd: "/project", model: "fixture", turns: [] } } : {});
+  const session = new CodexSession(undefined, undefined, fake.server);
+  try {
+    await session.startThread({ cwd: "/project", instructions: "You are the swarm manager." });
+    await session.resumeThread("role-thread", { cwd: "/project", instructions: "Restore the saved team." });
+    expect(fake.received().filter(r => r.method === "thread/start" || r.method === "thread/resume").map(r => r.params)).toMatchObject([
+      { developerInstructions: "You are the swarm manager." }, { developerInstructions: "Restore the saved team." },
+    ]);
+  } finally { session.stop(); fake.server.stop(); }
 });

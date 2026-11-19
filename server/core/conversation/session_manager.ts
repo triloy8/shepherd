@@ -106,6 +106,7 @@ export class SessionManager {
   private readonly sessionSubscriptions = new Map<ProviderSession, () => void>();
   private readonly applicationEvents = new Map<ProviderSession, EventBus>();
   private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
+  private readonly instructionUpdates = new Map<string, Promise<void>>();
   private stopped = false;
   /** New turns wait while a restart lets running work finish. */
   private newTurnsPaused = false;
@@ -142,6 +143,31 @@ export class SessionManager {
     this.resuming.set(threadId, operation);
     try { return await operation; }
     finally { this.resuming.delete(threadId); }
+  }
+
+  /** Update session-wide instructions on an already-loaded, idle thread. */
+  async updateThreadInstructions(threadId: string, instructions: string): Promise<void> {
+    this.assertRunning();
+    const previous = this.instructionUpdates.get(threadId);
+    const operation = (async () => {
+      await previous;
+      const managed = this.mustGet(threadId);
+      const runtime = this.runtime(threadId);
+      if (runtime.activeTurnId !== null || runtime.backgroundTaskCount > 0 || this.approvals.listByThread(threadId).some(approval => approval.status === "pending")) {
+        throw new Error("thread_active");
+      }
+      const model = this.modelStateByThread.get(threadId)?.currentModel;
+      const effort = this.effortStateByThread.get(threadId)?.current;
+      await managed.session.resumeThread(threadId, {
+        cwd: this.cwdByThread.get(threadId),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        instructions,
+      });
+    })();
+    this.instructionUpdates.set(threadId, operation);
+    try { await operation; }
+    finally { if (this.instructionUpdates.get(threadId) === operation) this.instructionUpdates.delete(threadId); }
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
@@ -471,6 +497,9 @@ export class SessionManager {
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     this.assertAdmitting();
     const managed = this.mustGet(threadId);
+    const instructionUpdate = this.instructionUpdates.get(threadId);
+    if (instructionUpdate) await instructionUpdate;
+    this.assertAdmitting();
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     const modelState = this.modelStateByThread.get(threadId);
     const model = request.model ?? modelState?.pendingModel ?? undefined;

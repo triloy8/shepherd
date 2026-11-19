@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { imageDataParts, WEB_IMAGE_MAX_COUNT, WEB_IMAGES_MAX_BYTES } from "../../../shared/protocol/image_input.js";
 import { detectImageMimeType } from "../../core/surface_api.js";
-import { WebRequestError } from "./errors.js";
+import { WebRequestError } from "./browser_errors.js";
 
 export const WEB_MESSAGE_MAX_BODY_BYTES = Math.ceil(WEB_IMAGES_MAX_BYTES / 3) * 4 + 256 * 1024;
 export function validImageData(value: unknown): value is string {

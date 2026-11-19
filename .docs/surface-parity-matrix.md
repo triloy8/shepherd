@@ -7,8 +7,9 @@ User-question coverage reviewed 2026-10-09 against `7e30d66`
 ([PR #88](https://github.com/triloy8/shepherd/pull/88)), using Codex CLI `0.160.1`.
 Documentation audit: 2026-10-31 against `0475c5e`; generated schemas were not
 available in this checkout.
-Current registered surfaces:
-**Discord** and **web**. This is an inventory of implemented user-facing behavior,
+Registered surfaces are **Discord** and **web**. Web includes
+[teams and worker inspection](web-teams.md).
+This is an inventory of implemented user-facing behavior,
 not a roadmap requiring identical interfaces. Provider capabilities that neither
 surface exposes are not automatically parity work.
 
@@ -77,7 +78,7 @@ channel conversation's agent, otherwise the default agent.
 
 Sources: [Discord commands](../server/adapters/discord/commands.ts),
 [web app](../ui/src/App.tsx), [conversation actions](../ui/src/components/ConversationActions.tsx),
-[web routes](../server/adapters/web/api.ts), [shared controls](../server/core/surface/control_actions_service.ts).
+[web routes](../server/adapters/shared/browser_api.ts), [shared controls](../server/core/surface/control_actions_service.ts).
 
 ## Input, routing and approvals
 
@@ -203,7 +204,7 @@ Sources: [Discord commands](../server/adapters/discord/commands.ts),
 Sources: [surface launch](surface-launch.md), [web API contract](web-api.md),
 [Discord lifecycle commands](../server/adapters/discord/commands.ts),
 [web host controls](../ui/src/components/HostControls.tsx),
-[web host operation service](../server/adapters/web/host_controls.ts),
+[web host operation service](../server/adapters/shared/browser_host_controls.ts),
 [web conversation recovery](../ui/src/use-conversation.ts).
 
 Revert support reviewed 2026-09-30 against Codex 0.159.2 in [PR #75](https://github.com/triloy8/shepherd/pull/75), based on

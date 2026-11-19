@@ -77,6 +77,7 @@ export class ClaudeSession implements ThreadSession {
   private readonly backgroundTasks = new BackgroundTasks();
   get backgroundTaskCount() { return this.backgroundTasks.count; }
   private thread: ClaudeThread | null = null;
+  private instructions: string | undefined;
   /** This process's turns, decoded with the same decoder as stored sessions. */
   private transcript = this.newTranscript();
   private running: Query | null = null;
@@ -111,6 +112,7 @@ export class ClaudeSession implements ThreadSession {
   async startThread(request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
     this.validateOverrides(request);
+    this.instructions = request.instructions;
     const defaults = claudeDefaults();
     this.bind({ id: randomUUID(), materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeEffort | undefined ?? defaults.effort, createdAt: Date.now() / 1000, pending: {} });
     this.publish("thread.started", {});
@@ -119,7 +121,7 @@ export class ClaudeSession implements ThreadSession {
   /** Claude's session records the conversation, not Shepherd's settings: a resumed conversation
    * uses the requested settings or the host defaults, and the model it last used. */
   async resumeThread(id: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
-    await this.initialize(); this.validateOverrides(request);
+    await this.initialize(); this.validateOverrides(request); this.instructions = request.instructions;
     const info = await sessionInfo(this.sdk, id);
     const { model, usage } = decodeTranscript(await this.sdk.getSessionMessages(id));
     const defaults = claudeDefaults();
@@ -128,7 +130,7 @@ export class ClaudeSession implements ThreadSession {
     return this.bootstrap();
   }
   async forkThread(id: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
-    await this.initialize(); this.validateOverrides(request);
+    await this.initialize(); this.validateOverrides(request); this.instructions = request.instructions;
     const info = await this.sdk.getSessionInfo(id);
     // The transcript stays in the project directory where it began. A thread's cwd can
     // later move to another workspace, so let the SDK search every project directory.
@@ -174,7 +176,7 @@ export class ClaudeSession implements ThreadSession {
       includePartialMessages: true, forwardSubagentText: true, settingSources: ["user", "project", "local"],
       // Thinking text is omitted unless requested; summaries are what these models return.
       extraArgs: { "thinking-display": "summarized" },
-      systemPrompt: { type: "preset", preset: "claude_code" },
+      systemPrompt: { type: "preset", preset: "claude_code", ...(this.instructions ? { append: this.instructions } : {}) },
       ...claudePermissionOptions(this.profile),
       // A denied tool is removed whatever the profile or Claude's settings allow.
       ...(claudeSubagentsEnabled() ? {} : { disallowedTools: ["Agent"] }),

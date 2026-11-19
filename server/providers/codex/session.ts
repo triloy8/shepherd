@@ -55,7 +55,7 @@ import {
 } from "./rpc_mapper.js";
 
 function getDefaultModel(): string {
-  return process.env.CODEX_MODEL ?? "gpt-6.1-sol";
+  return process.env.CODEX_MODEL ?? "gpt-6.2-sol";
 }
 
 
@@ -274,6 +274,7 @@ export class CodexSession implements ThreadSession {
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
       ...codexProfileSettings(request.profile ?? null),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
@@ -290,6 +291,7 @@ export class CodexSession implements ThreadSession {
     const result = await this.sendRequest("thread/resume", {
       threadId,
       ...codexProfileSettings(request.profile ?? null),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.model ? { model: request.model } : {}),
@@ -304,6 +306,7 @@ export class CodexSession implements ThreadSession {
     const result = await this.sendRequest("thread/fork", {
       threadId,
       ...codexProfileSettings(request.profile ?? null),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.model ? { model: request.model } : {}),

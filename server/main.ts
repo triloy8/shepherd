@@ -7,7 +7,7 @@ import { installShutdownHandlers } from "./runtime/process_lifecycle.js";
 import { assertDefaultProviderAcceptsThreadDefaults, assertInstalledProvider, threadDefaultNotices } from "./runtime/provider_services.js";
 
 async function main(): Promise<void> {
-  loadCommonEnvironment();
+  const childEnvironment = loadCommonEnvironment();
   const config = readRuntimeConfig();
   if (config.defaultProvider) assertInstalledProvider(config.defaultProvider);
   const surfaces = await prepareSurfaces(process.env, surfaceRegistry);
@@ -19,7 +19,7 @@ async function main(): Promise<void> {
     console.info(`Shepherd configuration valid. Selected surfaces: ${surfaces.map(({ id }) => id).join(", ")}`);
     return;
   }
-  const host = createSurfaceHost({ config, surfaces });
+  const host = createSurfaceHost({ config, surfaces, environment: childEnvironment });
   const removeHandlers = installShutdownHandlers(host.stop);
   try { await host.start(); }
   catch (error) { removeHandlers(); throw error; }

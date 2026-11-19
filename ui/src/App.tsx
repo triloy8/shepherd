@@ -312,7 +312,7 @@ export default function App() {
         whole transcript on every open and close, which stutters on phones. */}
     <main className="main-pane">
       <header className="main-header">
-        <button ref={sidebarTrigger} className="icon-button" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
+        <button ref={sidebarTrigger} className="icon-button max-sm:w-5" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
         {!selected && <><div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">Workspace</h1></div><HostBattery /></>}
         {selected && <ConversationMenu capabilities={controller.capabilities} key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} detaching={detaching || controller.busy} onDetach={() => void detach()}
           onHistoryChange={controller.refresh}

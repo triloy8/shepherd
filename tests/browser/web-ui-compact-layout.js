@@ -60,17 +60,37 @@ async page => {
       const statusButton = headerElement.querySelector('[aria-label^="Connection details:"]');
       const statusBounds = statusButton.getBoundingClientRect();
       const dot = statusButton.querySelector('.status-dot').getBoundingClientRect();
-      const battery = actionGroup.querySelector('[role="img"]').getBoundingClientRect();
-      const menuBounds = actionGroup.querySelector('[aria-label="Conversation menu"]').getBoundingClientRect();
+      const batteryIndicator = actionGroup.querySelector('[role="img"]');
+      const battery = batteryIndicator.getBoundingClientRect();
+      const sidebarButton = headerElement.querySelector('[aria-label="Open conversations"]');
+      const sidebarBounds = sidebarButton.getBoundingClientRect();
+      const hamburger = sidebarButton.querySelector('path').getBoundingClientRect();
+      const menuButton = actionGroup.querySelector('[aria-label="Conversation menu"]');
+      const menuBounds = menuButton.getBoundingClientRect();
+      const ellipsis = menuButton.querySelector('path').getBoundingClientRect();
       const swarm = actionGroup.querySelector('button[aria-haspopup="dialog"]').getBoundingClientRect();
+      const compactWidths = new Map([[sidebarButton, 20], [statusButton, 16], [menuButton, 22]]);
+      const titleButton = headerElement.querySelector('h1 button');
+      const titleBounds = titleButton.getBoundingClientRect();
+      const labelInsets = [titleButton, batteryIndicator].flatMap(element => {
+        const { paddingLeft, paddingRight } = getComputedStyle(element);
+        return [parseFloat(paddingLeft), parseFloat(paddingRight)];
+      });
       const form = document.querySelector('.composer').getBoundingClientRect();
       const dock = document.querySelector('.composer-area').getBoundingClientRect();
       const stage = document.querySelector('.conversation-stage').getBoundingClientRect();
       return { headerHeight:header.height, inset:form.left - stage.left, bottom:form.bottom, stageBottom:stage.bottom,
         headerGaps: items.slice(1).map((item, index) => item.left - items[index].right),
         headerGap: parseFloat(getComputedStyle(headerElement).columnGap),
-        actionGaps: [menuBounds.left - statusBounds.right, swarm.left - menuBounds.right],
-        batteryGaps: [battery.left - swarm.right, header.right - battery.right],
+        mobileGaps: [sidebarBounds, titleBounds, statusBounds, menuBounds, swarm, battery].map((item, index, bounds) =>
+          item.left - (bounds[index - 1]?.right ?? header.left)
+        ).concat(header.right - battery.right),
+        iconInsets: [
+          hamburger.left - sidebarBounds.left, sidebarBounds.right - hamburger.right,
+          dot.left - statusBounds.left, statusBounds.right - dot.right,
+          ellipsis.left - menuBounds.left, menuBounds.right - ellipsis.right,
+          ...labelInsets,
+        ],
         statusDotCentered: Math.abs(dot.left + dot.width / 2 - (statusBounds.left + statusBounds.width / 2)) <= 1 &&
           Math.abs(dot.top + dot.height / 2 - (statusBounds.top + statusBounds.height / 2)) <= 1,
         headerAligned: items.every(item => Math.abs(item.top + item.height / 2 - (header.top + header.height / 2)) <= 1),
@@ -79,19 +99,19 @@ async page => {
         reserve:parseFloat(getComputedStyle(document.querySelector('.chat-content')).paddingBottom), dockHeight:dock.height,
         controls:[...document.querySelectorAll('.main-header .icon-button, .composer .icon-button, .composer .send-button')].map(el => {
           const { width, height } = el.getBoundingClientRect();
-          return { width, height, compact: !!el.querySelector('.conversation-header-indicator'), status: el === statusButton };
+          return { width, height, compactWidth: compactWidths.get(el) ?? null };
         }).filter(control => control.width || control.height) };
     });
     if (geometry.headerHeight > 64 || geometry.inset < 10 || geometry.bottom >= geometry.stageBottom) throw Error(`Floating layout invalid at ${width}`);
     if (!geometry.headerAligned || geometry.headerOverflow || geometry.headerGaps.some(gap => Math.abs(gap - geometry.headerGap) > 1)) throw Error(`Uneven header spacing at ${width}`);
     if (!geometry.statusDotCentered) throw Error(`Status dot is off-center at ${width}`);
-    if (width < 640 && geometry.actionGaps.some(gap => Math.abs(gap) > 1)) throw Error(`Header buttons are not flush at ${width}`);
-    if (width < 640 && geometry.batteryGaps.some(gap => Math.abs(gap - 4) > 1)) throw Error(`Battery lacks 4px spacing at ${width}`);
+    if (width < 640 && geometry.mobileGaps.some(gap => Math.abs(gap - 4) > 1)) throw Error(`Header controls lack uniform 4px spacing at ${width}`);
+    if (width < 640 && geometry.iconInsets.some(inset => Math.abs(inset - 4) > 1)) throw Error(`Header icons lack 4px tap insets at ${width}`);
     if (width < 640 && geometry.titleWidth < (width === 320 ? 20 : 90)) throw Error(`Header controls crowd the title at ${width}`);
     if (await page.getByRole('button', { name: 'Swarm · 0', exact: true }).innerText() !== 'Swarm · 0') throw Error(`Swarm label is hidden at ${width}`);
     if (geometry.reserve < geometry.dockHeight) throw Error('Composer covers the last transcript message');
     if (geometry.controls.some(control => {
-      if (width < 640 && control.compact) return control.height < 44 || Math.abs(control.width - (control.status ? 28 : 36)) > 1;
+      if (width < 640 && control.compactWidth !== null) return control.height < 44 || Math.abs(control.width - control.compactWidth) > 1;
       return control.height < 44 || control.width < 44;
     })) throw Error(`Unexpected touch target size at ${width}`);
     await menuButton.click();

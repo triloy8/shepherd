@@ -21,13 +21,13 @@ const render = (state: ReturnType<typeof emptyChat>) => renderToStaticMarkup(cre
 test("automated messages have a stable author and cannot replace identical human input", () => {
   const images = new WebImages("conversation");
   for (const [source, label] of [["webhook", "Webhook"], ["thread_watch", "Watched thread update"], ["swarm_assignment", "Swarm assignment"]] as const) {
-    const text = "Identical prompt";
+    const text = "- `Identical prompt`";
     const wake = presentHistoryItem({ id: "wake", type: "user_message", source, content: [{ type: "text", text }] }, "turn", images);
     const human = presentHistoryItem({ id: "human", type: "user_message", content: [{ type: "text", text }] }, "turn", images);
     const live = reduceBridge(emptyChat(), { ...event("wake-event", "item.completed", null), type: "item.completed", payload: { turnId: "turn", item: wake } });
     expect(render(live)).toContain(`>${label}</span>`);
     expect(render(live)).toContain("message-user message-automated");
-    expect(render(live)).toContain(text);
+    expect(render(live)).toContain(source === "thread_watch" ? "<li><code>Identical prompt</code></li>" : text);
     expect(render(live)).not.toContain("<details");
     expect(render(live)).not.toContain(">You</span>");
     const typed = acceptUserMessage(live, { id: "submitted", turnId: "turn", role: "user", text, complete: true }, []);
@@ -39,6 +39,7 @@ test("automated messages have a stable author and cannot replace identical human
     expect(render(synced)).toEqual(render(reloaded));
     expect(render(reloaded)).toContain(`>${label}</span>`);
     expect(render(reloaded)).toContain(">You</span>");
+    expect(render(reloaded)).toContain(text);
   }
 });
 

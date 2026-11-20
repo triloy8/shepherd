@@ -160,7 +160,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
       {!message.complete && !writingPaused && <span className="ml-1 text-dim">Writing…</span>}
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
-    {message.role === "user" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
+    {message.role === "user" && message.source !== "thread_watch" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
       : <MessageMarkdown text={renderedText} images={images} prefix={prefix} complete={message.complete && renderedText === message.text} />}
     {!progress && (!copyOnClick || onRevert) && actions}
     {copyOnClick && canCopy && (copied || copyError) && <span className={`message-copy-feedback ${copyError ? "copy-failed" : ""}`} role="status" data-copy-state={copyError ? "error" : "copied"}>

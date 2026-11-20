@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { emptyChat, mergeHistory, reduceBridge } from "../ui/src/chat-state";
+import { acceptUserMessage, emptyChat, mergeHistory, reduceBridge } from "../ui/src/chat-state";
 import { timelineGroups } from "../ui/src/timeline";
 import { Timeline } from "../ui/src/components/Timeline";
 import type { HistoryTurn } from "../shared/protocol/requests";
@@ -17,6 +17,30 @@ const turn = (status: HistoryTurn["status"] = "completed"): HistoryTurn => ({
 });
 const event = (id: string, type: BridgeEvent["type"], payload: unknown): BridgeEvent => ({ id, type, payload, threadId: "thread", sessionId: "session", ts: "2026-01-01T00:00:00Z" });
 const render = (state: ReturnType<typeof emptyChat>) => renderToStaticMarkup(createElement(Timeline, { chat: state }));
+
+test("automated messages have a stable author and cannot replace identical human input", () => {
+  const images = new WebImages("conversation");
+  for (const [source, label] of [["webhook", "Webhook"], ["thread_watch", "Watched thread update"], ["swarm_assignment", "Swarm assignment"]] as const) {
+    const text = "Identical prompt";
+    const wake = presentHistoryItem({ id: "wake", type: "user_message", source, content: [{ type: "text", text }] }, "turn", images);
+    const human = presentHistoryItem({ id: "human", type: "user_message", content: [{ type: "text", text }] }, "turn", images);
+    const live = reduceBridge(emptyChat(), { ...event("wake-event", "item.completed", null), type: "item.completed", payload: { turnId: "turn", item: wake } });
+    expect(render(live)).toContain(`>${label}</span>`);
+    expect(render(live)).toContain("message-user message-automated");
+    expect(render(live)).toContain(text);
+    expect(render(live)).not.toContain("<details");
+    expect(render(live)).not.toContain(">You</span>");
+    const typed = acceptUserMessage(live, { id: "submitted", turnId: "turn", role: "user", text, complete: true }, []);
+    expect(typed.messages).toHaveLength(2);
+    const saved = { ...turn(), items: [wake, human] };
+    const synced = mergeHistory(typed, [saved]);
+    const reloaded = mergeHistory(emptyChat(), [saved]);
+    expect(synced.messages.map(message => message.id)).toEqual(["wake", "human"]);
+    expect(render(synced)).toEqual(render(reloaded));
+    expect(render(reloaded)).toContain(`>${label}</span>`);
+    expect(render(reloaded)).toContain(">You</span>");
+  }
+});
 
 test("plans and reasoning survive web presentation and render as progress rather than final answers", () => {
   const source = turn("in_progress");

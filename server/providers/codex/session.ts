@@ -11,6 +11,7 @@ import type { ProviderSkillsRequest } from "../../ports/provider_session.js";
 import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import { CodexAppServer, type AppServerConnection, type RawServerRequest } from "./app_server.js";
 import { randomUUID } from "node:crypto";
+import { codexClientMessageId } from "./message_source.js";
 
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
@@ -129,6 +130,7 @@ type AppServerRequestParams = {
   "skills/config/write": { enabled: boolean; path: string };
   "turn/start": {
     threadId: string;
+    clientUserMessageId?: string;
     approvalPolicy?: NativeApprovalPolicy;
     input: NativeInput[];
     model?: string;
@@ -430,7 +432,7 @@ export class CodexSession implements ThreadSession {
     }));
   }
 
-  async startTurn(input: UserInput[], { model, effort }: TurnSettings = {}): Promise<string | null> {
+  async startTurn(input: UserInput[], { model, effort, source }: TurnSettings = {}): Promise<string | null> {
     assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
     this.messagePhaseByItemId.clear();
@@ -439,6 +441,7 @@ export class CodexSession implements ThreadSession {
     const result = await this.sendRequest("turn/start", {
       threadId,
       input: codexInput(input),
+      ...(source ? { clientUserMessageId: codexClientMessageId(source) } : {}),
       ...(model ? { model } : {}),
       cwd: this.cwd,
       ...(effort !== undefined ? { effort } : {}),

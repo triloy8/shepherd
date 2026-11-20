@@ -305,6 +305,11 @@ test("delegation watches before sending, appears in saved roster, and deduplicat
   const h = harness(memoryStore(), true);
   try {
     const group = await h.create(); h.active.set(group.managerThreadId, "manager-turn");
+    const submit = h.context.ingress.submitTurn;
+    h.context.ingress.submitTurn = (threadId, request) => {
+      expect(request.source).toBe("swarm_assignment");
+      return submit(threadId, request);
+    };
     const args = { name: "Solu", assignment: "Review layout.\nRun checks.", requestId: "layout-1" };
     const result = await h.manage(group.managerThreadId, "swarm_delegate", args) as { threadId: string };
     expect(h.calls.findIndex(c => c.startsWith("watch:"))).toBeLessThan(h.calls.indexOf(`submit:${result.threadId}`));

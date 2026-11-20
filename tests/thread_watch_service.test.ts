@@ -111,6 +111,7 @@ describe("ThreadWatchService", () => {
       target: { type: "conversation", threadId: "parent", cwd: "/work/parent", delivery: { adapter: "web", surfaceId: "handle-1" } },
       coalesceKey: "thread-watch:parent:swarm-1",
       terminal: false,
+      source: "thread_watch",
     });
     const payload = signal.envelope.payload as ThreadWatchPayload;
     expect(payload.changed).toEqual({ label: "agent-1", threadId: "child-1", state: "completed" });

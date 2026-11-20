@@ -1,6 +1,7 @@
 import type {
   GetThreadStateResponse,
   SteerTurnResponse,
+  SubmitTurnRequest,
   SubmitTurnResponse,
 } from "../../../shared/protocol/requests.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
@@ -17,7 +18,7 @@ export type TurnRoutingConversation = {
   getThreadState: (threadId: string) => GetThreadStateResponse;
   submitTurn: (
     threadId: string,
-    request: { input: UserInput[] },
+    request: SubmitTurnRequest,
   ) => Promise<SubmitTurnResponse>;
   steerTurn: (
     threadId: string,

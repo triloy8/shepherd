@@ -5,6 +5,7 @@ import { CodexSession } from "../server/providers/codex/session.js";
 import { DynamicToolRegistry } from "../server/core/conversation/dynamic_tool_registry.js";
 import { extractThreadSummary } from "../server/core/conversation/session_manager.js";
 import { fakeAppServer } from "./helpers/fake_app_server.js";
+import { toTextUserInput } from "../shared/protocol/user_input.js";
 
 type SessionInternals = {
   sendRequest: (method: string, params?: unknown) => Promise<unknown>;
@@ -18,6 +19,42 @@ function internals(session: CodexSession): SessionInternals {
 }
 
 describe("CodexSession app-server contract", () => {
+  test("automated input provenance uses native client IDs in live events and history", async () => {
+    const session = new CodexSession();
+    session.threadId = "thread-1";
+    session.initialize = async () => {};
+    const text = "The same text could also come from a person.";
+    const content = [{ type: "text", text, text_elements: [] }];
+    const sent: Array<{ input: unknown; clientUserMessageId?: string }> = [];
+    internals(session).sendRequest = async (method, params) => {
+      expect(method).toBe("turn/start");
+      sent.push(params as typeof sent[number]);
+      return { turn: { id: "turn-1" } };
+    };
+    const input = [toTextUserInput(text)];
+    await session.startTurn(input, { source: "webhook" });
+    await session.startTurn(input, {});
+    expect(sent[0]?.clientUserMessageId).toMatch(/^shepherd:v1:webhook:/);
+    expect(sent[0]?.input).toEqual(content);
+    expect(sent[1]?.clientUserMessageId).toBeUndefined();
+    const item = { id: "wake", type: "userMessage", clientId: sent[0]!.clientUserMessageId, content };
+    const events: BridgeEvent[] = [];
+    session.eventBus.subscribe(event => events.push(event), { replay: false });
+    internals(session).onNotification("item/completed", { threadId: "thread-1", turnId: "turn-1", item });
+    const recovered = new CodexSession();
+    recovered.initialize = async () => {};
+    internals(recovered).sendRequest = async () => ({ data: [{ id: "turn-1", items: [
+      item, { ...item, id: "human", clientId: null }, { ...item, id: "foreign", clientId: "shepherd:v1:webhook:invalid" },
+    ] }] });
+    const history = (await recovered.listThreadTurns("thread-1", {})).data[0]!.items;
+    expect(history).toEqual([
+      { id: "wake", type: "user_message", source: "webhook", content: [{ type: "text", text }] },
+      { id: "human", type: "user_message", content: [{ type: "text", text }] },
+      { id: "foreign", type: "user_message", content: [{ type: "text", text }] },
+    ]);
+    expect(events).toMatchObject([{ type: "item.completed", payload: { item: history[0] } }]);
+  });
+
   test("publishes viewed images only on successful item completion", () => {
     const session = new CodexSession();
     session.threadId = "thread-1";

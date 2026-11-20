@@ -2,6 +2,7 @@ import type { ProviderCapabilities } from "./provider_capabilities.js";
 import type { ApprovalDecisionRequest, ApprovalRecord } from "./approvals.js";
 import type { UserInput } from "./user_input.js";
 import type { ModelCapabilities } from "./model_capabilities.js";
+import type { MessageSource } from "./message_source.js";
 export type { EffortOption, ModelCapabilities, ModelInputModality } from "./model_capabilities.js";
 
 import type { ExecutionPolicy } from "./execution_policy.js";
@@ -37,6 +38,8 @@ export interface SubmitTurnRequest {
   effort?: string | null;
   input: UserInput[];
   model?: string;
+  /** Set by trusted application ingress. Public request validators do not accept it. */
+  source?: MessageSource;
 }
 
 export interface SubmitTurnResponse {
@@ -354,7 +357,7 @@ export type HistoryItem = HistoryItemBody & {
 };
 
 type HistoryItemBody =
-  | { id: string; type: "user_message"; content: HistoryContentPart[] }
+  | { id: string; type: "user_message"; content: HistoryContentPart[]; source?: MessageSource }
   | { id: string; type: "assistant_message"; text: string; phase?: import("./events.js").MessagePhase }
   | { id: string; type: "plan"; text: string }
   | { id: string; type: "reasoning"; form: ReasoningForm; parts: string[] }

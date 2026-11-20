@@ -3,6 +3,7 @@ import type { ApprovalDecisionRequest } from "../../shared/protocol/approvals.js
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
+import type { MessageSource } from "../../shared/protocol/message_source.js";
 
 export interface ProviderEvents {
   publish(event: BridgeEvent): void;
@@ -30,6 +31,8 @@ export type ProviderThreadRequest = Pick<Protocol.CreateThreadRequest, "cwd" | "
 export interface TurnSettings {
   model?: string;
   effort?: string | null;
+  /** Provenance of the initiating input. It never changes turn policy. */
+  source?: MessageSource;
 }
 
 /** Providers are local coding agents; every bootstrapped thread has a workspace.

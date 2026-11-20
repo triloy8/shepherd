@@ -1,6 +1,8 @@
 import type { HistoryContentPart, HistoryItem, HistoryTurn, TurnStatus } from "../../../shared/protocol/requests.js";
 import { claudeActivity, claudeActivityFields } from "./activity.js";
 import { commandResult } from "../../../shared/protocol/activity.js";
+import type { MessageSource } from "../../../shared/protocol/message_source.js";
+import { claudeMessageSource } from "./message_source.js";
 
 /* Claude's transcript is authoritative. One decoder turns its messages into application turns
  * and items, both for the live SDK stream and for stored sessions, so an item delivered live is
@@ -62,10 +64,10 @@ export class ClaudeTranscript {
 
   /** A prompt begins a turn. Background task notifications begin one without a user message,
    * marked as started by background work. */
-  beginTurn(id: string, startedAt: number, content: HistoryContentPart[] | null): HistoryTurn {
+  beginTurn(id: string, startedAt: number, content: HistoryContentPart[] | null, source?: MessageSource): HistoryTurn {
     const turn: HistoryTurn = { id, ...(content ? {} : { trigger: "background" as const }), items: [], itemsView: "full", status: "in_progress", error: null, startedAt, completedAt: null, durationMs: null };
     this.turns.push(turn);
-    if (content) turn.items.push({ id, type: "user_message", content });
+    if (content) turn.items.push({ id, type: "user_message", content, ...(source ? { source } : {}) });
     return turn;
   }
 
@@ -85,8 +87,8 @@ export class ClaudeTranscript {
   }
 
   /** Input sent while a turn runs joins that turn. */
-  steer(id: string, content: HistoryContentPart[]): void {
-    this.current?.items.push({ id, type: "user_message", content });
+  steer(id: string, content: HistoryContentPart[], source?: MessageSource): void {
+    this.current?.items.push({ id, type: "user_message", content, ...(source ? { source } : {}) });
   }
 
   /** A response ended: its last text answers the input it responded to. */
@@ -248,7 +250,7 @@ export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurn
       // background task's notification can be queued too; it is not the user's words, so the
       // turn continues without a message from them.
       transcript.answered();
-      if (record(entry.origin).kind !== "task-notification") transcript.steer(entry.uuid, promptContent(message.content));
+      if (record(entry.origin).kind !== "task-notification") transcript.steer(entry.uuid, promptContent(message.content), claudeMessageSource(entry.uuid, entry.origin));
     } else if (entry.type === "user") {
       const origin = record(entry.origin);
       const background = origin.kind === "task-notification";
@@ -257,7 +259,7 @@ export function decodeTranscript(entries: readonly TranscriptEntry[], activeTurn
       if (!(background && waking && transcript.current?.items.length === 0)) {
         // A turn ends with its last entry, before the next prompt.
         transcript.finish("completed", last);
-        transcript.beginTurn(background && typeof origin.runId === "string" && origin.runId ? origin.runId : entry.uuid, at, background ? null : promptContent(message.content));
+        transcript.beginTurn(background && typeof origin.runId === "string" && origin.runId ? origin.runId : entry.uuid, at, background ? null : promptContent(message.content), claudeMessageSource(entry.uuid, origin));
         waking = background;
       }
     }

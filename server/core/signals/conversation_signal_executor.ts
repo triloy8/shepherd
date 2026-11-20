@@ -1,5 +1,6 @@
 import type { BridgeEvent } from "../../../shared/protocol/events.js";
-import type { SubmitTurnResponse } from "../../../shared/protocol/requests.js";
+import type { SubmitTurnRequest, SubmitTurnResponse } from "../../../shared/protocol/requests.js";
+import type { MessageSource } from "../../../shared/protocol/message_source.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import type { ResolvedSignalTarget, SignalExecutor } from "./signal_dispatcher.js";
 import type { SignalTarget } from "./signal_registry.js";
@@ -13,7 +14,7 @@ type ConversationSignalPort = {
     listener: (event: BridgeEvent) => void,
     options: { replay: false },
   ) => () => void;
-  submitTurn: (threadId: string, request: { input: UserInput[] }) => Promise<SubmitTurnResponse>;
+  submitTurn: (threadId: string, request: SubmitTurnRequest) => Promise<SubmitTurnResponse>;
 };
 
 function eventTurnId(event: BridgeEvent): string | null {
@@ -50,7 +51,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
     }
   }
 
-  executeTurn(target: ResolvedSignalTarget, input: UserInput[]): Promise<void> {
+  executeTurn(target: ResolvedSignalTarget, input: UserInput[], source?: MessageSource): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       let expectedTurnId: string | null | undefined;
       const earlyTerminalTurnIds = new Set<string | null>();
@@ -88,7 +89,7 @@ export class ConversationSignalExecutor implements SignalExecutor {
         { replay: false },
       );
 
-      void this.conversation.submitTurn(target.threadId, { input }).then(
+      void this.conversation.submitTurn(target.threadId, { input, ...(source ? { source } : {}) }).then(
         (result) => {
           expectedTurnId = result.turnId;
           if (

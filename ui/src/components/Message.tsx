@@ -9,6 +9,7 @@ import { CodeBlock } from "./CodeBlock";
 import { MermaidBlock } from "./MermaidBlock";
 import { Icon } from "./Icon";
 import type { WebImage } from "../../../shared/protocol/web";
+import type { MessageSource } from "../../../shared/protocol/message_source";
 import { resolveImageArtifact } from "../image-artifacts";
 import { ImageArtifact } from "./ImageArtifact";
 
@@ -68,6 +69,12 @@ const markdownComponents: Components = {
 };
 
 const emptyImages: readonly WebImage[] = [];
+const inputAuthors: Record<MessageSource, string> = {
+  human: "You",
+  webhook: "Webhook",
+  thread_watch: "Watched thread update",
+  swarm_assignment: "Swarm assignment",
+};
 
 /** Rendered Markdown by footnote prefix and text, most recently used last. Parsing is the
  * costliest part of showing a conversation, so returning to one reuses its rendered answers.
@@ -112,6 +119,8 @@ const AttachedImage = memo(function AttachedImage({ url, index }: { url: string;
 export function Message({ message, images = emptyImages, progress = false, showAuthor = true, showCopy = true, writingPaused = false, onRevert, revertDisabled = false }: { message: ChatMessage; images?: readonly WebImage[]; progress?: boolean; showAuthor?: boolean; showCopy?: boolean; writingPaused?: boolean; onRevert?: () => void; revertDisabled?: boolean }) {
   const identity = useContext(MessageIdentity);
   const copyOnClick = useContext(MessageCopyOnClick);
+  const author = message.role === "user" ? inputAuthors[message.source ?? "human"] ?? "You" : "Shepherd";
+  const automated = message.role === "user" && author !== "You";
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [copyNotice, setCopyNotice] = useState(0);
@@ -131,7 +140,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
       {!copyOnClick && showCopy && message.complete && message.text && <button className="message-copy flex items-center gap-1.5 text-xs text-dim hover:text-ink" data-copy-state={copyError ? "error" : copied ? "copied" : "idle"} title={copyError ? "Could not copy. Try again." : copied ? "Copied" : "Copy"} aria-label={message.role === "user" ? "Copy message" : "Copy response"} onClick={() => void copyMessage()}><Icon name={copyError ? "close" : copied ? "check" : "copy"} className="size-3.5" /><span className="message-copy-label">{copyError ? "Could not copy" : copied ? "Copied" : "Copy"}</span></button>}
       {onRevert && message.role === "user" && message.complete && message.turnId && !message.optimistic && <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink disabled:opacity-50" disabled={revertDisabled} onClick={onRevert}><Icon name="revert" className="size-3.5" />Revert from here</button>}
     </div>;
-  return <article className={`message timeline-entry ${message.role === "user" ? "message-user" : "message-assistant"}${progress ? " message-progress" : ""}`} data-copy-on-click={copyOnClick && canCopy || undefined}
+  return <article className={`message timeline-entry ${message.role === "user" ? "message-user" : "message-assistant"}${automated ? " message-automated" : ""}${progress ? " message-progress" : ""}`} data-copy-on-click={copyOnClick && canCopy || undefined}
     tabIndex={copyOnClick && canCopy ? 0 : undefined}
     aria-description={copyOnClick && canCopy ? "Press Enter or Space to copy this message." : undefined}
     onKeyDown={copyOnClick && canCopy ? event => {
@@ -146,8 +155,8 @@ export function Message({ message, images = emptyImages, progress = false, showA
     } : undefined}>
     {identity && !progress && <span className="message-identity" aria-hidden="true">{identity(message.role)}</span>}
     {!progress && showAuthor && <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
-      {message.role === "user" && <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
-      <span>{message.role === "user" ? "You" : "Shepherd"}</span>
+      {message.role === "user" && !automated && <span className="flex size-6 items-center justify-center rounded-full bg-raised text-[10px] text-ink">Y</span>}
+      <span>{author}</span>
       {!message.complete && !writingPaused && <span className="ml-1 text-dim">Writing…</span>}
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}

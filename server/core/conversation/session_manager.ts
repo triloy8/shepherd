@@ -521,6 +521,7 @@ export class SessionManager {
     // pending selections; a failed start leaves them pending and retryable.
     const turnId = await managed.session.startTurn(request.input, {
       ...(model ? { model } : {}), ...(effort !== undefined ? { effort } : {}),
+      ...(request.source ? { source: request.source } : {}),
     });
     return { ok: true, turnId };
   }

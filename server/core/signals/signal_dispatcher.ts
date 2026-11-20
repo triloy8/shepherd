@@ -1,4 +1,5 @@
 import type { UserInput } from "../../../shared/protocol/user_input.js";
+import type { MessageSource } from "../../../shared/protocol/message_source.js";
 import type { RegisteredSignal, SignalTarget } from "./signal_registry.js";
 
 export type ResolvedSignalTarget = {
@@ -9,7 +10,7 @@ export type ResolvedSignalTarget = {
 export type SignalExecutor = {
   resolveTarget: (target: SignalTarget) => Promise<ResolvedSignalTarget | null>;
   waitUntilIdle: (target: ResolvedSignalTarget) => Promise<void>;
-  executeTurn: (target: ResolvedSignalTarget, input: UserInput[]) => Promise<void>;
+  executeTurn: (target: ResolvedSignalTarget, input: UserInput[], source?: MessageSource) => Promise<void>;
 };
 
 export type SignalDispatchResult =
@@ -140,7 +141,7 @@ export class SignalDispatcher {
           continue;
         }
         await this.beforeExecute(queued.signal);
-        await this.executor.executeTurn(queued.target, queued.signal.input);
+        await this.executor.executeTurn(queued.target, queued.signal.input, queued.signal.source);
       } catch (error) {
         this.onError(error, queued.signal);
       } finally {

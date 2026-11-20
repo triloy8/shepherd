@@ -12,7 +12,7 @@ function presentItem(item: HistoryItem, turnId: string, images: WebImages): WebH
     case "user_message": {
       // Never turn provider history into arbitrary remote browser fetches.
       let bytes = 0; let count = 0;
-      return { id: item.id, type: item.type, content: item.content.map((part) => {
+      return { id: item.id, type: item.type, ...(item.source ? { source: item.source } : {}), content: item.content.map((part) => {
         // The browser only labels audio, so its bytes and remote URLs stay on the server.
         if (part.type === "audio") return { type: "audio" };
         if (part.type !== "image") return part;

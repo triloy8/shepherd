@@ -1,4 +1,5 @@
 import type { UserInput } from "../../../shared/protocol/user_input.js";
+import type { MessageSource } from "../../../shared/protocol/message_source.js";
 import type { SignalEnvelope, SignalSubject } from "../../../shared/protocol/signals.js";
 
 const SIGNAL_KIND_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
@@ -30,6 +31,7 @@ export type RegisteredSignal = {
   input: UserInput[];
   coalesceKey: string | null;
   terminal: boolean;
+  source?: MessageSource;
 };
 
 export class InvalidSignalError extends Error {}

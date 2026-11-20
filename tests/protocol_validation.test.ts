@@ -25,6 +25,7 @@ describe("application protocol validation", () => {
       expect(() => validateCreateThreadRequest({ policy: invalid })).toThrow("Invalid execution policy");
     }
     expect(() => validateSubmitTurnRequest({ input: "hi", approvalPolicy: "bypass" })).toThrow("Unsupported request field: approvalPolicy");
+    expect(() => validateSubmitTurnRequest({ input: "hi", source: "webhook" })).toThrow("Unsupported request field: source");
   });
 
   test("accepts shared sorting and multiple workspace filters; rejects native listing knobs", () => {

@@ -116,6 +116,38 @@ async function done(session: ClaudeSession) {
   });
 }
 
+test("Claude restores automated message source from its transcript UUID", async () => {
+  const prompts: SDKUserMessage[] = [];
+  const fake = sdk(async function* (input) {
+    for await (const message of input) {
+      prompts.push(message);
+      yield result;
+    }
+  });
+  const session = new ClaudeSession(undefined, fake);
+  const created = await session.startThread({ cwd: "/repo" });
+  const events: BridgeEvent[] = [];
+  session.eventBus.subscribe(event => events.push(event), { replay: false });
+  const input = [toTextUserInput("Identical prompt")];
+  try {
+    const wake = await session.startTurn(input, { source: "thread_watch" });
+    await done(session);
+    await session.startTurn(input);
+    await done(session);
+    expect(prompts.map(prompt => prompt.message.content)).toEqual([
+      [{ type: "text", text: "Identical prompt" }], [{ type: "text", text: "Identical prompt" }],
+    ]);
+    expect(prompts[0]?.origin).toBeUndefined();
+    expect(prompts[0]?.uuid).toMatch(/^53485044-0102-8/);
+    expect(prompts[1]?.uuid).not.toMatch(/^53485044-010/);
+    const history = (await new ClaudeProvider(fake).listThreadTurns(created.threadId, {})).data;
+    const wakeItem = { id: wake, type: "user_message", source: "thread_watch", content: [{ type: "text", text: "Identical prompt" }] };
+    expect(history.find(turn => turn.id === wake)?.items).toContainEqual(wakeItem);
+    expect(history.find(turn => turn.id === prompts[1]?.uuid)?.items[0]).not.toHaveProperty("source");
+    expect(events).toContainEqual(expect.objectContaining({ type: "item.completed", payload: { turnId: wake, item: wakeItem } }));
+  } finally { session.stop(); }
+});
+
 test("Claude streams common events and resumes the native session from its transcript", async () => {
   const fake = sdk(async function* (input, options) {
     for await (const message of input) { expect(message.message.role).toBe("user"); break; }

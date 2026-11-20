@@ -60,6 +60,7 @@
   .chat-content { padding-bottom: var(--composer-space, 150px); }
   .chat-width { @apply mx-auto w-full max-w-3xl px-5 sm:px-10; }
   .message-user { @apply rounded-2xl border border-line/70 bg-panel px-5 py-4; }
+  .message-user.message-automated { @apply border-accent/25 bg-accent/15; }
   .message-assistant { @apply px-1; }
   .prose-chat { @apply break-words text-[15px] leading-7; overflow-wrap: anywhere; }
   .prose-chat p { @apply my-3; }

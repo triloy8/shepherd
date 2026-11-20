@@ -418,6 +418,7 @@ export class ThreadWatchService {
       },
       target: { ...watch.target, delivery: { ...watch.target.delivery } },
       input: [toTextUserInput(buildThreadWatchInput(payload))],
+      source: "thread_watch",
       // Changes in one group fold into one pending turn; the latest notice lists every state.
       coalesceKey: `thread-watch:${watch.ownerThreadId}:${watch.group}`,
       terminal: false,

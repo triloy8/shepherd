@@ -130,7 +130,7 @@ export class SwarmManagerService {
     if (this.options.ingress.getThreadState(member.threadId).activeTurnId) throw new Error("Worker is active. Wait for its report before sending another assignment.");
     await this.groups.dispatch(group.id, member.threadId, { key, status: "pending", turnId: null });
     this.assertActive(params, group);
-    const result = await this.options.ingress.submitTurn(member.threadId, { input: [toTextUserInput(message)] });
+    const result = await this.options.ingress.submitTurn(member.threadId, { input: [toTextUserInput(message)], source: "swarm_assignment" });
     await this.groups.dispatch(group.id, member.threadId, { key, status: "sent", turnId: result.turnId });
     return { threadId: member.threadId, status: "sent", turnId: result.turnId, guidance: "Worker notifications are delivered when your turn is idle. Finish this turn with a progress update once independent work is done; do not sleep or poll. The host will start a new turn for worker results." };
   }

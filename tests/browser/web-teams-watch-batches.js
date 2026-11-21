@@ -31,5 +31,28 @@ async page => {
   await page.reload();
   await updates.nth(1).waitFor();
   if (JSON.stringify(await readBatches()) !== JSON.stringify(batches)) throw Error('Watch batches changed after reload');
-  return 'Passed: five worker completions in two watch cards, grouped 3 + 2, with dispatch turn IDs and reload';
+
+  const swarmButton = page.getByRole('button', { name: 'Swarm · 5', exact: true });
+  const composer = page.getByRole('textbox', { name: 'Message Shepherd' });
+  await composer.fill('Follow up with Luna.');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await swarmButton.click();
+  const team = page.getByRole('dialog', { name: 'Swarm', exact: true });
+  const luna = team.getByRole('button').filter({ hasText: 'Luna' });
+  await luna.getByText("Watcher smoke check for Luna's follow-up.", { exact: true }).waitFor();
+  await luna.getByText('Working', { exact: true }).waitFor();
+  await luna.click();
+  const inspector = page.getByRole('dialog', { name: 'Luna', exact: true });
+  await inspector.getByText('Watcher smoke check for Luna.', { exact: true }).first().waitFor();
+  await page.keyboard.press('Escape');
+  await inspector.waitFor({ state: 'hidden' });
+  await page.keyboard.press('Escape');
+  await team.waitFor({ state: 'hidden' });
+
+  await composer.fill("Finish Luna's follow-up.");
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await swarmButton.click();
+  await luna.getByText('Turn finished', { exact: true }).waitFor();
+  await luna.getByText("Watcher smoke check for Luna's follow-up.", { exact: true }).waitFor();
+  return 'Passed: five completions in two watch cards, plus Luna’s live follow-up and original assignment in the inspector';
 }

@@ -5,6 +5,9 @@ opening a chat or asking for status. The first valid delegation creates the team
 Workers belong to that parent and do not appear in the main active/archive lists.
 The Swarm panel shows status, assignments and read-only worker history. Normal
 chat, models, approvals and history continue through the existing web interface.
+After a dispatch, the roster shows the task and status for its exact turn using
+worker history and live state. The worker inspector keeps the original assignment
+alongside the full conversation.
 
 ## Architecture
 

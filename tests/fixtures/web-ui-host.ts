@@ -173,6 +173,16 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     finish(threadId);
     return { ok: true, turnId };
   }
+  if (managerHandler && (text === "Follow up with Luna." || text === "Finish Luna's follow-up.")) {
+    const invoke = (tool: string, args: import("../../shared/protocol/dynamic_tools.js").JsonValue) =>
+      managerHandler!({ threadId, turnId, callId: crypto.randomUUID(), namespace: "shepherd", tool, arguments: args });
+    const { group } = await invoke("swarm_status", {}) as { group: { members: Array<{ name: string; threadId: string }> } };
+    const worker = group.members.find(member => member.name === "Luna")!.threadId;
+    if (text === "Follow up with Luna.") await invoke("swarm_send", { threadId: worker, message: "Watcher smoke check for Luna's follow-up.", requestId: "watch-Luna-follow-up" });
+    else finishWatchWorker(worker);
+    finish(threadId);
+    return { ok: true, turnId };
+  }
   if (request.source === "swarm_assignment" && text.startsWith("Watcher smoke check for ")) return { ok: true, turnId };
   if (managerHandler && text === "Yes, use that team.") {
     const invoke = (tool: string, args: import("../../shared/protocol/dynamic_tools.js").JsonValue) => managerHandler!({ threadId, turnId, callId: crypto.randomUUID(), namespace: "shepherd", tool, arguments: args });

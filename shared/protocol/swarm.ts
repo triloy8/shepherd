@@ -12,9 +12,15 @@ export const swarmStateLabels: Record<SwarmWorkerState, string> = {
   unknown: "Unavailable", idle: "Idle", running: "Working", completed: "Turn finished",
   "needs-attention": "Needs attention", interrupted: "Stopped", failed: "Failed",
 };
+export type SwarmDispatchObservation = {
+  turnId: string | null;
+  task: string | null;
+  state: Exclude<SwarmWorkerState, "idle"> | "delivery-unconfirmed";
+};
 export type SwarmObservation = {
   threadId: string; state: SwarmWorkerState; activeTurnId: string | null;
   pendingApprovals: number; observedAt: string; conversation: SurfaceConversation | null;
+  latestDispatch?: SwarmDispatchObservation;
 };
 export type SwarmSnapshot = { group: SwarmGroup; manager: SwarmObservation; workers: SwarmObservation[] };
 export type SwarmInterruptResult = { threadId: string; outcome: "interrupted" | "idle" | "unavailable" | "failed" };

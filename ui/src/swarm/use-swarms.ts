@@ -30,8 +30,23 @@ export function useSwarms(selected: string | null) {
   }, [selected, refresh]);
   useEffect(() => {
     const abort = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
-    let debounce: ReturnType<typeof setTimeout> | undefined;
-    const soon = () => { if (debounce) clearTimeout(debounce); debounce = setTimeout(() => void refresh(abort.signal), 200); };
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let refreshing = false;
+    let refreshPending = false;
+    const soon = () => {
+      refreshPending = true;
+      if (abort.signal.aborted || refreshing || refreshTimer !== undefined) return;
+      refreshTimer = setTimeout(async () => {
+        refreshTimer = undefined;
+        refreshPending = false;
+        refreshing = true;
+        try { await refresh(abort.signal); }
+        finally {
+          refreshing = false;
+          if (refreshPending) soon();
+        }
+      }, 200);
+    };
     const connect = async () => {
       const idle = new AbortController();
       let heartbeatTimer: ReturnType<typeof setTimeout>;
@@ -42,7 +57,7 @@ export function useSwarms(selected: string | null) {
         const response = await fetch("/api/swarms/events", { signal, credentials: "omit", cache: "no-store" });
         if (!response.ok || !response.body) throw new Error("Roster stream unavailable.");
         if (abort.signal.aborted) return;
-        setOnline(true); void refresh(abort.signal);
+        setOnline(true); soon();
         // Every connection starts with a fresh snapshot; no worker-by-worker subscriptions.
         await readEvents<SwarmEventData>(response.body, soon, heartbeat, signal, ["swarm", "reset"]);
       } catch { /* Reconnect and obtain a complete snapshot after disconnect/restart. */ }
@@ -50,10 +65,10 @@ export function useSwarms(selected: string | null) {
       if (!abort.signal.aborted) { setOnline(false); timer = setTimeout(() => void connect(), 2000); }
     };
     void connect();
-    const visible = () => { if (document.visibilityState === "visible") void refresh(abort.signal); };
+    const visible = () => { if (document.visibilityState === "visible") soon(); };
     document.addEventListener("visibilitychange", visible);
     const poll = setInterval(visible, 60_000);
-    return () => { abort.abort(); clearTimeout(timer); clearTimeout(debounce); clearInterval(poll); document.removeEventListener("visibilitychange", visible); };
+    return () => { abort.abort(); clearTimeout(timer); clearTimeout(refreshTimer); clearInterval(poll); document.removeEventListener("visibilitychange", visible); };
   }, [refresh]);
   return { groups, listedFor, snapshot: snapshot?.group.managerThreadId === selected ? snapshot : null, error, loading, online, refresh };
 }

@@ -17,6 +17,7 @@ export { executeSurfaceAction } from "./surface/surface_actions_service.js";
 export { executeControlAction, type ControlActionRequest, type ControlActionsContext } from "./surface/control_actions_service.js";
 export { planSurfaceRecovery, readSurfaceBinding, readSurfaceStatus } from "./surface/surface_snapshot_service.js";
 export { detectImageMimeType } from "./common/image_media.js";
+export { findThreadTurn } from "./conversation/thread_history.js";
 
 // Expected failures surfaces present.
 export { ApplicationActionError, type ActionFailure } from "./common/action_error.js";

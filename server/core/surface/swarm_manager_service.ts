@@ -9,6 +9,7 @@ import type { ApplicationConversation, ApprovalConversation } from "./conversati
 import type { TurnRoutingConversation } from "./turn_routing_service.js";
 import type { SwarmManagerBridge } from "../../ports/swarm_runtime.js";
 import type { SwarmService } from "./swarm_service.js";
+import { findThreadTurn } from "../conversation/thread_history.js";
 
 type Options = {
   groups: SwarmService;
@@ -135,27 +136,16 @@ export class SwarmManagerService {
   private async reportTurn(member: SwarmGroup["members"][number], turnId: string) {
     const { threadId } = member;
     const dispatch = member.dispatches?.find(d => d.turnId === turnId) ?? null;
-    const pendingApprovals = () => this.options.approvals.listApprovals(threadId, turnId).filter(a => a.status === "pending");
-    let cursor: string | undefined;
-    const seenCursors = new Set<string>();
-    do {
-      const page = await this.options.conversation.listThreadTurns(threadId, { cursor, limit: 20, sortDirection: "desc", itemsView: "summary" });
-      const turn = page.data.find(candidate => candidate.id === turnId);
-      if (turn) {
-        const replies = turn.items.filter((item): item is Extract<HistoryItem, { type: "assistant_message" }> => item.type === "assistant_message" && !item.parentItemId);
-        const answers = turn.status === "completed" ? answerMessages(replies) : replies.filter(item => item.phase === "final");
-        const finalReply = answers.map(answer => answer.text).join("\n\n");
-        return {
-          threadId, turnId, dispatch, status: turn.status, error: turn.error,
-          finalReply: finalReply.slice(0, REPORT_TEXT_LIMIT) || null,
-          truncated: finalReply.length > REPORT_TEXT_LIMIT, approvals: pendingApprovals(),
-        };
-      }
-      cursor = page.nextCursor ?? undefined;
-      if (cursor && seenCursors.has(cursor)) throw new Error("Worker history repeated its cursor before the requested turn was found.");
-      if (cursor) seenCursors.add(cursor);
-    } while (cursor);
-    return { threadId, turnId, dispatch, status: null, error: null, finalReply: null, truncated: false, approvals: pendingApprovals() };
+    const turn = await findThreadTurn(this.options.conversation.listThreadTurns, threadId, turnId, "summary");
+    const approvals = this.options.approvals.listApprovals(threadId, turnId).filter(a => a.status === "pending");
+    const replies = (turn?.items ?? []).filter((item): item is Extract<HistoryItem, { type: "assistant_message" }> => item.type === "assistant_message" && !item.parentItemId);
+    const answers = turn?.status === "completed" ? answerMessages(replies) : replies.filter(item => item.phase === "final");
+    const finalReply = answers.map(answer => answer.text).join("\n\n");
+    return {
+      threadId, turnId, dispatch, status: turn?.status ?? null, error: turn?.error ?? null,
+      finalReply: finalReply.slice(0, REPORT_TEXT_LIMIT) || null,
+      truncated: finalReply.length > REPORT_TEXT_LIMIT, approvals,
+    };
   }
 
   private async sendAssignment(params: DynamicToolCallParams, group: SwarmGroup, member: SwarmGroup["members"][number], key: string, message: string) {
@@ -165,6 +155,7 @@ export class SwarmManagerService {
     this.assertActive(params, group);
     if (this.options.ingress.getThreadState(member.threadId).activeTurnId) throw new Error("Worker is active. Wait for its report before sending another assignment.");
     await this.groups.dispatch(group.id, member.threadId, { key, status: "pending", turnId: null });
+    this.options.onChange(group.id);
     this.assertActive(params, group);
     const result = await this.options.ingress.submitTurn(member.threadId, { input: [toTextUserInput(message)], source: "swarm_assignment" });
     await this.groups.dispatch(group.id, member.threadId, { key, status: "sent", turnId: result.turnId });

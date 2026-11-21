@@ -411,6 +411,64 @@ test("a turn-specific report finds the matching dispatch, reply, and pending dec
   } finally { h.dispose(); }
 });
 
+test("the roster shows the latest dispatch's task and status independently of other worker turns", async () => {
+  const h = harness(memoryStore(), true);
+  try {
+    const group = await h.create();
+    const manager = group.managerThreadId;
+    h.active.set(manager, "manager-turn");
+    const { threadId, turnId: first } = await h.manage(manager, "swarm_delegate", { name: "Luna", assignment: "Original task", requestId: "first" }) as { threadId: string; turnId: string };
+    h.active.set(threadId, null);
+    const followUp = "follow-up";
+    h.context.ingress.submitTurn = async id => { h.active.set(id, followUp); return { ok: true, turnId: followUp }; };
+    await h.manage(manager, "swarm_send", { threadId, message: "Latest task", requestId: "second" });
+    const turn = (id: string, text: string, status: HistoryTurn["status"]): HistoryTurn => ({
+      id, status, error: null, itemsView: "summary", startedAt: null, completedAt: null, durationMs: null,
+      items: [{ id, type: "user_message", content: [{ type: "text", text }] }],
+    });
+    const earlier = turn(first, "Original task", "completed");
+    const newest = turn(followUp, "Latest task", "in_progress");
+    let historyReads = 0;
+    Object.assign(h.application.conversation, {
+      async listThreadTurns(id: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
+        if (id === threadId && request.itemsView === "summary") historyReads += 1;
+        return { data: id === threadId ? [turn("unrelated", "Unrelated text", "completed"), newest, earlier] : [], nextCursor: null, backwardsCursor: null };
+      },
+    });
+    const snapshot = async () => (await h.request(`/swarms/${group.id}`)).json();
+    const before = await snapshot();
+    expect(before.group.members[0].assignment).toBe("Original task");
+    expect(before.workers[0].latestDispatch).toEqual({ turnId: followUp, task: "Latest task", state: "running" });
+    expect((await snapshot()).workers[0].latestDispatch.state).toBe("running");
+    expect(historyReads).toBe(1);
+
+    const permission = {
+      approvalId: "permission", kind: "permission" as const,
+      activity: { kind: "command" as const, command: "bun test", cwd: null, result: null }, reason: null,
+      choices: [{ value: "allow-once", label: "Allow", intent: "allow" as const }],
+    };
+    h.approvals.create(permission, { threadId, sessionId: "session", turnId: first });
+    expect((await snapshot()).workers[0].latestDispatch.state).toBe("running");
+    const currentApproval = h.approvals.create({ ...permission, approvalId: "current-permission" }, { threadId, sessionId: "session", turnId: followUp });
+    expect((await snapshot()).workers[0].latestDispatch.state).toBe("needs-attention");
+    h.approvals.markExpired(threadId, currentApproval.approvalId);
+
+    h.active.set(threadId, null);
+    h.publish(before.workers[0].conversation.id, { id: "completion", type: "turn.completed", threadId, sessionId: "session", ts: new Date().toISOString(), payload: { turnId: followUp } });
+    expect((await snapshot()).workers[0].latestDispatch).toMatchObject({ state: "completed", task: "Latest task" });
+    expect(historyReads).toBe(2);
+    newest.status = "completed";
+    h.active.set(threadId, "background-turn");
+    h.publish(before.workers[0].conversation.id, { id: "background", type: "turn.started", threadId, sessionId: "session", ts: new Date().toISOString(), payload: { turnId: "background-turn", trigger: "background" } });
+    expect((await snapshot()).workers[0]).toMatchObject({ activeTurnId: "background-turn", latestDispatch: { turnId: followUp, state: "completed" } });
+
+    h.active.set(threadId, null);
+    h.context.ingress.submitTurn = async () => { throw new Error("delivery uncertain"); };
+    await expect(h.manage(manager, "swarm_send", { threadId, message: "New task", requestId: "third" })).rejects.toThrow("delivery uncertain");
+    expect((await snapshot()).workers[0].latestDispatch).toEqual({ turnId: null, task: null, state: "delivery-unconfirmed" });
+  } finally { h.dispose(); }
+});
+
 
 test("interrupting the manager during provisioning prevents assignment dispatch", async () => {
   const h = harness(memoryStore(), true);

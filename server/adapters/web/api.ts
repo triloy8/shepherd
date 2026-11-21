@@ -1,9 +1,10 @@
 import type { SurfaceAdapterContext } from "../../core/surface_api.js";
 import { randomUUID } from "node:crypto";
-import { SwarmService, SwarmError, SwarmManagerService, SWARM_MANAGER_INSTRUCTIONS, SWARM_WORKER_INSTRUCTIONS } from "../../core/surface_api.js";
+import { findThreadTurn, SwarmService, SwarmError, SwarmManagerService, SWARM_MANAGER_INSTRUCTIONS, SWARM_WORKER_INSTRUCTIONS } from "../../core/surface_api.js";
 import type { SwarmStore } from "../../ports/swarm_store.js";
-import type { SwarmGroup, SwarmObservation, SwarmSnapshot, SwarmEventData } from "../../../shared/protocol/swarm.js";
+import type { SwarmDispatchObservation, SwarmGroup, SwarmMember, SwarmObservation, SwarmSnapshot, SwarmEventData } from "../../../shared/protocol/swarm.js";
 import type { SurfaceConversation } from "../../../shared/protocol/conversation.js";
+import type { TurnStatus } from "../../../shared/protocol/requests.js";
 import type { WebConfig } from "../shared/browser_config.js";
 import { WebSurfaceApi } from "../shared/browser_api.js";
 import { WebEventFeed } from "../shared/browser_event_feed.js";
@@ -30,13 +31,20 @@ function revision(data: Record<string, unknown>): number {
 }
 const json = (status: number, value: unknown) => Response.json(value, { status });
 const errorStatuses: Record<string, number> = { swarm_not_found: 404, member_not_found: 404, swarm_limit: 429, worker_limit: 429 };
+type DispatchHistory = { task: string | null; status: TurnStatus };
+type RecentTurn = { at: number; turnId: string | null; status: SwarmObservation["state"] };
+
+function terminalState(status: TurnStatus | SwarmObservation["state"] | undefined) {
+  return status === "completed" || status === "interrupted" || status === "failed" ? status : undefined;
+}
 
 /** One aggregate roster feed, plus the shared browser API for conversation controls. */
 export class WebChatApi {
   readonly browser: WebSurfaceApi;
   readonly groups: SwarmService;
   private readonly feed = new WebEventFeed<SwarmEventData>();
-  private readonly recent = new Map<string, { at: number; status: SwarmObservation["state"] }>();
+  private readonly recent = new Map<string, RecentTurn>();
+  private readonly dispatchHistory = new Map<string, { turnId: string; expiresAt: number; read: Promise<DispatchHistory | null> }>();
   private readonly unregisterManager: () => void;
   private readonly opening = new Map<string, Promise<SurfaceConversation>>();
   /** Reservations remain read-only and hidden until the roster write succeeds. */
@@ -48,8 +56,25 @@ export class WebChatApi {
       mutationAllowed: threadId => !this.isWorker(threadId),
       visible: threadId => !this.isWorker(threadId), route: request => this.route(request),
       onEvent: (threadId, event) => {
-        if (event.type === "turn.started" || event.type === "turn.completed" || event.type === "turn.failed" || event.type.startsWith("approval.")) {
+        const observed = this.recent.has(threadId) || this.dispatchHistory.has(threadId);
+        const historyChanged = event.type === "turn.started" || event.type === "turn.completed" ||
+          event.type === "turn.failed" || event.type === "thread.reverted" || event.type === "session.error" ||
+          (event.type === "item.completed" && event.payload.item.type === "user_message" && event.payload.item.source === "swarm_assignment");
+        if (historyChanged) {
           this.recent.delete(threadId);
+          this.dispatchHistory.delete(threadId);
+        }
+        if (observed && event.type === "turn.completed") {
+          this.recent.set(threadId, { at: Date.now(), turnId: event.payload.turnId, status: event.payload.interrupted ? "interrupted" : "completed" });
+        }
+        if (observed && event.type === "turn.failed") {
+          try {
+            if (!this.context.ingress.getThreadState(threadId).activeTurnId) {
+              this.recent.set(threadId, { at: Date.now(), turnId: event.payload.turnId, status: "failed" });
+            }
+          } catch { /* A failure from a detached session is verified through history. */ }
+        }
+        if (historyChanged || event.type.startsWith("approval.")) {
           this.feed.publish("swarm", { groupId: null });
         }
       },
@@ -137,18 +162,55 @@ export class WebChatApi {
         let cached = this.recent.get(threadId);
         if (!cached || Date.now() - cached.at > 30_000) {
           const page = await this.browser.application.conversation.listThreadTurns(threadId, { limit: 1, sortDirection: "desc", itemsView: "none" });
-          const last = page.data[0]?.status;
-          const status = last === "completed" || last === "interrupted" || last === "failed" ? last : last === "in_progress" ? "unknown" : "idle";
-          cached = { at: Date.now(), status }; this.recent.set(threadId, cached);
+          const last = page.data[0];
+          const status = terminalState(last?.status) ?? (last?.status === "in_progress" ? "unknown" : "idle");
+          const live = this.recent.get(threadId);
+          cached = live && live !== cached ? live : { at: Date.now(), turnId: last?.id ?? null, status };
+          this.recent.set(threadId, cached);
         }
         observation.state = cached.status;
       }
     } catch { /* An unavailable observation is never evidence of completion. */ }
     return observation;
   }
+  private readDispatchHistory(threadId: string, turnId: string): Promise<DispatchHistory | null> {
+    const cached = this.dispatchHistory.get(threadId);
+    if (cached?.turnId === turnId && cached.expiresAt > Date.now()) return cached.read;
+    const read = findThreadTurn(this.browser.application.conversation.listThreadTurns, threadId, turnId, "summary").then(turn => {
+      if (!turn) return null;
+      const prompt = turn.items.find(item => item.type === "user_message" && !item.parentItemId);
+      const task = prompt?.type === "user_message"
+        ? prompt.content.filter(part => part.type === "text").map(part => part.text).join("\n").trim().slice(0, 4096) || null
+        : null;
+      return { task, status: turn.status };
+    }).catch(() => null);
+    const entry = { turnId, expiresAt: Infinity, read };
+    this.dispatchHistory.set(threadId, entry);
+    void read.then(result => { entry.expiresAt = Date.now() + (result?.task ? 30_000 : 1_000); });
+    return read;
+  }
+  private async observeDispatch(member: SwarmMember): Promise<SwarmDispatchObservation | undefined> {
+    const dispatch = member.dispatches?.at(-1);
+    if (!dispatch) return undefined;
+    const { turnId } = dispatch;
+    if (dispatch.status === "pending" || !turnId) return { turnId: null, task: null, state: "delivery-unconfirmed" };
+    const history = await this.readDispatchHistory(member.threadId, turnId);
+    const recent = this.recent.get(member.threadId);
+    const liveTerminal = recent?.turnId === turnId ? terminalState(recent.status) : undefined;
+    let state: SwarmDispatchObservation["state"] = liveTerminal ?? terminalState(history?.status) ?? "unknown";
+    try {
+      if (this.context.approvals.listApprovals(member.threadId, turnId).some(approval => approval.status === "pending")) state = "needs-attention";
+      else if (this.context.ingress.getThreadState(member.threadId).activeTurnId === turnId) state = "running";
+    } catch { /* The exact historical turn remains available when the worker is detached. */ }
+    return { turnId, task: history?.task ?? null, state };
+  }
+  private async observeWorker(member: SwarmMember): Promise<SwarmObservation> {
+    const [observation, latestDispatch] = await Promise.all([this.observe(member.threadId), this.observeDispatch(member)]);
+    return latestDispatch ? { ...observation, latestDispatch } : observation;
+  }
   private async snapshot(group: SwarmGroup): Promise<SwarmSnapshot> {
     const workers: SwarmObservation[] = [];
-    for (let i = 0; i < group.members.length; i += 4) workers.push(...await Promise.all(group.members.slice(i, i + 4).map(m => this.observe(m.threadId))));
+    for (let i = 0; i < group.members.length; i += 4) workers.push(...await Promise.all(group.members.slice(i, i + 4).map(member => this.observeWorker(member))));
     return { group, manager: await this.observe(group.managerThreadId), workers };
   }
   private async route(request: Request): Promise<Response | null> {

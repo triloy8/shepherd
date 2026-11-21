@@ -165,7 +165,7 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     watchSmokeManagers.set(threadId, lateWorkers);
     for (const name of ["Luna", "README", "Package", "Workspace", "Tests"]) {
       const { threadId: worker } = await managerHandler({ threadId, turnId, callId: crypto.randomUUID(), namespace: "shepherd", tool: "swarm_delegate", arguments: {
-        name, assignment: `Watcher smoke check for ${name}.`, requestId: `watch-${name}`,
+        name, assignment: `Watcher smoke check for ${name}.`, requestId: `watch-${name}`, model: "large",
       } }) as { threadId: string };
       if (name === "Workspace" || name === "Tests") lateWorkers.push(worker);
       else finishWatchWorker(worker);
@@ -183,7 +183,12 @@ h.context.ingress.submitTurn = async (threadId, request) => {
     finish(threadId);
     return { ok: true, turnId };
   }
-  if (request.source === "swarm_assignment" && text.startsWith("Watcher smoke check for ")) return { ok: true, turnId };
+  if (request.source === "swarm_assignment" && text.startsWith("Watcher smoke check for ")) {
+    if (!text.endsWith("follow-up.") && (request.model !== "large" || histories.get(threadId)?.length !== 1)) {
+      throw new Error("Expected the selected model on the fresh worker's first assignment");
+    }
+    return { ok: true, turnId };
+  }
   if (managerHandler && text === "Yes, use that team.") {
     const invoke = (tool: string, args: import("../../shared/protocol/dynamic_tools.js").JsonValue) => managerHandler!({ threadId, turnId, callId: crypto.randomUUID(), namespace: "shepherd", tool, arguments: args });
     await invoke("swarm_status", {});

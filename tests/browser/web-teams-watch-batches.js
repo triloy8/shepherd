@@ -44,6 +44,10 @@ async page => {
   await luna.click();
   const inspector = page.getByRole('dialog', { name: 'Luna', exact: true });
   await inspector.getByText('Watcher smoke check for Luna.', { exact: true }).first().waitFor();
+  const workerMessages = inspector.locator('article.message-user');
+  await workerMessages.nth(1).waitFor();
+  if (await workerMessages.count() !== 2) throw Error('Expected only the original assignment and follow-up');
+  if (!(await workerMessages.first().innerText()).includes('Swarm assignment')) throw Error('The first worker message was not labeled Swarm assignment');
   await page.keyboard.press('Escape');
   await inspector.waitFor({ state: 'hidden' });
   await page.keyboard.press('Escape');

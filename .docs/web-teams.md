@@ -40,6 +40,11 @@ New isolated workers require an owner/repo project. Local-path chats can work
 alone. Closed teams retain history. Creating another team for the same parent
 requires new delegation; old worker identities remain workers.
 
+`swarm_delegate` accepts an optional exact `model` ID for the selected `provider`.
+Fresh workers use the host's default provider when `provider` is omitted. Shepherd
+watches the new worker before sending its real assignment as the first turn with
+that model. Retries with the same request ID return the existing receipt.
+
 ## Verification boundaries
 
 Automated tests exercise API authority, duplicate dispatch suppression, storage,

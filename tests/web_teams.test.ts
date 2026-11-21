@@ -8,7 +8,7 @@ import { WebChatApi } from "../server/adapters/web/api.js";
 import { createWebChatAdapter, createWebSurface } from "../server/adapters/web/server.js";
 import { webHarness } from "./helpers/web_harness.js";
 import type { SwarmGroup } from "../shared/protocol/swarm.js";
-import type { HistoryTurn, ListThreadTurnsRequest, ListThreadTurnsResponse } from "../shared/protocol/requests.js";
+import type { HistoryTurn, ListModelsRequest, ListThreadTurnsRequest, ListThreadTurnsResponse, ModelSummary } from "../shared/protocol/requests.js";
 import type { SwarmStore } from "../server/ports/swarm_store.js";
 
 function memoryStore(): SwarmStore {
@@ -309,6 +309,7 @@ test("delegation watches before sending, appears in saved roster, and deduplicat
     const submit = h.context.ingress.submitTurn;
     h.context.ingress.submitTurn = (threadId, request) => {
       expect(request.source).toBe("swarm_assignment");
+      expect(request).not.toHaveProperty("model");
       return submit(threadId, request);
     };
     const args = { name: "Solu", assignment: "Review layout.\nRun checks.", requestId: "layout-1" };
@@ -323,6 +324,74 @@ test("delegation watches before sending, appears in saved roster, and deduplicat
     await h.manage(group.managerThreadId, "swarm_interrupt", { threadId: result.threadId });
     expect(await h.manage(group.managerThreadId, "swarm_send", { threadId: result.threadId, message: "Follow up", requestId: "layout-2" })).toMatchObject({ status: "sent" });
     expect(h.api.groups.read(group.id).lifecycle).toBe("active");
+  } finally { h.dispose(); }
+});
+
+test("a selected model runs the first Swarm assignment without a setup turn", async () => {
+  const h = harness(memoryStore(), true);
+  try {
+    const parent = await (await h.request("/conversations", "POST", { project: "owner/repo" })).json();
+    h.active.set(parent.threadId, "manager-turn");
+    const provider = h.application.conversation.listProviders()[0]!;
+    const capabilities = { ...provider.capabilities, modelCatalogScope: "provider" as const };
+    const luna: ModelSummary = { id: "gpt-6-luna", displayName: "Luna", description: "", hidden: true, isDefault: false,
+      inputModalities: ["text"], supportedEfforts: null, defaultEffort: null };
+    const catalogs: ListModelsRequest[] = [];
+    Object.assign(h.application.conversation, {
+      listProviders: () => [{ ...provider, capabilities }, { ...provider, id: "other", isDefault: false, capabilities },
+        { ...provider, id: "fixed", isDefault: false, capabilities: { ...capabilities, modelSelection: false } }],
+      async listModels(query: ListModelsRequest) {
+        catalogs.push(query);
+        if (!query.cursor) return { data: [], nextCursor: "next" };
+        return { data: query.provider === provider.id ? [luna, { ...luna, id: "image-only", inputModalities: ["image"] }] : [], nextCursor: null };
+      },
+    });
+    const args = { name: "Luna", assignment: "Read README.md", requestId: "readme", model: luna.id };
+    await expect(h.manage(parent.threadId, "swarm_delegate", { ...args, provider: "other" })).rejects.toThrow('unavailable for provider "other"');
+    await expect(h.manage(parent.threadId, "swarm_delegate", { ...args, provider: "fixed" })).rejects.toThrow("does not support modelSelection");
+    await expect(h.manage(parent.threadId, "swarm_delegate", { ...args, model: "image-only" })).rejects.toThrow("does not support text inputs");
+    expect(h.store.list()).toEqual([]);
+    expect(h.calls.filter(call => call === "create")).toHaveLength(1);
+
+    const submit = h.context.ingress.submitTurn;
+    h.context.ingress.submitTurn = (threadId, request) => {
+      expect(h.calls).toContain(`watch:${threadId}`);
+      expect(h.instructions.get(threadId)).toContain("You are a worker delegated");
+      expect(request).toEqual({ input: [{ type: "text", text: args.assignment }], model: luna.id, source: "swarm_assignment" });
+      return submit(threadId, request);
+    };
+    const worker = await h.manage(parent.threadId, "swarm_delegate", args) as { threadId: string; turnId: string };
+    expect(catalogs.at(-1)).toMatchObject({ provider: provider.id, cursor: "next", includeHidden: true });
+    expect(catalogs.at(-1)?.threadId).toBeUndefined();
+    const count = catalogs.length;
+    expect(await h.manage(parent.threadId, "swarm_delegate", { ...args, model: "different-model" })).toMatchObject({ duplicate: true, turnId: worker.turnId });
+    expect(catalogs).toHaveLength(count);
+    expect(h.calls.filter(call => call.startsWith("submit:"))).toEqual([`submit:${worker.threadId}`]);
+    await expect(h.manage(parent.threadId, "swarm_delegate", { ...args, requestId: "new" })).rejects.toThrow("first Swarm assignment");
+  } finally { h.dispose(); }
+});
+
+test("a conversation-scoped model catalog is checked before adding or starting a worker", async () => {
+  const h = harness(memoryStore(), true);
+  try {
+    const parent = await (await h.request("/conversations", "POST", { project: "owner/repo" })).json();
+    h.active.set(parent.threadId, "manager-turn");
+    const scopes: string[] = [];
+    Object.assign(h.application.conversation, {
+      async listModels(query: ListModelsRequest) {
+        expect(query.provider).toBe("fixture");
+        expect(query.threadId).toBeDefined();
+        scopes.push(query.threadId!);
+        return { data: [], nextCursor: null };
+      },
+    });
+    await expect(h.manage(parent.threadId, "swarm_delegate", { name: "Worker", assignment: "Inspect", requestId: "inspect", provider: "fixture", model: "missing" })).rejects.toThrow('unavailable for provider "fixture"');
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]).not.toBe(parent.threadId);
+    expect(h.store.list()).toEqual([]);
+    expect(h.calls.some(call => call.startsWith("submit:") || call.startsWith("watch:"))).toBe(false);
+    const handles = (await (await h.request("/conversations")).json()).conversations;
+    expect(handles.map((handle: { threadId: string }) => handle.threadId)).toEqual([parent.threadId]);
   } finally { h.dispose(); }
 });
 

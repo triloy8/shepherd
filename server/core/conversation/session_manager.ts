@@ -4,6 +4,7 @@ import type { ProviderCapabilities, ProviderOperation } from "../../../shared/pr
 import { assertThreadSupport, assertInputSupport, assertProviderOperation, resolveThreadProfile, threadPolicy, type ThreadDefaults } from "../../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
+import { findListedModel } from "./model_catalog.js";
 import { ApplicationActionError } from "../common/action_error.js";
 import type {
   ApprovalDecisionRequest,
@@ -407,19 +408,14 @@ export class SessionManager {
   }
 
   private async resolveModel(provider: AgentProvider, model: string | null | undefined, session?: ProviderSession, strict = false, threadId?: string): Promise<ModelSummary | null> {
-    let cursor: string | undefined;
-    const seen = new Set<string>();
-    do {
-      const request = { cursor, limit: 100, includeHidden: true, provider, ...(threadId ? { threadId } : {}) };
-      let result: ListModelsResponse;
-      try { result = session?.listModels ? await session.listModels(request) : await this.listModels(request); }
-      catch (error) { if (!strict) return null; throw error; }
-      const entry = result.data.find((entry) => model ? entry.id === model : entry.isDefault);
+    try {
+      const entry = await findListedModel(
+        request => session?.listModels ? session.listModels(request) : this.listModels(request),
+        { provider, ...(threadId ? { threadId } : {}) },
+        model || undefined,
+      );
       if (entry) return entry;
-      if (!result.nextCursor || seen.has(result.nextCursor)) break;
-      seen.add(result.nextCursor);
-      cursor = result.nextCursor;
-    } while (true);
+    } catch (error) { if (strict) throw error; }
     if (!strict) return null;
     throw new ApplicationActionError({ code: "model_unavailable" });
   }

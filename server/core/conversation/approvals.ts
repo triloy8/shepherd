@@ -54,9 +54,9 @@ export class ApprovalsStore {
     return matches.length === 1 ? this.toPublicRecord(matches[0]!) : null;
   }
 
-  listByThread(threadId: string): ApprovalRecord[] {
+  listByThread(threadId: string, turnId?: string): ApprovalRecord[] {
     return [...this.approvals.values()]
-      .filter((approval) => approval.threadId === threadId)
+      .filter((approval) => approval.threadId === threadId && (turnId === undefined || approval.turnId === turnId))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .map((approval) => this.toPublicRecord(approval));
   }

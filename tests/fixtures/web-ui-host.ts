@@ -7,6 +7,9 @@ import { join } from "node:path";
 // Local browser-test fixture. Never imported by production entrypoints.
 import { createWebChatAdapter } from "../../server/adapters/web/server.js";
 import { FileSwarmStore } from "../../server/storage/swarm_store.js";
+import { ConversationSignalExecutor } from "../../server/core/signals/conversation_signal_executor.js";
+import { SignalDispatcher } from "../../server/core/signals/signal_dispatcher.js";
+import { ThreadWatchService } from "../../server/core/signals/thread_watch_service.js";
 import { webHarness } from "../helpers/web_harness.js";
 import type { HistoryItem, HistoryTurn, StoredThreadSummary } from "../../shared/protocol/requests.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
@@ -14,9 +17,12 @@ import type { BridgeEvent } from "../../shared/protocol/events.js";
 const h = webHarness();
 const swarmDirectory = await mkdtemp(join(tmpdir(), "shepherd-team-ui-"));
 let managerHandler: SwarmManagerHandler | undefined;
+const watchSmokeManagers = new Map<string, string[]>();
 if (swarmDirectory) h.context.swarmManager = {
   connect: handler => { managerHandler = handler; return () => { managerHandler = undefined; }; },
-  watch: async () => ({ success: true, contentItems: [{ type: "text", text: "Fixture watches installed." }] }),
+  watch: async (params, group, threads) => watchSmokeManagers.has(params.threadId)
+    ? threadWatches.watchThreads({ ...params, arguments: { group, threads } })
+    : { success: true, contentItems: [{ type: "text", text: "Fixture watches installed." }] },
 };
 const makeAdapter = () => {
   const config = { ...h.config, port: Number(process.env.UI_TEST_PORT ?? 8799), origins: [...h.config.origins, ...(process.env.UI_TEST_ORIGIN ? [process.env.UI_TEST_ORIGIN] : [])] };
@@ -98,9 +104,31 @@ Object.assign(h.application.conversation, {
   async unarchiveThread(threadId: string) { archivedIds.delete(threadId); return { ok: true }; },
 });
 const timers = new Set<ReturnType<typeof setTimeout>>();
+const listeners = new Map<string, Set<(event: BridgeEvent) => void>>();
+const watchConversation = {
+  getSurfaceThread: (_adapter: string, id: string) => h.bindings.get(id) ?? null,
+  async getThreadCwd() { return "/fixture"; },
+  getThreadState: h.context.ingress.getThreadState,
+  getThreadSurface(threadId: string) {
+    const surfaceId = [...h.bindings].find(([, thread]) => thread === threadId)?.[0];
+    return surfaceId ? { adapter: "web", surfaceId } : null;
+  },
+  subscribeToThreadEvents(threadId: string, listener: (event: BridgeEvent) => void) {
+    const set = listeners.get(threadId) ?? new Set();
+    listeners.set(threadId, set); set.add(listener);
+    return () => { set.delete(listener); if (!set.size) listeners.delete(threadId); };
+  },
+};
+const signalDispatcher = new SignalDispatcher(new ConversationSignalExecutor({
+  ...watchConversation, submitTurn: (threadId, request) => h.context.ingress.submitTurn(threadId, request),
+}));
+const threadWatches = new ThreadWatchService({ conversation: watchConversation, dispatcher: signalDispatcher });
 const publish = (threadId: string, type: BridgeEvent["type"], payload: unknown) => {
   const id = [...h.bindings].find(([, thread]) => thread === threadId)?.[0];
-  if (id) h.publish(id, { id: `fixture-${++sequence}`, type, threadId, sessionId: "fixture", ts: new Date().toISOString(), payload });
+  if (!id) return;
+  const event = { id: `fixture-${++sequence}`, type, threadId, sessionId: "fixture", ts: new Date().toISOString(), payload } as BridgeEvent;
+  h.publish(id, event);
+  for (const listener of [...listeners.get(threadId) ?? []]) listener(event);
 };
 function later(ms: number, run: () => void) { const timer = setTimeout(() => { timers.delete(timer); run(); }, ms); timers.add(timer); }
 function finish(threadId: string, status: "completed" | "interrupted" = "completed", reportedTurnId?: string | null) {
@@ -111,6 +139,11 @@ function finish(threadId: string, status: "completed" | "interrupted" = "complet
   h.active.set(threadId, null);
   publish(threadId, "turn.completed", { turnId: reportedTurnId === undefined ? turn.id : reportedTurnId });
 }
+function finishWatchWorker(threadId: string) {
+  const turn = histories.get(threadId)!.at(-1)!;
+  complete(threadId, turn, { id: `reply-${turn.id}`, type: "assistant_message", phase: "final", text: "Check complete." });
+  finish(threadId);
+}
 h.context.ingress.submitTurn = async (threadId, request) => {
   const text = request.input.filter((item) => item.type === "text").map((item) => (item as { text: string }).text).join("\n");
   const portable = text.startsWith("portable stream ");
@@ -118,9 +151,29 @@ h.context.ingress.submitTurn = async (threadId, request) => {
   const turnId = repeated ? text.endsWith("one") ? "constructor" : "__proto__" : `turn-${++sequence}`;
   const itemId = portable ? "answer" : `agent-${sequence}`;
   const content = request.input.map((part) => part.type === "text" ? { type: "text" as const, text: part.text } : part.type === "image" ? { type: "image" as const, url: part.url } : { type: "attachment" as const, name: null, path: null });
-  const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: repeated ? "local:native" : portable ? "user" : `user-${sequence}`, type: "user_message", content }] };
+  const turn: HistoryTurn = { id: turnId, status: "in_progress", itemsView: "full", error: null, startedAt: Date.now() / 1000, completedAt: null, durationMs: null, items: [{ id: repeated ? "local:native" : portable ? "user" : `user-${sequence}`, type: "user_message", content, ...(request.source ? { source: request.source } : {}) }] };
   histories.set(threadId, [...(histories.get(threadId) ?? []), turn]);
   h.active.set(threadId, turnId); publish(threadId, "turn.started", { turnId });
+  if (request.source === "thread_watch" && watchSmokeManagers.has(threadId)) {
+    publish(threadId, "item.completed", { turnId, item: turn.items[0] });
+    for (const worker of watchSmokeManagers.get(threadId)!.splice(0)) finishWatchWorker(worker);
+    finish(threadId);
+    return { ok: true, turnId };
+  }
+  if (managerHandler && text === "Run five watcher checks.") {
+    const lateWorkers: string[] = [];
+    watchSmokeManagers.set(threadId, lateWorkers);
+    for (const name of ["Luna", "README", "Package", "Workspace", "Tests"]) {
+      const { threadId: worker } = await managerHandler({ threadId, turnId, callId: crypto.randomUUID(), namespace: "shepherd", tool: "swarm_delegate", arguments: {
+        name, assignment: `Watcher smoke check for ${name}.`, requestId: `watch-${name}`,
+      } }) as { threadId: string };
+      if (name === "Workspace" || name === "Tests") lateWorkers.push(worker);
+      else finishWatchWorker(worker);
+    }
+    finish(threadId);
+    return { ok: true, turnId };
+  }
+  if (request.source === "swarm_assignment" && text.startsWith("Watcher smoke check for ")) return { ok: true, turnId };
   if (managerHandler && text === "Yes, use that team.") {
     const invoke = (tool: string, args: import("../../shared/protocol/dynamic_tools.js").JsonValue) => managerHandler!({ threadId, turnId, callId: crypto.randomUUID(), namespace: "shepherd", tool, arguments: args });
     await invoke("swarm_status", {});
@@ -323,5 +376,6 @@ await adapter.start();
 console.log(adapter.url());
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, async () => {
   for (const timer of timers) clearTimeout(timer);
+  threadWatches.dispose(); signalDispatcher.dispose();
   await adapter.stop(); h.api.dispose(); if (swarmDirectory) await rm(swarmDirectory, { recursive: true, force: true }); await rm(imageDir, { recursive: true, force: true }); await rm(uploadDir, { recursive: true, force: true }); process.exit(0);
 });

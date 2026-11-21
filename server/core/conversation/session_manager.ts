@@ -546,8 +546,8 @@ export class SessionManager {
     return { ok: true, turnId };
   }
 
-  listApprovals(threadId: string): ApprovalRecord[] {
-    return this.approvals.listByThread(threadId);
+  listApprovals(threadId: string, turnId?: string): ApprovalRecord[] {
+    return this.approvals.listByThread(threadId, turnId);
   }
 
   async applyApprovalDecision(

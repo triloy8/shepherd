@@ -63,7 +63,7 @@ export function webHarness(runtimeLifecycle?: SurfaceApplicationContext["runtime
     },
     interactions: {} as never,
     approvals: {
-      listApprovals: (threadId) => approvals.listByThread(threadId),
+      listApprovals: (threadId, turnId) => approvals.listByThread(threadId, turnId),
       async applyApprovalDecision(threadId, id, decision) { approvals.markDecided(threadId, id, decision); approvals.markApplied(threadId, id); calls.push("approval"); },
     },
   };

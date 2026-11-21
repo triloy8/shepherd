@@ -1,6 +1,8 @@
 import type { DynamicToolCallParams } from "../../../shared/protocol/dynamic_tools.js";
 import { toTextUserInput } from "../../../shared/protocol/user_input.js";
 import { validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
+import { answerMessages } from "../../../shared/protocol/item_stream.js";
+import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import type { SwarmGroup, SwarmObservation, SwarmSnapshot } from "../../../shared/protocol/swarm.js";
 import type { SurfaceConversation } from "../../../shared/protocol/conversation.js";
 import type { ApplicationConversation, ApprovalConversation } from "./conversation_ports.js";
@@ -23,6 +25,7 @@ type Options = {
   snapshot: (group: SwarmGroup) => Promise<SwarmSnapshot>;
   onChange: (groupId: string) => void;
 };
+const REPORT_TEXT_LIMIT = 48_000;
 function text(data: Record<string, unknown>, key: string, max: number, optional = false): string {
   const value = data[key];
   if (optional && value === undefined) return "";
@@ -55,7 +58,7 @@ export class SwarmManagerService {
     try {
       const data = params.arguments;
       if (!data || typeof data !== "object" || Array.isArray(data) || JSON.stringify(data).length > 16_384) throw new Error("Invalid swarm tool arguments.");
-      const fields: Record<string, string[]> = { swarm_status: [], swarm_delegate: ["name", "assignment", "requestId", "provider"], swarm_send: ["threadId", "message", "requestId"], swarm_report: ["threadId", "cursor"], swarm_interrupt: ["threadId"], swarm_rename: ["name"], swarm_decide: ["threadId", "approvalId", "decision", "answers"] };
+      const fields: Record<string, string[]> = { swarm_status: [], swarm_delegate: ["name", "assignment", "requestId", "provider"], swarm_send: ["threadId", "message", "requestId"], swarm_report: ["threadId", "cursor", "turnId"], swarm_interrupt: ["threadId"], swarm_rename: ["name"], swarm_decide: ["threadId", "approvalId", "decision", "answers"] };
       if (!fields[params.tool] || Object.keys(data).some(k => !fields[params.tool]!.includes(k))) throw new Error("Unexpected swarm tool arguments.");
       if (!group) {
         if (params.tool === "swarm_status") return { group: null, workers: [], manager: await this.options.observe(params.threadId), guidance: "Work independently by default. Delegate only when the user agrees to a team." };
@@ -102,9 +105,15 @@ export class SwarmManagerService {
       await this.options.open(threadId);
       if (params.tool === "swarm_send") return await this.sendAssignment(params, group, member, text(data, "requestId", 128), text(data, "message", 4096));
       if (params.tool === "swarm_report") {
-        const page = await this.options.conversation.listThreadTurns(threadId, { cursor: text(data, "cursor", 4096, true) || undefined, limit: 5, sortDirection: "desc", itemsView: "full" });
+        const turnId = text(data, "turnId", 256, true);
+        const cursor = text(data, "cursor", 4096, true) || undefined;
+        if (turnId) {
+          if (cursor) throw new Error("Provide either a turnId or a history cursor.");
+          return await this.reportTurn(member, turnId);
+        }
+        const page = await this.options.conversation.listThreadTurns(threadId, { cursor, limit: 5, sortDirection: "desc", itemsView: "full" });
         const serialized = JSON.stringify(page);
-        return { threadId, observation: await this.options.observe(threadId), dispatches: member.dispatches ?? [], history: serialized.slice(0, 48_000), truncated: serialized.length > 48_000, nextCursor: page.nextCursor, approvals: this.options.approvals.listApprovals(threadId).filter(a => a.status === "pending") };
+        return { threadId, observation: await this.options.observe(threadId), dispatches: member.dispatches ?? [], history: serialized.slice(0, REPORT_TEXT_LIMIT), truncated: serialized.length > REPORT_TEXT_LIMIT, nextCursor: page.nextCursor, approvals: this.options.approvals.listApprovals(threadId).filter(a => a.status === "pending") };
       }
       if (params.tool === "swarm_decide") {
         this.assertActive(params, group);
@@ -122,6 +131,33 @@ export class SwarmManagerService {
       return { threadId, interrupted: Boolean(turnId) };
     } finally { this.managing.delete(params.threadId); if (group) this.options.onChange(group.id); }
   }
+
+  private async reportTurn(member: SwarmGroup["members"][number], turnId: string) {
+    const { threadId } = member;
+    const dispatch = member.dispatches?.find(d => d.turnId === turnId) ?? null;
+    const pendingApprovals = () => this.options.approvals.listApprovals(threadId, turnId).filter(a => a.status === "pending");
+    let cursor: string | undefined;
+    const seenCursors = new Set<string>();
+    do {
+      const page = await this.options.conversation.listThreadTurns(threadId, { cursor, limit: 20, sortDirection: "desc", itemsView: "summary" });
+      const turn = page.data.find(candidate => candidate.id === turnId);
+      if (turn) {
+        const replies = turn.items.filter((item): item is Extract<HistoryItem, { type: "assistant_message" }> => item.type === "assistant_message" && !item.parentItemId);
+        const answers = turn.status === "completed" ? answerMessages(replies) : replies.filter(item => item.phase === "final");
+        const finalReply = answers.map(answer => answer.text).join("\n\n");
+        return {
+          threadId, turnId, dispatch, status: turn.status, error: turn.error,
+          finalReply: finalReply.slice(0, REPORT_TEXT_LIMIT) || null,
+          truncated: finalReply.length > REPORT_TEXT_LIMIT, approvals: pendingApprovals(),
+        };
+      }
+      cursor = page.nextCursor ?? undefined;
+      if (cursor && seenCursors.has(cursor)) throw new Error("Worker history repeated its cursor before the requested turn was found.");
+      if (cursor) seenCursors.add(cursor);
+    } while (cursor);
+    return { threadId, turnId, dispatch, status: null, error: null, finalReply: null, truncated: false, approvals: pendingApprovals() };
+  }
+
   private async sendAssignment(params: DynamicToolCallParams, group: SwarmGroup, member: SwarmGroup["members"][number], key: string, message: string) {
     const previous = member.dispatches?.find(d => d.key === key);
     if (previous) return { threadId: member.threadId, ...previous, duplicate: true, guidance: previous.status === "pending" ? "Dispatch outcome uncertain. Read worker history; do not automatically resend." : "Assignment already sent." };

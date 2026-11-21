@@ -40,6 +40,11 @@ type TargetQueue = {
   running: boolean;
 };
 
+function sameBinding(a: SignalTarget, b: SignalTarget): boolean {
+  return a.threadId === b.threadId && a.cwd === b.cwd &&
+    a.delivery.adapter === b.delivery.adapter && a.delivery.surfaceId === b.delivery.surfaceId;
+}
+
 export class SignalDispatcher {
   private readonly capacity: number;
   private readonly beforeExecute: (signal: RegisteredSignal) => Promise<void>;
@@ -80,7 +85,9 @@ export class SignalDispatcher {
     const key = signal.coalesceKey ?? `signal-${++this.sequence}`;
     const existing = queue.pending.get(key);
     if (existing) {
-      queue.pending.set(key, { key, signal, target });
+      const merged = signal.batch && existing.signal.batch && sameBinding(existing.signal.target, signal.target)
+        ? signal.batch.merge(existing.signal) : signal;
+      queue.pending.set(key, { key, signal: merged, target });
       return { type: "coalesced", threadId: target.threadId };
     }
 
@@ -120,31 +127,52 @@ export class SignalDispatcher {
     });
   }
 
+  private removePending(queue: TargetQueue, key: string): void {
+    if (queue.pending.delete(key)) this.pendingCount -= 1;
+  }
+
   private async drainQueue(queue: TargetQueue): Promise<void> {
     while (!this.disposed) {
       const key = queue.order.shift();
       if (!key) return;
-      const queued = queue.pending.get(key);
+      let queued = queue.pending.get(key);
       if (!queued) continue;
-      queue.pending.delete(key);
-      this.pendingCount -= 1;
+      let collecting = Boolean(queued.signal.batch);
+      if (!collecting) this.removePending(queue, key);
       queue.activeCoalesceKey = queued.signal.coalesceKey;
 
       try {
         await this.executor.waitUntilIdle(queued.target);
         if (this.disposed) return;
         // The conversation may have moved to another surface or workspace while this waited.
-        const current = await this.executor.resolveTarget(queued.signal.target);
+        let current = await this.executor.resolveTarget(queued.signal.target);
         if (this.disposed) return;
+        if (collecting) {
+          let latest = queue.pending.get(key)!;
+          while (!sameBinding(queued.signal.target, latest.signal.target)) {
+            queued = latest;
+            await this.executor.waitUntilIdle(queued.target);
+            if (this.disposed) return;
+            current = await this.executor.resolveTarget(queued.signal.target);
+            if (this.disposed) return;
+            latest = queue.pending.get(key)!;
+          }
+          queued = latest;
+          this.removePending(queue, key);
+          collecting = false;
+        }
         if (!current || current.threadId !== queued.target.threadId || current.cwd !== queued.target.cwd) {
           this.onError(new Error("Signal target is no longer bound to its conversation; dropped the signal."), queued.signal);
           continue;
         }
-        await this.beforeExecute(queued.signal);
-        await this.executor.executeTurn(queued.target, queued.signal.input, queued.signal.source);
+        const signal = queued.signal.batch?.prepare() ?? queued.signal;
+        await this.beforeExecute(signal);
+        if (this.disposed) return;
+        await this.executor.executeTurn(queued.target, signal.input, signal.source);
       } catch (error) {
         this.onError(error, queued.signal);
       } finally {
+        if (collecting) this.removePending(queue, key);
         queue.activeCoalesceKey = null;
       }
     }

@@ -32,6 +32,11 @@ export type RegisteredSignal = {
   coalesceKey: string | null;
   terminal: boolean;
   source?: MessageSource;
+  /** Opt in to collecting same-key events until the target is ready for delivery. */
+  batch?: {
+    merge: (previous: RegisteredSignal) => RegisteredSignal;
+    prepare: () => RegisteredSignal;
+  };
 };
 
 export class InvalidSignalError extends Error {}

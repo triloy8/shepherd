@@ -28,6 +28,10 @@ rebind through web on resume. Workers cannot manage teams. A manager can control
 only its own members during its current active turn. Duplicate dispatch IDs
 return their saved receipt; uncertain pending receipts require history inspection.
 Watches are renewed by status on the manager's next turn after restart.
+Watcher updates name the worker turns that changed while the manager was busy.
+Pass the worker thread ID and turn ID to `swarm_report` to get that turn's
+dispatch receipt, status, final reply and pending decisions. Omit the turn ID to
+page through full worker history.
 
 New isolated workers require an owner/repo project. Local-path chats can work
 alone. Closed teams retain history. Creating another team for the same parent

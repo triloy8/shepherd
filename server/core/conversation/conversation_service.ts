@@ -359,8 +359,8 @@ export class ConversationService {
     return this.manager.steerTurn(threadId, request);
   }
 
-  listApprovals(threadId: string): ApprovalRecord[] {
-    return this.manager.listApprovals(threadId);
+  listApprovals(threadId: string, turnId?: string): ApprovalRecord[] {
+    return this.manager.listApprovals(threadId, turnId);
   }
 
   applyApprovalDecision(threadId: string, approvalId: string, decision: ApprovalDecisionRequest): Promise<void> {

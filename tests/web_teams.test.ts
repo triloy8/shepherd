@@ -8,6 +8,7 @@ import { WebChatApi } from "../server/adapters/web/api.js";
 import { createWebChatAdapter, createWebSurface } from "../server/adapters/web/server.js";
 import { webHarness } from "./helpers/web_harness.js";
 import type { SwarmGroup } from "../shared/protocol/swarm.js";
+import type { HistoryTurn, ListThreadTurnsRequest, ListThreadTurnsResponse } from "../shared/protocol/requests.js";
 import type { SwarmStore } from "../server/ports/swarm_store.js";
 
 function memoryStore(): SwarmStore {
@@ -365,6 +366,48 @@ test("reports, decisions, and interrupts are restricted to the manager's actual 
     expect(await h.manage(group.managerThreadId, "swarm_decide", { threadId: result.threadId, approvalId: approval.approvalId, decision: "allow-once" })).toEqual({ applied: true });
     const current = h.api.groups.read(group.id); await h.api.groups.close(group.id, current.revision);
     expect(await h.manage(group.managerThreadId, "swarm_status")).toMatchObject({ group: null, workers: [] });
+  } finally { h.dispose(); }
+});
+
+test("a turn-specific report finds the matching dispatch, reply, and pending decisions", async () => {
+  const h = harness(memoryStore(), true);
+  try {
+    const group = await h.create();
+    const manager = group.managerThreadId;
+    h.active.set(manager, "manager-turn");
+    const { threadId, turnId } = await h.manage(manager, "swarm_delegate", { name: "Luna", assignment: "Review", requestId: "review" }) as { threadId: string; turnId: string };
+    h.active.set(threadId, null);
+    const followUp = "follow-up-turn";
+    h.context.ingress.submitTurn = async id => { h.active.set(id, followUp); return { ok: true, turnId: followUp }; };
+    await h.manage(manager, "swarm_send", { threadId, message: "Check the fix", requestId: "check" });
+    const first: HistoryTurn = { id: turnId, status: "completed", error: null, itemsView: "summary", startedAt: null, completedAt: null, durationMs: null, items: [
+      { id: "progress", type: "assistant_message", phase: "interim", text: "Reviewing" },
+      { id: "answer", type: "assistant_message", phase: "final", text: "Review complete" },
+      { id: "subagent", type: "assistant_message", parentItemId: "delegate", phase: "final", text: "Subagent reply" },
+    ] };
+    const next: HistoryTurn = { ...first, id: followUp, status: "in_progress", items: [
+      { id: "partial", type: "assistant_message", text: "Still checking" },
+    ] };
+    Object.assign(h.application.conversation, {
+      async listThreadTurns(id: string, request: ListThreadTurnsRequest): Promise<ListThreadTurnsResponse> {
+        expect(id).toBe(threadId);
+        expect(request.itemsView).toBe("summary");
+        return request.cursor === "older" ? { data: [first], nextCursor: null, backwardsCursor: null }
+          : { data: [next], nextCursor: "older", backwardsCursor: null };
+      },
+    });
+    const approval = h.approvals.create({ approvalId: "native-permission", kind: "permission", activity: { kind: "command", command: "bun test", cwd: null, result: null }, reason: null,
+      choices: [{ value: "allow-once", label: "Allow", intent: "allow" }] }, { threadId, sessionId: "session", turnId: followUp });
+
+    expect(await h.manage(manager, "swarm_report", { threadId, turnId })).toMatchObject({
+      turnId, status: "completed", dispatch: { key: "review", status: "sent", turnId }, finalReply: "Review complete", approvals: [],
+    });
+    expect(await h.manage(manager, "swarm_report", { threadId, turnId: followUp })).toMatchObject({
+      turnId: followUp, status: "in_progress", dispatch: { key: "check", status: "sent", turnId: followUp }, finalReply: null,
+      approvals: [{ approvalId: approval.approvalId }],
+    });
+    expect(await h.manage(manager, "swarm_report", { threadId, turnId: "absent" })).toMatchObject({ status: null, dispatch: null, finalReply: null, approvals: [] });
+    await expect(h.manage(manager, "swarm_report", { threadId, turnId, cursor: "older" })).rejects.toThrow("either a turnId or a history cursor");
   } finally { h.dispose(); }
 });
 

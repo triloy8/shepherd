@@ -114,7 +114,7 @@ describe("ThreadWatchService", () => {
       source: "thread_watch",
     });
     const payload = signal.envelope.payload as ThreadWatchPayload;
-    expect(payload.changed).toEqual({ label: "agent-1", threadId: "child-1", state: "completed" });
+    expect(payload.changes).toMatchObject([{ label: "agent-1", threadId: "child-1", turnId: "turn-c1", state: "completed" }]);
     expect(payload.agents.map((agent) => [agent.label, agent.state, agent.turnId])).toEqual([
       ["agent-1", "completed", "turn-c1"],
       ["agent-2", "running", "turn-c2"],
@@ -123,8 +123,8 @@ describe("ThreadWatchService", () => {
     expect(input?.type).toBe("text");
     const text = input?.type === "text" ? input.text : "";
     expect(text).toContain("group `swarm-1`");
-    expect(text).toContain("Latest change: `agent-1` completed its turn.");
-    expect(text).toContain("- `agent-2` (thread `child-2`): running");
+    expect(text).toContain("Changes in this update\n- `agent-1` (thread `child-1`, turn `turn-c1`): completed its turn");
+    expect(text).toContain("- `agent-2` (thread `child-2`, turn `turn-c2`): running");
     expect(text).toContain("untrusted claims");
   });
 
@@ -298,18 +298,21 @@ describe("ThreadWatchService", () => {
     expect((await h.call("watch_threads", watchTwo)).success).toBe(false);
   });
 
-  test("folds a burst of changes into one turn that reports every state", async () => {
+  test("collects every change until delivery and starts a new batch during the wake turn", async () => {
     const turns: string[] = [];
+    const batches: ThreadWatchPayload[] = [];
+    let releaseIdle!: () => void;
+    const idle = new Promise<void>((resolve) => { releaseIdle = resolve; });
     let releaseFirst!: () => void;
     const firstTurn = new Promise<void>((resolve) => { releaseFirst = resolve; });
     const dispatcher = new SignalDispatcher({
       async resolveTarget(target) { return { threadId: target.threadId, cwd: target.cwd }; },
-      async waitUntilIdle() {},
+      async waitUntilIdle() { await idle; },
       async executeTurn(_target, input) {
         turns.push(input[0]?.type === "text" ? input[0].text : "");
         if (turns.length === 1) await firstTurn;
       },
-    });
+    }, { beforeExecute: async (signal) => { batches.push(signal.envelope.payload as ThreadWatchPayload); } });
     const listeners = new Map<string, Listener>();
     const service = new ThreadWatchService({
       conversation: {
@@ -324,20 +327,34 @@ describe("ThreadWatchService", () => {
     await watch.execute({ threadId: "parent", turnId: "turn-p", callId: "c", namespace: "shepherd", tool: "watch_threads", arguments: {
       group: "swarm", threads: ["a", "b", "c"].map((label) => ({ threadId: `child-${label}`, label })),
     } });
-    const complete = (label: string) => listeners.get(`child-${label}`)!({ id: label, type: "turn.completed", threadId: `child-${label}`, sessionId: "s", ts: "now", payload: { turnId: `t-${label}` } } as BridgeEvent);
+    const emit = (label: string, type: BridgeEvent["type"], turnId: string) => listeners.get(`child-${label}`)!({ id: crypto.randomUUID(), type, threadId: `child-${label}`, sessionId: "s", ts: "now", payload: { turnId, kind: "permission" } } as BridgeEvent);
 
-    complete("a");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    complete("b");
-    complete("c");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    releaseFirst();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    try {
+      emit("a", "turn.completed", "a-first");
+      await Bun.sleep(0);
+      emit("b", "turn.completed", "b-first");
+      emit("a", "turn.started", "a-follow-up");
+      await Bun.sleep(0);
+      expect(turns).toEqual([]);
+      releaseIdle();
+      await Bun.sleep(0);
 
-    expect(turns).toHaveLength(2);
-    expect(turns[1]).toContain("Latest change: `c` completed its turn.");
-    expect(turns[1]).toContain("- `b` (thread `child-b`): completed its turn");
-    service.dispose();
-    dispatcher.dispose();
+      expect(batches[0]?.changes.map(change => [change.turnId, change.state])).toEqual([["a-first", "completed"], ["b-first", "completed"]]);
+      expect(batches[0]?.agents[0]).toMatchObject({ turnId: "a-follow-up", state: "running" });
+      expect(turns[0]).toContain("- `a` (thread `child-a`, turn `a-first`): completed its turn");
+
+      emit("c", "approval.requested", "c-first");
+      emit("a", "turn.completed", "a-follow-up");
+      await Bun.sleep(0);
+      expect(turns).toHaveLength(1);
+      releaseFirst();
+      await Bun.sleep(0);
+
+      expect(turns).toHaveLength(2);
+      expect(batches[1]?.changes.map(change => [change.turnId, change.state])).toEqual([["c-first", "needs-attention"], ["a-follow-up", "completed"]]);
+      expect(turns[1]).toContain("- `c` (thread `child-c`, turn `c-first`): needs attention — waiting for an approval");
+    } finally {
+      releaseIdle(); releaseFirst(); service.dispose(); dispatcher.dispose();
+    }
   });
 });

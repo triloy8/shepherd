@@ -78,11 +78,17 @@ async page => {
         return [left, right, top, bottom];
       });
       const adjustedRight = rightPositions();
-      let rightControlsFixed = true;
+      let edgeInsetMovesOnlyRightBlock = true;
       if (innerWidth < 640) {
-        headerElement.style.paddingLeft = '4px';
-        rightControlsFixed = JSON.stringify(rightPositions()) === JSON.stringify(adjustedRight);
-        headerElement.style.removeProperty('padding-left');
+        const samePosition = (a, b) => Math.abs(a - b) < 0.02;
+        headerElement.style.paddingRight = '4px';
+        edgeInsetMovesOnlyRightBlock = rightPositions().every(([left, right, top, bottom], index) => {
+          const [adjustedLeft, adjustedEnd, adjustedTop, adjustedBottom] = adjustedRight[index];
+          return samePosition(left - adjustedLeft, 4) && samePosition(right - adjustedEnd, 4) &&
+            samePosition(top, adjustedTop) && samePosition(bottom, adjustedBottom);
+        }) && samePosition(sidebarButton.getBoundingClientRect().left, sidebarBounds.left) &&
+          samePosition(titleButton.getBoundingClientRect().left, titleBounds.left);
+        headerElement.style.removeProperty('padding-right');
       }
       const labelInsets = [titleButton, batteryIndicator].flatMap(element => {
         const { paddingLeft, paddingRight } = getComputedStyle(element);
@@ -93,7 +99,7 @@ async page => {
       const stage = document.querySelector('.conversation-stage').getBoundingClientRect();
       return { headerHeight:header.height, inset:form.left - stage.left, bottom:form.bottom, stageBottom:stage.bottom,
         headerGaps: items.slice(1).map((item, index) => item.left - items[index].right),
-        headerGap: parseFloat(getComputedStyle(headerElement).columnGap), rightControlsFixed,
+        headerGap: parseFloat(getComputedStyle(headerElement).columnGap), edgeInsetMovesOnlyRightBlock,
         mobileGaps: [sidebarBounds, titleBounds, statusBounds, menuBounds, swarm, battery].map((item, index, bounds) =>
           item.left - (bounds[index - 1]?.right ?? header.left)
         ).concat(header.right - battery.right),
@@ -117,8 +123,8 @@ async page => {
     if (geometry.headerHeight > 64 || geometry.inset < 10 || geometry.bottom >= geometry.stageBottom) throw Error(`Floating layout invalid at ${width}`);
     if (!geometry.headerAligned || geometry.headerOverflow || geometry.headerGaps.some(gap => Math.abs(gap - geometry.headerGap) > 1)) throw Error(`Uneven header spacing at ${width}`);
     if (!geometry.statusDotCentered) throw Error(`Status dot is off-center at ${width}`);
-    if (width < 640 && geometry.mobileGaps.some((gap, index) => Math.abs(gap - (index === 0 ? 8 : 4)) > 1)) throw Error(`Unexpected mobile header spacing at ${width}`);
-    if (!geometry.rightControlsFixed) throw Error(`The left inset moved a right-side control at ${width}`);
+    if (width < 640 && geometry.mobileGaps.some((gap, index, gaps) => Math.abs(gap - (index === 0 || index === gaps.length - 1 ? 8 : 4)) > 1)) throw Error(`Unexpected mobile header spacing at ${width}`);
+    if (!geometry.edgeInsetMovesOnlyRightBlock) throw Error(`The right block did not move inward by 4px at ${width}`);
     if (width < 640 && geometry.iconInsets.some(inset => Math.abs(inset - 4) > 1)) throw Error(`Header icons lack 4px tap insets at ${width}`);
     if (width < 640 && geometry.titleWidth < (width === 320 ? 20 : 90)) throw Error(`Header controls crowd the title at ${width}`);
     if (await page.getByRole('button', { name: 'Swarm · 0', exact: true }).innerText() !== 'Swarm · 0') throw Error(`Swarm label is hidden at ${width}`);

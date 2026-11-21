@@ -121,6 +121,7 @@ export function Message({ message, images = emptyImages, progress = false, showA
   const copyOnClick = useContext(MessageCopyOnClick);
   const author = message.role === "user" ? inputAuthors[message.source ?? "human"] ?? "You" : "Shepherd";
   const automated = message.role === "user" && author !== "You";
+  const renderAsMarkdown = message.role !== "user" || message.source === "thread_watch" || message.source === "webhook";
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [copyNotice, setCopyNotice] = useState(0);
@@ -160,8 +161,8 @@ export function Message({ message, images = emptyImages, progress = false, showA
       {!message.complete && !writingPaused && <span className="ml-1 text-dim">Writing…</span>}
     </div>}
     {message.role === "user" && message.attachments?.map((url, index) => <AttachedImage key={index} url={url} index={index} />)}
-    {message.role === "user" && message.source !== "thread_watch" ? <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>
-      : <MessageMarkdown text={renderedText} images={images} prefix={prefix} complete={message.complete && renderedText === message.text} />}
+    {renderAsMarkdown ? <MessageMarkdown text={renderedText} images={images} prefix={prefix} complete={message.complete && renderedText === message.text} />
+      : <div className="whitespace-pre-wrap break-words text-[15px] leading-7">{message.text}</div>}
     {!progress && (!copyOnClick || onRevert) && actions}
     {copyOnClick && canCopy && (copied || copyError) && <span className={`message-copy-feedback ${copyError ? "copy-failed" : ""}`} role="status" data-copy-state={copyError ? "error" : "copied"}>
       <Icon name={copyError ? "close" : "check"} /><span className={copyError ? undefined : "sr-only"}>{copyError ? "Could not copy" : "Copied"}</span>

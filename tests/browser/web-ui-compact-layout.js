@@ -72,6 +72,18 @@ async page => {
       const compactWidths = new Map([[sidebarButton, 20], [statusButton, 16], [menuButton, 22]]);
       const titleButton = headerElement.querySelector('h1 button');
       const titleBounds = titleButton.getBoundingClientRect();
+      const rightControls = [statusButton, menuButton, actionGroup.querySelector('button[aria-haspopup="dialog"]'), batteryIndicator];
+      const rightPositions = () => rightControls.map(el => {
+        const { left, right, top, bottom } = el.getBoundingClientRect();
+        return [left, right, top, bottom];
+      });
+      const adjustedRight = rightPositions();
+      let rightControlsFixed = true;
+      if (innerWidth < 640) {
+        headerElement.style.paddingLeft = '4px';
+        rightControlsFixed = JSON.stringify(rightPositions()) === JSON.stringify(adjustedRight);
+        headerElement.style.removeProperty('padding-left');
+      }
       const labelInsets = [titleButton, batteryIndicator].flatMap(element => {
         const { paddingLeft, paddingRight } = getComputedStyle(element);
         return [parseFloat(paddingLeft), parseFloat(paddingRight)];
@@ -81,7 +93,7 @@ async page => {
       const stage = document.querySelector('.conversation-stage').getBoundingClientRect();
       return { headerHeight:header.height, inset:form.left - stage.left, bottom:form.bottom, stageBottom:stage.bottom,
         headerGaps: items.slice(1).map((item, index) => item.left - items[index].right),
-        headerGap: parseFloat(getComputedStyle(headerElement).columnGap),
+        headerGap: parseFloat(getComputedStyle(headerElement).columnGap), rightControlsFixed,
         mobileGaps: [sidebarBounds, titleBounds, statusBounds, menuBounds, swarm, battery].map((item, index, bounds) =>
           item.left - (bounds[index - 1]?.right ?? header.left)
         ).concat(header.right - battery.right),
@@ -105,7 +117,8 @@ async page => {
     if (geometry.headerHeight > 64 || geometry.inset < 10 || geometry.bottom >= geometry.stageBottom) throw Error(`Floating layout invalid at ${width}`);
     if (!geometry.headerAligned || geometry.headerOverflow || geometry.headerGaps.some(gap => Math.abs(gap - geometry.headerGap) > 1)) throw Error(`Uneven header spacing at ${width}`);
     if (!geometry.statusDotCentered) throw Error(`Status dot is off-center at ${width}`);
-    if (width < 640 && geometry.mobileGaps.some(gap => Math.abs(gap - 4) > 1)) throw Error(`Header controls lack uniform 4px spacing at ${width}`);
+    if (width < 640 && geometry.mobileGaps.some((gap, index) => Math.abs(gap - (index === 0 ? 8 : 4)) > 1)) throw Error(`Unexpected mobile header spacing at ${width}`);
+    if (!geometry.rightControlsFixed) throw Error(`The left inset moved a right-side control at ${width}`);
     if (width < 640 && geometry.iconInsets.some(inset => Math.abs(inset - 4) > 1)) throw Error(`Header icons lack 4px tap insets at ${width}`);
     if (width < 640 && geometry.titleWidth < (width === 320 ? 20 : 90)) throw Error(`Header controls crowd the title at ${width}`);
     if (await page.getByRole('button', { name: 'Swarm · 0', exact: true }).innerText() !== 'Swarm · 0') throw Error(`Swarm label is hidden at ${width}`);

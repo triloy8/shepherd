@@ -1,418 +1,343 @@
-import { Buffer } from "node:buffer";
-import { UnsupportedModelInputError } from "../../../shared/protocol/model_capabilities.js";
-import { UnsupportedProviderOperationError } from "../../ports/provider_session.js";
-import type { AgentProvider, EffortSelection } from "../../../shared/protocol/requests.js";
-import { presentHistoryItem } from "./history.js";
-import { readImageInputs, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
-import { WebHostControls } from "./host_controls.js";
-import { readHostBattery } from "./host_battery.js";
-import { webControl } from "./controls.js";
-import { WebImages } from "./images.js";
-import { randomUUID } from "node:crypto";
-import { WEB_API_PREFIX, type WebConversation, type WebError } from "../../../shared/protocol/web.js";
-import { toTextUserInput } from "../../../shared/protocol/user_input.js";
-import { ApplicationActionError } from "../../core/surface_api.js";
-import type { UserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
-import { ApprovalDecisionError } from "../../core/surface_api.js";
-import { ThreadBindingConflictError } from "../../core/surface_api.js";
-import { executeTurnRouting } from "../../core/surface_api.js";
 import type { SurfaceAdapterContext } from "../../core/surface_api.js";
-import type { SurfaceApplicationContext } from "../../core/surface_api.js";
-import type { RegisteredSignal } from "../../core/surface_api.js";
-import { BodyTooLargeError, readBoundedJson } from "../shared/body.js";
-import type { WebConfig } from "./config.js";
-import { WebRequestError } from "./errors.js";
-import { WebEventFeed } from "./event_feed.js";
+import { randomUUID } from "node:crypto";
+import { findThreadTurn, SwarmService, SwarmError, SwarmManagerService, SWARM_MANAGER_INSTRUCTIONS, SWARM_WORKER_INSTRUCTIONS } from "../../core/surface_api.js";
+import type { SwarmStore } from "../../ports/swarm_store.js";
+import type { SwarmDispatchObservation, SwarmGroup, SwarmMember, SwarmObservation, SwarmSnapshot, SwarmEventData } from "../../../shared/protocol/swarm.js";
+import type { SurfaceConversation } from "../../../shared/protocol/conversation.js";
+import type { TurnStatus } from "../../../shared/protocol/requests.js";
+import type { WebConfig } from "../shared/browser_config.js";
+import { WebSurfaceApi } from "../shared/browser_api.js";
+import { WebEventFeed } from "../shared/browser_event_feed.js";
+import { WebRequestError } from "../shared/browser_errors.js";
+import { readBoundedJson } from "../shared/body.js";
 
-export const WEB_MAX_BODY_BYTES = 64 * 1024;
-const MAX_CONVERSATIONS = 32;
-const MAX_REQUESTS = 32;
-type Entry = { id: string; threadId: string | null; project: string; busy: boolean; historyRevision: number; feed: WebEventFeed; images: WebImages };
+function text(data: Record<string, unknown>, key: string, max: number, optional = false): string {
+  const value = data[key];
+  if (optional && value === undefined) return "";
+  if (typeof value !== "string" || !value.trim() || value.length > max || (key === "assignment" ? /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/ : /[\u0000-\u001f\u007f]/).test(value)) throw new WebRequestError(400, "invalid_request", `Invalid ${key}.`);
+  return value.trim();
+}
+async function body(request: Request, keys: string[]): Promise<Record<string, unknown>> {
+  if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") throw new WebRequestError(415, "unsupported_media_type", "Content-Type must be application/json.");
+  let data: unknown;
+  try { data = await readBoundedJson(request, 16 * 1024); }
+  catch { throw new WebRequestError(400, "invalid_request", "Expected a JSON body of at most 16 KiB."); }
+  if (!data || typeof data !== "object" || Array.isArray(data) || Object.keys(data).some(key => !keys.includes(key))) throw new WebRequestError(400, "invalid_request", "Unexpected request fields.");
+  return data as Record<string, unknown>;
+}
+function revision(data: Record<string, unknown>): number {
+  if (!Number.isSafeInteger(data.revision) || Number(data.revision) < 1) throw new WebRequestError(400, "invalid_request", "A current revision is required.");
+  return Number(data.revision);
+}
+const json = (status: number, value: unknown) => Response.json(value, { status });
+const errorStatuses: Record<string, number> = { swarm_not_found: 404, member_not_found: 404, swarm_limit: 429, worker_limit: 429 };
+type DispatchHistory = { task: string | null; status: TurnStatus };
+type RecentTurn = { at: number; turnId: string | null; status: SwarmObservation["state"] };
 
-function requiredString(object: Record<string, unknown>, key: string, max = 4096): string {
-  const value = object[key];
-  if (typeof value !== "string" || !value.trim() || value.length > max) {
-    throw new WebRequestError(400, "invalid_request", `${key} must be a non-empty string of at most ${max} characters.`);
-  }
-  return value;
-}
-function effortSelection(object: Record<string, unknown>): EffortSelection {
-  const value = object.effort;
-  if (value === null) return null;
-  if (typeof value === "string") return requiredString(object, "effort", 256);
-  if (value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).length === 1 && "mode" in value && value.mode === "default") {
-    return { mode: "default" };
-  }
-  throw new WebRequestError(400, "invalid_request", "Choose an effort value, model default, or null to clear effort.");
-}
-function formatBytes(bytes: number): string {
-  return bytes < 1024 * 1024 ? `${Math.floor(bytes / 1024)} KiB` : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
-}
-function optionalString(object: Record<string, unknown>, key: string, max = 4096): string | undefined {
-  return object[key] === undefined ? undefined : requiredString(object, key, max);
-}
-function pagination(url: URL, extra: string[] = []) {
-  if ([...url.searchParams.keys()].some((key) => !["cursor", "limit", ...extra].includes(key))) {
-    throw new WebRequestError(400, "invalid_query", `Only ${["cursor", "limit", ...extra].join(", ")} are supported.`);
-  }
-  const limit = Number(url.searchParams.get("limit") ?? 20);
-  const cursor = url.searchParams.get("cursor") ?? undefined;
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (cursor && cursor.length > 4096)) {
-    throw new WebRequestError(400, "invalid_query", "limit must be 1–100; cursor must be at most 4096 characters.");
-  }
-  return { limit, ...(cursor ? { cursor } : {}) };
-}
-async function body(request: Request, fields: string[], maxBytes = WEB_MAX_BODY_BYTES): Promise<Record<string, unknown>> {
-  if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
-    throw new WebRequestError(415, "unsupported_media_type", "Content-Type must be application/json.");
-  }
-  let value: unknown;
-  try { value = await readBoundedJson(request, maxBytes); }
-  catch (error) {
-    if (error instanceof BodyTooLargeError) throw error;
-    throw new WebRequestError(400, "invalid_json", "Request body must contain valid JSON.");
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !fields.includes(key))) {
-    throw new WebRequestError(400, "invalid_request", `Expected an object with only these fields: ${fields.join(", ")}.`);
-  }
-  return value as Record<string, unknown>;
+function terminalState(status: TurnStatus | SwarmObservation["state"] | undefined) {
+  return status === "completed" || status === "interrupted" || status === "failed" ? status : undefined;
 }
 
-/** HTTP navigation state only. All agent operations use shared application ports. */
-export class WebSurfaceApi {
-  private readonly host: WebHostControls;
-  private readonly application: SurfaceApplicationContext;
-  private readonly entries = new Map<string, Entry>();
-  private readonly resuming = new Set<string>();
-  private stopping = false;
-  private requests = 0;
-  private messageRequests = 0;
-
-  constructor(private readonly context: SurfaceAdapterContext, private readonly config: WebConfig) {
-    this.application = context.createApplication((id, event) => {
-      const entry = this.entries.get(id);
-      if (!entry) return;
-      if (event.type === "thread.reverted") {
-        entry.historyRevision++;
-        entry.feed.invalidateHistory();
-        return;
-      }
-      // Live items are presented exactly as history presents them.
-      if (event.type === "item.started" || event.type === "item.completed") {
-        const { turnId, item } = event.payload;
-        entry.feed.publish("bridge", { ...event, payload: { turnId, item: presentHistoryItem(item, turnId ?? "", entry.images) } });
-      } else entry.feed.publish("bridge", event);
+/** One aggregate roster feed, plus the shared browser API for conversation controls. */
+export class WebChatApi {
+  readonly browser: WebSurfaceApi;
+  readonly groups: SwarmService;
+  private readonly feed = new WebEventFeed<SwarmEventData>();
+  private readonly recent = new Map<string, RecentTurn>();
+  private readonly dispatchHistory = new Map<string, { turnId: string; expiresAt: number; read: Promise<DispatchHistory | null> }>();
+  private readonly unregisterManager: () => void;
+  private readonly opening = new Map<string, Promise<SurfaceConversation>>();
+  /** Reservations remain read-only and hidden until the roster write succeeds. */
+  private readonly pendingWorkers = new Map<string, string>();
+  constructor(private readonly context: SurfaceAdapterContext, config: WebConfig, store: SwarmStore) {
+    this.browser = new WebSurfaceApi(context, config, {
+      maxConversations: 96,
+      instructions: threadId => this.isWorker(threadId) ? SWARM_WORKER_INSTRUCTIONS : SWARM_MANAGER_INSTRUCTIONS,
+      mutationAllowed: threadId => !this.isWorker(threadId),
+      visible: threadId => !this.isWorker(threadId), route: request => this.route(request),
+      onEvent: (threadId, event) => {
+        const observed = this.recent.has(threadId) || this.dispatchHistory.has(threadId);
+        const historyChanged = event.type === "turn.started" || event.type === "turn.completed" ||
+          event.type === "turn.failed" || event.type === "thread.reverted" || event.type === "session.error" ||
+          (event.type === "item.completed" && event.payload.item.type === "user_message" && event.payload.item.source === "swarm_assignment");
+        if (historyChanged) {
+          this.recent.delete(threadId);
+          this.dispatchHistory.delete(threadId);
+        }
+        if (observed && event.type === "turn.completed") {
+          this.recent.set(threadId, { at: Date.now(), turnId: event.payload.turnId, status: event.payload.interrupted ? "interrupted" : "completed" });
+        }
+        if (observed && event.type === "turn.failed") {
+          try {
+            if (!this.context.ingress.getThreadState(threadId).activeTurnId) {
+              this.recent.set(threadId, { at: Date.now(), turnId: event.payload.turnId, status: "failed" });
+            }
+          } catch { /* A failure from a detached session is verified through history. */ }
+        }
+        if (historyChanged || event.type.startsWith("approval.")) {
+          this.feed.publish("swarm", { groupId: null });
+        }
+      },
     });
-    this.host = new WebHostControls(this.application.runtimeLifecycle);
+    this.groups = new SwarmService(store, this.browser.application.conversation);
+    const manager = new SwarmManagerService({
+      groups: this.groups, managerConversation: threadId => this.isWorker(threadId) ? undefined : this.browser.listConversations().find(c => c.threadId === threadId), conversation: this.browser.application.conversation,
+      ingress: context.ingress, approvals: context.approvals, bridge: context.swarmManager,
+      interrupt: (threadId, turnId) => this.browser.application.conversation.interruptTurn(threadId, turnId),
+      isAvailable: () => !context.isQuiescing() && !context.signal.aborted,
+      open: threadId => this.open(threadId),
+      createWorker: async (project, provider) => {
+        const worker = await this.browser.create(project, undefined, undefined, undefined, provider, SWARM_WORKER_INSTRUCTIONS);
+        try {
+          this.reserveWorker(worker.threadId);
+          return worker;
+        } catch (error) {
+          this.detachWorker(worker.id);
+          throw error;
+        }
+      },
+      detach: id => {
+        this.detachWorker(id);
+      },
+      observe: threadId => this.observe(threadId), snapshot: group => this.snapshot(group),
+      onChange: groupId => this.feed.publish("swarm", { groupId }),
+    });
+    this.unregisterManager = context.swarmManager?.connect(params => manager.manage(params)) ?? (() => {});
   }
-
-  async fetch(request: Request): Promise<Response> {
-    const origin = request.headers.get("origin");
-    const allowedOrigin = origin !== null && this.config.origins.includes(origin);
-    const headers = new Headers({ "cache-control": "no-store", "x-content-type-options": "nosniff", "vary": "Origin" });
-    if (allowedOrigin) headers.set("access-control-allow-origin", origin);
-    const json = (status: number, value: unknown) => {
-      return Response.json(value, { status, headers });
-    };
-    const fail = (status: number, code: string, message: string) => json(status, { error: { code, message } } satisfies WebError);
-    if (origin !== null && !allowedOrigin) return fail(403, "origin_denied", "Origin is not allowed.");
-    const url = new URL(request.url);
-    if (request.method === "OPTIONS") {
-      if (!allowedOrigin || !url.pathname.startsWith(`${WEB_API_PREFIX}/`)) return fail(403, "origin_denied", "Preflight is not allowed.");
-      const method = request.headers.get("access-control-request-method");
-      const requestedHeaders = (request.headers.get("access-control-request-headers") ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
-      if (!method || !["GET", "POST", "DELETE"].includes(method) || requestedHeaders.some((s) => !["content-type", "last-event-id"].includes(s))) {
-        return fail(403, "preflight_denied", "Requested method or headers are not allowed.");
-      }
-      headers.set("access-control-allow-methods", "GET, POST, DELETE");
-      headers.set("access-control-allow-headers", "Content-Type, Last-Event-ID");
-      headers.set("access-control-max-age", "600");
-      return new Response(null, { status: 204, headers });
+  private isWorker(threadId?: string) {
+    this.reconcileReservations();
+    return Boolean(threadId && (this.pendingWorkers.has(threadId) || this.groups.list().some(g => g.members.some(m => m.threadId === threadId))));
+  }
+  private reconcileReservations(): void {
+    const owned = new Set(this.groups.list().flatMap(group => [group.managerThreadId, ...group.members.map(member => member.threadId)]));
+    for (const threadId of this.pendingWorkers.keys()) if (owned.has(threadId)) this.pendingWorkers.delete(threadId);
+  }
+  private reserveWorker(threadId: string): string {
+    this.reconcileReservations();
+    if (this.pendingWorkers.has(threadId)) throw new WebRequestError(409, "worker_attach_in_progress", "This conversation is already being attached as a worker.");
+    if (this.groups.list().some(group => group.managerThreadId === threadId || group.members.some(member => member.threadId === threadId))) {
+      throw new SwarmError("thread_in_swarm", "This conversation already belongs to a team.");
     }
-    if (this.stopping || this.context.isQuiescing()) return fail(503, "unavailable", "Shepherd is stopping.");
-    if (this.requests >= MAX_REQUESTS) return fail(429, "request_limit", "Too many in-flight requests.");
-    this.requests++;
+    const token = randomUUID();
+    this.pendingWorkers.set(threadId, token);
+    return token;
+  }
+  private releaseWorker(threadId: string, token: string): void {
+    if (this.pendingWorkers.get(threadId) === token) this.pendingWorkers.delete(threadId);
+  }
+  private detachWorker(id: string): void {
+    const worker = this.browser.listConversations().find(conversation => conversation.id === id);
+    if (worker) this.pendingWorkers.delete(worker.threadId);
+    this.browser.detachConversation(id);
+  }
+  fetch(request: Request) { return this.browser.fetch(request); }
+  presentSignal(signal: Parameters<WebSurfaceApi["presentSignal"]>[0]) { this.browser.presentSignal(signal); }
+  dispose() { this.unregisterManager(); this.feed.close(); this.browser.dispose(); }
+  private async open(threadId: string, instructions?: string): Promise<SurfaceConversation> {
+    this.reconcileReservations();
+    const existing = this.browser.listConversations().find(c => c.threadId === threadId);
+    if (existing) {
+      if (instructions === SWARM_WORKER_INSTRUCTIONS) await this.browser.updateInstructions(existing.id, instructions);
+      return existing;
+    }
+    const pending = this.opening.get(threadId);
+    if (pending) {
+      const conversation = await pending;
+      if (instructions === SWARM_WORKER_INSTRUCTIONS) await this.browser.updateInstructions(conversation.id, instructions);
+      return conversation;
+    }
+    const operation = this.browser.create(undefined, threadId, undefined, undefined, undefined, instructions ?? (this.isWorker(threadId) ? SWARM_WORKER_INSTRUCTIONS : SWARM_MANAGER_INSTRUCTIONS), true).finally(() => this.opening.delete(threadId));
+    this.opening.set(threadId, operation);
+    return operation;
+  }
+  private async observe(threadId: string): Promise<SwarmObservation> {
+    const observation: SwarmObservation = { threadId, state: "unknown", activeTurnId: null, pendingApprovals: 0, observedAt: new Date().toISOString(), conversation: this.browser.listConversations().find(c => c.threadId === threadId) ?? null };
     try {
-      if (url.pathname === `${WEB_API_PREFIX}/providers` && request.method === "GET") return json(200, { providers: this.application.conversation.listProviders() });
-      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/health`) return json(200, { ok: true });
-      if (url.pathname === `${WEB_API_PREFIX}/host` && request.method === "GET") return json(200, await this.host.status());
-      if (url.pathname === `${WEB_API_PREFIX}/host/battery` && request.method === "GET") return json(200, { battery: await readHostBattery() });
-      if (url.pathname === `${WEB_API_PREFIX}/host/actions` && request.method === "POST") {
-        const data = await body(request, ["requestId", "action", "branch"]);
-        const requestId = requiredString(data, "requestId", 100);
-        if (!/^[A-Za-z0-9_-]+$/.test(requestId) || (data.action !== "restart" && data.action !== "deploy")) throw new WebRequestError(400, "invalid_request", "Expected a valid requestId and restart or deploy action.");
-        const branch = optionalString(data, "branch", 256);
-        if (branch && (data.action !== "deploy" || branch.startsWith("-") || /[\s\x00-\x1f]/.test(branch))) throw new WebRequestError(400, "invalid_request", "Invalid deployment branch.");
-        return json(202, this.host.start({ requestId, action: data.action, ...(branch ? { branch } : {}) }));
+      const state = this.context.ingress.getThreadState(threadId);
+      observation.activeTurnId = state.activeTurnId;
+      observation.pendingApprovals = this.context.approvals.listApprovals(threadId).filter(a => a.status === "pending").length;
+      if (observation.pendingApprovals) observation.state = "needs-attention";
+      else if (state.activeTurnId) observation.state = "running";
+      else {
+        let cached = this.recent.get(threadId);
+        if (!cached || Date.now() - cached.at > 30_000) {
+          const page = await this.browser.application.conversation.listThreadTurns(threadId, { limit: 1, sortDirection: "desc", itemsView: "none" });
+          const last = page.data[0];
+          const status = terminalState(last?.status) ?? (last?.status === "in_progress" ? "unknown" : "idle");
+          const live = this.recent.get(threadId);
+          cached = live && live !== cached ? live : { at: Date.now(), turnId: last?.id ?? null, status };
+          this.recent.set(threadId, cached);
+        }
+        observation.state = cached.status;
       }
-      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/models`) {
-        const provider = url.searchParams.get("provider");
-        if (url.searchParams.getAll("provider").length > 1 || (provider !== null && !this.application.conversation.listProviders().some(entry => entry.id === provider))) throw new WebRequestError(400, "invalid_query", "Choose a registered provider.");
-        const hidden = url.searchParams.get("includeHidden");
-        if (url.searchParams.getAll("includeHidden").length > 1 || (hidden !== null && hidden !== "true" && hidden !== "false")) throw new WebRequestError(400, "invalid_query", "includeHidden must be true or false.");
-        return json(200, await this.application.conversation.listModels({ ...pagination(url, ["provider", "includeHidden"]), ...(provider ? { provider } : {}), ...(hidden !== null ? { includeHidden: hidden === "true" } : {}) }));
-      }
-      if (request.method === "POST" && url.pathname === `${WEB_API_PREFIX}/limits/reset`) {
-        const data = await body(request, ["provider", "idempotencyKey", "creditId"]);
-        const provider = requiredString(data, "provider", 64);
-        if (!this.application.conversation.listProviders().some(entry => entry.id === provider && entry.capabilities.accountReset)) return fail(422, "unsupported_capability", "Account reset is unavailable.");
-        return json(200, await this.application.conversation.resetAccount(provider, { idempotencyKey: requiredString(data, "idempotencyKey", 100), ...(data.creditId !== undefined ? { creditId: requiredString(data, "creditId", 256) } : {}) }));
-      }
-      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/limits`) {
-        const provider = url.searchParams.get("provider") ?? this.application.conversation.listProviders().find(entry => entry.isDefault)?.id;
-        const refresh = url.searchParams.get("refresh");
-        if ([...url.searchParams.keys()].some(key => !["provider", "refresh"].includes(key)) || ["provider", "refresh"].some(key => url.searchParams.getAll(key).length > 1) || (refresh !== null && !["true", "false"].includes(refresh)) || !this.application.conversation.listProviders().some(entry => entry.id === provider)) throw new WebRequestError(400, "invalid_query", "Choose a registered provider and valid refresh option.");
-        return json(200, await this.application.conversation.readAccount(provider!, refresh === "true"));
-      }
-      if (request.method === "GET" && url.pathname === `${WEB_API_PREFIX}/threads`) {
-        const archived = url.searchParams.get("archived");
-        if (archived !== null && archived !== "true" && archived !== "false") throw new WebRequestError(400, "invalid_query", "archived must be true or false.");
-        return json(200, await this.application.conversation.listStoredThreads({ ...pagination(url, ["archived"]), archived: archived === "true", sortKey: "updated_at", sortDirection: "desc" }));
-      }
-      if (url.pathname === `${WEB_API_PREFIX}/conversations`) {
-        if (request.method === "GET") return json(200, { conversations: [...this.entries.values()].filter((e) => e.threadId).map((e) => this.summary(e)) });
+    } catch { /* An unavailable observation is never evidence of completion. */ }
+    return observation;
+  }
+  private readDispatchHistory(threadId: string, turnId: string): Promise<DispatchHistory | null> {
+    const cached = this.dispatchHistory.get(threadId);
+    if (cached?.turnId === turnId && cached.expiresAt > Date.now()) return cached.read;
+    const read = findThreadTurn(this.browser.application.conversation.listThreadTurns, threadId, turnId, "summary").then(turn => {
+      if (!turn) return null;
+      const prompt = turn.items.find(item => item.type === "user_message" && !item.parentItemId);
+      const task = prompt?.type === "user_message"
+        ? prompt.content.filter(part => part.type === "text").map(part => part.text).join("\n").trim().slice(0, 4096) || null
+        : null;
+      return { task, status: turn.status };
+    }).catch(() => null);
+    const entry = { turnId, expiresAt: Infinity, read };
+    this.dispatchHistory.set(threadId, entry);
+    void read.then(result => { entry.expiresAt = Date.now() + (result?.task ? 30_000 : 1_000); });
+    return read;
+  }
+  private async observeDispatch(member: SwarmMember): Promise<SwarmDispatchObservation | undefined> {
+    const dispatch = member.dispatches?.at(-1);
+    if (!dispatch) return undefined;
+    const { turnId } = dispatch;
+    if (dispatch.status === "pending" || !turnId) return { turnId: null, task: null, state: "delivery-unconfirmed" };
+    const history = await this.readDispatchHistory(member.threadId, turnId);
+    const recent = this.recent.get(member.threadId);
+    const liveTerminal = recent?.turnId === turnId ? terminalState(recent.status) : undefined;
+    let state: SwarmDispatchObservation["state"] = liveTerminal ?? terminalState(history?.status) ?? "unknown";
+    try {
+      if (this.context.approvals.listApprovals(member.threadId, turnId).some(approval => approval.status === "pending")) state = "needs-attention";
+      else if (this.context.ingress.getThreadState(member.threadId).activeTurnId === turnId) state = "running";
+    } catch { /* The exact historical turn remains available when the worker is detached. */ }
+    return { turnId, task: history?.task ?? null, state };
+  }
+  private async observeWorker(member: SwarmMember): Promise<SwarmObservation> {
+    const [observation, latestDispatch] = await Promise.all([this.observe(member.threadId), this.observeDispatch(member)]);
+    return latestDispatch ? { ...observation, latestDispatch } : observation;
+  }
+  private async snapshot(group: SwarmGroup): Promise<SwarmSnapshot> {
+    const workers: SwarmObservation[] = [];
+    for (let i = 0; i < group.members.length; i += 4) workers.push(...await Promise.all(group.members.slice(i, i + 4).map(member => this.observeWorker(member))));
+    return { group, manager: await this.observe(group.managerThreadId), workers };
+  }
+  private async route(request: Request): Promise<Response | null> {
+    const path = new URL(request.url).pathname;
+    const mutation = /^\/api\/conversations\/([^/]+)/.exec(path);
+    if (mutation && request.method !== "GET") {
+      const conversation = this.browser.listConversations().find(c => c.id === mutation[1]);
+      if (conversation && this.isWorker(conversation.threadId)) throw new WebRequestError(403, "worker_read_only", "Worker conversations are read-only. Ask their manager to act.");
+    }
+    if (path === "/api/conversations" && request.method === "POST") {
+      // Inspect a clone so the shared API still owns request validation.
+      let data: unknown;
+      try { data = await readBoundedJson(request.clone(), 16 * 1024); } catch { return null; }
+      if (data && typeof data === "object" && "threadId" in data && typeof data.threadId === "string" && this.isWorker(data.threadId)) throw new WebRequestError(403, "worker_read_only", "Open workers through their parent conversation's Swarm panel.");
+    }
+    if (!/^\/api\/swarms(?:\/|$)/.test(path)) return null;
+    try {
+      if (path === "/api/swarms/events" && request.method === "GET") return new Response(this.feed.open(request.headers.get("last-event-id"), request.signal), { headers: { "content-type": "text/event-stream", "x-accel-buffering": "no" } });
+      if (path === "/api/swarms") {
+        if (request.method === "GET") return json(200, { groups: this.groups.list() });
         if (request.method === "POST") {
-          const data = await body(request, ["project", "threadId", "provider"]);
-          if (data.provider !== undefined && (typeof data.provider !== "string" || !this.application.conversation.listProviders().some(entry => entry.id === data.provider))) throw new WebRequestError(400, "invalid_request", "Choose an available provider.");
-          if (data.threadId && data.provider !== undefined) throw new WebRequestError(400, "invalid_request", "An existing thread determines its provider.");
-          return json(201, await this.create(optionalString(data, "project", 4096), optionalString(data, "threadId", 256), undefined, undefined, data.provider as AgentProvider | undefined));
+          const data = await body(request, ["name", "project", "managerThreadId", "provider", "strategy"]);
+          const name = text(data, "name", 120, true) || "New conversation", strategy = text(data, "strategy", 120, true);
+          const threadId = text(data, "managerThreadId", 256, true);
+          const project = text(data, "project", 4096, Boolean(threadId));
+          const provider = text(data, "provider", 64, true);
+          if (provider && !this.browser.application.conversation.listProviders().some(p => p.id === provider)) throw new WebRequestError(400, "invalid_request", "Choose an available provider.");
+          if (provider && threadId) throw new WebRequestError(400, "invalid_request", "An existing manager determines its provider.");
+          if (this.isWorker(threadId)) throw new WebRequestError(403, "worker_read_only", "Workers cannot manage teams.");
+          const manager = threadId ? await this.open(threadId, SWARM_MANAGER_INSTRUCTIONS) : await this.browser.create(project, undefined, undefined, undefined, provider || undefined, SWARM_MANAGER_INSTRUCTIONS);
+          try {
+            const group = await this.groups.create({ name, project: manager.project, managerThreadId: manager.threadId, strategy });
+            this.feed.publish("swarm", { groupId: group.id });
+            return json(201, { group });
+          } catch (error) { if (!threadId) this.browser.detachConversation(manager.id); throw error; }
+        }
+        throw new WebRequestError(405, "method_not_allowed", "Method is not supported for this route.");
+      }
+      const match = /^\/api\/swarms\/([A-Za-z0-9_-]{1,64})(?:\/(members|open|close|interrupt|rename))?$/.exec(path);
+      if (!match) throw new WebRequestError(404, "not_found", "Route not found.");
+      const group = this.groups.read(match[1]!);
+      if (!match[2] && request.method === "GET") return json(200, await this.snapshot(group));
+      if (request.method !== "POST") throw new WebRequestError(405, "method_not_allowed", "Method is not supported for this route.");
+      if (match[2] === "open") {
+        const data = await body(request, ["threadId"]), threadId = text(data, "threadId", 256);
+        if (group.managerThreadId !== threadId && !group.members.some(m => m.threadId === threadId)) throw new WebRequestError(404, "member_not_found", "Conversation is not part of this swarm.");
+        return json(200, await this.open(threadId));
+      }
+      if (match[2] === "rename") {
+        const data = await body(request, ["name", "revision"]);
+        const name = text(data, "name", 120);
+        const expectedRevision = revision(data);
+        this.groups.checkRevision(this.groups.read(group.id), expectedRevision);
+        await this.open(group.managerThreadId);
+        const updated = await this.groups.rename(group.id, name, expectedRevision);
+        this.feed.publish("swarm", { groupId: group.id });
+        return json(200, { group: updated });
+      }
+      if (match[2] === "members") {
+        const data = await body(request, ["revision", "name", "assignment", "threadId", "provider"]);
+        this.groups.checkRevision(group, revision(data));
+        if (group.lifecycle !== "active") throw new SwarmError("swarm_closed", "Closed swarms cannot add workers.");
+        if (group.members.length >= 64) throw new SwarmError("worker_limit", "A swarm supports at most 64 workers.");
+        const name = text(data, "name", 80), assignment = text(data, "assignment", 4096, true), threadId = text(data, "threadId", 256, true), provider = text(data, "provider", 64, true);
+        if (group.members.some(m => m.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw new SwarmError("duplicate_name", "Choose a distinct worker name.");
+        if (provider && (!this.browser.application.conversation.listProviders().some(p => p.id === provider) || threadId)) throw new WebRequestError(400, "invalid_request", "Choose an available provider for a new worker.");
+        if (!threadId && !/^[\w.-]+\/[\w.-]+$/.test(group.project)) throw new SwarmError("isolated_workspace_required", "New workers require an owner/repo project for isolated workspaces. Attach an existing conversation instead.");
+        if (threadId) {
+          let state: ReturnType<SurfaceAdapterContext["ingress"]["getThreadState"]> | undefined;
+          try { state = this.context.ingress.getThreadState(threadId); } catch { /* A stored thread is checked when it is resumed. */ }
+          if (state?.activeTurnId || this.context.approvals.listApprovals(threadId).some(approval => approval.status === "pending")) {
+            throw new WebRequestError(409, "conversation_active", "Stop the conversation and resolve pending approvals before attaching it as a worker.");
+          }
+          const reservation = this.reserveWorker(threadId);
+          let worker: SurfaceConversation;
+          try {
+            worker = await this.open(threadId, SWARM_WORKER_INSTRUCTIONS);
+            let resumedState: ReturnType<SurfaceAdapterContext["ingress"]["getThreadState"]> | undefined;
+            try { resumedState = this.context.ingress.getThreadState(worker.threadId); } catch { /* A provider may not expose state until its next event. */ }
+            if (resumedState?.activeTurnId || this.context.approvals.listApprovals(worker.threadId).some(approval => approval.status === "pending")) {
+              throw new WebRequestError(409, "conversation_active", "Stop the conversation and resolve pending approvals before attaching it as a worker.");
+            }
+            const updated = await this.groups.addMember(group.id, revision(data), { threadId: worker.threadId, name, assignment });
+            this.releaseWorker(worker.threadId, reservation);
+            this.feed.publish("swarm", { groupId: group.id });
+            return json(201, { group: updated });
+          } catch (error) {
+            const owned = this.groups.list().some(candidate => candidate.members.some(member => member.threadId === threadId));
+            if (!owned) {
+              const existing = this.browser.listConversations().find(conversation => conversation.threadId === threadId);
+              if (!existing) this.releaseWorker(threadId, reservation);
+              else {
+                try { await this.browser.updateInstructions(existing.id, SWARM_MANAGER_INSTRUCTIONS); this.releaseWorker(threadId, reservation); }
+                catch { /* Keep the reservation hidden and read-only if role restoration fails. */ }
+              }
+            } else this.releaseWorker(threadId, reservation);
+            throw error;
+          }
+        }
+        let worker: SurfaceConversation | undefined;
+        try {
+          worker = await this.browser.create(group.project, undefined, undefined, undefined, provider || undefined, SWARM_WORKER_INSTRUCTIONS);
+          let resumedState: ReturnType<SurfaceAdapterContext["ingress"]["getThreadState"]> | undefined;
+          try { resumedState = this.context.ingress.getThreadState(worker.threadId); } catch { /* A provider may not expose state until its next event. */ }
+          if (resumedState?.activeTurnId || this.context.approvals.listApprovals(worker.threadId).some(approval => approval.status === "pending")) {
+            throw new WebRequestError(409, "conversation_active", "Stop the conversation and resolve pending approvals before attaching it as a worker.");
+          }
+          const reservation = this.reserveWorker(worker.threadId);
+          const updated = await this.groups.addMember(group.id, revision(data), { threadId: worker.threadId, name, assignment });
+          this.releaseWorker(worker.threadId, reservation);
+          this.feed.publish("swarm", { groupId: group.id });
+          return json(201, { group: updated });
+        } catch (error) {
+          if (worker) this.detachWorker(worker.id);
+          throw error;
         }
       }
-      const restore = /^\/api\/threads\/([A-Za-z0-9_-]{1,256})\/unarchive$/.exec(url.pathname);
-      if (restore && request.method === "POST") {
-        await body(request, []);
-        const attached = [...this.entries.values()].find((entry) => entry.threadId === restore[1]);
-        const operation = () => webControl(this.application, { type: "thread.unarchive", threadId: restore[1]! });
-        if (attached) await this.mutate(attached, operation); else await operation();
-        return json(200, { ok: true });
+      if (match[2] === "close" || match[2] === "interrupt") {
+        const data = await body(request, ["revision"]); this.groups.checkRevision(group, revision(data));
+        const result = match[2] === "close" ? { group: await this.groups.close(group.id, revision(data)) } : { results: await this.groups.interrupt(group.id) };
+        this.feed.publish("swarm", { groupId: group.id });
+        return json(200, result);
       }
-      const match = /^\/api\/conversations\/([^/]+)(?:\/(messages|interrupt|turns|approvals|events|images|settings|models|model|effort|context|skills|skills-reload|rename|archive|fork|compact|revert)(?:\/([^/]+))?)?$/.exec(url.pathname);
-      if (!match) return fail(404, "not_found", "Route not found.");
-      const entry = this.entries.get(match[1]!);
-      if (!entry?.threadId) return fail(404, "conversation_not_found", "Conversation not found. Resume its stored thread after a host restart.");
-      const threadId = entry.threadId;
-      const action = match[2];
-      if (match[3] && action !== "approvals" && action !== "images") return fail(404, "not_found", "Route not found.");
-      if (!action && request.method === "GET") return json(200, { ...this.summary(entry), state: this.context.ingress.getThreadState(threadId) });
-      if (!action && request.method === "DELETE") {
-        await this.mutate(entry, async () => this.remove(entry));
-        return json(200, { ok: true });
-      }
-      if ((action === "rename" || action === "archive" || action === "fork") && request.method === "POST") {
-        const data = await body(request, action === "rename" ? ["name"] : []);
-        const name = action === "rename" ? requiredString(data, "name", 200).trim() : "";
-        return await this.mutate(entry, async () => {
-          if (action !== "rename" && (this.context.ingress.getThreadState(threadId).activeTurnId || this.context.approvals.listApprovals(threadId).some((approval) => approval.status === "pending"))) {
-            throw new WebRequestError(409, "conversation_active", "Stop the current turn and resolve pending approvals before archiving or forking.");
-          }
-          if (action === "fork") return json(201, await this.create(entry.project, undefined, threadId, entry.id));
-          await webControl(this.application, action === "rename"
-            ? { type: "thread.rename", surfaceId: entry.id, name }
-            : { type: "thread.archive", surfaceId: entry.id });
-          if (action === "archive") this.remove(entry);
-          return json(200, { ok: true });
-        });
-      }
-      if ((action === "compact" || action === "revert") && request.method === "POST") {
-        const data = await body(request, action === "revert" ? ["beforeTurnId"] : []);
-        const beforeTurnId = action === "revert" ? requiredString(data, "beforeTurnId", 256) : null;
-        return await this.mutate(entry, async () => {
-          if (this.context.ingress.getThreadState(threadId).activeTurnId || this.context.approvals.listApprovals(threadId).some((approval) => approval.status === "pending")) {
-            throw new WebRequestError(409, "conversation_active", "Stop the active turn and resolve approvals before compacting or reverting.");
-          }
-          const revision = entry.historyRevision;
-          try {
-            await webControl(this.application, action === "compact"
-              ? { type: "thread.compact", surfaceId: entry.id }
-              : { type: "thread.revert", surfaceId: entry.id, beforeTurnId: beforeTurnId! });
-          } finally {
-            // A failed transport can still have applied the revert upstream.
-            if (action === "revert" && entry.historyRevision === revision) {
-              entry.historyRevision++;
-              entry.feed.invalidateHistory();
-            }
-          }
-          return json(200, { ok: true });
-        });
-      }
-      if (action === "skills" && request.method === "GET") {
-        return json(200, await this.application.conversation.listSkills(threadId, {}));
-      }
-      if (action === "skills-reload" && request.method === "POST") {
-        await body(request, []);
-        return await this.mutate(entry, async () => json(200, await this.application.conversation.listSkills(threadId, { refresh: true })));
-      }
-      if (action === "skills" && request.method === "POST") {
-        const data = await body(request, ["path", "enabled"]);
-        const path = requiredString(data, "path", 4096);
-        if (typeof data.enabled !== "boolean") throw new WebRequestError(400, "invalid_request", "enabled must be a boolean.");
-        const enabled = data.enabled;
-        return await this.mutate(entry, async () => {
-          const result = await webControl(this.application, { type: "skill.set-enabled", surfaceId: entry.id, path, enabled });
-          if (result.type !== "skill.set-enabled" || !result.ok) throw new Error("Unexpected skill response.");
-          return json(200, { enabled: result.appliedEnabled });
-        });
-      }
-      if (action === "settings" && request.method === "GET") {
-        const model = this.application.conversation.getThreadModel(threadId);
-        const result = await webControl(this.application, { type: "effort.get", surfaceId: entry.id });
-        if (result.type !== "effort.get" || !result.ok) throw new Error("Unexpected effort response.");
-        const current = model.currentModel && model.currentModel !== result.state.model
-          ? await this.application.conversation.getThreadEffort(threadId, model.currentModel) : result.state;
-        const capabilities = (state: typeof result.state) => ({
-          inputModalities: state.inputModalities, supportedEfforts: state.supportedEfforts, defaultEffort: state.defaultEffort,
-        });
-        return json(200, { model, effort: result.state, modelCapabilities: { current: capabilities(current), next: capabilities(result.state) } });
-      }
-      if (action === "models" && request.method === "GET") {
-        const result = await webControl(this.application, { type: "models.list", surfaceId: entry.id, ...pagination(url) });
-        if (result.type !== "models.list") throw new Error("Unexpected models response.");
-        return json(200, result.models);
-      }
-      if (action === "context" && request.method === "GET") {
-        const result = await webControl(this.application, { type: "context.read", surfaceId: entry.id });
-        if (result.type !== "context.read" || !result.ok) throw new Error("Unexpected context response.");
-        return json(200, { threadId: result.threadId, tokenUsage: result.tokenUsage });
-      }
-      if ((action === "model" || action === "effort") && request.method === "POST") {
-        const data = await body(request, [action]);
-        const operation = action === "model"
-          ? { type: "model.set" as const, surfaceId: entry.id, requestedModel: requiredString(data, "model", 256) }
-          : { type: "effort.set" as const, surfaceId: entry.id, effort: effortSelection(data) };
-        await this.mutate(entry, () => webControl(this.application, operation));
-        return json(200, { ok: true });
-      }
-      if (action === "images" && match[3] && request.method === "GET") return await entry.images.response(match[3], headers, request.headers);
-      if (action === "events" && request.method === "GET") {
-        const stream = entry.feed.open(request.headers.get("last-event-id"), request.signal);
-        headers.set("content-type", "text/event-stream");
-        headers.set("x-accel-buffering", "no");
-        return new Response(stream, { headers });
-      }
-      if (action === "turns" && request.method === "GET") {
-        const historyRevision = entry.historyRevision;
-        const history = await this.application.conversation.listThreadTurns(threadId, { ...pagination(url), itemsView: "full", sortDirection: "desc" });
-        if (historyRevision !== entry.historyRevision) throw new WebRequestError(409, "history_changed", "History changed. Reload conversation history.");
-        return json(200, { ...history, revision: historyRevision, data: history.data.map((turn) => ({ ...turn, items: turn.items.map((item) => presentHistoryItem(item, turn.id, entry.images)) })) });
-      }
-      if (action === "approvals" && !match[3] && request.method === "GET") return json(200, { approvals: this.context.approvals.listApprovals(threadId) });
-      if (action === "messages" && request.method === "POST") {
-        return await this.mutate(entry, async () => {
-          if (this.messageRequests >= 2) throw new WebRequestError(429, "request_limit", "Too many messages are being uploaded. Try again shortly.");
-          this.messageRequests++;
-          try {
-            const data = await body(request, ["text", "images"], WEB_MESSAGE_MAX_BODY_BYTES);
-            if (typeof data.text !== "string" || data.text.length > 32768) throw new WebRequestError(400, "invalid_request", "text must be a string of at most 32768 characters.");
-            const text = data.text;
-            const images = readImageInputs(data.images);
-            if (!text.trim() && !images.length) throw new WebRequestError(400, "invalid_request", "Add a message or an image.");
-            const input = [...(text.trim() ? [toTextUserInput(text)] : []), ...images.map((url) => ({ type: "image" as const, url }))];
-            return json(200, await executeTurnRouting({ conversation: this.context.ingress }, {
-              surface: { adapter: "web", surfaceId: entry.id, content: text, input, isCommand: false, isDirectAddressed: true },
-              handled: false, threadId, input,
-            }));
-          } finally { this.messageRequests--; }
-        });
-      }
-      if (action === "interrupt" && request.method === "POST") {
-        const data = await body(request, ["turnId"]);
-        const turnId = optionalString(data, "turnId", 256);
-        await this.mutate(entry, () => this.application.conversation.interruptTurn(threadId, turnId));
-        return json(200, { ok: true });
-      }
-      if (action === "approvals" && match[3] && request.method === "POST") {
-        const data = await body(request, ["decision", "reason", "answers"]);
-        const decision = requiredString(data, "decision", 128);
-        const reason = optionalString(data, "reason");
-        let approvalId: string;
-        try { approvalId = decodeURIComponent(match[3]); } catch { throw new WebRequestError(400, "invalid_request", "Malformed approval identifier."); }
-        if (approvalId.length > 256) throw new WebRequestError(400, "invalid_request", "Approval identifier is too long.");
-        await this.mutate(entry, () => this.context.approvals.applyApprovalDecision(threadId, approvalId, { decision, ...(reason ? { reason } : {}), ...(data.answers !== undefined ? { answers: data.answers as UserQuestionAnswers } : {}) }));
-        return json(200, { ok: true });
-      }
-      return fail(405, "method_not_allowed", "Method is not supported for this route.");
+      throw new WebRequestError(404, "not_found", "Route not found.");
     } catch (error) {
-      if (error instanceof UnsupportedModelInputError) return fail(422, "unsupported_model_input", error.message);
-      if (error instanceof UnsupportedProviderOperationError) return fail(422, "unsupported_provider_operation", error.message);
-      if (error instanceof WebRequestError) return fail(error.status, error.code, error.message);
-      if (error instanceof BodyTooLargeError) return fail(413, "body_too_large", `Request body exceeds ${formatBytes(error.maxBytes)}.`);
-      if (error instanceof ThreadBindingConflictError) return fail(409, "thread_in_use", error.message);
-      if (error instanceof ApprovalDecisionError) return fail(error.code === "approval_not_found" ? 404 : error.code === "invalid_decision" ? 400 : 409, error.code, error.message);
-      if (error instanceof ApplicationActionError && error.failure.code === "restart_pending") return fail(503, "restart_pending", "Shepherd is restarting once running work finishes. Send this again after it is back.");
-      if (error instanceof ApplicationActionError && error.failure.code === "workspace_unavailable") return fail(409, "workspace_unavailable", "The conversation’s saved workspace is missing or unavailable. Restore its original directory before resuming.");
-      if (error instanceof ApplicationActionError) return fail(409, error.failure.code, "An application prerequisite is not satisfied.");
-      console.error("Web API operation failed:", error);
-      return fail(502, "operation_failed", "The backend operation failed. Check host logs.");
-    } finally { this.requests--; }
-  }
-
-  presentSignal(signal: RegisteredSignal): void {
-    this.entries.get(signal.target.delivery.surfaceId)?.feed.publish("signal", signal.envelope);
-  }
-
-  dispose(): void {
-    this.stopping = true;
-    const failures: unknown[] = [];
-    for (const entry of this.entries.values()) {
-      try { this.remove(entry); } catch (error) { failures.push(error); }
+      if (error instanceof SwarmError) throw new WebRequestError(errorStatuses[error.code] ?? 409, error.code, error.message);
+      throw error;
     }
-    if (failures.length) throw new AggregateError(failures, "Web conversation cleanup failed.");
-  }
-
-  private summary(entry: Entry): WebConversation {
-    return { id: entry.id, threadId: entry.threadId!, project: entry.project, ...(this.application.conversation.getThreadProvider ? { provider: this.application.conversation.getThreadProvider(entry.threadId!) } : {}) };
-  }
-  private available(): void {
-    if (this.stopping || this.context.isQuiescing()) throw new WebRequestError(503, "unavailable", "Shepherd is stopping.");
-  }
-  private remove(entry: Entry): void {
-    entry.feed.close();
-    this.entries.delete(entry.id);
-    this.application.disposeSurface(entry.id);
-  }
-  private async create(project: string | undefined, threadId?: string, sourceThreadId?: string, sourceSurfaceId?: string, provider?: AgentProvider): Promise<WebConversation> {
-    this.available();
-    if (!threadId && !project) throw new WebRequestError(400, "invalid_request", "A project is required for a new conversation.");
-    if (threadId && (threadId.trim() !== threadId || /[\u0000-\u001f\u007f]/.test(threadId))) {
-      throw new WebRequestError(400, "invalid_request", "threadId must be an opaque identifier without control characters or surrounding whitespace.");
-    }
-    if (this.entries.size >= MAX_CONVERSATIONS) throw new WebRequestError(429, "conversation_limit", "Detach an existing conversation before opening another.");
-    if (threadId && this.resuming.has(threadId)) throw new WebRequestError(409, "thread_in_use", "Thread resume is already in progress.");
-    const id = randomUUID();
-    const entry: Entry = { id, images: new WebImages(id), threadId: null, project: project ?? "", busy: false, historyRevision: 0, feed: new WebEventFeed() };
-    this.entries.set(entry.id, entry);
-    if (threadId) this.resuming.add(threadId);
-    try {
-      // Resume derives the workspace from the thread; legacy project input cannot override it.
-      if (sourceSurfaceId) {
-        const inherited = this.application.inheritSurfaceProject?.(entry.id, sourceSurfaceId);
-        if (!inherited) throw new Error("Fork project binding is unavailable.");
-        entry.project = inherited;
-      } else if (!threadId) {
-        const selected = await this.application.setSurfaceProject(entry.id, project!);
-        entry.project = selected.repoSlug;
-      }
-      this.available();
-      if (sourceThreadId) {
-        const fork = await webControl(this.application, { type: "thread.fork", surfaceId: entry.id, sourceThreadId });
-        if (fork.type !== "thread.fork" || !fork.ok) throw new Error("Unexpected fork response.");
-        entry.threadId = fork.threadId;
-      } else entry.threadId = threadId
-        ? await this.application.switchSurfaceThread(entry.id, threadId)
-        : await this.application.createSurfaceThread(entry.id, provider);
-      this.available();
-      if (threadId) entry.project = this.application.getSurfaceProject(entry.id) ?? "";
-      return this.summary(entry);
-    } catch (error) { this.remove(entry); throw error; }
-    finally { if (threadId) this.resuming.delete(threadId); }
-  }
-  private async mutate<T>(entry: Entry, operation: () => Promise<T>): Promise<T> {
-    this.available();
-    if (this.entries.get(entry.id) !== entry) throw new WebRequestError(404, "conversation_not_found", "Conversation was detached.");
-    if (entry.busy) throw new WebRequestError(409, "conversation_busy", "Another operation is in progress; retry after it completes.");
-    entry.busy = true;
-    try { return await operation(); }
-    finally { entry.busy = false; }
   }
 }

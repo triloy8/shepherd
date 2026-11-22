@@ -3,11 +3,12 @@
 This document inventories the Codex app-server protocol only. For Claude Agent
 SDK and subscription coverage, see the [Claude parity matrix](claude-parity-matrix.md).
 For Discord and web controls, see the [surface parity matrix](surface-parity-matrix.md).
-Implementation notes reviewed: 2026-10-31 against `0475c5e` on `main`. The
-generated inventory was reverified the same day: both schema formats were
-regenerated with `codex-cli 0.160.1` and every method, server request and
-notification name was compared with the tables below. Generated schemas are not
-committed (`schemas/` is ignored); regenerate them to repeat the check.
+Implementation notes reviewed: 2026-11-18 against `cf67628` on the
+[PR #137](https://github.com/triloy8/shepherd/pull/137) branch. Both schema formats
+were freshly generated with `codex-cli 0.170.0` and compared with fresh `0.160.1`
+output; every method, server request and notification name was checked against
+the tables below. Generated schemas are not committed (`schemas/` is ignored);
+regenerate them to repeat the check.
 
 Unmapped notifications marked `Private` stay inside the adapter and are not
 published as generic application events.
@@ -22,9 +23,9 @@ Status legend:
 
 Generated baseline:
 
-- Codex version: `codex-cli 0.160.1`
-- Last refreshed: `2026-10-09`; inventory reverified `2026-10-31` (no differences)
-- Implementation notes reviewed: `2026-10-04`; user-input handling reviewed
+- Codex version: `codex-cli 0.170.0`
+- Last refreshed and inventory reverified: `2026-11-18`
+- Implementation notes reviewed: `2026-11-18` against `cf67628`; user-input handling reviewed
   `2026-10-09` against `7e30d66` ([PR #88](https://github.com/triloy8/shepherd/pull/88))
 - Refresh commands:
   - `codex app-server generate-ts --out ./schemas`
@@ -36,7 +37,7 @@ Generated baseline:
 Legacy note:
 
 - The legacy-named `execCommandApproval` and `applyPatchApproval` server requests
-  remain in the 0.160.1 generated schema and are supported directly. They are
+  remain in the 0.170.0 generated schema and are supported directly. They are
   not Shepherd compatibility shims. The three legacy client methods and two
   legacy notification names listed below are inventory entries, not dedicated
   wrappers or translations.
@@ -58,6 +59,7 @@ Legacy note:
 | `thread/goal/clear` | Missing | Maybe Later | Goal management path not exposed by current Discord flow |
 | `thread/attachment/add` | Missing | Maybe Later | Adds a durable thread attachment; separate from prompt image input |
 | `thread/attachment/list` | Missing | Maybe Later | Lists durable thread attachments |
+| `thread/attachmentOwner/list` | Missing | Maybe Later | Reverse lookup of threads by attachment type and identity key |
 | `thread/attachment/remove` | Missing | Maybe Later | Removes a durable thread attachment |
 | `thread/metadata/update` | Missing | Maybe Later | Useful for richer repo/thread metadata, but not required for current Discord flow |
 | `thread/section/move` | Missing | Maybe Later | Moves a thread into, within, or out of a server-owned section ordering |
@@ -66,7 +68,7 @@ Legacy note:
 | `thread/approveGuardianDeniedAction` | Missing | Maybe Later | Useful if Shepherd exposes richer guardian/approval review workflows |
 | `thread/rollback` (removed) | Removed | Core | No longer invoked; Discord command returns a retirement notice; web uses turn-based revert |
 | `thread/revert` | Implemented | Core | Explicit `beforeTurnId` cutoff; web Revert from here under persisted user messages; preserves response pagination cursors and resets history; does not revert local file changes |
-| `thread/list` | Partial | Core | Shared filters cover archived state, workspaces, search, creation/update sorting, and direction. Native source/backend/database filters stay private. Provider cursors are opaque and catalog merging is generic; hosted-only `originators` is not exposed |
+| `thread/list` | Partial | Core | Shared filters cover archived state, workspaces, search, creation/update sorting, and direction. Native source/backend/database filters, `currentAccountOnly`, and `excludedThreadIds` stay private. Provider cursors are opaque and catalog merging is generic; hosted-only `originators` is not exposed |
 | `threadSection/list` | Missing | Maybe Later | Useful if Shepherd adds section-based thread organization UX |
 | `threadSection/create` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
 | `threadSection/update` | Missing | Maybe Later | Section management is not exposed by the current Discord flow |
@@ -74,18 +76,20 @@ Legacy note:
 | `thread/loaded/list` | Implemented | Core | |
 | `thread/read` | Implemented | Core | `includeTurns` supported, though the generated schema now recommends metadata-only reads plus paginated turn/item listing |
 | `thread/turns/list` | Implemented | Core | Wrapped with cursors, direction, and items view; Discord `!history` uses five-turn summary pages |
-| `thread/items/list` | Partial | Core | Wrapped with string cursors, direction, and optional turn filter; the new object item-anchor cursor is not exposed; Discord history Items buttons and `!history items` show paginated excerpts with Read buttons for message text/activity summaries |
+| `thread/items/list` | Partial | Core | Wrapped with string cursors, direction, and optional turn filter; object item-anchor cursors and `deferOutput` are not exposed; Discord history Items buttons and `!history items` show paginated excerpts with Read buttons for message text/activity summaries |
 | `thread/inject_items` | Missing | Maybe Later | Potentially useful for advanced thread mutation/replay workflows; not needed for current Discord flow |
 | `thread/unsubscribe` | Implemented | Core | A stopped session releases its thread so the shared process stops sending its notifications. Codex subscribes the process's one client, so a session releases a thread only while it still runs it; a session that has since resumed the thread keeps it subscribed |
 | `hooks/list` | Missing | Maybe Later | Useful for admin diagnostics, but hook management is not part of the current Discord surface |
 | `marketplace/add` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/remove` | Missing | Out of Scope (for now) | Marketplace mutation path |
 | `marketplace/upgrade` | Missing | Out of Scope (for now) | Marketplace mutation path |
-| `turn/start` | Partial | Core | Supports URL/local image, audio, text, and skill input (application `image_file`/`audio_file` encode to `localImage`/`localAudio`); mention input and text elements are not exposed; missing the new image `fileId` variant. Supports `model`, `effort` (Discord `!effort`), and the thread workspace as `cwd`; the policy profile is set on `thread/start`/`resume`/`fork`, not per turn; missing disabled plugin IDs, client message ID, turn trigger, tool output, approval reviewer, sandbox policy, thread/turn service tiers, configurable summary, personality, and output schema; every turn requests reasoning summaries with `summary: "auto"` |
+| `turn/start` | Partial | Core | Supports URL/local image, audio, text, and skill input (application `image_file`/`audio_file` encode to `localImage`/`localAudio`); mention input and text elements are not exposed; uploaded image/audio `fileId` variants are not exposed. Supports `model`, `effort` (Discord `!effort`), and the thread workspace as `cwd`; the policy profile is set on `thread/start`/`resume`/`fork`, not per turn; missing disabled plugin IDs, client message ID, turn trigger, `parentTurnId` / `rootTurnId` ancestry, tool output (including `retain`), approval reviewer, sandbox policy, thread/turn service tiers, configurable summary, personality, and output schema; every turn requests reasoning summaries with `summary: "auto"` |
 | `turn/interrupt` | Implemented | Core | |
 | `turn/steer` | Partial | Core | Exposed through Discord mention steering of active turns; missing client message ID |
 | `review/start` | Missing | Out of Scope (for now) | Could be future advanced feature |
-| `model/list` | Implemented | Core | Wrapped in core and exposed via Discord `!models`/`!model` |
+| `model/list` | Partial | Core | Wrapped in core and exposed via Discord `!models`/`!model`; provider-specific `modelProvider` selection is not exposed |
+| `modelProvider/list` | Missing | Maybe Later | Configured provider inventory for diagnostics and model selection |
+| `modelProvider/config/write` | Missing | Out of Scope (for now) | Writes provider settings |
 | `modelProvider/capabilities/read` | Missing | Maybe Later | Useful for model diagnostics and richer model selection UX |
 | `skills/list` | Implemented | Core | Wrapped in core and exposed via Discord `!skills` with local five-entry pages; the API returns the full inventory without cursors |
 | `skills/extraRoots/set` | Missing | Maybe Later | Required for extra skill roots; the removed `skills/list.perCwdExtraUserRoots` compatibility field is no longer exposed |
@@ -128,6 +132,7 @@ Legacy note:
 | `command/exec/terminate` | Missing | Out of Scope (for now) | Interactive terminal control sub-surface of `command/exec` |
 | `command/exec/resize` | Missing | Out of Scope (for now) | Interactive terminal control sub-surface of `command/exec` |
 | `feedback/upload` | Missing | Out of Scope (for now) | |
+| `feedback/save` | Missing | Out of Scope (for now) | Saves a feedback ZIP at a caller-owned path on the app-server host |
 | `fuzzyFileSearch` | Missing | Out of Scope (for now) | |
 | `experimentalFeature/list` | Missing | Out of Scope (for now) | |
 | `permissionProfile/list` | Missing | Maybe Later | Useful for admin diagnostics and richer sandbox/permission UX |
@@ -139,6 +144,7 @@ Legacy note:
 | `account/gatewayOAuth/read` | Missing | Maybe Later | Reads gateway OAuth status |
 | `account/gatewayOAuth/login` | Missing | Out of Scope (for now) | Explicit gateway authorization; initialize also adds `explicitGatewayOauth` |
 | `account/gatewayOAuth/cancel` | Missing | Out of Scope (for now) | Cancels gateway authorization |
+| `account/securitySetup/read` | Missing | Maybe Later | Account security setup notices and actions |
 | `account/read` | Missing | Maybe Later | Useful for diagnostics |
 | `account/rateLimits/read` | Partial | Core | Discord `!limits` and web sidebar Usage & limits render normalized allowance windows from all returned buckets; web also renders typed banked reset count/details. Does not send `supportsLunaReserve` or `excludeResetCreditDetails`; does not preserve native top-level `ordinaryUsageAllowed`, `accountId`, and `rateLimitUpsell`; window labels use native `limitName`, falling back to a humanized `limitId`; `ordinaryUsageAllowed` is derived from normalized window utilization |
 | `account/rateLimitResetCredit/consume` | Implemented | Core | Shared wrapper/control and web `POST /api/limits/reset` / Use reset per credit. Count-only/capped inventories retain Use available reset. Requires `idempotencyKey`; optional `creditId`. Native outcomes `reset`, `alreadyRedeemed`, `nothingToReset`, `noCredit` map to shared `reset`, `already_redeemed`, `nothing_to_reset`, `no_credit`. UI refreshes limits after every known outcome and retains the same request key and selected credit ID after an unknown outcome, including across reload in the same tab. No Discord command |
@@ -195,6 +201,9 @@ Legacy note:
 | `thread/reverted` | Typed event (`thread.reverted`); web invalidates history and event replay | Core |
 | `thread/compacted` | Private | Maybe Later |
 | `thread/queue/changed` | Private | Maybe Later |
+| `thread/section/changed` | Private | Maybe Later |
+| `thread/readState/changed` | Private | Maybe Later |
+| `thread/prediction/updated` | Private | Maybe Later |
 | `project/changed` / `thread/project/updated` | Private | Maybe Later |
 | `skills/changed` | Private | Maybe Later |
 | `turn/started` | Private | Maybe Later |
@@ -202,7 +211,7 @@ Legacy note:
 | `turn/diff/updated` | Private | Maybe Later |
 | `turn/plan/updated` | Private | Maybe Later |
 | `hook/started` / `hook/completed` | Private | Out of Scope (for now) |
-| `item/started` / `item/completed` | Decoded with the history decoder into `item.started` / `item.completed`; tracks message phase for deltas | Core |
+| `item/started` / `item/completed` | Decoded with the history decoder into `item.started` / `item.completed`; tracks message phase for deltas; `partial_answer` maps to unknown phase, moderation/display metadata and `contentTokenCount` are not exposed | Partial |
 | `item/autoApprovalReview/started` / `item/autoApprovalReview/completed` | Private | Maybe Later |
 | `autoApprovalReview/strictReviewRequired` | Private | Maybe Later |
 | `rawResponseItem/completed` | Private; legacy compatibility notification absent from the generated JSON-schema notification union | Maybe Later |
@@ -250,16 +259,89 @@ Legacy note:
 | Area | Status | Notes |
 |---|---|---|
 | Thread lifecycle DTOs | Good | Includes shared list filters, opaque pagination cursors, and provider-neutral execution policies; native approval values stay in the adapter |
-| Rich thread object typing | Partial | `ReadThreadResponse`/`RevertThreadResponse` use `ThreadRecord`; only declared shared fields survive adapter decoding; generated `originator`, project assignment, agent-message delivery, and environment fields are omitted |
+| Rich thread object typing | Partial | `ReadThreadResponse`/`RevertThreadResponse` use `ThreadRecord`; only declared shared fields survive adapter decoding; generated `originator`, project assignment, agent-message delivery/moderation, turn `rootTurnId`, item timestamps, and environment fields are omitted |
 | Rich resume/fork/start options | Partial | Major override fields supported; pagination controls and several newer override fields remain unwrapped |
 | Notification DTO parity | Partial | Key lifecycle and nested error notifications are decoded; project, queue, auth-recovery, MCP event-stream, and broader item/model/realtime notifications remain private |
 | Account usage/reset DTOs | Partial | Typed reset summary/details, consume params, and validated outcomes are exposed through shared controls and web. Native buckets are decoded into typed allowance windows; raw bucket payloads and broader native account metadata stay private |
 | User-input request/response DTOs | Partial | `UserQuestionRequest` preserves identity, questions, `isBlocking`, `isOther`, `isSecret`, `multiSelect`, and options; answers use question-ID maps of string arrays. One nonempty answer per single-answer question; distinct arrays for multiselect; deprecated `autoResolutionMs` is not used for a client timer |
 | Context telemetry DTOs | Partial | Added `ThreadTokenUsage`/`ReadThreadTokenUsageResponse`; `thread/tokenUsage/updated` is typed and cached, while broader telemetry notifications remain reduced |
-| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.160.1`: 107 TypeScript request methods (104 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 85 TypeScript notifications (83 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. New attachment and gateway OAuth methods remain unwrapped; removed rollback is retired in favor of implemented revert |
+| Generated schema baseline coverage | Partial | The inventory baseline is `codex-cli 0.170.0`: 112 TypeScript request methods (109 in the JSON-schema union plus 3 legacy compatibility methods), 10 server requests, and 88 TypeScript notifications (86 in the JSON-schema union plus 2 legacy compatibility notifications); Shepherd intentionally leaves most platform-admin surfaces unwrapped. Attachment-owner, provider management, security setup, and feedback-save methods remain unwrapped; removed rollback is retired in favor of implemented revert |
 
 
-## Refresh to 0.160.1
+## Refresh to 0.170.0
+
+Both default schema formats were regenerated with an isolated, pinned
+`@openai/codex@0.170.0` installation. Fresh output contains 1,118 files, compared
+with 1,048 from `0.160.1`; experimental output contains 1,436 files, compared
+with 1,315. Schema generation followed the
+[official app-server documentation](https://learn.chatgpt.com/docs/app-server).
+
+Compared with `0.160.1`, the default inventory adds five client methods:
+`thread/attachmentOwner/list`, `modelProvider/list`, `modelProvider/config/write`,
+`account/securitySetup/read`, and `feedback/save`. It adds three notifications:
+`thread/section/changed`, `thread/readState/changed`, and
+`thread/prediction/updated`. No method or notification names were removed, and
+the ten server request names are unchanged. The client `initialized`
+notification is unchanged. All names are included in the tables above.
+
+Relevant field and behavior changes, including gaps in Shepherd's adapter:
+
+- `turn/start` adds optional `parentTurnId` and `rootTurnId`; returned turns also
+  include `rootTurnId`. Shepherd's worker delegation does not propagate this
+  native ancestry and shared history omits it.
+- Assistant phases add `partial_answer`, which the current decoder treats as
+  unknown. Agent messages add moderation/display metadata (show, hide, block),
+  which Shepherd does not interpret. Completed items add `contentTokenCount`;
+  stored item payloads now also carry optional lifecycle timestamps. Those
+  fields are not preserved by shared history/events.
+- Audio input accepts uploaded `fileId` references. Generated images may use
+  `fileId` instead of inline `result`, and add `generationId` and `inputImages`.
+  Shepherd has no uploaded-file resolver; generated-image rendering
+  still requires `savedPath` on the local host.
+- `thread/list` adds `currentAccountOnly` and `excludedThreadIds`; `model/list`
+  adds `modelProvider`. These selectors are not exposed. Item listing adds
+  `deferOutput`; its default schema type is empty, while experimental schemas
+  describe the selectors and `thread/items/read` retrieval path.
+- `initialize` adds `requiredHumanApproval`, requiring `experimentalApi`;
+  command approval kinds add `humanCommand`. Shepherd does not advertise that
+  capability or implement its human-only, one-time-decision workflow.
+- Goal mutations add `origin` (`user` or `automatic`); missing provenance does
+  not supply authorization. Goal management remains unwrapped.
+- `review/start` no longer accepts detached delivery. Reviews remain unwrapped;
+  a separate review now requires starting a thread then reviewing inline.
+- Provider configuration/capability and gateway OAuth shapes change, including
+  removal of `namespaceTools` from the capabilities response. Account data adds
+  GCP, workspace names, user identity, and security setup. MCP OAuth adds login
+  attempt IDs, resource reads add `_meta`, hooks add model-request events, and
+  managed requirements gain storage, telemetry and browser extension settings.
+  These broader admin surfaces remain unwrapped.
+- Error info adds `modelNotFound`, `policyCapacityUnavailable`, and
+  `inferenceHookDenied`, plus open string/object variants. Existing generic
+  error messages still decode; the new cases have no dedicated shared behavior.
+
+The experimental inventory adds 75 client methods beyond the default 112,
+plus `currentTime/read` beyond the default ten server requests, with no extra
+notification names. Relative to `0.160.1`, the additional experimental client
+methods are `account/bedrock/checkGovCloudRequirements`, `account/gcp/setup`,
+`accountSession/list`, `accountSession/switch`, `thread/guardianReview`,
+`thread/items/read`, `thread/memory/read`, `thread/prediction/request`,
+`thread/prepareApprovedPlan`, `thread/readState/update`, `thread/sample`, and
+`thread/sample/cancel`. Shepherd still advertises dynamic tools and handles
+`item/tool/call`; it does not expose these experimental client methods or
+`currentTime/read`. Unknown server requests receive an explicit JSON-RPC
+unsupported response. Experimental counts are separate from default counts.
+
+New Codex conversations default to `gpt-6.2-sol` with `medium` effort. The
+0.170.0 account catalog was queried through Shepherd's provider and lists that
+model with medium supported; explicit model/effort overrides remain supported.
+Existing conversations retain their saved settings.
+
+This refresh updates the inventory, deployment pins, and new-thread default.
+It does not implement the newly documented gaps. Validation uses the generated schemas, existing
+provider/contract tests, and a live read-only app-server smoke; it does not
+claim live model completion or coverage of every newly added payload.
+
+## Previous refresh to 0.160.1
 
 Both schema formats were regenerated with the installed `codex-cli 0.160.1`.
 Fresh output was compared recursively with fresh output from the retained
@@ -340,7 +422,7 @@ Sources: [generated provider documentation](https://learn.chatgpt.com/docs/app-s
 [session bridge](../server/providers/codex/session.ts),
 [session manager](../server/core/conversation/session_manager.ts),
 [shared controls](../server/core/surface/control_actions_service.ts),
-[web limits route](../server/adapters/web/api.ts),
+[web limits route](../server/adapters/shared/browser_api.ts),
 [Discord commands](../server/adapters/discord/commands.ts), and
 [web limits rendering](../ui/src/components/UsageLimits.tsx).
 
@@ -362,7 +444,8 @@ Additional protocol changes not yet fully exposed by Shepherd:
 - Models add `availableAccessPrograms`; personality selection is deprecated and
   `supportsPersonality` is always false. Model IDs remain runtime catalog data,
   not schema constants. A live query after updating includes `gpt-6.1-sol` with
-  medium effort; Shepherd now defaults new conversations to that model/effort.
+  medium effort; Shepherd defaulted new conversations to that model/effort at
+  that refresh.
 - MCP discovery adds `serverName`, `httpOrigin`, and `serverCapabilities`;
   resource reads add an explicit hosted app/account target. MCP items add
   `mcpAppUi` presentation metadata. These are not embedded-app UI support.
@@ -380,12 +463,12 @@ additions alone do not create new Discord or web controls.
 
 ## Deployment version
 
-Ubuntu setup, Docker, and Compose default to `codex-cli 0.160.1`, matching this
+Ubuntu setup, Docker, and Compose default to `codex-cli 0.170.0`, matching this
 inventory. Both schema generation commands were rerun with that exact CLI.
 Operators can override `CODEX_VERSION` during installation, but that selects a
 different protocol baseline. Updating the checkout alone does not upgrade an
 already-installed host CLI; rerun `deploy/ubuntu/setup.sh` as the deployment
-user. Schema generation itself does not update the CLI; this refresh used the
-already-installed `0.160.1` binary. Already-running processes retain their old
-binary until restarted. Generated files under `schemas/` remain intentionally
-ignored by Git.
+user. Schema generation itself does not update the host CLI; this refresh used
+an isolated `0.170.0` installation and left the host's `0.160.1` binary intact.
+Already-running processes retain their old binary until restarted. Generated
+files under `schemas/` remain intentionally ignored by Git.

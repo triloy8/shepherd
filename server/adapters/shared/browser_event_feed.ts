@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebEventData } from "../../../shared/protocol/web.js";
-import { WebRequestError } from "./errors.js";
+import { WebRequestError } from "./browser_errors.js";
 
 const encoder = new TextEncoder();
 const MAX_HISTORY_BYTES = 128 * 1024;
@@ -9,7 +9,7 @@ const MAX_CLIENTS = 4;
 const MAX_CLIENT_BYTES = 256 * 1024;
 
 /** Bounded per-conversation replay; closing a browser never cancels a turn. */
-export class WebEventFeed {
+export class WebEventFeed<Events = WebEventData> {
   private readonly epoch = randomUUID();
   private sequence = 0;
   private history: Array<{ id: string; bytes: Uint8Array }> = [];
@@ -17,7 +17,11 @@ export class WebEventFeed {
   private closed = false;
   private readonly clients = new Set<{ send: (bytes: Uint8Array) => void; close: () => void }>();
 
-  publish<K extends keyof WebEventData>(type: K, data: WebEventData[K]): void {
+  publish<K extends Extract<keyof Events, string>>(type: K, data: Events[K]): void {
+    this.emit(type, data);
+  }
+
+  private emit(type: string, data: unknown): void {
     if (this.closed) return;
     const id = `${this.epoch}:${++this.sequence}`;
     let bytes = encoder.encode(`id: ${id}\nevent: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -80,7 +84,7 @@ export class WebEventFeed {
   /** Discard replay from history that no longer exists, then notify connected clients. */
   invalidateHistory(): void {
     this.history = []; this.bytes = 0;
-    this.publish("reset", { reason: "history_changed" });
+    this.emit("reset", { reason: "history_changed" });
   }
 
   close(): void {

@@ -9,6 +9,7 @@ const readMethods = [
 const controlMethods = [
   "getThreadEffort", "setThreadEffort", "writeSkillConfig", "setThreadModel",
   "readThreadTokenUsage", "setThreadName", "readThread",
+  "updateThreadInstructions",
   "archiveThread", "unarchiveThread", "revertThread", "compactThread", "interruptTurn",
 ] as const;
 

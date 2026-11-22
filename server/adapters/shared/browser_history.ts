@@ -1,7 +1,7 @@
-import { validImageData, WEB_MESSAGE_MAX_BODY_BYTES } from "./image_input.js";
+import { validImageData, WEB_MESSAGE_MAX_BODY_BYTES } from "./browser_image_input.js";
 import type { HistoryItem } from "../../../shared/protocol/requests.js";
 import type { WebHistoryItem } from "../../../shared/protocol/web.js";
-import type { WebImages } from "./images.js";
+import type { WebImages } from "./browser_images.js";
 export function presentHistoryItem(item: HistoryItem, turnId: string, images: WebImages): WebHistoryItem {
   const presented = presentItem(item, turnId, images);
   return item.parentItemId ? { ...presented, parentItemId: item.parentItemId } : presented;
@@ -12,7 +12,7 @@ function presentItem(item: HistoryItem, turnId: string, images: WebImages): WebH
     case "user_message": {
       // Never turn provider history into arbitrary remote browser fetches.
       let bytes = 0; let count = 0;
-      return { id: item.id, type: item.type, content: item.content.map((part) => {
+      return { id: item.id, type: item.type, ...(item.source ? { source: item.source } : {}), content: item.content.map((part) => {
         // The browser only labels audio, so its bytes and remote URLs stay on the server.
         if (part.type === "audio") return { type: "audio" };
         if (part.type !== "image") return part;

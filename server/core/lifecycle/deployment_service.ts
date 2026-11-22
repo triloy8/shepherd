@@ -15,6 +15,7 @@ export type DeploymentCommandResult = {
 export type DeploymentCommandOptions = {
   cwd: string;
   timeoutMs: number;
+  environment?: Record<string, string | undefined>;
 };
 
 export type DeploymentCommandRunner = (
@@ -46,6 +47,7 @@ export type DeploymentServiceOptions = {
   projectDir?: string;
   runCommand?: DeploymentCommandRunner;
   commandTimeoutMs?: number;
+  environment?: Record<string, string | undefined>;
 };
 
 export function deploymentTargetBranch(target: DeploymentTarget): string {
@@ -82,7 +84,7 @@ async function defaultCommandRunner(
 ): Promise<DeploymentCommandResult> {
   const result = await execFileAsync(executable, args, {
     cwd: options.cwd,
-    env: process.env,
+    env: options.environment ?? process.env,
     timeout: options.timeoutMs,
     killSignal: "SIGTERM",
     maxBuffer: 1024 * 1024 * 20,
@@ -97,12 +99,14 @@ export class DeploymentService {
   private readonly projectDir: string;
   private readonly runCommand: DeploymentCommandRunner;
   private readonly commandTimeoutMs: number;
+  private readonly environment?: Record<string, string | undefined>;
   private deploymentInProgress = false;
 
   constructor(options: DeploymentServiceOptions = {}) {
     this.projectDir = options.projectDir ?? process.cwd();
     this.runCommand = options.runCommand ?? defaultCommandRunner;
     this.commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_DEPLOYMENT_COMMAND_TIMEOUT_MS;
+    this.environment = options.environment;
     if (!Number.isFinite(this.commandTimeoutMs) || this.commandTimeoutMs <= 0) {
       throw new Error("Deployment command timeout must be a positive number.");
     }
@@ -230,6 +234,7 @@ export class DeploymentService {
     return this.runCommand(executable, args, {
       cwd: this.projectDir,
       timeoutMs: this.commandTimeoutMs,
+      environment: this.environment,
     });
   }
 }

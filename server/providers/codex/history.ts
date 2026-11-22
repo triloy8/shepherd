@@ -1,5 +1,6 @@
 import type { HistoryContentPart, HistoryItem, HistoryItemsView, HistoryTurn, TurnStatus } from "../../../shared/protocol/requests.js";
 import type { MessagePhase } from "../../../shared/protocol/events.js";
+import { codexMessageSource } from "./message_source.js";
 import { activityStatus, codexActivity, extractGeneratedImageArtifact, extractViewedImageArtifact } from "./history_presentation.js";
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const optionalString = (value: unknown): string | null => typeof value === "string" ? value : null;
@@ -31,7 +32,10 @@ function contentPart(raw: unknown): HistoryContentPart {
  * live notifications share this decoder; a live notification states its own lifecycle. */
 export function historyItem(value: unknown, turnId: string, lifecycle?: "started" | "completed"): HistoryItem {
   const item = record(value), id = String(item.id ?? "");
-  if (item.type === "userMessage") return { id, type: "user_message", content: (Array.isArray(item.content) ? item.content : []).map(contentPart) };
+  if (item.type === "userMessage") {
+    const source = codexMessageSource(item.clientId);
+    return { id, type: "user_message", content: (Array.isArray(item.content) ? item.content : []).map(contentPart), ...(source ? { source } : {}) };
+  }
   if (item.type === "agentMessage") {
     const phase = codexPhase(item.phase);
     return { id, type: "assistant_message", text: String(item.text ?? ""), ...(phase ? { phase } : {}) };

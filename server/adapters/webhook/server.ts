@@ -154,7 +154,7 @@ export function startWebhookSignalServer(options: WebhookSignalServerOptions): W
           return jsonResponse(404, { error: "Signal route not found." });
         }
         const signal = options.registry.resolveEnvelope(envelope, route.target, route.id);
-        const result = await options.dispatcher.accept(signal);
+        const result = await options.dispatcher.accept({ ...signal, source: "webhook" });
         if (
           signal.terminal &&
           (result.type === "accepted" || result.type === "coalesced")

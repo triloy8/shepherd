@@ -2,6 +2,7 @@ import { imageDataParts, WEB_IMAGE_MAX_COUNT } from "../../shared/protocol/image
 import { describeActivity, reasoningTitle } from "../../shared/protocol/activity";
 import type { WebBridgeEvent, WebHistoryItem, WebHistoryTurn, WebImage } from "../../shared/protocol/web";
 import type { HistoryItem, HistoryTurn } from "../../shared/protocol/requests";
+import type { MessageSource } from "../../shared/protocol/message_source";
 import { appendOutput, streamedItem, type StreamedItem } from "../../shared/protocol/item_stream";
 
 /** A progress row: a tool call, or a plan or reasoning shown like one. */
@@ -9,7 +10,7 @@ export type ActivityStep = Pick<Extract<HistoryItem, { type: "activity" }>, "sta
 
 export type ChatMessage = { optimistic?: boolean; anonymous?: boolean; anonymousBaseline?: string[]; localBaseline?: string[]; id: string; turnId: string; role: "user" | "assistant"; text: string; complete: boolean; attachments?: string[]; image?: WebImage; activity?: ActivityStep; phase?: "interim" | "final";
   /** The delegation step whose subagent produced this row; such rows render inside that step. */
-  parentId?: string; streamText?: string; snapshotText?: string;
+  parentId?: string; streamText?: string; snapshotText?: string; source?: MessageSource;
   /** A plan or reasoning item as streamed so far, until its canonical item completes. */
   streamed?: StreamedItem;
   /** The latest output of a running step. History records no output, so it shows only while the step runs. */
@@ -43,7 +44,7 @@ function ownItemMessage(item: WebHistoryItem, turnId: string, stage: "started" |
     case "user_message": {
       const attachments = item.content.flatMap((part) => part.type === "image" && imageDataParts(part.url) ? [part.url as string] : []).slice(0, WEB_IMAGE_MAX_COUNT);
       const content = item.content.map((part) => part.type === "text" ? part.text : part.type === "image" ? (attachments.includes(text(part.url)) ? "" : "[Image attachment unavailable]") : part.type === "image_file" ? "[Image attachment]" : part.type === "audio" || part.type === "audio_file" ? "[Audio attachment]" : part.type === "skill" ? `[Skill: ${part.name}]` : part.type === "attachment" ? `[Attachment: ${part.name || part.path || "unavailable"}]` : "").filter(Boolean).join("\n");
-      return { id: item.id, turnId, role: "user", text: content, attachments, complete: true };
+      return { id: item.id, turnId, role: "user", text: content, attachments, complete: true, ...(item.source ? { source: item.source } : {}) };
     }
     case "assistant_message": return { id: item.id, turnId, role: "assistant", text: item.text, attachments: [], phase: phase(item.phase), complete };
     case "plan": case "reasoning": {
@@ -72,7 +73,8 @@ function lastMessageIndex(messages: ChatMessage[], matches: (message: ChatMessag
 function anonymousIndex(messages: ChatMessage[], turnId: string, reportedPhase: ChatMessage["phase"]): number {
   return lastMessageIndex(messages, message => message.anonymous === true && message.turnId === turnId && compatiblePhase(message.phase, reportedPhase));
 }
-const sameUserMessage = (a: ChatMessage, b: ChatMessage) => a.role === "user" && b.role === "user" && a.turnId === b.turnId && a.text === b.text && sameAttachments(a.attachments, b.attachments);
+const sameUserMessage = (a: ChatMessage, b: ChatMessage) => a.role === "user" && b.role === "user" && a.turnId === b.turnId &&
+  (a.source ?? "human") === (b.source ?? "human") && a.text === b.text && sameAttachments(a.attachments, b.attachments);
 
 // Keep an occurrence baseline, rather than deduplicating by text alone: users
 // can intentionally send the same follow-up more than once within one turn.
@@ -115,6 +117,7 @@ export function mergeHistory(state: ChatState, turns: WebHistoryTurn[], older = 
   for (const message of incoming) {
     const previous = existing.get(messageKey(message));
     message.phase ??= previous?.phase;
+    if (previous?.source) message.source ??= previous.source;
     // A snapshot begun before a lifecycle event must not regress a finished
     // tool to Running or replace an already delivered image with its activity.
     if (previous?.image && message.activity) { existing.set(messageKey(message), previous); continue; }
@@ -169,7 +172,8 @@ export function reduceBridge(state: ChatState, event: WebBridgeEvent): ChatState
   // A superseded turn may still deliver queued events. They must not change the current turn,
   // append post-completion deltas or replace its progress. Late answers and images still land.
   const item = event.type === "item.started" || event.type === "item.completed" ? event.payload.item : null;
-  const progress = event.type === "item.started" || event.type === "item.delta" || (item !== null && item.type !== "assistant_message" && item.type !== "image");
+  const automatedInput = event.type === "item.completed" && item?.type === "user_message" && item.source && item.source !== "human" ? item : null;
+  const progress = event.type === "item.started" || event.type === "item.delta" || (item !== null && !automatedInput && item.type !== "assistant_message" && item.type !== "image");
   // A background subagent keeps working after its turn ends; its items still belong to their delegation.
   const subagent = !!item?.parentItemId;
   if (!subagent && (event.type.startsWith("turn.") || event.type.startsWith("item.")) && ((state.activeTurnId && (turnId !== state.activeTurnId) && event.type !== "turn.started") ||
@@ -179,7 +183,15 @@ export function reduceBridge(state: ChatState, event: WebBridgeEvent): ChatState
   const interrupted = event.type === "turn.completed" && event.payload.interrupted === true && turnId ? { turns: { ...state.turns, [turnId]: { status: "interrupted" as const, durationMs: state.turns[turnId]?.durationMs ?? null } } } : {};
   if (["turn.completed", "turn.failed"].includes(event.type)) return { ...next, ...interrupted, endedTurns: turnId ? [...new Set([...state.endedTurns, turnId])] : state.endedTurns, messages: next.messages.map((message) => message.turnId === turnId ? { ...message, complete: true } : message), activeTurnId: null, activity: null, error: event.type === "turn.failed" ? text(payload.message) || "The turn failed." : state.error };
   if (event.type === "session.error" || event.type === "session.limit.context") return { ...next, error: text(payload.message) || "The session needs attention." };
-  // Users' own messages arrive through submission and history; deltas extend the messages below.
+  // Human messages reconcile through submission and history. Automated inputs can render on arrival.
+  if (!subagent && automatedInput) {
+    const message = ownItemMessage(automatedInput, turnId, "completed")!;
+    const existing = next.messages.findIndex(row => messageKey(row) === messageKey(message));
+    const messages = [...next.messages];
+    if (existing >= 0) messages[existing] = message;
+    else messages.push(message);
+    return { ...next, messages };
+  }
   if (item && (subagent || (item.type !== "assistant_message" && item.type !== "user_message"))) {
     const message = itemMessage(item, turnId, event.type === "item.started" ? "started" : "completed");
     if (!message) return next;

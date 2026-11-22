@@ -21,6 +21,8 @@ import type { ApprovalDecisionRequest } from "../../../shared/protocol/approvals
 import { bridgeEvent, type BridgeEventPayloads, type BridgeEventType } from "../../../shared/protocol/events.js";
 import type { UserInput } from "../../../shared/protocol/user_input.js";
 import { UnsupportedProviderOperationError, type ProviderThreadRequest, type ThreadSession, type ThreadBootstrapInfo, type TurnSettings } from "../../ports/provider_session.js";
+import type { MessageSource } from "../../../shared/protocol/message_source.js";
+import { claudeMessageId } from "./message_source.js";
 import { noProviderTools, type ProviderTools } from "../../ports/provider_tools.js";
 import { claudeExecutablePath } from "./claude_executable.js";
 import { claudeAuthenticationOptions } from "./authentication.js";
@@ -77,6 +79,7 @@ export class ClaudeSession implements ThreadSession {
   private readonly backgroundTasks = new BackgroundTasks();
   get backgroundTaskCount() { return this.backgroundTasks.count; }
   private thread: ClaudeThread | null = null;
+  private instructions: string | undefined;
   /** This process's turns, decoded with the same decoder as stored sessions. */
   private transcript = this.newTranscript();
   private running: Query | null = null;
@@ -111,6 +114,7 @@ export class ClaudeSession implements ThreadSession {
   async startThread(request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
     await this.initialize();
     this.validateOverrides(request);
+    this.instructions = request.instructions;
     const defaults = claudeDefaults();
     this.bind({ id: randomUUID(), materialized: false, cwd: request.cwd ?? process.cwd(), model: request.model ?? defaults.model, effort: request.effort as ClaudeEffort | undefined ?? defaults.effort, createdAt: Date.now() / 1000, pending: {} });
     this.publish("thread.started", {});
@@ -119,7 +123,7 @@ export class ClaudeSession implements ThreadSession {
   /** Claude's session records the conversation, not Shepherd's settings: a resumed conversation
    * uses the requested settings or the host defaults, and the model it last used. */
   async resumeThread(id: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
-    await this.initialize(); this.validateOverrides(request);
+    await this.initialize(); this.validateOverrides(request); this.instructions = request.instructions;
     const info = await sessionInfo(this.sdk, id);
     const { model, usage } = decodeTranscript(await this.sdk.getSessionMessages(id));
     const defaults = claudeDefaults();
@@ -128,7 +132,7 @@ export class ClaudeSession implements ThreadSession {
     return this.bootstrap();
   }
   async forkThread(id: string, request: ProviderThreadRequest): Promise<ThreadBootstrapInfo> {
-    await this.initialize(); this.validateOverrides(request);
+    await this.initialize(); this.validateOverrides(request); this.instructions = request.instructions;
     const info = await this.sdk.getSessionInfo(id);
     // The transcript stays in the project directory where it began. A thread's cwd can
     // later move to another workspace, so let the SDK search every project directory.
@@ -150,13 +154,13 @@ export class ClaudeSession implements ThreadSession {
     this.profile = request.profile ?? null;
     if (request.effort && !isClaudeEffort(request.effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
   }
-  async startTurn(input: UserInput[], { model, effort }: TurnSettings = {}): Promise<string> {
+  async startTurn(input: UserInput[], { model, effort, source }: TurnSettings = {}): Promise<string> {
     await this.initialize();
     if (this.activeTurnId) throw new Error("A Claude turn is already active.");
     const thread = this.requireThread();
     assertInputSupport("Claude", this.capabilities, input);
     if (effort && !isClaudeEffort(effort)) throw new Error(`Claude effort must be one of ${claudeEffortLevels.join(", ")}.`);
-    const message = this.userMessage(input);
+    const message = this.userMessage(input, source);
     const settingsChanged = (model && model !== thread.model) || (effort !== undefined && (effort ?? undefined) !== thread.effort);
     // The SDK fixes MCP tools when its process starts; reopen when Shepherd tools change.
     const tools = JSON.stringify(this.dynamicTools.specifications());
@@ -174,7 +178,7 @@ export class ClaudeSession implements ThreadSession {
       includePartialMessages: true, forwardSubagentText: true, settingSources: ["user", "project", "local"],
       // Thinking text is omitted unless requested; summaries are what these models return.
       extraArgs: { "thinking-display": "summarized" },
-      systemPrompt: { type: "preset", preset: "claude_code" },
+      systemPrompt: { type: "preset", preset: "claude_code", ...(this.instructions ? { append: this.instructions } : {}) },
       ...claudePermissionOptions(this.profile),
       // A denied tool is removed whatever the profile or Claude's settings allow.
       ...(claudeSubagentsEnabled() ? {} : { disallowedTools: ["Agent"] }),
@@ -186,15 +190,16 @@ export class ClaudeSession implements ThreadSession {
     const running = existing ?? this.openQuery(queue, options);
     thread.cwd = options.cwd!; thread.model = options.model!; thread.effort = options.effort;
     // The prompt's ID is recorded in Claude's transcript, so the turn has the same ID after a reload.
-    const turn = this.transcript.beginTurn(message.uuid!, Date.now() / 1000, promptContent(message.message.content));
+    const turn = this.transcript.beginTurn(message.uuid!, Date.now() / 1000, promptContent(message.message.content), source);
     this.input = queue; this.running = running; this.activeTurnId = turn.id; this.interrupted = false; this.steeredMessages = 0; this.wakeRunId = null;
     this.publishSettings();
     this.publish("turn.started", { turnId: turn.id });
+    if (source && source !== "human") this.publish("item.completed", { turnId: turn.id, item: turn.items[0]! });
     queue.push(message);
     if (!existing) { this.runningTools = tools; this.backgroundTasks.reset(); void this.consume(running, queue); }
     return turn.id;
   }
-  private userMessage(input: UserInput[]): SDKUserMessage {
+  private userMessage(input: UserInput[], source?: MessageSource): SDKUserMessage {
     const content = input.map((part) => {
       if (part.type === "text") return { type: "text" as const, text: part.text };
       if (part.type === "image") {
@@ -205,7 +210,7 @@ export class ClaudeSession implements ThreadSession {
       throw new UnsupportedProviderOperationError("Claude", `input type ${part.type}`);
     });
     if (!content.length) throw new Error("Claude turn input is empty.");
-    return { type: "user", uuid: randomUUID(), session_id: this.requireThread().id, message: { role: "user", content }, parent_tool_use_id: null };
+    return { type: "user", uuid: claudeMessageId(source), session_id: this.requireThread().id, message: { role: "user", content }, parent_tool_use_id: null };
   }
   private async consume(running: Query, queue: InputQueue<SDKUserMessage>) {
     let streamItemId: string | null = null;

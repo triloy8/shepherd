@@ -11,6 +11,7 @@ export type SurfaceHealth = {
 
 /** Surface-scoped capabilities. No process ownership or raw runtime access. */
 export type SurfaceAdapterContext = {
+  swarmManager?: import("../../ports/swarm_runtime.js").SwarmManagerBridge;
   signal: AbortSignal;
   ingress: TurnRoutingConversation;
   interactions: InteractionConversation;

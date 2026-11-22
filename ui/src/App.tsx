@@ -4,9 +4,9 @@ import { HostControls } from "./components/HostControls";
 import { HostBattery } from "./components/HostBattery";
 import { ConversationControls } from "./components/ConversationControls";
 import { ConversationMenu } from "./components/ConversationMenu";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type TouchEvent } from "react";
 import type { StoredThreadSummary } from "../../shared/protocol/requests";
-import type { WebConversation } from "../../shared/protocol/web";
+import type { SurfaceConversation } from "../../shared/protocol/conversation";
 import { api, explainError } from "./api";
 import { useConversation } from "./use-conversation";
 import { Icon } from "./components/Icon";
@@ -16,7 +16,7 @@ import { Composer } from "./components/Composer";
 import { Approvals } from "./components/Approvals";
 
 const label = (thread: StoredThreadSummary) => thread.name || thread.preview?.trim().slice(0, 70) || "Untitled conversation";
-const savedSelection = (): WebConversation | null => {
+const savedSelection = (): SurfaceConversation | null => {
   try {
     const value = JSON.parse(localStorage.getItem("shepherd.selection") ?? "null");
     return value && [value.id, value.threadId, value.project].every((item) => typeof item === "string" && item.length > 0) ? value : null;
@@ -24,21 +24,22 @@ const savedSelection = (): WebConversation | null => {
 };
 
 export default function App() {
-  const [conversations, setConversations] = useState<WebConversation[]>([]);
+  const [conversations, setConversations] = useState<SurfaceConversation[]>([]);
   const [archived, setArchived] = useState(false);
   const archivedRef = useRef(false);
   const listGeneration = useRef(0);
   const [names, setNames] = useState<Record<string, string>>({});
   const [restoring, setRestoring] = useState<string | null>(null);
   const restoreLock = useRef(false);
-  const resumes = useRef(new Map<string, Promise<WebConversation>>());
+  const resumes = useRef(new Map<string, Promise<SurfaceConversation>>());
   const selectionVersion = useRef(0);
   const [resuming, setResuming] = useState(false);
   const [threads, setThreads] = useState<StoredThreadSummary[]>([]);
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
-  const [selected, setSelected] = useState<WebConversation | null>(null);
-  const [saved, setSaved] = useState<WebConversation | null>(savedSelection);
+  const [selected, setSelected] = useState<SurfaceConversation | null>(null);
+  const [saved, setSaved] = useState<SurfaceConversation | null>(savedSelection);
   const [drawer, setDrawer] = useState(false);
+  const drawerSwipe = useRef<{ id: number; x: number; y: number } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarTrigger = useRef<HTMLButtonElement>(null);
   const hadDrawer = useRef(false);
@@ -190,7 +191,39 @@ export default function App() {
     window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close);
   }, [drawer, desktop]);
 
-  function select(conversation: WebConversation) { selectionVersion.current++; setResuming(false); setSelected(conversation); setSaved(null); setDrawer(false); }
+  function startDrawerSwipe(event: TouchEvent<HTMLElement>) {
+    drawerSwipe.current = null;
+    if (desktop || drawer || event.touches.length !== 1 || (window.visualViewport?.scale ?? 1) !== 1) return;
+    if (event.target instanceof Element && event.target.closest("dialog, input, textarea, select, [contenteditable]")) return;
+    const touch = event.touches[0]!;
+    if (touch.clientX > 24) return;
+    drawerSwipe.current = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
+  }
+
+  function moveDrawerSwipe(event: TouchEvent<HTMLElement>) {
+    const start = drawerSwipe.current;
+    if (!start) return;
+    const touch = event.touches[0];
+    if (event.touches.length !== 1 || touch?.identifier !== start.id) {
+      drawerSwipe.current = null;
+      return;
+    }
+    const dx = touch.clientX - start.x;
+    const dy = Math.abs(touch.clientY - start.y);
+    if (dx < -12 || (dy > 12 && dy >= dx)) drawerSwipe.current = null;
+  }
+
+  function finishDrawerSwipe(event: TouchEvent<HTMLElement>) {
+    const start = drawerSwipe.current;
+    drawerSwipe.current = null;
+    const touch = event.changedTouches[0];
+    if (!start || desktop || drawer || event.touches.length || touch?.identifier !== start.id) return;
+    const dx = touch.clientX - start.x;
+    const dy = Math.abs(touch.clientY - start.y);
+    if (dx >= 64 && dx >= 2 * dy) setDrawer(true);
+  }
+
+  function select(conversation: SurfaceConversation) { selectionVersion.current++; setResuming(false); setSelected(conversation); setSaved(null); setDrawer(false); }
   async function openThread(threadId: string, force = false) {
     const existing = conversations.find((item) => item.threadId === threadId);
     if (existing && !force) { select(existing); return; }
@@ -310,9 +343,9 @@ export default function App() {
     {/* The open drawer is a modal dialog: it takes focus, traps Tab, closes on Escape, and its
         backdrop blocks the content behind it. Marking that content inert as well restyles the
         whole transcript on every open and close, which stutters on phones. */}
-    <main className="main-pane">
+    <main className="main-pane" onTouchStart={startDrawerSwipe} onTouchMove={moveDrawerSwipe} onTouchEnd={finishDrawerSwipe} onTouchCancel={() => { drawerSwipe.current = null; }}>
       <header className="main-header">
-        <button ref={sidebarTrigger} className="icon-button" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
+        <button ref={sidebarTrigger} className="icon-button max-sm:w-5" aria-label="Open conversations" aria-expanded={desktop ? !sidebarCollapsed : drawer} onClick={() => { if (desktop) setSidebarCollapsed(!sidebarCollapsed); else setDrawer(true); }}><Icon name="menu" /></button>
         {!selected && <><div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">Workspace</h1></div><HostBattery /></>}
         {selected && <ConversationMenu capabilities={controller.capabilities} key={selected.id} conversation={selected} title={title} status={status} disabled={controller.connection !== "online" || controller.busy || detaching} active={active || controller.approvals.length > 0} detaching={detaching || controller.busy} onDetach={() => void detach()}
           onHistoryChange={controller.refresh}

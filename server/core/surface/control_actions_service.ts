@@ -1,4 +1,5 @@
 import { ApplicationActionError, type ActionFailure } from "../common/action_error.js";
+import { findListedModel } from "../conversation/model_catalog.js";
 import type {
   ListModelsResponse,
   ReadThreadTokenUsageResponse,
@@ -109,10 +110,6 @@ export type ControlActionResult =
   | { type: "turn.interrupt"; ok: true; threadId: string }
   | { type: "turn.interrupt"; ok: false; error: ActionFailure };
 
-function resolveModelArgument(models: ModelSummary[], raw: string): ModelSummary | null {
-  return models.find((entry) => entry.id === raw) ?? null;
-}
-
 export async function executeControlAction(
   context: ControlActionsContext,
   request: ControlActionRequest,
@@ -191,17 +188,13 @@ export async function executeControlAction(
       const updated = context.conversation.setThreadModel(threadId, request.requestedModel);
       return { type: "model.set", ok: true, threadId: updated.threadId, model: request.requestedModel };
     }
-    let cursor: string | undefined;
     let resolved: ModelSummary | null = null;
-    const seenCursors = new Set<string>();
     try {
-      do {
-        const models = await context.conversation.listModels({ cursor, limit: 100, includeHidden: true, threadId, ...(provider ? { provider } : {}) });
-        resolved = resolveModelArgument(models.data, request.requestedModel);
-        if (resolved || !models.nextCursor || seenCursors.has(models.nextCursor)) break;
-        seenCursors.add(models.nextCursor);
-        cursor = models.nextCursor;
-      } while (true);
+      resolved = await findListedModel(
+        query => context.conversation.listModels(query),
+        { threadId, ...(provider ? { provider } : {}) },
+        request.requestedModel,
+      );
     } catch (error) { if (capabilities.modelCatalogAuthoritative) throw error; }
     if (!resolved && capabilities.modelCatalogAuthoritative) {
       return {

@@ -6,6 +6,7 @@ import { dirname, join, normalize } from "node:path";
  * else: every dependency points down. Composition is the one layer that wires concretes from all. */
 const layers: Array<{ name: string; paths: string[]; may: string[] }> = [
   { name: "protocol", paths: ["shared/protocol"], may: [] },
+  { name: "protocol:browser", paths: ["shared/protocol/web.ts"], may: ["protocol"] },
   { name: "ports", paths: ["server/ports"], may: ["protocol"] },
   { name: "provider-support", paths: ["server/providers/shared"], may: ["ports", "protocol"] },
   { name: "provider:claude", paths: ["server/providers/claude"], may: ["provider-support", "ports", "protocol"] },
@@ -20,14 +21,15 @@ const layers: Array<{ name: string; paths: string[]; may: string[] }> = [
   { name: "core:signals", paths: ["server/core/signals"], may: ["core:conversation", "core:common", "ports", "protocol"] },
   { name: "core:lifecycle", paths: ["server/core/lifecycle"], may: ["core:conversation", "core:common", "ports", "protocol"] },
   { name: "core:surface", paths: ["server/core/surface"], may: ["core:signals", "core:lifecycle", "core:workspace", "core:conversation", "core:common", "ports", "protocol"] },
+  { name: "core:swarm", paths: ["server/core/surface/swarm_"], may: ["core:surface", "core:conversation", "ports", "protocol"] },
   // Core's front door: surfaces reach core only through it, so everything else in core is internal.
-  { name: "core-api", paths: ["server/core/surface_api.ts"], may: ["core:surface", "core:signals", "core:lifecycle", "core:workspace", "core:conversation", "core:common", "ports", "protocol"] },
+  { name: "core-api", paths: ["server/core/surface_api.ts"], may: ["core:swarm", "core:surface", "core:signals", "core:lifecycle", "core:workspace", "core:conversation", "core:common", "ports", "protocol"] },
   { name: "signals", paths: ["server/signals"], may: ["core:signals", "protocol"] },
-  { name: "surface-support", paths: ["server/adapters/shared"], may: ["core-api", "ports", "protocol"] },
+  { name: "surface-support", paths: ["server/adapters/shared"], may: ["core-api", "ports", "protocol", "protocol:browser"] },
   { name: "surface:discord", paths: ["server/adapters/discord"], may: ["surface-support", "core-api", "ports", "config", "protocol"] },
-  { name: "surface:web", paths: ["server/adapters/web/"], may: ["surface-support", "core-api", "ports", "config", "protocol"] },
+  { name: "surface:web", paths: ["server/adapters/web/"], may: ["surface-support", "core-api", "ports", "config", "protocol", "protocol:browser"] },
   { name: "surface:webhook", paths: ["server/adapters/webhook"], may: ["surface-support", "core-api", "ports", "config", "protocol"] },
-  { name: "ui", paths: ["ui/src"], may: ["protocol"] },
+  { name: "ui:shared", paths: ["ui/src"], may: ["protocol", "protocol:browser"] },
   { name: "composition", paths: ["server/runtime", "server/main.ts", "server/surface_definitions.ts"], may: ["*"] },
 ];
 

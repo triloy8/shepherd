@@ -3,6 +3,7 @@ import type { ApprovalDecisionRequest } from "../../shared/protocol/approvals.js
 import type { UserInput } from "../../shared/protocol/user_input.js";
 import type { BridgeEvent } from "../../shared/protocol/events.js";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities.js";
+import type { MessageSource } from "../../shared/protocol/message_source.js";
 
 export interface ProviderEvents {
   publish(event: BridgeEvent): void;
@@ -23,13 +24,15 @@ export type ThreadBootstrapInfo = {
 
 /** Create, resume and fork as the adapter receives them: core has resolved the host or requested
  * policy to one of the provider's profiles, or null to leave the agent's own defaults. */
-export type ProviderThreadRequest = Pick<Protocol.CreateThreadRequest, "cwd" | "model" | "effort"> & { profile?: string | null };
+export type ProviderThreadRequest = Pick<Protocol.CreateThreadRequest, "cwd" | "model" | "effort" | "instructions"> & { profile?: string | null };
 
 /** Settings for one turn. Omitted fields keep the thread's current value; `effort: null` clears
  * the effort override. The workspace is not a turn setting: it changes through `setCwd`. */
 export interface TurnSettings {
   model?: string;
   effort?: string | null;
+  /** Provenance of the initiating input. It never changes turn policy. */
+  source?: MessageSource;
 }
 
 /** Providers are local coding agents; every bootstrapped thread has a workspace.

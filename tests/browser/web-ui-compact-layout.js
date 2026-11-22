@@ -2,12 +2,15 @@
 async page => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/host/battery', route => route.fulfill({ json: { battery: { percentage: 100, status: 'full' } } }));
   await page.getByRole('button', { name: 'A new home for Shepherd', exact: true }).click();
   await page.getByRole('status', { name: 'Connected', exact: true }).waitFor();
   const composer = page.getByRole('textbox', { name: 'Message Shepherd', exact: true });
   const menuButton = page.getByRole('button', { name: 'Conversation menu', exact: true });
   const details = page.getByRole('dialog', { name: 'Conversation details', exact: true });
-  if (await page.locator('.main-header').getByRole('button').count() !== 4) throw Error('Header contains extra controls');
+  await page.locator('.main-header').getByRole('button', { name: 'Swarm · 0', exact: true }).waitFor();
+  await page.getByRole('img', { name: /^Host battery: 100%/ }).waitFor();
+  if (await page.locator('.main-header').getByRole('button').count() !== 5) throw Error('Unexpected header controls');
   if (await page.locator('.main-header').getByText('Connected', { exact: true }).evaluate(el => !el.classList.contains('sr-only'))) throw Error('Status label still consumes header space');
   if (await page.getByText('A little context goes a long way', { exact: true }).count()) throw Error('Composer helper remains');
   await page.screenshot({ path: '/tmp/shepherd-layout-desktop.png' });
@@ -50,17 +53,86 @@ async page => {
     await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
     if (await composer.inputValue() !== 'Compact draft') throw Error('Resize lost draft');
     const geometry = await page.evaluate(() => {
-      const header = document.querySelector('.main-header').getBoundingClientRect();
+      const headerElement = document.querySelector('.main-header');
+      const header = headerElement.getBoundingClientRect();
+      const items = [...headerElement.children].filter(el => el.getBoundingClientRect().width > 0).map(el => el.getBoundingClientRect());
+      const actionGroup = headerElement.querySelector('.conversation-header-actions');
+      const statusButton = headerElement.querySelector('[aria-label^="Connection details:"]');
+      const statusBounds = statusButton.getBoundingClientRect();
+      const dot = statusButton.querySelector('.status-dot').getBoundingClientRect();
+      const batteryIndicator = actionGroup.querySelector('[role="img"]');
+      const battery = batteryIndicator.getBoundingClientRect();
+      const sidebarButton = headerElement.querySelector('[aria-label="Open conversations"]');
+      const sidebarBounds = sidebarButton.getBoundingClientRect();
+      const hamburger = sidebarButton.querySelector('path').getBoundingClientRect();
+      const menuButton = actionGroup.querySelector('[aria-label="Conversation menu"]');
+      const menuBounds = menuButton.getBoundingClientRect();
+      const ellipsis = menuButton.querySelector('path').getBoundingClientRect();
+      const swarm = actionGroup.querySelector('button[aria-haspopup="dialog"]').getBoundingClientRect();
+      const compactWidths = new Map([[sidebarButton, 20], [statusButton, 16], [menuButton, 22]]);
+      const titleButton = headerElement.querySelector('h1 button');
+      const titleBounds = titleButton.getBoundingClientRect();
+      const rightControls = [statusButton, menuButton, actionGroup.querySelector('button[aria-haspopup="dialog"]'), batteryIndicator];
+      const rightPositions = () => rightControls.map(el => {
+        const { left, right, top, bottom } = el.getBoundingClientRect();
+        return [left, right, top, bottom];
+      });
+      const adjustedRight = rightPositions();
+      let edgeInsetMovesOnlyRightBlock = true;
+      if (innerWidth < 640) {
+        const samePosition = (a, b) => Math.abs(a - b) < 0.02;
+        headerElement.style.paddingRight = '4px';
+        edgeInsetMovesOnlyRightBlock = rightPositions().every(([left, right, top, bottom], index) => {
+          const [adjustedLeft, adjustedEnd, adjustedTop, adjustedBottom] = adjustedRight[index];
+          return samePosition(left - adjustedLeft, 4) && samePosition(right - adjustedEnd, 4) &&
+            samePosition(top, adjustedTop) && samePosition(bottom, adjustedBottom);
+        }) && samePosition(sidebarButton.getBoundingClientRect().left, sidebarBounds.left) &&
+          samePosition(titleButton.getBoundingClientRect().left, titleBounds.left);
+        headerElement.style.removeProperty('padding-right');
+      }
+      const labelInsets = [titleButton, batteryIndicator].flatMap(element => {
+        const { paddingLeft, paddingRight } = getComputedStyle(element);
+        return [parseFloat(paddingLeft), parseFloat(paddingRight)];
+      });
       const form = document.querySelector('.composer').getBoundingClientRect();
       const dock = document.querySelector('.composer-area').getBoundingClientRect();
       const stage = document.querySelector('.conversation-stage').getBoundingClientRect();
       return { headerHeight:header.height, inset:form.left - stage.left, bottom:form.bottom, stageBottom:stage.bottom,
+        headerGaps: items.slice(1).map((item, index) => item.left - items[index].right),
+        headerGap: parseFloat(getComputedStyle(headerElement).columnGap), edgeInsetMovesOnlyRightBlock,
+        mobileGaps: [sidebarBounds, titleBounds, statusBounds, menuBounds, swarm, battery].map((item, index, bounds) =>
+          item.left - (bounds[index - 1]?.right ?? header.left)
+        ).concat(header.right - battery.right),
+        iconInsets: [
+          hamburger.left - sidebarBounds.left, sidebarBounds.right - hamburger.right,
+          dot.left - statusBounds.left, statusBounds.right - dot.right,
+          ellipsis.left - menuBounds.left, menuBounds.right - ellipsis.right,
+          ...labelInsets,
+        ],
+        statusDotCentered: Math.abs(dot.left + dot.width / 2 - (statusBounds.left + statusBounds.width / 2)) <= 1 &&
+          Math.abs(dot.top + dot.height / 2 - (statusBounds.top + statusBounds.height / 2)) <= 1,
+        headerAligned: items.every(item => Math.abs(item.top + item.height / 2 - (header.top + header.height / 2)) <= 1),
+        headerOverflow: items.some(item => item.left < header.left || item.right > header.right),
+        titleWidth: headerElement.querySelector('h1').getBoundingClientRect().width,
         reserve:parseFloat(getComputedStyle(document.querySelector('.chat-content')).paddingBottom), dockHeight:dock.height,
-        controls:[...document.querySelectorAll('.main-header .icon-button, .composer .icon-button, .composer .send-button')].map(el=>({w:el.getBoundingClientRect().width,h:el.getBoundingClientRect().height})).filter(size => size.w || size.h) };
+        controls:[...document.querySelectorAll('.main-header .icon-button, .composer .icon-button, .composer .send-button')].map(el => {
+          const { width, height } = el.getBoundingClientRect();
+          return { width, height, compactWidth: compactWidths.get(el) ?? null };
+        }).filter(control => control.width || control.height) };
     });
     if (geometry.headerHeight > 64 || geometry.inset < 10 || geometry.bottom >= geometry.stageBottom) throw Error(`Floating layout invalid at ${width}`);
+    if (!geometry.headerAligned || geometry.headerOverflow || geometry.headerGaps.some(gap => Math.abs(gap - geometry.headerGap) > 1)) throw Error(`Uneven header spacing at ${width}`);
+    if (!geometry.statusDotCentered) throw Error(`Status dot is off-center at ${width}`);
+    if (width < 640 && geometry.mobileGaps.some((gap, index, gaps) => Math.abs(gap - (index === 0 || index === gaps.length - 1 ? 8 : 4)) > 1)) throw Error(`Unexpected mobile header spacing at ${width}`);
+    if (!geometry.edgeInsetMovesOnlyRightBlock) throw Error(`The right block did not move inward by 4px at ${width}`);
+    if (width < 640 && geometry.iconInsets.some(inset => Math.abs(inset - 4) > 1)) throw Error(`Header icons lack 4px tap insets at ${width}`);
+    if (width < 640 && geometry.titleWidth < (width === 320 ? 20 : 90)) throw Error(`Header controls crowd the title at ${width}`);
+    if (await page.getByRole('button', { name: 'Swarm · 0', exact: true }).innerText() !== 'Swarm · 0') throw Error(`Swarm label is hidden at ${width}`);
     if (geometry.reserve < geometry.dockHeight) throw Error('Composer covers the last transcript message');
-    if (geometry.controls.some(size => size.w < 44 || size.h < 44)) throw Error('Touch control too small');
+    if (geometry.controls.some(control => {
+      if (width < 640 && control.compactWidth !== null) return control.height < 44 || Math.abs(control.width - control.compactWidth) > 1;
+      return control.height < 44 || control.width < 44;
+    })) throw Error(`Unexpected touch target size at ${width}`);
     await menuButton.click();
     const menu = await page.getByRole('menu', { name: 'Conversation options', exact: true }).boundingBox();
     if (menu.x < 0 || menu.x + menu.width > width) throw Error('Menu overflows narrow viewport');
@@ -114,21 +186,46 @@ async page => {
   if (await page.evaluate(() => document.documentElement.style.getPropertyValue('--app-top') || document.documentElement.style.getPropertyValue('--app-height') || document.documentElement.style.getPropertyValue('--composer-bottom-gap'))) throw Error('Keyboard viewport override interferes with pinch zoom');
   await page.evaluate(() => { delete window.visualViewport.scale; window.visualViewport.dispatchEvent(new Event('resize')); });
 
+  const drawer = page.getByRole('dialog', { name: 'Conversations', exact: true });
+  const sidebarButton = page.getByRole('button', { name: 'Open conversations', exact: true });
+  const swipe = (points, cancelled = false) => page.locator('.chat-scroll').evaluate((element, { points, cancelled }) => {
+    const emit = (type, [clientX, clientY], active) => {
+      const touch = { identifier: 1, clientX, clientY };
+      element.dispatchEvent(Object.assign(new Event(type, { bubbles: true }), {
+        touches: active ? [touch] : [], changedTouches: [touch],
+      }));
+    };
+    emit('touchstart', points[0], true);
+    for (const point of points.slice(1)) emit('touchmove', point, true);
+    emit(cancelled ? 'touchcancel' : 'touchend', points.at(-1), false);
+  }, { points, cancelled });
+  await swipe([[80, 180], [175, 181]]);
+  await swipe([[14, 180], [22, 235], [115, 235]]);
+  await swipe([[14, 180], [115, 181]], true);
+  if (await drawer.count()) throw Error('Unrelated or cancelled touch gesture opened the sidebar');
+  await swipe([[14, 180], [48, 184], [115, 185]]);
+  await drawer.waitFor();
+  await page.keyboard.press('Escape');
+  await drawer.waitFor({ state: 'hidden' });
+  if (!await sidebarButton.evaluate(el => el === document.activeElement)) throw Error('Swipe-opened sidebar lost return focus');
+
   // Sidebar's host dialog must remain interactive after the mobile drawer closes.
-  await page.getByRole('button', { name: 'Open conversations', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Conversations', exact: true }).waitFor();
+  await sidebarButton.click();
+  await drawer.waitFor();
   await page.keyboard.press('Shift+Tab'); // stay in the drawer rather than reaching the transcript
   if (!await page.locator('.sidebar').evaluate(el => el.contains(document.activeElement))) throw Error('Drawer focus escaped');
   await page.getByRole('button', { name: 'Host controls', exact: true }).click();
   const host = page.getByRole('dialog', { name: 'Host controls', exact: true });
   await host.getByRole('button', { name: 'Refresh host status', exact: true }).click();
   await host.getByRole('button', { name: 'Close host controls', exact: true }).click();
-  if (await page.getByRole('dialog', { name: 'Conversations', exact: true }).count()) throw Error('Host dialog left drawer open');
+  if (await drawer.count()) throw Error('Host dialog left drawer open');
   await composer.fill('Draft still here');
   await page.setViewportSize({width:1280,height:900});
-  await page.getByRole('button', { name: 'Open conversations', exact: true }).click();
+  await sidebarButton.click();
   if (await page.locator('.sidebar').evaluate(el => el.getBoundingClientRect().width > 1)) throw Error('Desktop sidebar did not collapse');
-  await page.getByRole('button', { name: 'Open conversations', exact: true }).click();
+  await swipe([[14, 180], [115, 185]]);
+  if (await page.locator('.sidebar-open').count()) throw Error('Edge swipe opened the mobile drawer on desktop');
+  await sidebarButton.click();
   if (await composer.inputValue() !== 'Draft still here') throw Error('Sidebar toggle lost draft');
   await composer.fill('Compact layout still sends');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
@@ -137,5 +234,5 @@ async page => {
   const final = page.locator('.message-assistant').last();
   if (await final.evaluate(el => el.getBoundingClientRect().bottom) > await page.locator('.composer').evaluate(el=>el.getBoundingClientRect().top)) throw Error('Last response is obscured by composer');
   if (errors.length) throw Error(errors.join('\n'));
-  return 'Compact header, menu keyboard/focus, connection details, bounded auto-grow, draft retention, 320/390/768/1280 widths, touch sizes, transcript clearance, keyboard viewport height/panning/dismissal, pinch zoom, sidebar host dialog, and send passed.';
+  return 'Compact header, menu keyboard/focus, connection details, bounded auto-grow, draft retention, 320/390/768/1280 widths, touch sizes, transcript clearance, keyboard viewport height/panning/dismissal, pinch zoom, mobile edge swipe, sidebar host dialog, and send passed.';
 }

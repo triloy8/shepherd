@@ -60,3 +60,21 @@ Authorization is considered unified when all command, approval, and structured-q
 delegate to the same policy service, no individual command contains its own
 identity allowlist, and the behavior is documented and covered by integration
 tests.
+
+## Swarm
+
+### Retire an individual worker
+
+Proposed. The current [web teams workflow](web-teams.md) supports closing an
+entire team. Add a way to retire one worker so the manager can replace it while
+the rest of the team keeps working.
+
+- Allow retirement when the worker is idle and has no pending decisions.
+- Record retirement on the existing membership. Preserve the worker's thread,
+  assignment, and dispatch receipts for read-only inspection under **Past workers**.
+- Stop watching the retired worker and exclude it from future assignments and
+  the active roster count. A fresh worker can take its place with a different
+  model in the same team.
+- Verify that retirement survives reload, existing receipts still resolve to
+  the right turns, and other workers continue receiving assignments and sending
+  updates.

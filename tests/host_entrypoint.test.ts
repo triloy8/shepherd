@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { loadCommonEnvironment } from "../server/config/environment.js";
 
 const exec = promisify(execFile);
 const main = resolve(import.meta.dir, "../server/main.ts");
@@ -28,5 +29,32 @@ test("source launcher checks selected configuration without connecting and repor
     const missing = await exec(process.execPath, [main, "--check-config"], { cwd, env, timeout: 15_000 }).catch((error) => error);
     expect(missing.code).toBe(1);
     expect(missing.stderr).toContain("Missing DISCORD_BOT_TOKEN");
+  } finally { await rm(cwd, { recursive: true, force: true }); }
+}, 30_000);
+
+test("deployment child configuration rereads edited files and rejects fresh invalid values", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "shepherd-launch-refresh-"));
+  try {
+    await mkdir(join(cwd, "envs"));
+    await writeFile(join(cwd, "envs/common.env"), "SHEPHERD_SURFACES=web\n");
+    const childEnvironment = loadCommonEnvironment({ PATH: process.env.PATH, HOME: cwd }, cwd);
+
+    await writeFile(join(cwd, "envs/common.env"), "SHEPHERD_SURFACES=web\n");
+    await writeFile(join(cwd, "envs/web.env"), "SHEPHERD_WEB_PORT=0\n");
+    const invalid = await exec(process.execPath, [main, "--check-config"], { cwd, env: childEnvironment, timeout: 15_000 }).catch((error) => error);
+    expect(invalid.code).toBe(1);
+    expect(invalid.stderr).toContain("SHEPHERD_WEB_PORT must be an integer");
+  } finally { await rm(cwd, { recursive: true, force: true }); }
+}, 30_000);
+
+test("retired swarm selection migrates to web in a fresh validation child", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "shepherd-launch-retire-"));
+  try {
+    await mkdir(join(cwd, "envs"));
+    await writeFile(join(cwd, "envs/common.env"), "SHEPHERD_SURFACES=swarm\n");
+    const childEnvironment = loadCommonEnvironment({ PATH: process.env.PATH, HOME: cwd }, cwd);
+    await writeFile(join(cwd, "envs/common.env"), "SHEPHERD_SURFACES=web\n");
+    const migrated = await exec(process.execPath, [main, "--check-config"], { cwd, env: childEnvironment, timeout: 15_000 });
+    expect(migrated.stdout).toContain("Selected surfaces: web");
   } finally { await rm(cwd, { recursive: true, force: true }); }
 }, 30_000);

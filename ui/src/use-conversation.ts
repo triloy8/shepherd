@@ -1,10 +1,10 @@
+import type { SurfaceConversation } from "../../shared/protocol/conversation";
 import type { ProviderCapabilities } from "../../shared/protocol/provider_capabilities";
 import type { WebSettingsResponse } from "../../shared/protocol/web";
 import type { UserQuestionAnswers } from "../../shared/protocol/user_questions";
 import { startTransition, useEffect, useRef, useState } from "react";
 import type { ApprovalRecord } from "../../shared/protocol/approvals";
 import type { WebBridgeEvent } from "../../shared/protocol/web";
-import type { WebConversation } from "../../shared/protocol/web";
 import { api, ApiError, explainError, streamConversation } from "./api";
 import { acceptUserMessage, emptyChat, mergeHistory, reduceBridge, type ChatState } from "./chat-state";
 
@@ -16,7 +16,7 @@ const delay = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =
   if (signal.aborted) finish();
 });
 
-export function useConversation(conversation: WebConversation | null) {
+export function useConversation(conversation: SurfaceConversation | null) {
   const [chat, setChat] = useState<ChatState>(emptyChat);
   const chatRef = useRef(chat);
   chatRef.current = chat;

@@ -4,6 +4,7 @@ import type { ProviderCapabilities, ProviderOperation } from "../../../shared/pr
 import { assertThreadSupport, assertInputSupport, assertProviderOperation, resolveThreadProfile, threadPolicy, type ThreadDefaults } from "../../../shared/protocol/provider_support.js";
 import { unsupportedModelInput, UnsupportedModelInputError } from "../../../shared/protocol/model_capabilities.js";
 import { listProviderThreads, threadSummary } from "./provider_thread_catalog.js";
+import { findListedModel } from "./model_catalog.js";
 import { ApplicationActionError } from "../common/action_error.js";
 import type {
   ApprovalDecisionRequest,
@@ -106,6 +107,7 @@ export class SessionManager {
   private readonly sessionSubscriptions = new Map<ProviderSession, () => void>();
   private readonly applicationEvents = new Map<ProviderSession, EventBus>();
   private readonly resuming = new Map<string, Promise<ResumeThreadResponse>>();
+  private readonly instructionUpdates = new Map<string, Promise<void>>();
   private stopped = false;
   /** New turns wait while a restart lets running work finish. */
   private newTurnsPaused = false;
@@ -142,6 +144,31 @@ export class SessionManager {
     this.resuming.set(threadId, operation);
     try { return await operation; }
     finally { this.resuming.delete(threadId); }
+  }
+
+  /** Update session-wide instructions on an already-loaded, idle thread. */
+  async updateThreadInstructions(threadId: string, instructions: string): Promise<void> {
+    this.assertRunning();
+    const previous = this.instructionUpdates.get(threadId);
+    const operation = (async () => {
+      await previous;
+      const managed = this.mustGet(threadId);
+      const runtime = this.runtime(threadId);
+      if (runtime.activeTurnId !== null || runtime.backgroundTaskCount > 0 || this.approvals.listByThread(threadId).some(approval => approval.status === "pending")) {
+        throw new Error("thread_active");
+      }
+      const model = this.modelStateByThread.get(threadId)?.currentModel;
+      const effort = this.effortStateByThread.get(threadId)?.current;
+      await managed.session.resumeThread(threadId, {
+        cwd: this.cwdByThread.get(threadId),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        instructions,
+      });
+    })();
+    this.instructionUpdates.set(threadId, operation);
+    try { await operation; }
+    finally { if (this.instructionUpdates.get(threadId) === operation) this.instructionUpdates.delete(threadId); }
   }
 
   async forkThread(threadId: string, request: ForkThreadRequest): Promise<ForkThreadResponse> {
@@ -381,19 +408,14 @@ export class SessionManager {
   }
 
   private async resolveModel(provider: AgentProvider, model: string | null | undefined, session?: ProviderSession, strict = false, threadId?: string): Promise<ModelSummary | null> {
-    let cursor: string | undefined;
-    const seen = new Set<string>();
-    do {
-      const request = { cursor, limit: 100, includeHidden: true, provider, ...(threadId ? { threadId } : {}) };
-      let result: ListModelsResponse;
-      try { result = session?.listModels ? await session.listModels(request) : await this.listModels(request); }
-      catch (error) { if (!strict) return null; throw error; }
-      const entry = result.data.find((entry) => model ? entry.id === model : entry.isDefault);
+    try {
+      const entry = await findListedModel(
+        request => session?.listModels ? session.listModels(request) : this.listModels(request),
+        { provider, ...(threadId ? { threadId } : {}) },
+        model || undefined,
+      );
       if (entry) return entry;
-      if (!result.nextCursor || seen.has(result.nextCursor)) break;
-      seen.add(result.nextCursor);
-      cursor = result.nextCursor;
-    } while (true);
+    } catch (error) { if (strict) throw error; }
     if (!strict) return null;
     throw new ApplicationActionError({ code: "model_unavailable" });
   }
@@ -471,6 +493,9 @@ export class SessionManager {
   async submitTurn(threadId: string, request: SubmitTurnRequest): Promise<SubmitTurnResponse> {
     this.assertAdmitting();
     const managed = this.mustGet(threadId);
+    const instructionUpdate = this.instructionUpdates.get(threadId);
+    if (instructionUpdate) await instructionUpdate;
+    this.assertAdmitting();
     assertInputSupport(this.threadProvider(threadId), managed.session.capabilities, request.input);
     const modelState = this.modelStateByThread.get(threadId);
     const model = request.model ?? modelState?.pendingModel ?? undefined;
@@ -492,6 +517,7 @@ export class SessionManager {
     // pending selections; a failed start leaves them pending and retryable.
     const turnId = await managed.session.startTurn(request.input, {
       ...(model ? { model } : {}), ...(effort !== undefined ? { effort } : {}),
+      ...(request.source ? { source: request.source } : {}),
     });
     return { ok: true, turnId };
   }
@@ -516,8 +542,8 @@ export class SessionManager {
     return { ok: true, turnId };
   }
 
-  listApprovals(threadId: string): ApprovalRecord[] {
-    return this.approvals.listByThread(threadId);
+  listApprovals(threadId: string, turnId?: string): ApprovalRecord[] {
+    return this.approvals.listByThread(threadId, turnId);
   }
 
   async applyApprovalDecision(

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { WebHostAction, WebHostOperation, WebHostStatus } from "../../../shared/protocol/host.js";
 import type { SurfaceApplicationContext } from "../../core/surface_api.js";
 import type { RuntimeLifecycleResult } from "../../core/surface_api.js";
-import { WebRequestError } from "./errors.js";
+import { WebRequestError } from "./browser_errors.js";
 
 function outcome(result: RuntimeLifecycleResult): string {
   switch (result.type) {

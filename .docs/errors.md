@@ -1,5 +1,88 @@
 # Known Errors
 
+## Codex first-message history race leaves a backend-error banner
+
+Status: open; repair deferred on 2026-11-14. Reproduced with Codex CLI 0.160.1.
+
+### Symptoms and impact
+
+The web UI can display this banner even though the first message was accepted and
+the assistant's reply completed:
+
+```text
+The backend operation failed. Check host logs.
+```
+
+The host log records:
+
+```text
+Web API operation failed:
+error: list_turns is not supported yet
+```
+
+The failed operation is a history read, not necessarily message submission or
+execution. Live events can continue displaying the reply. Later history reads
+can succeed while the old banner remains visible.
+
+### Diagnosis
+
+After a successful message POST, `ui/src/use-conversation.ts` immediately refreshes
+state, history, and approvals. Turn events also schedule refreshes. The history
+request reaches the shared browser API (`server/adapters/shared/browser_api.ts`), then
+`CodexSession.listThreadTurns()` in `server/providers/codex/session.ts`, which sends
+`thread/turns/list` to the shared Codex app-server.
+
+During first-message persistence, Codex can expose the paginated rollout file
+before the thread's SQLite metadata exists. Its history handler recognizes the
+file as paginated and calls the store's `list_turns`. The store requires SQLite
+metadata; missing metadata produces `Unsupported { operation: "list_turns" }`,
+which app-server reports as `list_turns is not supported yet`. This wording can
+describe a temporary persistence state even when the backend supports the API.
+
+Shepherd normalizes the explicit "thread is not materialized yet" first-page
+error to empty history, but does not handle this intermediate state. The generic
+web error handler therefore returns HTTP 502 with code `operation_failed`.
+Separately, successful background refreshes merge history without clearing the
+previous refresh error, leaving a stale banner after recovery.
+
+### Verification and reproduction
+
+The investigation used isolated temporary `CODEX_HOME` directories with Codex
+0.160.1 and a diagnostic model provider pointing to the closed local endpoint
+`http://127.0.0.1:1/v1`, with request and stream retries disabled. No real inference
+was performed or existing conversation state modified by those tests.
+
+1. Initialize app-server with `experimentalApi: true` and create a persistent thread.
+2. Start its first turn and concurrently issue `thread/turns/list` requests with
+   `itemsView: "full"`, `sortDirection: "desc"`, and `limit: 30`.
+3. Observe transient errors during persistence, then successful history pages
+   after metadata becomes available.
+
+All seven test runs reproduced `list_turns is not supported yet`. One measured
+run returned it around 25–35 ms after starting the turn, while SQLite metadata was
+missing; metadata became available around 36 ms. These timings describe the test,
+not a guaranteed retry interval. Some overlapping requests also returned
+`paginated_threads is not supported yet`.
+
+Both a fresh app-server process and the running Shepherd host subsequently read
+the affected conversation successfully. The original host error lacked a request
+timestamp and thread ID, so its exact timing cannot be proven retrospectively.
+The reproduced race and stale-error behavior explain the observed screenshot,
+rather than establishing a general version incompatibility.
+
+### Recovery and deferred repair
+
+Once persistence settles, reopening the conversation clears the local error state
+and reloads history. Check the transcript before resending: this banner alone does
+not mean the message failed to send. No host restart is required for the reproduced
+race.
+
+A future repair should handle transient history-read failures with bounded recovery
+and clear recovered history errors without clearing unrelated action errors. Do
+not broadly convert unsupported-operation errors to empty history. Existing tests
+mock the backend and cover the explicit unmaterialized-thread response; add
+coverage for this persistence transition and for clearing the recovered banner.
+
 ## Error 001 — `apply_patch verification failed: invalid hunk`
 
 ### Example
@@ -84,3 +167,49 @@ message in its own turn until reloaded.
 Restarts and deploys now wait for running turns to finish, so this happens only when
 the process stops some other way, such as a manual stop or a crash. Stop Shepherd
 while no turn is running.
+
+## Swarm manager waits while a completed worker cannot notify it
+
+Observed during the real Codex integration check on 2026-11-15. The manager
+delegated successfully, then used a sleep tool to wait. Worker completion was
+queued by the signal dispatcher, which deliberately waits for the manager's
+current turn to finish. Sleeping kept that turn active.
+
+Manager role instructions and successful dispatch responses now explicitly tell
+the manager to finish its turn once independent work is done, without sleeping
+or polling. The host starts the result-processing turn automatically. After
+resumption with the revised instructions, a second real assignment to the same
+worker completed the entire automatic notification and report cycle without
+manual steering. See [live validation](web-teams.md#verification-boundaries).
+
+## Browser-connected host restart stalls during listener shutdown
+
+Observed in the same integration check after opening real manager and worker
+histories. The listeners stopped accepting requests, but awaiting the browser
+listener's `stop(true)` did not resolve after its SSE controllers were disposed.
+The supervisor could not relaunch until the process exited. Restarting without
+attached conversation streams succeeded.
+
+The shared browser adapter now initiates HTTP connection cancellation before
+disposing API streams, then awaits listener shutdown. Repeating the connected
+manager/worker-history restart exited with status 0 and the normal supervisor
+relaunched the browser host. A loopback regression test leaves an SSE reader connected with
+unread turn events and verifies shutdown and binding cleanup. The exact internal
+Bun failure was not traced; the corrected shutdown order was validated live.
+
+## Codex turn interruption can leave a running command alive
+
+Confirmed during extended team integration testing on 2026-11-15. An isolated
+worker ran a foreground `sleep 15`. After the exact-turn interrupt endpoint
+returned success, the worker observation and provider history became
+`interrupted`, but the same process remained in Linux state `S` (sleeping, not
+zombie) for every sample through 5.5 seconds after interruption. An earlier
+manager-mediated `swarm_interrupt` also left a foreground sleep process present
+after the turn stopped. The bounded sleep processes subsequently exited.
+
+Shepherd forwards the Codex `turn/interrupt` operation through its shared provider
+session; swarm interruption does not own or independently terminate tool-created
+processes. A stopped turn therefore does not prove that its commands stopped or
+that the workspace is quiescent. The manager correctly reported an interrupted
+turn without claiming the command had exited. This remains an open provider/tool
+cancellation gap; no process-killing workaround was added to team orchestration.

@@ -1,5 +1,6 @@
+import type { SurfaceConversation } from "../../../shared/protocol/conversation";
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
-import type { WebConversation, WebContextResponse, WebSettingsResponse } from "../../../shared/protocol/web";
+import type { WebContextResponse, WebSettingsResponse } from "../../../shared/protocol/web";
 import type { ProviderCapabilities } from "../../../shared/protocol/provider_capabilities";
 import { api, explainError } from "../api";
 import { Icon } from "./Icon";
@@ -12,7 +13,7 @@ const ConversationSettings = lazy(() => import("./ConversationSettings").then((m
 const ConversationActions = lazy(() => import("./ConversationActions").then((module) => ({ default: module.ConversationActions })));
 
 export function ConversationControls({ conversation, capabilities, activeTurnId, disabled, active, draft, onHistoryChange }: {
-  conversation: WebConversation; capabilities: ProviderCapabilities | null; activeTurnId: string | null; disabled: boolean; active: boolean; draft: string; onHistoryChange: () => Promise<void>;
+  conversation: SurfaceConversation; capabilities: ProviderCapabilities | null; activeTurnId: string | null; disabled: boolean; active: boolean; draft: string; onHistoryChange: () => Promise<void>;
 }) {
   const [panel, setPanel] = useState<"model" | "context" | "compact" | "preview" | null>(null);
   const [settings, setSettings] = useState<WebSettingsResponse | null>(null);

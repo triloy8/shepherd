@@ -42,9 +42,9 @@ export async function loadUiAssets(): Promise<UiAssets> {
   return assets;
 }
 
-export function serveUiAsset(request: Request, assets: UiAssets): Response {
+export function serveUiAsset(request: Request, assets: UiAssets, index = "/index.html"): Response {
   const pathname = new URL(request.url).pathname;
-  const asset = assets.get(pathname === "/" ? "/index.html" : pathname);
+  const asset = assets.get(pathname === "/" ? index : pathname);
   const headers = new Headers({
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",

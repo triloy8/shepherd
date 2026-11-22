@@ -1,7 +1,7 @@
 import { ApplicationActionError } from "../server/core/common/action_error.js";
 import { expect, test } from "bun:test";
 import { webHarness } from "./helpers/web_harness.js";
-import { readWebConfig } from "../server/adapters/web/config.js";
+import { readWebConfig } from "../server/adapters/shared/browser_config.js";
 
 test("web configuration requires exact safe origins and a valid port", () => {
   for (const origin of ["*", "null", "http://remote.test", "https://site.test/path", "https://user:pass@site.test", "https://*.test"]) {

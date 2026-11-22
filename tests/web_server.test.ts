@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createWebAdapter } from "../server/adapters/web/server.js";
+import { createWebAdapter } from "../server/adapters/shared/browser_server.js";
 import { webHarness } from "./helpers/web_harness.js";
 import { createSurfaceHost } from "../server/runtime/surface_host.js";
 import { createHostRuntime } from "../server/runtime/host_runtime.js";
@@ -40,6 +40,47 @@ test("listener bind failure is fatal and cleanable", async () => {
   await expect(adapter.start()).rejects.toThrow("address in use");
   await adapter.stop(); h.api.dispose();
 });
+
+test("shutdown observes listener and API failures while cleaning up both", async () => {
+  const h = webHarness();
+  const order: string[] = [];
+  const listenerFailure = new Error("listener cleanup failed"), apiFailure = new Error("API cleanup failed");
+  const adapter = createWebAdapter(h.context, h.config, () => ({
+    hostname: "127.0.0.1", port: 18999, timeout() {},
+    stop() { order.push("listener"); return Promise.reject(listenerFailure); },
+  }), assets, { createApi: () => ({
+    async fetch() { return new Response(null); }, async presentSignal() {},
+    dispose() { order.push("api"); throw apiFailure; },
+  }) });
+  try {
+    await adapter.start();
+    const result = await adapter.stop().then(() => null, error => error);
+    expect(result).toBeInstanceOf(AggregateError);
+    expect(result.errors).toEqual([listenerFailure, apiFailure]);
+    expect(order).toEqual(["listener", "api"]);
+    expect(adapter.url()).toBeNull();
+  } finally { h.api.dispose(); }
+});
+
+test("shutdown closes connected conversation streams without waiting for browser cancellation", async () => {
+  const h = webHarness();
+  const adapter = createWebAdapter(h.context, { ...h.config, port: 0 }, undefined, assets);
+  const abort = new AbortController();
+  try {
+    await adapter.start();
+    const url = adapter.url()!;
+    const conversation = await (await fetch(`${url}/api/conversations`, { method: "POST", headers, body: JSON.stringify({ project: "~" }) })).json();
+    const response = await fetch(`${url}/api/conversations/${conversation.id}/events`, { signal: abort.signal });
+    const reader = response.body!.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain(": connected");
+    await fetch(`${url}/api/conversations/${conversation.id}/messages`, { method: "POST", headers, body: JSON.stringify({ text: "hello" }) });
+    // Leave the reader connected, with turn events still queued, as a browser does.
+    await adapter.stop();
+    expect(adapter.url()).toBeNull();
+    expect(h.bindings.size).toBe(0);
+    await reader.cancel().catch(() => {});
+  } finally { abort.abort(); await adapter.stop(); h.api.dispose(); }
+}, 5_000);
 
 test("web and another surface run together against the same application runtime", async () => {
   const h = webHarness();

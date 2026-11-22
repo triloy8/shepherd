@@ -179,3 +179,16 @@ test("a host stopped before startup cannot allocate adapter or signal resources"
   expect(contexts.size).toBe(0);
   expect(h.signals()).toBe(0);
 });
+
+test("team management is composed into web and not unrelated surfaces", async () => {
+  const contexts = new Map<string, SurfaceAdapterContext>();
+  const h = harness([adapter("web", contexts, []), adapter("discord", contexts, [])]);
+  try {
+    await h.host.start();
+    expect(contexts.get("web")!.swarmManager).toBeDefined();
+    expect(contexts.get("discord")!.swarmManager).toBeUndefined();
+    const disconnect = contexts.get("web")!.swarmManager!.connect(async () => ({ workers: [] }));
+    expect(typeof disconnect).toBe("function");
+    disconnect();
+  } finally { await h.host.stop(); }
+});

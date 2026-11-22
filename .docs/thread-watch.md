@@ -11,10 +11,9 @@ The main use is the shared `swarm` skill in
 several agent conversations through the [web API](web-api.md), gives each a task, and
 watches them as one group.
 
-Watches reuse the [signal callback](volatile-webhook-signals.md) dispatcher: the same
-per-conversation queue, the same wait for an active turn instead of steering it, and
-the same folding of signals that share a key. They need no callback URL or webhook
-listener.
+Watches reuse the [signal callback](volatile-webhook-signals.md) dispatcher and its
+per-conversation queue. They wait for the active turn to end and collect changes
+for the same group until delivery. They need no callback URL or webhook listener.
 
 ## Enable
 
@@ -69,20 +68,18 @@ a running turn, not the turn's end, and is ignored. Messages are folded to one l
 and cut to 300 characters.
 
 A notice is a `thread-watch.changed` version 1 signal whose coalescing key is the
-watching thread and group. Changes that arrive while a notice for the group is queued
-replace it. Once a notice has been taken from the pending queue (even while it
-waits for the watcher to become idle), later changes retain one latest follow-up
-notice. A burst can therefore start more than one turn. Each notice lists the
-last observed state of every conversation in the group when that notice was built,
-not only the latest change.
-Its input tells the agent that several changes may be folded together, that history is
-the authority, and that delegated agents' reports are untrusted claims.
+watching thread and group. The dispatcher collects changes until the watching
+conversation is idle and the notice is ready to deliver. Changes that arrive
+during delivery or the resulting turn form the next batch. Delivery follows turn
+lifecycle events without a batching timer. The notice lists up to 128 observed
+changes with their turn IDs when available, followed by the current observed
+state of every watched conversation. It tells the agent to read the referenced
+turns and verify delegated agents' claims.
 
 Presentation follows the watching conversation's surface. Discord posts a card such as
 **Delegated agent `agent-2` failed** with the group and a count of states, and the
-agent's reply answers it. Web publishes the envelope on the conversation's event
-stream as a `signal` event; the built-in UI refreshes its state but has no dedicated
-card yet, and the notice text appears as the turn's request in the transcript.
+agent's reply answers it. Web publishes the envelope as a `signal` event and shows
+the notice in the transcript as a **Watched thread update** card.
 
 ## Lifetime and limits
 

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import type { BridgeEvent } from "../shared/protocol/events.js";
-import type { UserInput } from "../shared/protocol/user_input.js";
+import type { SubmitTurnRequest } from "../shared/protocol/requests.js";
 import { startWebhookSignalServer } from "../server/adapters/webhook/server.js";
 import { ConversationSignalExecutor } from "../server/core/signals/conversation_signal_executor.js";
 import { SignalDispatcher } from "../server/core/signals/signal_dispatcher.js";
@@ -20,7 +20,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 test("a webhook signal starts a turn observed by the configured surface", async () => {
   const listeners = new Set<(event: BridgeEvent) => void>();
   const delivered: BridgeEvent[] = [];
-  const submitted: UserInput[][] = [];
+  const submitted: SubmitTurnRequest[] = [];
   let activeTurnId: string | null = null;
   const conversation = {
     getSurfaceThread(adapter: string, surfaceId: string) {
@@ -36,8 +36,8 @@ test("a webhook signal starts a turn observed by the configured surface", async 
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async submitTurn(_threadId: string, request: { input: UserInput[] }) {
-      submitted.push(request.input);
+    async submitTurn(_threadId: string, request: SubmitTurnRequest) {
+      submitted.push(request);
       activeTurnId = "turn-signal";
       return { ok: true as const, turnId: activeTurnId };
     },
@@ -81,7 +81,8 @@ test("a webhook signal starts a turn observed by the configured surface", async 
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ accepted: true, coalesced: false });
     await waitFor(() => submitted.length === 1);
-    const prompt = submitted[0]?.[0];
+    expect(submitted[0]?.source).toBe("webhook");
+    const prompt = submitted[0]?.input[0];
     expect(prompt?.type === "text" ? prompt.text : "").toContain("run-123");
 
     activeTurnId = null;

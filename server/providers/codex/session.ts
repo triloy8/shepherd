@@ -11,6 +11,7 @@ import type { ProviderSkillsRequest } from "../../ports/provider_session.js";
 import { parseUserQuestionRequest, validateUserQuestionAnswers } from "../../../shared/protocol/user_questions.js";
 import { CodexAppServer, type AppServerConnection, type RawServerRequest } from "./app_server.js";
 import { randomUUID } from "node:crypto";
+import { codexClientMessageId } from "./message_source.js";
 
 import type { ApprovalDecisionRequest, ApprovalRequestPayload } from "../../../shared/protocol/approvals.js";
 import type {
@@ -55,7 +56,7 @@ import {
 } from "./rpc_mapper.js";
 
 function getDefaultModel(): string {
-  return process.env.CODEX_MODEL ?? "gpt-6.1-sol";
+  return process.env.CODEX_MODEL ?? "gpt-6.2-sol";
 }
 
 
@@ -129,6 +130,7 @@ type AppServerRequestParams = {
   "skills/config/write": { enabled: boolean; path: string };
   "turn/start": {
     threadId: string;
+    clientUserMessageId?: string;
     approvalPolicy?: NativeApprovalPolicy;
     input: NativeInput[];
     model?: string;
@@ -274,6 +276,7 @@ export class CodexSession implements ThreadSession {
     const result = await this.sendRequest("thread/start", {
       model: request.model ?? getDefaultModel(),
       ...codexProfileSettings(request.profile ?? null),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       config: { model_reasoning_effort: request.effort ?? "medium" },
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
@@ -290,6 +293,7 @@ export class CodexSession implements ThreadSession {
     const result = await this.sendRequest("thread/resume", {
       threadId,
       ...codexProfileSettings(request.profile ?? null),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.model ? { model: request.model } : {}),
@@ -304,6 +308,7 @@ export class CodexSession implements ThreadSession {
     const result = await this.sendRequest("thread/fork", {
       threadId,
       ...codexProfileSettings(request.profile ?? null),
+      ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       ...(request.effort ? { config: { model_reasoning_effort: request.effort } } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.model ? { model: request.model } : {}),
@@ -427,7 +432,7 @@ export class CodexSession implements ThreadSession {
     }));
   }
 
-  async startTurn(input: UserInput[], { model, effort }: TurnSettings = {}): Promise<string | null> {
+  async startTurn(input: UserInput[], { model, effort, source }: TurnSettings = {}): Promise<string | null> {
     assertInputSupport("Codex", this.capabilities, input);
     const threadId = await this.ensureThread();
     this.messagePhaseByItemId.clear();
@@ -436,6 +441,7 @@ export class CodexSession implements ThreadSession {
     const result = await this.sendRequest("turn/start", {
       threadId,
       input: codexInput(input),
+      ...(source ? { clientUserMessageId: codexClientMessageId(source) } : {}),
       ...(model ? { model } : {}),
       cwd: this.cwd,
       ...(effort !== undefined ? { effort } : {}),

@@ -52,10 +52,19 @@ both, and Claude records its Bash output and a failed command's exit code. Reaso
 reasoning; Claude returns summaries of its thinking, also `summary`. `full` is for a provider
 that exposes reasoning itself. `tests/provider_neutral_layers.test.ts`
 fails if a provider name or an adapter import appears in core, ports, surfaces, shared protocol or UI.
-A turn that was not a person's message names its `trigger`, which the provider declares in
-`turnTriggers`: Claude reports `background` when its own background work wakes a
-conversation; Codex reports none, so its turns stay unmarked. Shepherd's signal turns are not
-marked: the agents record their input as an ordinary message.
+A provider can report why it started a turn through `trigger`. Claude reports `background`
+when its own background work wakes a conversation. Shepherd separately identifies the
+source of user-role messages sent by its webhook, thread watch, and Swarm assignment paths.
+Trusted ingress sets `source` on the submission. The provider adapter preserves it in
+native message metadata and decodes it into the same `user_message.source` field for live
+events and history. It does not change the provider's message role or permission policy.
+The web transcript uses the source to attribute the prompt; a human follow-up in the same
+turn remains a separate message.
+
+Codex preserves the source in its client message ID. Claude Code drops an `origin` supplied
+in an SDK input, so its adapter uses a reserved portion of the prompt UUID. Both work
+without a Shepherd metadata store. Older messages have no source, and a Claude fork can omit
+it for copied messages because Claude assigns new UUIDs to those entries.
 Assistant messages carry an optional phase: `interim` progress text or the `final` answer.
 Codex maps its OpenAI response phases; Claude marks text before a tool call as interim.
 An item a subagent produced names its delegation activity in `parentItemId`. It belongs to the

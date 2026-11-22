@@ -2,7 +2,8 @@ import type { DraftImage } from "../image-input";
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from "react";
 import { Icon } from "./Icon";
 
-export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, reading, imageError, addFiles: readFiles, clearImageError, send, disabled, busy, active, interrupt, imageSupported = true, steerSupported = true, interruptSupported = true }: {
+export function Composer({ draft, draftRevision, onDraft, clearDraft, images, onImages, reading, imageError, addFiles: readFiles, clearImageError, send, disabled, busy, active, interrupt, imageSupported = true, steerSupported = true, interruptSupported = true, placeholder, sendIcon = "arrow" }: {
+  placeholder?: string; sendIcon?: "arrow" | "arrowRight";
   draft: string; draftRevision: number; onDraft: (value: string) => void; clearDraft: (revision: number) => void;
   images: DraftImage[]; onImages: (update: (current: DraftImage[]) => DraftImage[]) => void; send: (text: string, images: string[]) => Promise<boolean>;
   reading: boolean; imageError: string | null; addFiles: (files: File[]) => Promise<void>; clearImageError: () => void;
@@ -79,7 +80,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
     {reading && <p role="status" className="px-3 text-xs text-muted">Reading images…</p>}
     <div className={`composer-input${expanded || images.length || imageError || reading ? " composer-expanded" : ""}`}>
       <button type="button" className="icon-button attach-button" aria-label="Attach images" title={imageSupported ? "Attach images (PNG, JPEG, GIF, WebP)" : "Image messages are unavailable for this agent"} disabled={!imageSupported || sending || reading || images.length >= 4} onClick={() => picker.current?.click()}><Icon name="plus" className="size-6!" /></button>
-      <textarea ref={textarea} aria-label="Message Shepherd" aria-describedby="composer-help" placeholder={active ? "Add a follow-up…" : "Message Shepherd…"}
+      <textarea ref={textarea} aria-label="Message Shepherd" aria-describedby="composer-help" placeholder={placeholder ?? (active ? "Add a follow-up…" : "Message Shepherd…")}
         onPaste={pasteImages}
         value={draft} onChange={(event) => onDraft(event.target.value)} maxLength={32768} rows={1} disabled={sending}
         onKeyDown={(event) => {
@@ -89,7 +90,7 @@ export function Composer({ draft, draftRevision, onDraft, clearDraft, images, on
         }} />
       <span id="composer-help" className="sr-only">Enter to send on a keyboard. Shift + Enter for a new line. Follow-ups steer the active turn.</span>
       <button type={stop ? "button" : "submit"} className={`send-button${stop ? " stop-button" : ""}`} aria-label={actionLabel} title={actionLabel}
-        disabled={disabled || (!stop && images.length > 0 && !imageSupported) || (stop ? !interruptSupported : active && !steerSupported) || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : "arrow"} className="size-5!" /></button>
+        disabled={disabled || (!stop && images.length > 0 && !imageSupported) || (stop ? !interruptSupported : active && !steerSupported) || busy || sending || reading || (!stop && !draft.trim() && !images.length)} onClick={stop ? interrupt : undefined}><Icon name={stop ? "stop" : sendIcon} className="size-5!" /></button>
     </div>
     {disabled && <p role="status" className="px-4 pb-2 text-xs text-dim">Waiting for connection</p>}
   </form>;

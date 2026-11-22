@@ -45,6 +45,9 @@ Fresh workers use the host's default provider when `provider` is omitted. Shephe
 watches the new worker before sending its real assignment as the first turn with
 that model. Retries with the same request ID return the existing receipt.
 
+See [worker retirement](future-implementations.md#retire-an-individual-worker)
+for a proposed way to replace one worker within an active team.
+
 ## Verification boundaries
 
 Automated tests exercise API authority, duplicate dispatch suppression, storage,
